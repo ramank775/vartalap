@@ -1,0 +1,11 @@
+image:
+  file: .gitpod.Dockerfile
+
+tasks:
+  - init: 'echo "TODO: Replace with init/build command"'
+    command: 'echo "TODO: Replace with command to start project"'
+
+vscode:
+  extensions:
+    - Dart-Code.dart-code@3.12.2:U4I/KVVS4Adq5Ain/7bqhg==
+    - Dart-Code.flutter@3.12.2:8+9OCbCxNozE+NHjTY4Ubw==
