@@ -2,8 +2,8 @@ image:
   file: .gitpod.Dockerfile
 
 tasks:
-  - init: 'echo "TODO: Replace with init/build command"'
-    command: 'echo "TODO: Replace with command to start project"'
+  - init: flutter pub get
+    command: flutter run -d web-server --web-port 8000 --debug
 
 vscode:
   extensions:
