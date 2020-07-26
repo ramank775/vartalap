@@ -16,7 +16,7 @@ class Chats extends StatelessWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => {},
+        onPressed: () => Navigator.pushNamed(context, '/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
       ),

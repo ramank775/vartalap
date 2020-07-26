@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'screens/chats/chats.dart';
 import 'screens/chat/chat.dart';
+import 'screens/new_chat/new_chat.dart';
 
 void main() {
   runApp(MyApp());
@@ -43,6 +44,9 @@ class MyApp extends StatelessWidget {
           break;
         case '/chat':
           widget = new Chat();
+          break;
+        case '/new-chat':
+          widget = new NewChat();
           break;
         default:
           widget = new Chats();
