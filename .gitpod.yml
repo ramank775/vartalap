@@ -2,9 +2,20 @@ image:
   file: .gitpod.Dockerfile
 
 tasks:
-  - init: flutter pub get
-    command: flutter run -d web-server --web-port 8000 --debug
-
+- before: |
+    export PATH=$ANDROID_HOME/bin:$ANDROID_HOME/platform-tools:$PATH
+    mkdir -p /home/gitpod/.android
+    touch /home/gitpod/.android/repositories.cfg
+  init: |
+    echo "Init Flutter..."
+    cd /workspace/chat-flutter-app
+    flutter upgrade
+    flutter doctor --android-licenses
+    flutter pub get
+  command: |
+    flutter pub upgrade
+    echo "Ready to go!"
+    flutter doctor
 vscode:
   extensions:
     - Dart-Code.dart-code@3.12.2:U4I/KVVS4Adq5Ain/7bqhg==
