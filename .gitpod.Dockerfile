@@ -6,7 +6,7 @@ FROM gitpod/workspace-flutter
 #
 # More information: https://www.gitpod.io/docs/config-docker/
 ENV ANDROID_HOME=/home/gitpod/development/android-sdk
-
+ENV JAVA_HOME=/home/gitpod/.sdkman/candidates/java/current
 RUN bash -c ". /home/gitpod/.sdkman/bin/sdkman-init.sh \
              && sdk install java 8.0.265.j9-adpt"
 
