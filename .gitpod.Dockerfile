@@ -15,4 +15,5 @@ RUN mkdir -p /home/gitpod/.android && \
 
 RUN echo "Installing Android SDK..." && \
     mkdir -p /home/gitpod/development/android-sdk && cd /home/gitpod/development/android-sdk && wget https://dl.google.com/android/repository/sdk-tools-linux-4333796.zip && unzip sdk-tools-linux-4333796.zip && rm -f sdk-tools-linux-4333796.zip && \
+    chmod +x /home/gitpod/development/android-sdk/tools/bin/sdkmanager && \
     /home/gitpod/development/android-sdk/tools/bin/sdkmanager "platform-tools" "platforms;android-28" "build-tools;28.0.3"
