@@ -22,7 +22,8 @@ class Chat extends StatelessWidget {
                 size: 24.0,
                 color: Colors.white,
               ),
-              new ProfileImg('images/default-user.png', ProfileImgSize.SM),
+              new ProfileImg(
+                  'assets/images/default-user.png', ProfileImgSize.SM),
             ],
           ),
         ),

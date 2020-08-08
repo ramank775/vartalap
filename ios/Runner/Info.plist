@@ -39,7 +39,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UIViewControllerBasedStatusBarAppearance</key>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <key>NSContactsUsageDescription</key>  
+    <string>This app requires contacts access to function properly.</string>
 	<false/>
 </dict>
 </plist>

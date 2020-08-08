@@ -10,7 +10,8 @@ class ChatPreview extends StatelessWidget {
           height: 5.0,
         ),
         new ListTile(
-          leading: new ProfileImg('images/default-user.png', ProfileImgSize.MD),
+          leading: new ProfileImg(
+              'assets/images/default-user.png', ProfileImgSize.MD),
           title: new Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[

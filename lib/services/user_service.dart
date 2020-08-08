@@ -1,0 +1,42 @@
+import 'package:chat_flutter_app/models/user.dart';
+import 'package:chat_flutter_app/dataAccessLayer/db.dart';
+import 'package:contacts_service/contacts_service.dart';
+import 'package:sqflite/sqflite.dart';
+
+class UserService {
+  static Future<List<User>> getUsers() async {
+    Database db = await DB().getDb();
+    var userMap = await db.query('user');
+    var users = userMap.map((e) => User.fromMap(e)).toList();
+    print("Users");
+    print(users);
+    return users;
+  }
+
+  static Future<void> syncContacts() async {
+    var users = await _getContacts();
+    // verify with the service with the users has account or not
+    Database db = await DB().getDb();
+    Batch batch = db.batch();
+    users.forEach((user) {
+      batch.rawInsert("""INSERT OR IGNORE INTO user (
+        username,
+        name,
+        pic,
+        hasAccount
+      ) values(?,?,?,?);""", user.toMap().values.toList());
+    });
+    await batch.commit();
+  }
+
+  static Future<List<User>> _getContacts() async {
+    Iterable<Contact> contacts = await ContactsService.getContacts();
+    List<User> users = [];
+    contacts.forEach((contact) {
+      contact.phones.forEach((phone) {
+        users.add(User(contact.displayName, phone.value, null));
+      });
+    });
+    return users;
+  }
+}

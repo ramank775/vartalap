@@ -1,16 +1,12 @@
+import 'package:chat_flutter_app/models/user.dart';
+import 'package:chat_flutter_app/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'contact.dart';
 
-Contact _testContact = new Contact();
-
-List<Contact> _contactList = [_testContact, _testContact, _testContact];
-
 class NewChat extends StatelessWidget {
-  final Future<List<Contact>> _contacts = new Future(() => _contactList);
-
   @override
   Widget build(BuildContext context) {
-    _testContact.displayName = "Raman Kumar";
+    final Future<List<User>> _contacts = UserService.getUsers();
     return new Scaffold(
       appBar: AppBar(
         title: Column(
@@ -45,152 +41,11 @@ class NewChat extends StatelessWidget {
             icon: Icon(Icons.search),
             onPressed: () {},
           ),
-          // PopupMenuButton<NewChatOptions>(
-          //   tooltip: "More options",
-          //   onSelected: _onSelectOption,
-          //   itemBuilder: (BuildContext context) {
-          //     return [
-          //       PopupMenuItem<NewChatOptions>(
-          //         child: Text("Invite a friend"),
-          //         value: NewChatOptions.inviteAFriend,
-          //       ),
-          //       PopupMenuItem<NewChatOptions>(
-          //         child: Text("Contacts"),
-          //         value: NewChatOptions.contacts,
-          //       ),
-          //       PopupMenuItem(
-          //         child: Text("Refresh"),
-          //         value: NewChatOptions.refresh,
-          //       ),
-          //       PopupMenuItem(
-          //         child: Text("Help"),
-          //         value: NewChatOptions.help,
-          //       ),
-          //     ];
-          //   },
-          // ),
         ],
       ),
-      body: FutureBuilder<Iterable<Contact>>(
+      body: FutureBuilder<Iterable<User>>(
         future: _contacts,
         builder: (context, snapshot) {
-          // switch (snapshot.connectionState) {
-          //   case ConnectionState.none:
-          //     return Center(
-          //       child: CircularProgressIndicator(
-          //         valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
-          //       ),
-          //     );
-          //   case ConnectionState.active:
-          //   case ConnectionState.waiting:
-          //     return Center(
-          //       child: CircularProgressIndicator(
-          //         valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
-          //       ),
-          //     );
-          //   case ConnectionState.done:
-          //     if (snapshot.hasError) {
-          //       return Center(
-          //         child: Text('Error: ${snapshot.error}'),
-          //       );
-          //     }
-          //     List<dynamic> data = List<dynamic>();
-          //     data.add(ListTile(
-          //       leading: Container(
-          //         decoration: BoxDecoration(
-          //           //color: fabBgColor,
-          //           borderRadius: BorderRadius.circular(20),
-          //         ),
-          //         padding: const EdgeInsets.all(4.0),
-          //         child: Icon(
-          //           Icons.group,
-          //           size: 32.0,
-          //           color: Colors.white,
-          //         ),
-          //       ),
-          //       title: Text('New group',
-          //           style: TextStyle(
-          //             fontSize: 18.0,
-          //             fontWeight: FontWeight.bold,
-          //           )),
-          //       onTap: () {
-          //         // Application.router.navigateTo(
-          //         //   context,
-          //         //   //Routes.newChatGroup,
-          //         //   Routes.futureTodo,
-          //         //   transition: TransitionType.inFromRight,
-          //         // );
-          //       },
-          //     ));
-          //     data.add(ListTile(
-          //       leading: Container(
-          //         decoration: BoxDecoration(
-          //           //color: fabBgColor,
-          //           borderRadius: BorderRadius.circular(20),
-          //         ),
-          //         padding: const EdgeInsets.all(8.0),
-          //         child: Icon(
-          //           Icons.person_add,
-          //           size: 24.0,
-          //           color: Colors.white,
-          //         ),
-          //       ),
-          //       title: Text('New contact',
-          //           style: TextStyle(
-          //             fontSize: 18.0,
-          //             fontWeight: FontWeight.bold,
-          //           )),
-          //       onTap: () {
-          //         //AndroidIntentHelpers.createContact(context);
-          //       },
-          //     ));
-          //     data.addAll(snapshot.data);
-          //     data.add(ListTile(
-          //       leading: Container(
-          //         padding: const EdgeInsets.all(8.0),
-          //         child: Icon(Icons.share),
-          //       ),
-          //       title: Text('Invite friends',
-          //           style: TextStyle(
-          //             fontSize: 18.0,
-          //             fontWeight: FontWeight.bold,
-          //           )),
-          //       onTap: () {
-          //         //AndroidIntentHelpers.inviteFriend(context);
-          //       },
-          //     ));
-          //     data.add(ListTile(
-          //       leading: Container(
-          //         padding: const EdgeInsets.all(8.0),
-          //         child: Icon(Icons.help),
-          //       ),
-          //       title: Text('Contacts help',
-          //           style: TextStyle(
-          //             fontSize: 18.0,
-          //             fontWeight: FontWeight.bold,
-          //           )),
-          //       onTap: () {
-          //         // Application.router.navigateTo(
-          //         //   context,
-          //         //   Routes.contactsHelp,
-          //         //   transition: TransitionType.inFromRight,
-          //         // );
-          //       },
-          //     ));
-          //     return ListView.builder(
-          //         itemCount: data.length,
-          //         itemBuilder: (context, i) {
-          //           if (i < 2 || i > data.length - 3) {
-          //             return data[i];
-          //           }
-          //           return ContactItem(
-          //               contact: data.elementAt(i),
-          //               onProfileTap: () =>
-          //                   {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
-          //               onTap: () {});
-          //         });
-          // }
-          // return null; // unreachable
           List<dynamic> data = List<dynamic>();
           data.add(ListTile(
             leading: Container(
@@ -211,12 +66,7 @@ class NewChat extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 )),
             onTap: () {
-              // Application.router.navigateTo(
-              //   context,
-              //   //Routes.newChatGroup,
-              //   Routes.futureTodo,
-              //   transition: TransitionType.inFromRight,
-              // );
+              // Naviagate to new group screen
             },
           ));
           data.add(ListTile(
@@ -241,7 +91,11 @@ class NewChat extends StatelessWidget {
               //AndroidIntentHelpers.createContact(context);
             },
           ));
-          //data.addAll(snapshot.data);
+          print(snapshot.hasError);
+          print(snapshot.error);
+          if (snapshot.hasData) {
+            data.addAll(snapshot.data);
+          }
           data.add(ListTile(
             leading: Container(
               padding: const EdgeInsets.all(8.0),
@@ -252,8 +106,9 @@ class NewChat extends StatelessWidget {
                   fontSize: 18.0,
                   fontWeight: FontWeight.bold,
                 )),
-            onTap: () {
+            onTap: () async {
               //AndroidIntentHelpers.inviteFriend(context);
+              await UserService.syncContacts();
             },
           ));
           data.add(ListTile(
@@ -281,7 +136,7 @@ class NewChat extends StatelessWidget {
                   return data[i];
                 }
                 return ContactItem(
-                    contact: data.elementAt(i),
+                    user: data.elementAt(i),
                     onProfileTap: () =>
                         {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
                     onTap: () {});

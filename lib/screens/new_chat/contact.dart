@@ -1,17 +1,12 @@
+import 'package:chat_flutter_app/models/user.dart';
 import 'package:flutter/material.dart';
 
-class Contact {
-  String displayName;
-}
-
 class ContactItem extends StatelessWidget {
-  final Contact contact;
-  final String searchKeyword;
+  final User user;
   final Function onProfileTap;
   final Function onTap;
 
-  ContactItem(
-      {this.contact, this.searchKeyword, this.onProfileTap, this.onTap});
+  ContactItem({this.user, this.onProfileTap, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -30,39 +25,17 @@ class ContactItem extends StatelessWidget {
             onPressed: onProfileTap),
       ),
       title: Text(
-              contact.displayName,
-              maxLines: 1,
-              style: TextStyle(
-                fontSize: 18.0,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-      // title: searchKeyword == null || searchKeyword.isEmpty
-      //     ? Text(
-      //         contact.displayName,
-      //         maxLines: 1,
-      //         style: TextStyle(
-      //           fontSize: 18.0,
-      //           fontWeight: FontWeight.bold,
-      //         ),
-      //       )
-          // : TextHelpers.getHighlightedText(
-          //     contact.displayName,
-          //     searchKeyword,
-          //     TextStyle(
-          //       fontSize: 18.0,
-          //       fontWeight: FontWeight.bold,
-          //       color: Colors.black,
-          //     ),
-          //     TextStyle(
-          //       fontSize: 18.0,
-          //       fontWeight: FontWeight.bold,
-          //       color: Colors.blue,
-          //     )),
-//      subtitle: Text(
-//        _contact.displayName.lastMessage.content,
-//        maxLines: 1,
-//      ),
+        user.name,
+        maxLines: 1,
+        style: TextStyle(
+          fontSize: 18.0,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      subtitle: Text(
+        'Message context',
+        maxLines: 1,
+      ),
       onTap: onTap,
     );
   }
