@@ -24,4 +24,11 @@ class User {
     map["hasAccount"] = this.hasAccount;
     return map;
   }
+
+  int get hashCode => "user_$username".hashCode;
+
+  @override
+  bool operator ==(Object other) {
+    return hashCode == other.hashCode;
+  }
 }

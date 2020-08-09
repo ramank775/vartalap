@@ -38,12 +38,13 @@ class MyApp extends StatelessWidget {
   RouteFactory _routes() {
     return (RouteSettings settings) {
       Widget widget;
+
       switch (settings.name) {
         case '/':
-          widget = new Chat();
+          widget = new Chats();
           break;
         case '/chat':
-          widget = new Chat();
+          widget = new ChatScreen(settings.arguments);
           break;
         case '/new-chat':
           widget = new NewChat();

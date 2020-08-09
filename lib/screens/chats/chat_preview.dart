@@ -1,7 +1,7 @@
+import 'package:chat_flutter_app/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
-import '../profile_img/profile_img.dart';
 
-class ChatPreview extends StatelessWidget {
+class ChatPreviewWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return new Column(

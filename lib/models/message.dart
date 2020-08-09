@@ -70,4 +70,11 @@ class Message {
         DateTime.now().millisecond.toString() +
         (++_number).toString();
   }
+
+  int get hashCode => "message_$id".hashCode;
+
+  @override
+  bool operator ==(Object other) {
+    return hashCode == other.hashCode;
+  }
 }

@@ -1,29 +1,20 @@
+import 'package:chat_flutter_app/models/message.dart';
 import 'package:flutter/material.dart';
 
 const messageBubbleColor = Colors.lightBlue;
 
-class Message extends StatelessWidget {
-  final String content;
-  final DateTime timestamp;
-  final bool isYou;
-  final bool isRead;
-  final bool isSent;
-  final double fontSize;
+class MessageWidget extends StatelessWidget {
+  final Message _msg;
+  final bool _isYou;
+  final double fontSize = 14.0;
+  MessageWidget(this._msg, this._isYou);
 
-  Message({
-    this.content,
-    this.timestamp,
-    this.isYou,
-    this.isRead = false,
-    this.isSent = true,
-    this.fontSize,
-  });
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.max,
       mainAxisAlignment:
-          isYou ? MainAxisAlignment.end : MainAxisAlignment.start,
+          _isYou ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
@@ -35,7 +26,7 @@ class Message extends StatelessWidget {
                         offset: new Offset(1.0, 1.0),
                         blurRadius: 1.0)
                   ],
-                  color: isYou ? messageBubbleColor : Colors.white,
+                  color: _isYou ? messageBubbleColor : Colors.white,
                   borderRadius: BorderRadius.all(Radius.circular(5.0))),
               constraints: BoxConstraints(
                 minWidth: 100.0,
@@ -52,7 +43,7 @@ class Message extends StatelessWidget {
                       minWidth: 100.0,
                     ),
                     child: Text(
-                      content,
+                      this._msg.text,
                       style: TextStyle(
                         color: Colors.black,
                         fontSize: fontSize,
@@ -80,7 +71,7 @@ class Message extends StatelessWidget {
                             SizedBox(
                               width: 4.0,
                             ),
-                            isYou ? _getIcon() : Container()
+                            _isYou ? _getIcon() : Container()
                           ],
                         ),
                       ),
@@ -94,17 +85,22 @@ class Message extends StatelessWidget {
   }
 
   Widget _getIcon() {
-    if (!isSent) {
-      return Icon(
-        Icons.check,
-        size: 18.0,
-        color: Colors.grey,
-      );
+    IconData icon = Icons.power;
+    switch (this._msg.state) {
+      case MessageState.NEW:
+        icon = Icons.power;
+        break;
+      case MessageState.SENT:
+        icon = Icons.check;
+        break;
+      case MessageState.DELIVERED:
+        icon = Icons.done_all;
     }
+
     return Icon(
-      Icons.done_all,
+      icon,
       size: 18.0,
-      color: isRead ? Colors.blueAccent : Colors.grey,
+      color: Colors.blueAccent,
     );
   }
 }

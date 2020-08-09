@@ -4,12 +4,25 @@ import 'package:contacts_service/contacts_service.dart';
 import 'package:sqflite/sqflite.dart';
 
 class UserService {
+  static User _user;
+  static User getLoggedInUser() {
+    if (_user == null) {
+      // fetch the current user
+      _user = User("Raman", "8684892130", null);
+    }
+    return _user;
+  }
+
+  static Future<User> getUserById(String username) async {
+    var db = await DB().getDb();
+    var userMap = await db.query('user', where: "id=?", whereArgs: [username]);
+    return User.fromMap(userMap[0]);
+  }
+
   static Future<List<User>> getUsers() async {
     Database db = await DB().getDb();
     var userMap = await db.query('user');
     var users = userMap.map((e) => User.fromMap(e)).toList();
-    print("Users");
-    print(users);
     return users;
   }
 

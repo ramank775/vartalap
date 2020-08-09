@@ -23,6 +23,8 @@ class ChatUser extends User {
     this._role = intToEnum(map["role"], UserRole.values);
   }
 
+  ChatUser.fromUser(User user) : super(user.name, user.username, user.pic);
+
   Map<String, dynamic> toMap() {
     Map<String, dynamic> map = new Map();
     map["name"] = this.name;
@@ -46,6 +48,14 @@ class Chat {
   String get pic => _pic;
   List<ChatUser> get users => _users;
 
+  Chat.fromMap(Map<String, dynamic> map) {
+    this._id = map["id"];
+    this._title = map["title"];
+    this._pic = map["pic"];
+  }
+
+  int get hashCode => "chat_$id".hashCode;
+
   void addUser(ChatUser user) {
     for (var _user in this._users) {
       if (_user.username == user.username) {
@@ -53,5 +63,10 @@ class Chat {
       }
     }
     this._users.add(user);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return hashCode == other.hashCode;
   }
 }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class MessageInput extends StatelessWidget {
+class MessageInputWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(

@@ -13,7 +13,6 @@ class DB {
 
     final dbDirectory = Directory(dirname(path));
     final isDirectoryExists = await dbDirectory.exists();
-    print("Directory exists $isDirectoryExists");
     if (!isDirectoryExists) {
       await dbDirectory.create(recursive: true);
     }
@@ -22,8 +21,6 @@ class DB {
 
   Future<void> initDatabase() async {
     final path = await _getDatabasePath(dbName);
-    print("DB  path: $path");
-
     _db = await openDatabase(path, version: version, onCreate: _onCreate);
   }
 

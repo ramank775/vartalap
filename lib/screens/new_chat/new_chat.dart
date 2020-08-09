@@ -1,4 +1,5 @@
 import 'package:chat_flutter_app/models/user.dart';
+import 'package:chat_flutter_app/services/chat_service.dart';
 import 'package:chat_flutter_app/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'contact.dart';
@@ -46,6 +47,27 @@ class NewChat extends StatelessWidget {
       body: FutureBuilder<Iterable<User>>(
         future: _contacts,
         builder: (context, snapshot) {
+          switch (snapshot.connectionState) {
+            case ConnectionState.none:
+              return Center(
+                child: CircularProgressIndicator(
+                  valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                ),
+              );
+            case ConnectionState.active:
+            case ConnectionState.waiting:
+              return Center(
+                child: CircularProgressIndicator(
+                  valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                ),
+              );
+            case ConnectionState.done:
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Error: ${snapshot.error}'),
+                );
+              }
+          }
           List<dynamic> data = List<dynamic>();
           data.add(ListTile(
             leading: Container(
@@ -91,11 +113,7 @@ class NewChat extends StatelessWidget {
               //AndroidIntentHelpers.createContact(context);
             },
           ));
-          print(snapshot.hasError);
-          print(snapshot.error);
-          if (snapshot.hasData) {
-            data.addAll(snapshot.data);
-          }
+          data.addAll(snapshot.data);
           data.add(ListTile(
             leading: Container(
               padding: const EdgeInsets.all(8.0),
@@ -139,7 +157,10 @@ class NewChat extends StatelessWidget {
                     user: data.elementAt(i),
                     onProfileTap: () =>
                         {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
-                    onTap: () {});
+                    onTap: (User user) async {
+                      var chat = await ChatService.newIndiviualChat(user);
+                      Navigator.pushNamed(context, '/chat', arguments: chat);
+                    });
               });
         },
       ),

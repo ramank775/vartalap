@@ -1,5 +1,5 @@
+import 'package:chat_flutter_app/screens/chats/chat_preview.dart';
 import 'package:flutter/material.dart';
-import 'chat_preview.dart';
 
 class Chats extends StatelessWidget {
   @override
@@ -12,7 +12,7 @@ class Chats extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(5, 5, 5, 0),
         child: ListView.builder(
           itemCount: 20,
-          itemBuilder: (context, i) => new ChatPreview(),
+          itemBuilder: (context, i) => new ChatPreviewWidget(),
         ),
       ),
       floatingActionButton: FloatingActionButton(

@@ -33,10 +33,10 @@ class ContactItem extends StatelessWidget {
         ),
       ),
       subtitle: Text(
-        'Message context',
+        user.username,
         maxLines: 1,
       ),
-      onTap: onTap,
+      onTap: () => onTap(user),
     );
   }
 }
