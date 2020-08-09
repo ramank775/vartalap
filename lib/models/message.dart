@@ -41,6 +41,7 @@ class Message {
     this._senderId = senderId;
     this._state = MessageState.NEW;
     this._type = type;
+    this._text = text;
   }
 
   Message.fromMap(Map<String, dynamic> map) {

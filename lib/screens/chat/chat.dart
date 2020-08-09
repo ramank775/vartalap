@@ -114,7 +114,14 @@ class ChatScreen extends StatelessWidget {
                   return null; //
                 }),
           ),
-          new MessageInputWidget(),
+          new MessageInputWidget(sendMessage: (String text) async {
+            print("Text: $text");
+            var msg = Message.chatMessage(this._chat.id,
+                this._currentUser.username, text, MessageType.TEXT);
+            var msgText = msg.text;
+            print("Message text: $msgText");
+            await ChatService.sendMessage(msg, this._chat);
+          }),
         ],
       ),
     );

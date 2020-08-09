@@ -43,7 +43,7 @@ class MessageWidget extends StatelessWidget {
                       minWidth: 100.0,
                     ),
                     child: Text(
-                      this._msg.text,
+                      this._msg.text ?? '',
                       style: TextStyle(
                         color: Colors.black,
                         fontSize: fontSize,

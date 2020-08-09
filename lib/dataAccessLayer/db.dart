@@ -36,17 +36,19 @@ class DB {
 
     batch.execute("""CREATE TABLE chat (
       id TEXT PRIMARY KEY,
-      text TEXT,
+      title TEXT,
       pic TEXT,
       type NUMBER DEFAULT 1,
       createdOn int
      );""");
 
     batch.execute("""CREATE TABLE chat_user (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userid TEXT,
       chatid TEXT,
       role NUMBER DEFAULT 1,
-      FOREIGN KEY(chatid) REFERENCES chat(id)
+      FOREIGN KEY(chatid) REFERENCES chat(id),
+      FOREIGN KEY(userid) REFERENCES user(username)
     );""");
 
     batch.execute("""CREATE TABLE message (
@@ -58,7 +60,7 @@ class DB {
       type NUMBER DEFAULT 1,
       ts NUMBER,
       FOREIGN KEY(chatid) REFERENCES chat(id),
-      FOREIGN KEY(senderid) REFERENCES chat_user(username)
+      FOREIGN KEY(senderid) REFERENCES user(username)
     );""");
     batch.execute("PRAGMA foreign_keys = ON;");
     batch.commit();

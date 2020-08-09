@@ -1,7 +1,11 @@
+import 'package:chat_flutter_app/models/chat.dart';
 import 'package:chat_flutter_app/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
 
 class ChatPreviewWidget extends StatelessWidget {
+  final Chat _chat;
+
+  const ChatPreviewWidget(this._chat, {Key key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
     return new Column(
@@ -11,12 +15,13 @@ class ChatPreviewWidget extends StatelessWidget {
         ),
         new ListTile(
           leading: new ProfileImg(
-              'assets/images/default-user.png', ProfileImgSize.MD),
+              this._chat.pic ?? 'assets/images/default-user.png',
+              ProfileImgSize.MD),
           title: new Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               new Text(
-                'Raman Kumar',
+                this._chat.title,
                 style: new TextStyle(fontWeight: FontWeight.bold),
               ),
               new Text(
@@ -32,7 +37,9 @@ class ChatPreviewWidget extends StatelessWidget {
               style: new TextStyle(color: Colors.grey, fontSize: 15.0),
             ),
           ),
-          onTap: () => Navigator.pushNamed(context, '/chat'),
+          onTap: () {
+            Navigator.pushNamed(context, '/chat', arguments: _chat);
+          },
         )
       ],
     );

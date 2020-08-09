@@ -54,6 +54,14 @@ class Chat {
     this._pic = map["pic"];
   }
 
+  Map<String, dynamic> toMap() {
+    Map<String, dynamic> map = Map();
+    map["id"] = this.id;
+    map["title"] = this.title;
+    map["pic"] = this.pic;
+    return map;
+  }
+
   int get hashCode => "chat_$id".hashCode;
 
   void addUser(ChatUser user) {

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 class MessageInputWidget extends StatelessWidget {
+  final Function sendMessage;
+  final TextEditingController _controller = TextEditingController();
+  MessageInputWidget({Key key, this.sendMessage}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -27,9 +31,9 @@ class MessageInputWidget extends StatelessWidget {
                   ),
                   Flexible(
                     child: TextField(
-                      // controller: textFieldController,
+                      controller: _controller,
                       textCapitalization: TextCapitalization.sentences,
-                      // textInputAction: _textInputAction,
+                      textInputAction: TextInputAction.send,
                       decoration: InputDecoration(
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.all(0.0),
@@ -41,9 +45,11 @@ class MessageInputWidget extends StatelessWidget {
                         counterText: '',
                       ),
                       onSubmitted: (String text) {
-                        // if(_textInputAction == TextInputAction.send) {
-                        //   _sendMessage();
-                        // }
+                        if (text.length == 0) {
+                          return;
+                        }
+                        sendMessage(text);
+                        this._controller.text = "";
                       },
                       keyboardType: TextInputType.multiline,
                       maxLines: null,
