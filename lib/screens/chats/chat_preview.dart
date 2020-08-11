@@ -3,9 +3,9 @@ import 'package:chat_flutter_app/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
 
 class ChatPreviewWidget extends StatelessWidget {
-  final Chat _chat;
-
-  const ChatPreviewWidget(this._chat, {Key key}) : super(key: key);
+  final ChatPreview _chat;
+  final Function _onTap;
+  const ChatPreviewWidget(this._chat, this._onTap, {Key key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
     return new Column(
@@ -33,13 +33,11 @@ class ChatPreviewWidget extends StatelessWidget {
           subtitle: new Container(
             padding: const EdgeInsets.only(top: 5.0),
             child: new Text(
-              'This is a test message',
+              this._chat.content,
               style: new TextStyle(color: Colors.grey, fontSize: 15.0),
             ),
           ),
-          onTap: () {
-            Navigator.pushNamed(context, '/chat', arguments: _chat);
-          },
+          onTap: () => this._onTap(this._chat),
         )
       ],
     );

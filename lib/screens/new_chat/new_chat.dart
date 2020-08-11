@@ -159,7 +159,9 @@ class NewChat extends StatelessWidget {
                         {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
                     onTap: (User user) async {
                       var chat = await ChatService.newIndiviualChat(user);
-                      Navigator.pushNamed(context, '/chat', arguments: chat);
+                      Navigator.pushNamedAndRemoveUntil(context, '/chat',
+                          (Route route) => route.settings.name == '/',
+                          arguments: chat);
                     });
               });
         },

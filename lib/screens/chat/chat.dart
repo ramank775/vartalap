@@ -8,13 +8,28 @@ import 'package:flutter/material.dart';
 import 'message.dart';
 import 'message_input.dart';
 
-class ChatScreen extends StatelessWidget {
+class ChatScreen extends StatefulWidget {
+  final Chat chat;
+  final User currentUser = UserService.getLoggedInUser();
+  ChatScreen(this.chat) : super(key: Key(chat.id));
+
+  @override
+  ChatState createState() => ChatState(chat);
+}
+
+class ChatState extends State<ChatScreen> {
   final Chat _chat;
-  final User _currentUser = UserService.getLoggedInUser();
-  ChatScreen(this._chat, {Key key}) : super(key: key);
+  Future<List<Message>> _fMessages;
+  List<Message> _messages;
+  ChatState(this._chat);
+  @override
+  void initState() {
+    super.initState();
+    this._fMessages = ChatService.getChatMessage(this._chat.id);
+  }
+
   @override
   Widget build(BuildContext context) {
-    var messages = ChatService.getChatMessage(this._chat.id);
     return Scaffold(
       // backgroundColor: chatDetailScaffoldBgColor,
       appBar: AppBar(
@@ -22,7 +37,7 @@ class ChatScreen extends StatelessWidget {
           shape: CircleBorder(),
           padding: const EdgeInsets.only(left: 1.0),
           onPressed: () {
-            Navigator.of(context).pop();
+            Navigator.of(context).pop(true);
           },
           child: Row(
             children: <Widget>[
@@ -79,7 +94,7 @@ class ChatScreen extends StatelessWidget {
           Flexible(
             flex: 1,
             child: FutureBuilder<List<Message>>(
-                future: messages,
+                future: _fMessages,
                 builder: (context, snapshot) {
                   switch (snapshot.connectionState) {
                     case ConnectionState.none:
@@ -103,12 +118,16 @@ class ChatScreen extends StatelessWidget {
                           child: Text('Error: ${snapshot.error}'),
                         );
                       }
-                      var msgs = snapshot.data;
+                      this._messages = snapshot.data;
                       return ListView.builder(
-                          itemCount: msgs.length,
+                          itemCount: this._messages.length,
+                          reverse: true,
                           itemBuilder: (context, i) {
                             return MessageWidget(
-                                msgs[i], msgs[i].sender == this._currentUser);
+                              this._messages[i],
+                              this._messages[i].sender ==
+                                  this.widget.currentUser,
+                            );
                           });
                   }
                   return null; //
@@ -117,10 +136,14 @@ class ChatScreen extends StatelessWidget {
           new MessageInputWidget(sendMessage: (String text) async {
             print("Text: $text");
             var msg = Message.chatMessage(this._chat.id,
-                this._currentUser.username, text, MessageType.TEXT);
+                this.widget.currentUser.username, text, MessageType.TEXT);
+            msg.sender = this.widget.currentUser;
             var msgText = msg.text;
             print("Message text: $msgText");
             await ChatService.sendMessage(msg, this._chat);
+            setState(() {
+              _messages.insert(0, msg);
+            });
           }),
         ],
       ),

@@ -6,9 +6,10 @@ import 'package:chat_flutter_app/services/user_service.dart';
 import 'package:chat_flutter_app/utils/enum_helper.dart';
 
 class ChatService {
-  static Future<List<Chat>> getChats() async {
+  static Future<List<ChatPreview>> getChats() async {
     var db = await DB().getDb();
-    var sql = """Select chat.*, message.* 
+    var sql = """Select chat.*, 
+    message.senderid, message.text, message.text, message.state, message.ts 
     from chat
     inner join message on message.id in (
       select id 
@@ -20,7 +21,7 @@ class ChatService {
     order by message.ts desc;""";
     var result = await db.rawQuery(sql);
     print(result);
-    return result.map((e) => Chat.fromMap(e)).toList();
+    return result.map((e) => ChatPreview.fromMap(e)).toList();
   }
 
   static Future<Chat> newIndiviualChat(User user) async {

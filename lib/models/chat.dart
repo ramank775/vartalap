@@ -78,3 +78,18 @@ class Chat {
     return hashCode == other.hashCode;
   }
 }
+
+class ChatPreview extends Chat {
+  String _content;
+  int _ts;
+  ChatPreview(String id, String title, String pic, this._content, this._ts)
+      : super(id, title, pic);
+
+  ChatPreview.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
+    this._content = map["text"];
+    this._ts = map["ts"];
+  }
+
+  String get content => this._content;
+  int get ts => this._ts;
+}

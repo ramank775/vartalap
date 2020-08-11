@@ -7,7 +7,7 @@ class MessageWidget extends StatelessWidget {
   final Message _msg;
   final bool _isYou;
   final double fontSize = 14.0;
-  MessageWidget(this._msg, this._isYou);
+  MessageWidget(this._msg, this._isYou, {Key key}) : super(key: Key(_msg.id));
 
   @override
   Widget build(BuildContext context) {
@@ -85,22 +85,24 @@ class MessageWidget extends StatelessWidget {
   }
 
   Widget _getIcon() {
-    IconData icon = Icons.power;
+    IconData icon = Icons.access_time;
+    Color color = Colors.grey;
     switch (this._msg.state) {
       case MessageState.NEW:
-        icon = Icons.power;
+        icon = Icons.access_time;
         break;
       case MessageState.SENT:
         icon = Icons.check;
         break;
       case MessageState.DELIVERED:
         icon = Icons.done_all;
+        color = Colors.blueAccent;
     }
 
     return Icon(
       icon,
-      size: 18.0,
-      color: Colors.blueAccent,
+      size: 15.0,
+      color: color,
     );
   }
 }

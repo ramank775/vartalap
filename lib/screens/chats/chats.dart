@@ -3,18 +3,29 @@ import 'package:chat_flutter_app/screens/chats/chat_preview.dart';
 import 'package:chat_flutter_app/services/chat_service.dart';
 import 'package:flutter/material.dart';
 
-class Chats extends StatelessWidget {
+class Chats extends StatefulWidget {
+  @override
+  ChatsState createState() => ChatsState();
+}
+
+class ChatsState extends State<Chats> {
+  Future<List<ChatPreview>> _fChats;
+  @override
+  void initState() {
+    super.initState();
+    this._fChats = ChatService.getChats();
+  }
+
   @override
   Widget build(BuildContext context) {
-    var chats = ChatService.getChats();
     return new Scaffold(
       appBar: AppBar(
         title: new Text('Chat App'),
       ),
       body: new Container(
         padding: EdgeInsets.fromLTRB(5, 5, 5, 0),
-        child: FutureBuilder<List<Chat>>(
-          future: chats,
+        child: FutureBuilder<List<ChatPreview>>(
+          future: this._fChats,
           builder: (context, snapshot) {
             switch (snapshot.connectionState) {
               case ConnectionState.none:
@@ -40,16 +51,27 @@ class Chats extends StatelessWidget {
             var data = snapshot.data;
             return ListView.builder(
               itemCount: data.length,
-              itemBuilder: (context, i) => new ChatPreviewWidget(data[i]),
+              itemBuilder: (context, i) =>
+                  new ChatPreviewWidget(data[i], (Chat chat) {
+                navigate(context, '/chat', data: chat);
+              }),
             );
           },
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.pushNamed(context, '/new-chat'),
+        onPressed: () => navigate(context, '/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
       ),
     );
+  }
+
+  Future<void> navigate(BuildContext context, String screen,
+      {Object data}) async {
+    await Navigator.pushNamed(context, screen, arguments: data);
+    setState(() {
+      _fChats = ChatService.getChats();
+    });
   }
 }

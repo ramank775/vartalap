@@ -81,7 +81,14 @@ class MessageInputWidget extends StatelessWidget {
               // child: _message.isEmpty || _message == null
               //     ? Icon(Icons.settings_voice)
               //     : Icon(Icons.send),
-              onPressed: () => {},
+              onPressed: () {
+                var text = this._controller.text;
+                if (text.length == 0) {
+                  return;
+                }
+                sendMessage(text);
+                this._controller.text = "";
+              },
               icon: Icon(Icons.send),
             ),
           )

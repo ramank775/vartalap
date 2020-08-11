@@ -21,7 +21,7 @@ class Message {
   String _senderId;
   MessageState _state;
   MessageType _type = MessageType.TEXT;
-  int _ts = DateTime.now().toUtc().millisecond;
+  int _ts = DateTime.now().millisecondsSinceEpoch;
   User sender;
   String get id => _id;
   String get chatId => _chatId;
