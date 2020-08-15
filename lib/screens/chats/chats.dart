@@ -54,6 +54,13 @@ class ChatsState extends State<Chats> {
               itemBuilder: (context, i) =>
                   new ChatPreviewWidget(data[i], (Chat chat) {
                 navigate(context, '/chat', data: chat);
+              }, (Chat chat) async {
+                // var result = await ChatService.deleteChat(chat);
+                // if (result) {
+                //   setState(() {
+                //     _fChats = ChatService.getChats();
+                //   });
+                // }
               }),
             );
           },

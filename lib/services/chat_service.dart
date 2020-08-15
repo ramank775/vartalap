@@ -24,6 +24,13 @@ class ChatService {
     return result.map((e) => ChatPreview.fromMap(e)).toList();
   }
 
+  static Future<bool> deleteChat(Chat chat) async {
+    var db = await DB().getDb();
+    await db.delete("message", where: "chatid=?", whereArgs: [chat.id]);
+    var result = await db.delete("chat", where: "id=?", whereArgs: [chat.id]);
+    return result > 0;
+  }
+
   static Future<Chat> newIndiviualChat(User user) async {
     Chat chat = await _getChatById(user.username);
     if (chat == null) {

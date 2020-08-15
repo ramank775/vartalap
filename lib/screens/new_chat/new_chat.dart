@@ -58,6 +58,20 @@ class NewChatState extends State<NewChatScreen> {
             icon: Icon(Icons.search),
             onPressed: () {},
           ),
+          PopupMenuButton(itemBuilder: (BuildContext cntx) {
+            List<PopupMenuEntry<Object>> entries = [];
+            entries.add(PopupMenuItem(
+              child: GestureDetector(
+                child: Text("Refresh"),
+                onTap: () {
+                  setState(() {
+                    _contacts = UserService.getUsers(sync: true);
+                  });
+                },
+              ),
+            ));
+            return entries;
+          })
         ],
       ),
       body: FutureBuilder<Iterable<User>>(

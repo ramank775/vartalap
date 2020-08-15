@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 class ChatPreviewWidget extends StatelessWidget {
   final ChatPreview _chat;
   final Function _onTap;
-  const ChatPreviewWidget(this._chat, this._onTap, {Key key}) : super(key: key);
+  final Function _onLongPress;
+  ChatPreviewWidget(this._chat, this._onTap, this._onLongPress)
+      : super(key: Key(_chat.id));
   @override
   Widget build(BuildContext context) {
     return new Column(
@@ -38,6 +40,7 @@ class ChatPreviewWidget extends StatelessWidget {
             ),
           ),
           onTap: () => this._onTap(this._chat),
+          onLongPress: () => this._onLongPress(this._chat),
         )
       ],
     );

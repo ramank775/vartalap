@@ -19,7 +19,10 @@ class UserService {
     return User.fromMap(userMap[0]);
   }
 
-  static Future<List<User>> getUsers() async {
+  static Future<List<User>> getUsers({bool sync: false}) async {
+    if (sync) {
+      await syncContacts();
+    }
     Database db = await DB().getDb();
     var userMap = await db.query('user');
     var users = userMap.map((e) => User.fromMap(e)).toList();
