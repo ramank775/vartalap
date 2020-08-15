@@ -1,13 +1,29 @@
 import 'package:chat_flutter_app/models/user.dart';
-import 'package:chat_flutter_app/services/chat_service.dart';
 import 'package:chat_flutter_app/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'contact.dart';
 
-class NewChat extends StatelessWidget {
+class NewChatScreen extends StatefulWidget {
+  @override
+  State<StatefulWidget> createState() => NewChatState();
+}
+
+class NewChatState extends State<NewChatScreen> {
+  Future<List<User>> _contacts;
+  int _numContacts;
+  @override
+  void initState() {
+    super.initState();
+    _contacts = UserService.getUsers();
+    _contacts.then((value) {
+      setState(() {
+        _numContacts = value.length;
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final Future<List<User>> _contacts = UserService.getUsers();
     return new Scaffold(
       appBar: AppBar(
         title: Column(
@@ -24,16 +40,16 @@ class NewChat extends StatelessWidget {
                 ),
               ),
             ),
-            // Container(
-            //   child: numContacts == null
-            //    ? null
-            //   : Text(
-            //       '$numContacts contacts',
-            //     style: TextStyle(
-            //       fontSize: 12.0,
-            //     ),
-            //   ),
-            // )
+            Container(
+              child: _numContacts == null
+                  ? null
+                  : Text(
+                      '$_numContacts contacts',
+                      style: TextStyle(
+                        fontSize: 12.0,
+                      ),
+                    ),
+            )
           ],
         ),
         actions: <Widget>[
@@ -124,10 +140,7 @@ class NewChat extends StatelessWidget {
                   fontSize: 18.0,
                   fontWeight: FontWeight.bold,
                 )),
-            onTap: () async {
-              //AndroidIntentHelpers.inviteFriend(context);
-              await UserService.syncContacts();
-            },
+            onTap: () {},
           ));
           data.add(ListTile(
             leading: Container(
@@ -158,10 +171,7 @@ class NewChat extends StatelessWidget {
                     onProfileTap: () =>
                         {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
                     onTap: (User user) async {
-                      var chat = await ChatService.newIndiviualChat(user);
-                      Navigator.pushNamedAndRemoveUntil(context, '/chat',
-                          (Route route) => route.settings.name == '/',
-                          arguments: chat);
+                      Navigator.of(context).pop(user);
                     });
               });
         },

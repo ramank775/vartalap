@@ -1,3 +1,4 @@
+import 'package:chat_flutter_app/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
 import 'screens/chats/chats.dart';
 import 'screens/chat/chat.dart';
@@ -31,23 +32,24 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/',
       onGenerateRoute: _routes(),
-      home: new Chats(),
+      home: new StartupScreen(),
     );
   }
 
   RouteFactory _routes() {
     return (RouteSettings settings) {
       Widget widget;
-
+      print("Settings");
+      print(settings);
       switch (settings.name) {
-        case '/':
+        case '/chats':
           widget = new Chats();
           break;
         case '/chat':
           widget = new ChatScreen(settings.arguments);
           break;
         case '/new-chat':
-          widget = new NewChat();
+          widget = new NewChatScreen();
           break;
         default:
           widget = new Chats();

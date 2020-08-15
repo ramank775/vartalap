@@ -69,7 +69,15 @@ class ChatsState extends State<Chats> {
 
   Future<void> navigate(BuildContext context, String screen,
       {Object data}) async {
-    await Navigator.pushNamed(context, screen, arguments: data);
+    var result = await Navigator.pushNamed(context, screen, arguments: data);
+    if (screen == "/new-chat") {
+      if (result == null) {
+        return;
+      }
+      var chat = await ChatService.newIndiviualChat(result);
+      await Navigator.of(context).pushNamed('/chat', arguments: chat);
+    }
+    print("Main Screen");
     setState(() {
       _fChats = ChatService.getChats();
     });
