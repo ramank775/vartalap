@@ -1,9 +1,9 @@
-import 'package:chat_flutter_app/dataAccessLayer/db.dart';
-import 'package:chat_flutter_app/models/chat.dart';
-import 'package:chat_flutter_app/models/message.dart';
-import 'package:chat_flutter_app/models/user.dart';
-import 'package:chat_flutter_app/services/user_service.dart';
-import 'package:chat_flutter_app/utils/enum_helper.dart';
+import 'package:vartalap/dataAccessLayer/db.dart';
+import 'package:vartalap/models/chat.dart';
+import 'package:vartalap/models/message.dart';
+import 'package:vartalap/models/user.dart';
+import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/utils/enum_helper.dart';
 
 class ChatService {
   static Future<List<ChatPreview>> getChats() async {

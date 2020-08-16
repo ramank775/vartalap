@@ -1,4 +1,4 @@
-import 'package:chat_flutter_app/screens/startup/startup.dart';
+import 'package:vartalap/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
 import 'screens/chats/chats.dart';
 import 'screens/chat/chat.dart';

@@ -1,4 +1,4 @@
-import 'package:chat_flutter_app/models/message.dart';
+import 'package:vartalap/models/message.dart';
 import 'package:flutter/material.dart';
 
 const messageBubbleColor = Colors.lightBlue;

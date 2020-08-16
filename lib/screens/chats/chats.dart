@@ -1,6 +1,6 @@
-import 'package:chat_flutter_app/models/chat.dart';
-import 'package:chat_flutter_app/screens/chats/chat_preview.dart';
-import 'package:chat_flutter_app/services/chat_service.dart';
+import 'package:vartalap/models/chat.dart';
+import 'package:vartalap/screens/chats/chat_preview.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 
 class Chats extends StatefulWidget {
@@ -20,7 +20,7 @@ class ChatsState extends State<Chats> {
   Widget build(BuildContext context) {
     return new Scaffold(
       appBar: AppBar(
-        title: new Text('Chat App'),
+        title: new Text('Vartalap'),
       ),
       body: new Container(
         padding: EdgeInsets.fromLTRB(5, 5, 5, 0),

@@ -1,5 +1,5 @@
-import 'package:chat_flutter_app/models/chat.dart';
-import 'package:chat_flutter_app/screens/profile_img/profile_img.dart';
+import 'package:vartalap/models/chat.dart';
+import 'package:vartalap/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
 
 class ChatPreviewWidget extends StatelessWidget {

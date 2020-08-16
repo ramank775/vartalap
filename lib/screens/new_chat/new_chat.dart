@@ -1,5 +1,5 @@
-import 'package:chat_flutter_app/models/user.dart';
-import 'package:chat_flutter_app/services/user_service.dart';
+import 'package:vartalap/models/user.dart';
+import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'contact.dart';
 

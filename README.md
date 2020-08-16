@@ -1,6 +1,6 @@
-[![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ramank775/chat-flutter-app)
+[![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ramank775/vartalap)
 
-# chat-flutter-app
+# Vartalap
 
 ## Setup
 
@@ -50,5 +50,8 @@ ngrok tcp SMARTPHONE_INTERNAL_IP:SMARTPHONE_INTERNAL_PORT
 
 `
 adb connect NGROK_ADDRESS:NGROK_PORT
+`
+
+`
 flutter run
 `

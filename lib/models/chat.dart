@@ -1,4 +1,4 @@
-import 'package:chat_flutter_app/utils/enum_helper.dart';
+import 'package:vartalap/utils/enum_helper.dart';
 
 import 'user.dart';
 

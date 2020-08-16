@@ -1,5 +1,5 @@
-import 'package:chat_flutter_app/models/user.dart';
-import 'package:chat_flutter_app/dataAccessLayer/db.dart';
+import 'package:vartalap/models/user.dart';
+import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:contacts_service/contacts_service.dart';
 import 'package:sqflite/sqflite.dart';
 

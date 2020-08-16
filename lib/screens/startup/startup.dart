@@ -1,5 +1,5 @@
-import 'package:chat_flutter_app/screens/chats/chats.dart';
-import 'package:chat_flutter_app/services/user_service.dart';
+import 'package:vartalap/screens/chats/chats.dart';
+import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -33,7 +33,7 @@ class StartupScreenState extends State<StartupScreen> {
         color: Theme.of(context).backgroundColor,
       ),
       child: Center(
-        child: Text("Chat App"),
+        child: Text("Vartalap"),
       ),
     );
   }

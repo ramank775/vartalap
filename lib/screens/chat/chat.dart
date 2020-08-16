@@ -1,9 +1,9 @@
-import 'package:chat_flutter_app/models/chat.dart';
-import 'package:chat_flutter_app/models/message.dart';
-import 'package:chat_flutter_app/models/user.dart';
-import 'package:chat_flutter_app/screens/profile_img/profile_img.dart';
-import 'package:chat_flutter_app/services/chat_service.dart';
-import 'package:chat_flutter_app/services/user_service.dart';
+import 'package:vartalap/models/chat.dart';
+import 'package:vartalap/models/message.dart';
+import 'package:vartalap/models/user.dart';
+import 'package:vartalap/screens/profile_img/profile_img.dart';
+import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'message.dart';
 import 'message_input.dart';
