@@ -24,11 +24,15 @@ class ChatService {
     return result.map((e) => ChatPreview.fromMap(e)).toList();
   }
 
-  static Future<bool> deleteChat(Chat chat) async {
+  static Future<bool> deleteChats(List<Chat> chats) async {
     var db = await DB().getDb();
-    await db.delete("message", where: "chatid=?", whereArgs: [chat.id]);
-    var result = await db.delete("chat", where: "id=?", whereArgs: [chat.id]);
-    return result > 0;
+    var batch = db.batch();
+    for (var chat in chats) {
+      batch.delete("message", where: "chatid=?", whereArgs: [chat.id]);
+      batch.delete("chat", where: "id=?", whereArgs: [chat.id]);
+    }
+    var result = await batch.commit();
+    return result.length > 0;
   }
 
   static Future<Chat> newIndiviualChat(User user) async {
@@ -55,7 +59,7 @@ class ChatService {
     await _saveMessage(msg);
   }
 
-  static Future<List<Message>> getChatMessage(String chatid) async {
+  static Future<List<Message>> getChatMessages(String chatid) async {
     var db = await DB().getDb();
     var result = await db.query("message",
         where: "chatid=?", whereArgs: [chatid], orderBy: "ts");
@@ -67,7 +71,17 @@ class ChatService {
       msg.sender = user;
       msgs.add(msg);
     });
-    return msgs;
+    return msgs.reversed.toList();
+  }
+
+  static Future<bool> deleteMessages(List<Message> msgs) async {
+    var db = await DB().getDb();
+    var batch = db.batch();
+    for (var msg in msgs) {
+      batch.delete("message", where: "id=?", whereArgs: [msg.id]);
+    }
+    var result = await batch.commit();
+    return result.length > 0;
   }
 
   static Future<Chat> _getChatById(String chatid) async {

@@ -10,10 +10,12 @@ class Chats extends StatefulWidget {
 
 class ChatsState extends State<Chats> {
   Future<List<ChatPreview>> _fChats;
+  List<ChatPreview> _selectedChats = [];
   @override
   void initState() {
     super.initState();
     this._fChats = ChatService.getChats();
+    this._selectedChats = [];
   }
 
   @override
@@ -21,6 +23,7 @@ class ChatsState extends State<Chats> {
     return new Scaffold(
       appBar: AppBar(
         title: new Text('Vartalap'),
+        actions: getActions(),
       ),
       body: new Container(
         padding: EdgeInsets.fromLTRB(5, 5, 5, 0),
@@ -51,17 +54,18 @@ class ChatsState extends State<Chats> {
             var data = snapshot.data;
             return ListView.builder(
               itemCount: data.length,
-              itemBuilder: (context, i) =>
-                  new ChatPreviewWidget(data[i], (Chat chat) {
-                navigate(context, '/chat', data: chat);
-              }, (Chat chat) async {
-                // var result = await ChatService.deleteChat(chat);
-                // if (result) {
-                //   setState(() {
-                //     _fChats = ChatService.getChats();
-                //   });
-                // }
-              }),
+              itemBuilder: (context, i) => new ChatPreviewWidget(
+                data[i],
+                (Chat chat) {
+                  if (this._selectedChats.length > 0) {
+                    this.selectOrRemove(chat);
+                    return;
+                  }
+                  navigate(context, '/chat', data: chat);
+                },
+                this.selectOrRemove,
+                isSelected: _selectedChats.contains(data[i]),
+              ),
             );
           },
         ),
@@ -72,6 +76,40 @@ class ChatsState extends State<Chats> {
         child: Icon(Icons.add),
       ),
     );
+  }
+
+  void selectOrRemove(Chat chat) {
+    setState(() {
+      if (!_selectedChats.remove(chat)) {
+        _selectedChats.add(chat);
+      }
+    });
+  }
+
+  List<Widget> getActions() {
+    List<Widget> actions = [];
+    if (this._selectedChats.length > 0) {
+      actions.add(IconButton(
+        icon: Icon(Icons.clear),
+        onPressed: () {
+          setState(() {
+            this._selectedChats = [];
+          });
+        },
+      ));
+      actions.add(IconButton(
+        icon: Icon(Icons.delete),
+        onPressed: () async {
+          await ChatService.deleteChats(this._selectedChats);
+          setState(() {
+            this._selectedChats = [];
+            this._fChats = ChatService.getChats();
+          });
+        },
+      ));
+    }
+    actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
+    return actions;
   }
 
   Future<void> navigate(BuildContext context, String screen,

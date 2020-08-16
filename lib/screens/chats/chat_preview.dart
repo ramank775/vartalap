@@ -6,7 +6,9 @@ class ChatPreviewWidget extends StatelessWidget {
   final ChatPreview _chat;
   final Function _onTap;
   final Function _onLongPress;
-  ChatPreviewWidget(this._chat, this._onTap, this._onLongPress)
+  final bool isSelected;
+  ChatPreviewWidget(this._chat, this._onTap, this._onLongPress,
+      {this.isSelected: false})
       : super(key: Key(_chat.id));
   @override
   Widget build(BuildContext context) {
@@ -32,17 +34,39 @@ class ChatPreviewWidget extends StatelessWidget {
               ),
             ],
           ),
-          subtitle: new Container(
-            padding: const EdgeInsets.only(top: 5.0),
-            child: new Text(
-              this._chat.content,
-              style: new TextStyle(color: Colors.grey, fontSize: 15.0),
-            ),
+          subtitle: new Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              new Container(
+                padding: const EdgeInsets.only(top: 5.0),
+                child: new Text(
+                  this.getDisplayContext(),
+                  style: new TextStyle(color: Colors.grey, fontSize: 15.0),
+                ),
+              ),
+              getWidget()
+            ],
           ),
           onTap: () => this._onTap(this._chat),
           onLongPress: () => this._onLongPress(this._chat),
+          selected: this.isSelected,
         )
       ],
     );
+  }
+
+  Widget getWidget() {
+    if (isSelected) {
+      return Icon(Icons.check_circle, color: Colors.greenAccent);
+    }
+    return Text("");
+  }
+
+  String getDisplayContext() {
+    String content = this._chat.content;
+    if (content.length > 30) {
+      return content.substring(0, 25) + "...";
+    }
+    return content;
   }
 }

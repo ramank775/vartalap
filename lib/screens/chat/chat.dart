@@ -21,11 +21,12 @@ class ChatState extends State<ChatScreen> {
   final Chat _chat;
   Future<List<Message>> _fMessages;
   List<Message> _messages;
+  List<Message> _selectedMessges = [];
   ChatState(this._chat);
   @override
   void initState() {
     super.initState();
-    this._fMessages = ChatService.getChatMessage(this._chat.id);
+    this._fMessages = ChatService.getChatMessages(this._chat.id);
   }
 
   @override
@@ -74,7 +75,9 @@ class ChatState extends State<ChatScreen> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 2.0),
                       child: Text(
-                        _chat.title,
+                        this._selectedMessges.length > 0
+                            ? _selectedMessges.length.toString() + " selected"
+                            : _chat.title,
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18.0,
@@ -87,6 +90,7 @@ class ChatState extends State<ChatScreen> {
             ),
           ),
         ),
+        actions: this.getActions(),
       ),
       body: Column(
         mainAxisSize: MainAxisSize.max,
@@ -127,6 +131,15 @@ class ChatState extends State<ChatScreen> {
                               this._messages[i],
                               this._messages[i].sender ==
                                   this.widget.currentUser,
+                              isSelected: this
+                                  ._selectedMessges
+                                  .contains(this._messages[i]),
+                              onTab: (Message msg) {
+                                if (this._selectedMessges.length > 0) {
+                                  this.selectOrRemove(msg);
+                                }
+                              },
+                              onLongPress: selectOrRemove,
                             );
                           });
                   }
@@ -148,5 +161,41 @@ class ChatState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  void selectOrRemove(Message msg) {
+    setState(() {
+      if (!_selectedMessges.remove(msg)) {
+        _selectedMessges.add(msg);
+      }
+    });
+  }
+
+  List<Widget> getActions() {
+    List<Widget> actions = [];
+    if (this._selectedMessges.length > 0) {
+      actions.add(IconButton(
+        icon: Icon(Icons.clear),
+        onPressed: () {
+          setState(() {
+            this._selectedMessges = [];
+          });
+        },
+      ));
+      actions.add(IconButton(
+        icon: Icon(Icons.delete),
+        onPressed: () async {
+          await ChatService.deleteMessages(this._selectedMessges);
+          setState(() {
+            this
+                ._messages
+                .removeWhere((msg) => this._selectedMessges.contains(msg));
+            this._selectedMessges = [];
+          });
+        },
+      ));
+    }
+    actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
+    return actions;
   }
 }

@@ -26,7 +26,7 @@ class DB {
 
   Future<void> _onCreate(Database db, dynamic version) async {
     var batch = db.batch();
-    batch.execute("PRAGMA foreign_keys = OFF;");
+    batch.execute("PRAGMA foreign_keys = ON;");
     batch.execute("""CREATE TABLE user (
       username TEXT PRIMARY KEY,
       name TEXT,
@@ -62,7 +62,6 @@ class DB {
       FOREIGN KEY(chatid) REFERENCES chat(id),
       FOREIGN KEY(senderid) REFERENCES user(username)
     );""");
-    batch.execute("PRAGMA foreign_keys = ON;");
     batch.commit();
   }
 
