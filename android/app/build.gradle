@@ -38,8 +38,8 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId "com.example.vartalap"
-        minSdkVersion 16
+        applicationId "com.one9x.vartalap"
+        minSdkVersion 18
         targetSdkVersion 28
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName

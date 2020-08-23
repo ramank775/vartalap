@@ -1,4 +1,4 @@
-package com.example.vartalap
+package com.one9x.vartalap
 
 import io.flutter.embedding.android.FlutterActivity
 
