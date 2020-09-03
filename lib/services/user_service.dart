@@ -2,31 +2,31 @@ import 'package:vartalap/models/user.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:contacts_service/contacts_service.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:vartalap/services/auth_service.dart';
 
 class UserService {
   static User _user;
-
+  static AuthService _authService = AuthService.instance;
   static Future<bool> sendOTP(String phoneNumber) {
-    return Future<bool>(() => true);
+    return _authService.sendOtp(phoneNumber);
   }
 
-  static Future<bool> authenicate(String otp) {
-    bool status = false;
-    if (otp == "123456") {
-      status = true;
+  static Future<bool> authenicate(String otp) async {
+    AuthResponse result = await _authService.verify(otp);
+    if (result.status) {
       getLoggedInUser();
     }
-    return Future<bool>(() => status);
+    return result.status;
   }
 
   static Future<bool> isAuth() {
-    return Future<bool>(() => _user != null);
+    return Future<bool>(() => _authService.isLoggedIn());
   }
 
   static User getLoggedInUser() {
     if (_user == null) {
       // fetch the current user
-      _user = User("Raman", "8684892130", null);
+      _user = User("Raman", _authService.phoneNumber, null);
     }
     return _user;
   }

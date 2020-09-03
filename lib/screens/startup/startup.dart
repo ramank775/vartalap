@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/login.dart';
+import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -18,6 +19,7 @@ class StartupScreenState extends State<StartupScreen> {
   void initState() {
     super.initState();
     Timer(Duration(seconds: 1), () async {
+      await AuthService.init();
       bool isLoggedIn = await UserService.isAuth();
       if (!isLoggedIn) {
         Navigator.pushReplacement(
