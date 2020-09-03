@@ -42,6 +42,9 @@ class MyApp extends StatelessWidget {
       print("Settings");
       print(settings);
       switch (settings.name) {
+        case '/':
+          widget = new StartupScreen();
+          break;
         case '/chats':
           widget = new Chats();
           break;

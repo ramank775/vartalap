@@ -5,6 +5,24 @@ import 'package:sqflite/sqflite.dart';
 
 class UserService {
   static User _user;
+
+  static Future<bool> sendOTP(String phoneNumber) {
+    return Future<bool>(() => true);
+  }
+
+  static Future<bool> authenicate(String otp) {
+    bool status = false;
+    if (otp == "123456") {
+      status = true;
+      getLoggedInUser();
+    }
+    return Future<bool>(() => status);
+  }
+
+  static Future<bool> isAuth() {
+    return Future<bool>(() => _user != null);
+  }
+
   static User getLoggedInUser() {
     if (_user == null) {
       // fetch the current user

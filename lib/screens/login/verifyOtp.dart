@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/keyboard/keyboard.dart';
+import 'package:vartalap/services/user_service.dart';
 
 class VerifyOtpWidget extends StatefulWidget {
   @override
@@ -94,7 +95,22 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                         horizontal: 20, vertical: 10),
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: RaisedButton(
-                      onPressed: () {},
+                      onPressed: () async {
+                        bool result = await UserService.authenicate(this._otp);
+                        if (!result) {
+                          SnackBar(
+                            behavior: SnackBarBehavior.floating,
+                            backgroundColor: Colors.red,
+                            content: Text(
+                              'Incorrect one time password! Try again',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.of(context)
+                            .pushNamedAndRemoveUntil('/', (route) => false);
+                      },
                       color: Theme.of(context).primaryColor,
                       shape: const RoundedRectangleBorder(
                           borderRadius: BorderRadius.all(Radius.circular(14))),
@@ -135,9 +151,11 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                         color: Theme.of(context).primaryColor,
                       ),
                       rightButtonFn: () {
-                        setState(() {
-                          _otp = _otp.substring(0, _otp.length - 1);
-                        });
+                        if (_otp.length > 0) {
+                          setState(() {
+                            _otp = _otp.substring(0, _otp.length - 1);
+                          });
+                        }
                       },
                     ),
                   ),

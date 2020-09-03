@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/login/verifyOtp.dart';
+import 'package:vartalap/services/user_service.dart';
 
 class LoginScreen extends StatelessWidget {
   final TextEditingController _phoneController = TextEditingController();
@@ -97,12 +98,23 @@ class LoginScreen extends StatelessWidget {
                         horizontal: 20, vertical: 10),
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: RaisedButton(
-                      onPressed: () {
+                      onPressed: () async {
                         if (_phoneController.text.isNotEmpty) {
-                          Navigator.of(context).push(MaterialPageRoute(
-                              builder: (ctx) => VerifyOtpWidget()));
-                          // loginStore.getCodeWithPhoneNumber(
-                          //     context, phoneController.text.toString());
+                          bool status =
+                              await UserService.sendOTP(_phoneController.text);
+                          if (status) {
+                            Navigator.of(context).push(MaterialPageRoute(
+                                builder: (ctx) => VerifyOtpWidget()));
+                            return;
+                          }
+                          SnackBar(
+                            behavior: SnackBarBehavior.floating,
+                            backgroundColor: Colors.red,
+                            content: Text(
+                              'Unable to send one time password. Please try again after sometime',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          );
                         } else {
                           SnackBar(
                             behavior: SnackBarBehavior.floating,

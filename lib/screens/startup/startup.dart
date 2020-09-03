@@ -17,19 +17,30 @@ class StartupScreenState extends State<StartupScreen> {
   @override
   void initState() {
     super.initState();
-    Timer(Duration(seconds: 1), () {
-      Permission.contacts.request().then((value) async {
-        if (value.isGranted) {
-          await UserService.syncContacts();
-          Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (ctx) => LoginScreen()));
-          // Navigator.pushReplacement(
-          //     context, MaterialPageRoute(builder: (context) => Chats()));
-        }
-        if (value.isPermanentlyDenied) {
-          openAppSettings();
-        }
-      });
+    Timer(Duration(seconds: 1), () async {
+      bool isLoggedIn = await UserService.isAuth();
+      if (!isLoggedIn) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => LoginScreen(),
+          ),
+        );
+        return;
+      }
+      var value = await Permission.contacts.request();
+      if (value.isGranted) {
+        await UserService.syncContacts();
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => Chats(),
+          ),
+        );
+      }
+      if (value.isPermanentlyDenied) {
+        openAppSettings();
+      }
     });
   }
 
