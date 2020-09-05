@@ -3,6 +3,7 @@ import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:contacts_service/contacts_service.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/utils/phone_number.dart';
 
 class UserService {
   static User _user;
@@ -26,7 +27,7 @@ class UserService {
   static User getLoggedInUser() {
     if (_user == null) {
       // fetch the current user
-      _user = User("Raman", _authService.phoneNumber, null);
+      _user = User("Myself", _authService.phoneNumber, null);
     }
     return _user;
   }
@@ -49,11 +50,15 @@ class UserService {
 
   static Future<void> syncContacts() async {
     var users = await _getContacts();
+    var currentUser = UserService.getLoggedInUser();
+    if (!users.any((user) => user.username == currentUser.username)) {
+      users.add(currentUser);
+    }
     // verify with the service with the users has account or not
     Database db = await DB().getDb();
     Batch batch = db.batch();
     users.forEach((user) {
-      batch.rawInsert("""INSERT OR IGNORE INTO user (
+      batch.rawInsert("""INSERT OR REPLACE INTO user (
         username,
         name,
         pic,
@@ -68,7 +73,10 @@ class UserService {
     List<User> users = [];
     contacts.forEach((contact) {
       contact.phones.forEach((phone) {
-        users.add(User(contact.displayName, phone.value, null));
+        String phoneNumber = normalizePhoneNumber(phone.value);
+        if (phoneNumber != null) {
+          users.add(User(contact.displayName, phoneNumber, null));
+        }
       });
     });
     return users;
