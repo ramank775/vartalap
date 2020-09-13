@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/login.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -19,6 +20,8 @@ class StartupScreenState extends State<StartupScreen> {
   void initState() {
     super.initState();
     Timer(Duration(seconds: 1), () async {
+      var configStore = ConfigStore();
+      await configStore.loadConfig();
       await AuthService.init();
       bool isLoggedIn = await UserService.isAuth();
       if (!isLoggedIn) {
