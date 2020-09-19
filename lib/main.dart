@@ -1,14 +1,20 @@
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'screens/chats/chats.dart';
 import 'screens/chat/chat.dart';
 import 'screens/new_chat/new_chat.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(Home());
 }
 
-class MyApp extends StatelessWidget {
+class Home extends StatefulWidget {
+  @override
+  HomeState createState() => HomeState();
+}
+
+class HomeState extends State<Home> {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
@@ -34,6 +40,12 @@ class MyApp extends StatelessWidget {
       onGenerateRoute: _routes(),
       home: new StartupScreen(),
     );
+
+    @override
+    void dispose() {
+      ChatService.dispose();
+      super.dispose();
+    }
   }
 
   RouteFactory _routes() {

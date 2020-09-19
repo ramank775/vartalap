@@ -1,11 +1,53 @@
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
+import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
+import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
 class ChatService {
+  static Future<void> init() async {
+    await SocketService.instance.init();
+    SocketService.instance.stream.listen((msg) async {
+      if (msg.type == MessageType.NOTIFICATION) {
+        if (msg.from == SocketService.name) {
+          var db = await DB().getDb();
+          await db.update(
+              "message",
+              {
+                "state": enumToInt(msg.state, MessageState.values),
+              },
+              where: "id=?",
+              whereArgs: [msg.msgId]);
+        }
+      } else {
+        Chat chat = await _getChatById(msg.from);
+        if (chat == null) {
+          User user = await UserService.getUserById(msg.from);
+          if (user == null) {
+            user = User(msg.from, msg.from, null);
+            user.hasAccount = true;
+            await UserService.addUser(user);
+          }
+          chat = Chat(msg.chatId, user.name, user.pic);
+          chat.addUser(ChatUser.fromUser(user));
+          var self = UserService.getLoggedInUser();
+          chat.addUser(ChatUser.fromUser(self));
+          await _saveChat(chat);
+        }
+        Message _msg = Message(msg.msgId, chat.id, msg.from, msg.text,
+            MessageState.NEW, DateTime.now().millisecondsSinceEpoch, msg.type);
+        await _saveMessage(_msg);
+      }
+    });
+  }
+
+  static void dispose() {
+    SocketService.instance.dispose();
+  }
+
   static Future<List<ChatPreview>> getChats() async {
     var db = await DB().getDb();
     var sql = """Select chat.*, 
@@ -20,8 +62,12 @@ class ChatService {
     )
     order by message.ts desc;""";
     var result = await db.rawQuery(sql);
-    print(result);
     return result.map((e) => ChatPreview.fromMap(e)).toList();
+  }
+
+  static Future<List<ChatUser>> getChatUserByid(String chatid) async {
+    List<ChatUser> users = await _getChatUser(chatid);
+    return users;
   }
 
   static Future<bool> deleteChats(List<Chat> chats) async {
@@ -57,6 +103,8 @@ class ChatService {
       await _saveChat(chat);
     }
     await _saveMessage(msg);
+    SocketMessage smsg = SocketMessage.fromChatMessage(msg, chat);
+    await SocketService.instance.send(smsg);
   }
 
   static Future<List<Message>> getChatMessages(String chatid) async {

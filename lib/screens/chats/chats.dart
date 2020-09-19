@@ -56,10 +56,16 @@ class ChatsState extends State<Chats> {
               itemCount: data.length,
               itemBuilder: (context, i) => new ChatPreviewWidget(
                 data[i],
-                (Chat chat) {
+                (Chat chat) async {
                   if (this._selectedChats.length > 0) {
                     this.selectOrRemove(chat);
                     return;
+                  }
+                  if (chat.users.length == 0) {
+                    var _users = await ChatService.getChatUserByid(chat.id);
+                    _users.forEach((u) {
+                      chat.addUser(u);
+                    });
                   }
                   navigate(context, '/chat', data: chat);
                 },

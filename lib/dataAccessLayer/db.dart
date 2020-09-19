@@ -62,6 +62,16 @@ class DB {
       FOREIGN KEY(chatid) REFERENCES chat(id),
       FOREIGN KEY(senderid) REFERENCES user(username)
     );""");
+
+    batch.execute("""CREATE TABLE out_message (
+      id int PRIMARY KEY,
+      messageId TEXT,
+      message TEXT,
+      sent NUMBER,
+      created_ts NUMBER,
+      sent_ts NUMBER,
+      retry_count NUMBER DEFAULT 0
+    );""");
     batch.commit();
   }
 

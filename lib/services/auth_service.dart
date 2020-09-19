@@ -128,13 +128,15 @@ class AuthService {
     try {
       String _phoneNumber = await _storage.read(key: 'phoneNumber');
       if (_phoneNumber != null) {
-        _instance._phoneNumber = _phoneNumber;
+        instance._phoneNumber = _phoneNumber;
       }
       String _resendToken = await _storage.read(key: 'resendToken');
       if (_resendToken != null) {
-        _instance._resendToken = int.parse(_resendToken);
+        instance._resendToken = int.parse(_resendToken);
       }
-      _instance._user = _instance._auth.currentUser;
-    } catch (e) {}
+      instance._user = _instance._auth.currentUser;
+    } catch (e) {
+      print(e);
+    }
   }
 }

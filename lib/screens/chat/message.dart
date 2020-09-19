@@ -110,7 +110,7 @@ class MessageWidget extends StatelessWidget {
 
   Widget _getIcon() {
     IconData icon = Icons.access_time;
-    Color color = Colors.grey;
+    Color color = Colors.white;
     switch (this._msg.state) {
       case MessageState.NEW:
         icon = Icons.access_time;

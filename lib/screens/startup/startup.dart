@@ -4,6 +4,7 @@ import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/login.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -33,6 +34,7 @@ class StartupScreenState extends State<StartupScreen> {
         );
         return;
       }
+      await ChatService.init();
       var value = await Permission.contacts.request();
       if (value.isGranted) {
         await UserService.syncContacts();

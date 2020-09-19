@@ -2,6 +2,7 @@ import 'package:vartalap/models/user.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:contacts_service/contacts_service.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/utils/phone_number.dart';
 
@@ -34,7 +35,11 @@ class UserService {
 
   static Future<User> getUserById(String username) async {
     var db = await DB().getDb();
-    var userMap = await db.query('user', where: "id=?", whereArgs: [username]);
+    var userMap =
+        await db.query('user', where: "username=?", whereArgs: [username]);
+    if (userMap.length == 0) {
+      return null;
+    }
     return User.fromMap(userMap[0]);
   }
 
@@ -43,9 +48,14 @@ class UserService {
       await syncContacts();
     }
     Database db = await DB().getDb();
-    var userMap = await db.query('user');
+    var userMap = await db.query('user', where: "hasAccount=?", whereArgs: [1]);
     var users = userMap.map((e) => User.fromMap(e)).toList();
     return users;
+  }
+
+  static Future<void> addUser(User user) async {
+    var db = await DB().getDb();
+    await db.insert("user", user.toMap());
   }
 
   static Future<void> syncContacts() async {
@@ -54,7 +64,17 @@ class UserService {
     if (!users.any((user) => user.username == currentUser.username)) {
       users.add(currentUser);
     }
-    // verify with the service with the users has account or not
+    try {
+      var result =
+          await ApiService.syncContact(users.map((e) => e.username).toList());
+      users.forEach((user) {
+        user.hasAccount =
+            result.containsKey(user.username) ? result[user.username] : false;
+      });
+    } catch (e) {
+      print(e);
+      return;
+    }
     Database db = await DB().getDb();
     Batch batch = db.batch();
     users.forEach((user) {
