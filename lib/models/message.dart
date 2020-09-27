@@ -72,6 +72,10 @@ class Message {
         (++_number).toString();
   }
 
+  void updateState(MessageState state) {
+    this._state = state;
+  }
+
   int get hashCode => "message_$id".hashCode;
 
   @override

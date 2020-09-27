@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
+import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/screens/profile_img/profile_img.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'message.dart';
@@ -22,11 +26,20 @@ class ChatState extends State<ChatScreen> {
   Future<List<Message>> _fMessages;
   List<Message> _messages;
   List<Message> _selectedMessges = [];
+  StreamSubscription _notificationSub;
+  StreamSubscription _newMessageSub;
+
   ChatState(this._chat);
   @override
   void initState() {
     super.initState();
     this._fMessages = ChatService.getChatMessages(this._chat.id);
+    _notificationSub = ChatService.onNotificationMessagStream
+        .where((msg) => msg.chatId == this._chat.id)
+        .listen(_onNotification);
+    _newMessageSub = ChatService.onNewMessageStream
+        .where((msg) => msg.chatId == this._chat.id)
+        .listen(_onNewMessage);
   }
 
   @override
@@ -147,12 +160,9 @@ class ChatState extends State<ChatScreen> {
                 }),
           ),
           new MessageInputWidget(sendMessage: (String text) async {
-            print("Text: $text");
             var msg = Message.chatMessage(this._chat.id,
                 this.widget.currentUser.username, text, MessageType.TEXT);
             msg.sender = this.widget.currentUser;
-            var msgText = msg.text;
-            print("Message text: $msgText");
             await ChatService.sendMessage(msg, this._chat);
             setState(() {
               _messages.insert(0, msg);
@@ -197,5 +207,31 @@ class ChatState extends State<ChatScreen> {
     }
     actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
     return actions;
+  }
+
+  void _onNotification(SocketMessage msg) {
+    if (msg.from == SocketService.name) {
+      setState(() {
+        this._messages = this._messages.map<Message>((_msg) {
+          if (_msg.id == msg.msgId) {
+            _msg.updateState(msg.state);
+          }
+          return _msg;
+        }).toList();
+      });
+    }
+  }
+
+  void _onNewMessage(SocketMessage msg) {
+    setState(() {
+      this._messages.insert(0, msg.toMessage());
+    });
+  }
+
+  @override
+  void dispose() {
+    _notificationSub.cancel();
+    _newMessageSub.cancel();
+    super.dispose();
   }
 }

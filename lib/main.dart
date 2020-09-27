@@ -40,19 +40,11 @@ class HomeState extends State<Home> {
       onGenerateRoute: _routes(),
       home: new StartupScreen(),
     );
-
-    @override
-    void dispose() {
-      ChatService.dispose();
-      super.dispose();
-    }
   }
 
   RouteFactory _routes() {
     return (RouteSettings settings) {
       Widget widget;
-      print("Settings");
-      print(settings);
       switch (settings.name) {
         case '/':
           widget = new StartupScreen();
@@ -71,5 +63,11 @@ class HomeState extends State<Home> {
       }
       return new MaterialPageRoute(builder: (BuildContext context) => widget);
     };
+  }
+
+  @override
+  void dispose() {
+    ChatService.dispose();
+    super.dispose();
   }
 }

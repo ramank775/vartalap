@@ -28,9 +28,11 @@ class SocketMessage {
     this.to = map["to"];
     this.from = map["from"];
     this.type = stringToEnum(map["type"], MessageType.values);
-    this.chatId = map["chatId"];
     this.text = map["text"];
-    this.state = stringToEnum(map["state"], MessageState.values);
+    this.chatId = map["chatId"] != null ? map["chatId"] : this.from;
+    this.state = map["state"] != null
+        ? stringToEnum(map["state"], MessageState.values)
+        : MessageState.NEW;
   }
 
   Map<String, dynamic> toMap() {
@@ -44,5 +46,12 @@ class SocketMessage {
       "state": enumToString(this.state)
     };
     return map;
+  }
+
+  Message toMessage() {
+    Message msg = Message(this.msgId, this.chatId, this.from, this.text,
+        MessageState.NEW, DateTime.now().millisecondsSinceEpoch, this.type);
+
+    return msg;
   }
 }

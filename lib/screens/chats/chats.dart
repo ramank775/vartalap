@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:vartalap/models/chat.dart';
+import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/screens/chats/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +14,7 @@ class Chats extends StatefulWidget {
 class ChatsState extends State<Chats> {
   Future<List<ChatPreview>> _fChats;
   List<ChatPreview> _selectedChats = [];
+
   @override
   void initState() {
     super.initState();
@@ -51,33 +55,17 @@ class ChatsState extends State<Chats> {
                   );
                 }
             }
-            var data = snapshot.data;
-            return ListView.builder(
-              itemCount: data.length,
-              itemBuilder: (context, i) => new ChatPreviewWidget(
-                data[i],
-                (Chat chat) async {
-                  if (this._selectedChats.length > 0) {
-                    this.selectOrRemove(chat);
-                    return;
-                  }
-                  if (chat.users.length == 0) {
-                    var _users = await ChatService.getChatUserByid(chat.id);
-                    _users.forEach((u) {
-                      chat.addUser(u);
-                    });
-                  }
-                  navigate(context, '/chat', data: chat);
-                },
-                this.selectOrRemove,
-                isSelected: _selectedChats.contains(data[i]),
-              ),
+            return ChatListView(
+              chats: snapshot.data,
+              selectedChats: _selectedChats,
+              selectOrRemove: this.selectOrRemove,
+              navigate: this.navigate,
             );
           },
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => navigate(context, '/new-chat'),
+        onPressed: () => navigate('/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
       ),
@@ -118,8 +106,7 @@ class ChatsState extends State<Chats> {
     return actions;
   }
 
-  Future<void> navigate(BuildContext context, String screen,
-      {Object data}) async {
+  Future<void> navigate(String screen, {Object data}) async {
     var result = await Navigator.pushNamed(context, screen, arguments: data);
     if (screen == "/new-chat") {
       if (result == null) {
@@ -132,5 +119,90 @@ class ChatsState extends State<Chats> {
     setState(() {
       _fChats = ChatService.getChats();
     });
+  }
+}
+
+class ChatListView extends StatefulWidget {
+  const ChatListView(
+      {Key key,
+      @required List<ChatPreview> chats,
+      @required List<ChatPreview> selectedChats,
+      @required Function selectOrRemove,
+      @required Function navigate})
+      : _chats = chats,
+        _selectedChats = selectedChats,
+        _selectOrRemove = selectOrRemove,
+        _navigate = navigate,
+        super(key: key);
+
+  final List<ChatPreview> _chats;
+  final List<ChatPreview> _selectedChats;
+  final Function _selectOrRemove;
+  final Function _navigate;
+
+  @override
+  State<StatefulWidget> createState() => ChatListViewState();
+}
+
+class ChatListViewState extends State<ChatListView> {
+  StreamSubscription _newMessageSub;
+  List<ChatPreview> _chats;
+  @override
+  void initState() {
+    super.initState();
+    _chats = widget._chats;
+    _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      itemCount: _chats.length,
+      itemBuilder: (context, i) => new ChatPreviewWidget(
+        _chats[i],
+        (Chat chat) async {
+          if (widget._selectedChats.length > 0) {
+            widget._selectOrRemove(chat);
+            return;
+          }
+          if (chat.users.length == 0) {
+            var _users = await ChatService.getChatUserByid(chat.id);
+            _users.forEach((u) {
+              chat.addUser(u);
+            });
+          }
+          widget._navigate('/chat', data: chat);
+        },
+        widget._selectOrRemove,
+        isSelected: widget._selectedChats.contains(widget._chats[i]),
+      ),
+    );
+  }
+
+  _onNewMessage(SocketMessage msg) async {
+    var chat = _chats.firstWhere((_chat) => _chat.id == msg.chatId,
+        orElse: () => null);
+    if (chat == null) {
+      chat = await ChatService.getChatById(msg.chatId);
+      setState(() {
+        widget._chats.add(chat);
+      });
+      return;
+    } else {
+      var _msg = msg.toMessage();
+      chat =
+          ChatPreview(chat.id, chat.title, chat.pic, _msg.text, _msg.timestamp);
+    }
+    var chats = _chats.where((_chat) => _chat.id != msg.chatId).toList();
+    chats.add(chat);
+    setState(() {
+      _chats = chats;
+    });
+  }
+
+  @override
+  void dispose() {
+    _newMessageSub.cancel();
+    super.dispose();
   }
 }

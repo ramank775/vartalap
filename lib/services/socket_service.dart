@@ -22,12 +22,12 @@ class SocketService {
   StreamSubscription<ConnectivityResult> _connectivitySub;
   StreamController<SocketMessage> _controller;
   WebSocket _channel;
-  Stream<SocketMessage> get stream => _controller.stream;
+  Stream<SocketMessage> get stream => _controller.stream.asBroadcastStream();
 
   Future<void> init() async {
     _url = ConfigStore().get("ws_url");
     await _connectWs();
-    _controller = StreamController<SocketMessage>();
+    _controller = StreamController<SocketMessage>.broadcast();
   }
 
   Future<void> send(SocketMessage msg) async {
@@ -49,14 +49,8 @@ class SocketService {
       return;
     }
     _channel.add(msgStr);
-    db.update(
-        "out_message",
-        {
-          "sent": 1,
-          "sent_ts": DateTime.now().millisecondsSinceEpoch,
-        },
-        where: "messageId=?",
-        whereArgs: [msg.msgId]);
+    await db
+        .delete("out_message", where: "messageId=?", whereArgs: [msg.msgId]);
     msg = SocketMessage.fromMap(msgMap);
     msg.from = name;
     msg.state = MessageState.SENT;
@@ -131,14 +125,32 @@ class SocketService {
   }
 
   void _onNewMessage(event) {
+    if (event is List<String>) {
+      for (var e in event) {
+        _onNewMessage(e);
+      }
+      return;
+    }
     dynamic incomming = json.decode(event);
 
     if (incomming is Map) {
-      var message = SocketMessage.fromMap(incomming);
-      _controller.sink.add(message);
+      try {
+        var message = SocketMessage.fromMap(incomming);
+        _controller.sink.add(message);
+      } catch (ex) {
+        print("Exception while decoding server msg: ${ex.toString()}");
+      }
     } else if (incomming is List) {
       for (var msg in incomming) {
-        _controller.sink.add(SocketMessage.fromMap(msg));
+        if (msg is String) {
+          _onNewMessage(msg);
+        } else if (msg is Map) {
+          try {
+            _controller.sink.add(SocketMessage.fromMap(msg));
+          } catch (e) {
+            print("Exception while decoding server msg : ${msg.toString()}");
+          }
+        }
       }
     }
   }

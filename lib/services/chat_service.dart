@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
@@ -8,40 +10,19 @@ import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
 class ChatService {
+  static Stream<SocketMessage> onNewMessageStream;
+  static Stream<SocketMessage> onNotificationMessagStream;
+
   static Future<void> init() async {
     await SocketService.instance.init();
-    SocketService.instance.stream.listen((msg) async {
-      if (msg.type == MessageType.NOTIFICATION) {
-        if (msg.from == SocketService.name) {
-          var db = await DB().getDb();
-          await db.update(
-              "message",
-              {
-                "state": enumToInt(msg.state, MessageState.values),
-              },
-              where: "id=?",
-              whereArgs: [msg.msgId]);
-        }
-      } else {
-        Chat chat = await _getChatById(msg.from);
-        if (chat == null) {
-          User user = await UserService.getUserById(msg.from);
-          if (user == null) {
-            user = User(msg.from, msg.from, null);
-            user.hasAccount = true;
-            await UserService.addUser(user);
-          }
-          chat = Chat(msg.chatId, user.name, user.pic);
-          chat.addUser(ChatUser.fromUser(user));
-          var self = UserService.getLoggedInUser();
-          chat.addUser(ChatUser.fromUser(self));
-          await _saveChat(chat);
-        }
-        Message _msg = Message(msg.msgId, chat.id, msg.from, msg.text,
-            MessageState.NEW, DateTime.now().millisecondsSinceEpoch, msg.type);
-        await _saveMessage(_msg);
-      }
-    });
+    onNewMessageStream = SocketService.instance.stream
+        .where((msg) => msg.type != MessageType.NOTIFICATION)
+        .asyncMap(_onNewMessage)
+        .asBroadcastStream();
+    onNotificationMessagStream = SocketService.instance.stream
+        .where((msg) => msg.type == MessageType.NOTIFICATION)
+        .asyncMap(_onNotificationMsg)
+        .asBroadcastStream();
   }
 
   static void dispose() {
@@ -63,6 +44,24 @@ class ChatService {
     order by message.ts desc;""";
     var result = await db.rawQuery(sql);
     return result.map((e) => ChatPreview.fromMap(e)).toList();
+  }
+
+  static Future<ChatPreview> getChatById(String chatid) async {
+    var db = await DB().getDb();
+    var sql = """Select chat.*, 
+    message.senderid, message.text, message.text, message.state, message.ts 
+    from chat
+    inner join message on message.id in (
+      select id 
+      from message
+      where chatid == chat.id
+      order by ts desc
+      Limit 1
+    )
+    where chat.id=?
+    order by message.ts desc;""";
+    var result = await db.rawQuery(sql, [chatid]);
+    return ChatPreview.fromMap(result[0]);
   }
 
   static Future<List<ChatUser>> getChatUserByid(String chatid) async {
@@ -181,5 +180,40 @@ class ChatService {
     var result = await db.insert("message", msg.toMap());
     print("Save Msg Result : $result");
     return result > 0;
+  }
+
+  static Future<SocketMessage> _onNewMessage(SocketMessage msg) async {
+    Chat chat = await _getChatById(msg.chatId);
+    if (chat == null) {
+      User user = await UserService.getUserById(msg.from);
+      if (user == null) {
+        user = User(msg.from, msg.from, null);
+        user.hasAccount = true;
+        await UserService.addUser(user);
+      }
+      chat = Chat(msg.chatId, user.name, user.pic);
+      chat.addUser(ChatUser.fromUser(user));
+      var self = UserService.getLoggedInUser();
+      chat.addUser(ChatUser.fromUser(self));
+      await _saveChat(chat);
+    }
+    Message _msg = Message(msg.msgId, chat.id, msg.from, msg.text,
+        MessageState.NEW, DateTime.now().millisecondsSinceEpoch, msg.type);
+    await _saveMessage(_msg);
+    return msg;
+  }
+
+  static Future<SocketMessage> _onNotificationMsg(SocketMessage msg) async {
+    if (msg.from == SocketService.name) {
+      var db = await DB().getDb();
+      await db.update(
+          "message",
+          {
+            "state": enumToInt(msg.state, MessageState.values),
+          },
+          where: "id=?",
+          whereArgs: [msg.msgId]);
+    }
+    return msg;
   }
 }

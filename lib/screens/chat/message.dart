@@ -84,8 +84,7 @@ class MessageWidget extends StatelessWidget {
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: <Widget>[
                                   Text(
-                                    'Today',
-                                    // new DateFormat('HH:mm').format(timestamp),
+                                    getTimestamp(),
                                     style: TextStyle(
                                       color: Colors.black,
                                       fontSize: 12.0,
@@ -128,5 +127,18 @@ class MessageWidget extends StatelessWidget {
       size: 15.0,
       color: color,
     );
+  }
+
+  String getTimestamp() {
+    var date = DateTime.fromMillisecondsSinceEpoch(this._msg.timestamp);
+    var currentDate = DateTime.now();
+    var format = (int n) => n < 10 ? "0$n" : n;
+
+    if (date.day == currentDate.day &&
+        date.month == currentDate.month &&
+        date.year == currentDate.year) {
+      return "${date.hour}:${format(date.minute)}";
+    }
+    return "${date.day}/${format(date.month)} ${date.hour}:${format(date.minute)}";
   }
 }
