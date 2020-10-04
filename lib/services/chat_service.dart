@@ -31,8 +31,13 @@ class ChatService {
 
   static Future<List<ChatPreview>> getChats() async {
     var db = await DB().getDb();
+    var currentUser = UserService.getLoggedInUser();
     var sql = """Select chat.*, 
-    message.senderid, message.text, message.text, message.state, message.ts 
+    message.senderid, message.text, message.text, message.state, message.ts ,
+    ( select count(*) 
+      from message 
+      where chatid == chat.id and senderid !=? and state == 0
+    ) unread
     from chat
     inner join message on message.id in (
       select id 
@@ -42,14 +47,19 @@ class ChatService {
       Limit 1
     )
     order by message.ts desc;""";
-    var result = await db.rawQuery(sql);
+    var result = await db.rawQuery(sql, [currentUser.username]);
     return result.map((e) => ChatPreview.fromMap(e)).toList();
   }
 
   static Future<ChatPreview> getChatById(String chatid) async {
     var db = await DB().getDb();
+    var currentUser = UserService.getLoggedInUser();
     var sql = """Select chat.*, 
-    message.senderid, message.text, message.text, message.state, message.ts 
+    message.senderid, message.text, message.text, message.state, message.ts ,
+    ( select count(*) 
+      from message 
+      where message.chatid == chat.id and message.senderid !=? and message.state = 0
+    ) unread
     from chat
     inner join message on message.id in (
       select id 
@@ -60,7 +70,7 @@ class ChatService {
     )
     where chat.id=?
     order by message.ts desc;""";
-    var result = await db.rawQuery(sql, [chatid]);
+    var result = await db.rawQuery(sql, [currentUser.username, chatid]);
     return ChatPreview.fromMap(result[0]);
   }
 
@@ -129,6 +139,21 @@ class ChatService {
     }
     var result = await batch.commit();
     return result.length > 0;
+  }
+
+  static Future markAsDelivered(List<String> msgIds) async {
+    var db = await DB().getDb();
+    var batch = db.batch();
+    msgIds.forEach((id) {
+      batch.update(
+          "message",
+          {
+            "state": enumToInt(MessageState.DELIVERED, MessageState.values),
+          },
+          where: "id=?",
+          whereArgs: [id]);
+    });
+    await batch.commit();
   }
 
   static Future<Chat> _getChatById(String chatid) async {

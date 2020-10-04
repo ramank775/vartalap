@@ -48,14 +48,16 @@ class SocketService {
           where: "messageId=?", whereArgs: [msg.msgId]);
       return;
     }
-    _channel.add(msgStr);
-    await db
-        .delete("out_message", where: "messageId=?", whereArgs: [msg.msgId]);
-    msg = SocketMessage.fromMap(msgMap);
-    msg.from = name;
-    msg.state = MessageState.SENT;
-    msg.type = MessageType.NOTIFICATION;
-    _controller.sink.add(msg);
+    try {
+      _channel.add(msgStr);
+      await db
+          .delete("out_message", where: "messageId=?", whereArgs: [msg.msgId]);
+      msg = SocketMessage.fromMap(msgMap);
+      msg.from = name;
+      msg.state = MessageState.SENT;
+      msg.type = MessageType.NOTIFICATION;
+      _controller.sink.add(msg);
+    } catch (e) {}
   }
 
   void dispose() {

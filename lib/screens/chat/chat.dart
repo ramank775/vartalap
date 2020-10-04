@@ -28,6 +28,8 @@ class ChatState extends State<ChatScreen> {
   List<Message> _selectedMessges = [];
   StreamSubscription _notificationSub;
   StreamSubscription _newMessageSub;
+  Timer _readTimer;
+  List<Message> _unreadMessages = [];
 
   ChatState(this._chat);
   @override
@@ -135,6 +137,11 @@ class ChatState extends State<ChatScreen> {
                           child: Text('Error: ${snapshot.error}'),
                         );
                       }
+                      if (_readTimer != null && _readTimer.isActive) {
+                        _readTimer.cancel();
+                      }
+                      _readTimer =
+                          Timer(Duration(seconds: 1), _onReadTimerTimeout);
                       this._messages = snapshot.data;
                       return ListView.builder(
                           itemCount: this._messages.length,
@@ -223,13 +230,34 @@ class ChatState extends State<ChatScreen> {
   }
 
   void _onNewMessage(SocketMessage msg) {
+    var message = msg.toMessage();
+
     setState(() {
-      this._messages.insert(0, msg.toMessage());
+      this._unreadMessages.add(message);
+      this._messages.insert(0, message);
     });
+    if (_readTimer != null && !_readTimer.isActive) {
+      _readTimer = Timer(Duration(seconds: 1), _onReadTimerTimeout);
+    }
+  }
+
+  void _onReadTimerTimeout() {
+    var messages = this
+        ._messages
+        .where((msg) => (msg.senderId != this.widget.currentUser.username &&
+            msg.state == MessageState.NEW))
+        .map((e) => e.id)
+        .toList();
+    if (_unreadMessages.length > 0) {
+      messages.addAll(_unreadMessages.map((e) => e.id));
+      _unreadMessages = [];
+    }
+    ChatService.markAsDelivered(messages);
   }
 
   @override
   void dispose() {
+    _readTimer.cancel();
     _notificationSub.cancel();
     _newMessageSub.cancel();
     super.dispose();

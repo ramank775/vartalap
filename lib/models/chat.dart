@@ -82,14 +82,18 @@ class Chat {
 class ChatPreview extends Chat {
   String _content;
   int _ts;
-  ChatPreview(String id, String title, String pic, this._content, this._ts)
+  int _unread;
+  ChatPreview(String id, String title, String pic, this._content, this._ts,
+      this._unread)
       : super(id, title, pic);
 
   ChatPreview.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
     this._content = map["text"];
     this._ts = map["ts"];
+    this._unread = map["unread"] == null ? 0 : map["unread"];
   }
 
   String get content => this._content;
   int get ts => this._ts;
+  int get unread => this._unread;
 }

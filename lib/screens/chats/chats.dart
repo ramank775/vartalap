@@ -190,8 +190,8 @@ class ChatListViewState extends State<ChatListView> {
       return;
     } else {
       var _msg = msg.toMessage();
-      chat =
-          ChatPreview(chat.id, chat.title, chat.pic, _msg.text, _msg.timestamp);
+      chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.text,
+          _msg.timestamp, (chat.unread + 1));
     }
     var chats = _chats.where((_chat) => _chat.id != msg.chatId).toList();
     chats.add(chat);
