@@ -91,9 +91,10 @@ class ChatService {
   }
 
   static Future<Chat> newIndiviualChat(User user) async {
-    Chat chat = await _getChatById(user.username);
+    var chatid = _createIndiviualChatId(user);
+    Chat chat = await _getChatById(chatid);
     if (chat == null) {
-      chat = Chat(user.username, user.name, user.pic);
+      chat = Chat(chatid, user.name, user.pic);
       chat.addUser(ChatUser.fromUser(user));
       var currentUser = ChatUser.fromUser(UserService.getLoggedInUser());
       chat.addUser(currentUser);
@@ -240,5 +241,13 @@ class ChatService {
           whereArgs: [msg.msgId]);
     }
     return msg;
+  }
+
+  static String _createIndiviualChatId(User user) {
+    var currentUser = UserService.getLoggedInUser();
+    var users = [user.username, currentUser.username];
+    users.sort();
+    users = users.map((e) => e.replaceAll('+', ''));
+    return users.join();
   }
 }

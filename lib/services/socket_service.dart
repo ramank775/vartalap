@@ -57,7 +57,10 @@ class SocketService {
       msg.state = MessageState.SENT;
       msg.type = MessageType.NOTIFICATION;
       _controller.sink.add(msg);
-    } catch (e) {}
+    } catch (e) {
+      await db.update("out_message", {"sent": -1},
+          where: "messageId=?", whereArgs: [msg.msgId]);
+    }
   }
 
   void dispose() {
