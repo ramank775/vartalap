@@ -247,7 +247,7 @@ class ChatService {
     var currentUser = UserService.getLoggedInUser();
     var users = [user.username, currentUser.username];
     users.sort();
-    users = users.map((e) => e.replaceAll('+', ''));
+    users = users.map((e) => e.replaceAll('+', '')).toList();
     return users.join();
   }
 }
