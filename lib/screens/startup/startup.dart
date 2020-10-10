@@ -20,9 +20,11 @@ class StartupScreenState extends State<StartupScreen> {
   @override
   void initState() {
     super.initState();
+    List<Future> _promises = [];
+    var configStore = ConfigStore();
+    _promises.add(configStore.loadConfig());
     Timer(Duration(seconds: 1), () async {
-      var configStore = ConfigStore();
-      await configStore.loadConfig();
+      await Future.wait(_promises);
       await AuthService.init();
       bool isLoggedIn = await UserService.isAuth();
       if (!isLoggedIn) {
@@ -34,10 +36,10 @@ class StartupScreenState extends State<StartupScreen> {
         );
         return;
       }
-      await ChatService.init();
+      ChatService.init();
       var value = await Permission.contacts.request();
       if (value.isGranted) {
-        await UserService.syncContacts();
+        UserService.syncContacts();
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(

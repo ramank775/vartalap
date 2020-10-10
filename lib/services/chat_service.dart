@@ -12,9 +12,9 @@ import 'package:vartalap/utils/enum_helper.dart';
 class ChatService {
   static Stream<SocketMessage> onNewMessageStream;
   static Stream<SocketMessage> onNotificationMessagStream;
-
+  static StreamSubscription<SocketMessage> _newMessageSub$;
+  static StreamSubscription<SocketMessage> _notificationSub$;
   static Future<void> init() async {
-    await SocketService.instance.init();
     onNewMessageStream = SocketService.instance.stream
         .where((msg) => msg.type != MessageType.NOTIFICATION)
         .asyncMap(_onNewMessage)
@@ -23,10 +23,15 @@ class ChatService {
         .where((msg) => msg.type == MessageType.NOTIFICATION)
         .asyncMap(_onNotificationMsg)
         .asBroadcastStream();
+    _newMessageSub$ = onNewMessageStream.listen((event) {});
+    _notificationSub$ = onNotificationMessagStream.listen((event) {});
+    await SocketService.instance.init();
   }
 
   static void dispose() {
     SocketService.instance.dispose();
+    _newMessageSub$.cancel();
+    _notificationSub$.cancel();
   }
 
   static Future<List<ChatPreview>> getChats() async {
@@ -209,6 +214,7 @@ class ChatService {
   }
 
   static Future<SocketMessage> _onNewMessage(SocketMessage msg) async {
+    print('new message ${msg.msgId}');
     Chat chat = await _getChatById(msg.chatId);
     if (chat == null) {
       User user = await UserService.getUserById(msg.from);

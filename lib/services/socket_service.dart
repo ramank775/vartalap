@@ -20,14 +20,14 @@ class SocketService {
   bool _closed = false;
   bool _reconnecting = false;
   StreamSubscription<ConnectivityResult> _connectivitySub;
-  StreamController<SocketMessage> _controller;
+  StreamController<SocketMessage> _controller =
+      StreamController<SocketMessage>.broadcast();
   WebSocket _channel;
   Stream<SocketMessage> get stream => _controller.stream.asBroadcastStream();
 
   Future<void> init() async {
     _url = ConfigStore().get("ws_url");
     await _connectWs();
-    _controller = StreamController<SocketMessage>.broadcast();
   }
 
   Future<void> send(SocketMessage msg) async {
