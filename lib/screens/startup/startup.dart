@@ -36,16 +36,18 @@ class StartupScreenState extends State<StartupScreen> {
         );
         return;
       }
-      ChatService.init();
+      _promises = [];
+      _promises.add(ChatService.init());
       var value = await Permission.contacts.request();
       if (value.isGranted) {
-        UserService.syncContacts();
+        _promises.add(UserService.syncContacts());
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => Chats(),
           ),
         );
+        await Future.wait(_promises);
       }
       if (value.isPermanentlyDenied) {
         openAppSettings();

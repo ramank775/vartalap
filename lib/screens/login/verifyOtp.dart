@@ -98,7 +98,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                       onPressed: () async {
                         bool result = await UserService.authenicate(this._otp);
                         if (!result) {
-                          SnackBar(
+                          var snackbar = SnackBar(
                             behavior: SnackBarBehavior.floating,
                             backgroundColor: Colors.red,
                             content: Text(
@@ -106,6 +106,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                               style: TextStyle(color: Colors.white),
                             ),
                           );
+                          Scaffold.of(context).showSnackBar(snackbar);
                           return;
                         }
                         Navigator.of(context)

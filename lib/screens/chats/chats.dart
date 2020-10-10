@@ -194,7 +194,7 @@ class ChatListViewState extends State<ChatListView> {
           _msg.timestamp, (chat.unread + 1));
     }
     var chats = _chats.where((_chat) => _chat.id != msg.chatId).toList();
-    chats.add(chat);
+    chats.insert(0, chat);
     setState(() {
       _chats = chats;
     });

@@ -57,8 +57,6 @@ class MessageInputState extends State<MessageInputWidget> {
           Column(
             children: <Widget>[
               buildInput(),
-
-              // Sticker
               (_isShowSticker ? buildSticker() : Container()),
             ],
           ),
@@ -85,8 +83,6 @@ class MessageInputState extends State<MessageInputWidget> {
                   children: <Widget>[
                     IconButton(
                       padding: const EdgeInsets.all(0.0),
-                      // disabledColor: iconColor,
-                      // color: iconColor,
                       icon: Icon(_isShowSticker
                           ? Icons.keyboard
                           : Icons.insert_emoticon),
@@ -124,11 +120,10 @@ class MessageInputState extends State<MessageInputWidget> {
                         focusNode: _inputFocus,
                       ),
                     ),
-                    IconButton(
-                      // color: iconColor,
-                      icon: Icon(Icons.attach_file),
-                      onPressed: () {},
-                    ),
+                    // IconButton(
+                    //   icon: Icon(Icons.attach_file),
+                    //   onPressed: () {},
+                    // ),
                   ],
                 ),
               ),
