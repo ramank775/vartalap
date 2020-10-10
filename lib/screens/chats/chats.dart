@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/screens/chats/chat_preview.dart';
@@ -14,12 +15,13 @@ class Chats extends StatefulWidget {
 class ChatsState extends State<Chats> {
   Future<List<ChatPreview>> _fChats;
   List<ChatPreview> _selectedChats = [];
-
+  ConfigStore config;
   @override
   void initState() {
     super.initState();
     this._fChats = ChatService.getChats();
     this._selectedChats = [];
+    config = ConfigStore();
   }
 
   @override
@@ -102,7 +104,35 @@ class ChatsState extends State<Chats> {
         },
       ));
     }
-    actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
+    actions.add(PopupMenuButton(
+        itemBuilder: (BuildContext context) => [
+              PopupMenuItem(
+                value: 'About Dialog',
+                child: GestureDetector(
+                  child: Container(
+                    child: Text("About us"),
+                  ),
+                  onTap: () {
+                    Navigator.of(context).pop('About Dialog');
+                    showAboutDialog(
+                      context: context,
+                      applicationName: config.packageInfo.appName,
+                      applicationIcon: Icon(Icons.chat_bubble_outline,
+                          color: Colors.blueAccent, size: 30.0),
+                      applicationVersion:
+                          "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
+                      children: <Widget>[
+                        Text('Vartalap is an open source chat messager.'),
+                        Text(
+                          config.get("description"),
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              )
+            ]));
     return actions;
   }
 

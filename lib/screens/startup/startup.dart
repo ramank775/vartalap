@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:package_info/package_info.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/login.dart';
@@ -17,11 +18,13 @@ class StartupScreen extends StatefulWidget {
 }
 
 class StartupScreenState extends State<StartupScreen> {
+  PackageInfo info;
   @override
   void initState() {
     super.initState();
     List<Future> _promises = [];
     var configStore = ConfigStore();
+    info = configStore.packageInfo;
     _promises.add(configStore.loadConfig());
     Timer(Duration(seconds: 1), () async {
       await Future.wait(_promises);
@@ -83,7 +86,7 @@ class StartupScreenState extends State<StartupScreen> {
                       padding: EdgeInsets.only(top: 10.0),
                     ),
                     Text(
-                      "Vartalap",
+                      info.appName,
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 24.0,
@@ -104,7 +107,7 @@ class StartupScreenState extends State<StartupScreen> {
                       padding: EdgeInsets.only(top: 20.0),
                     ),
                     Text(
-                      "Open source chat messager",
+                      "Open source personal chat messager",
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 18.0,

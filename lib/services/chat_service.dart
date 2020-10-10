@@ -118,6 +118,7 @@ class ChatService {
       await _saveChat(chat);
     }
     await _saveMessage(msg);
+    if (_isSelfChat(chat)) return;
     SocketMessage smsg = SocketMessage.fromChatMessage(msg, chat);
     await SocketService.instance.send(smsg);
   }
@@ -255,5 +256,10 @@ class ChatService {
     users.sort();
     users = users.map((e) => e.replaceAll('+', '')).toList();
     return users.join();
+  }
+
+  static bool _isSelfChat(Chat chat) {
+    var currentUser = UserService.getLoggedInUser();
+    return (chat.users.length == 1 && chat.users.first == currentUser);
   }
 }
