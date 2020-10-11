@@ -6,6 +6,7 @@ import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/screens/chats/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/services/push_notification_service.dart';
 
 class Chats extends StatefulWidget {
   @override
@@ -15,13 +16,23 @@ class Chats extends StatefulWidget {
 class ChatsState extends State<Chats> {
   Future<List<ChatPreview>> _fChats;
   List<ChatPreview> _selectedChats = [];
+
   ConfigStore config;
   @override
   void initState() {
     super.initState();
     this._fChats = ChatService.getChats();
     this._selectedChats = [];
-    config = ConfigStore();
+    this.config = ConfigStore();
+    PushNotificationService.instance.config(
+      onLaunch: (Map<String, dynamic> message) {
+        // TODO: handle background notification
+      },
+      onResume: (Map<String, dynamic> message) {
+        // TODO: handle resume notification
+      },
+      onMessage: (Map<String, dynamic> message) {},
+    );
   }
 
   @override
@@ -145,7 +156,6 @@ class ChatsState extends State<Chats> {
       var chat = await ChatService.newIndiviualChat(result);
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
-    print("Main Screen");
     setState(() {
       _fChats = ChatService.getChats();
     });
@@ -210,12 +220,14 @@ class ChatListViewState extends State<ChatListView> {
   }
 
   _onNewMessage(SocketMessage msg) async {
+    PushNotificationService.instance
+        .showNotification('New Message', msg.text, msg.toMap());
     var chat = _chats.firstWhere((_chat) => _chat.id == msg.chatId,
         orElse: () => null);
     if (chat == null) {
       chat = await ChatService.getChatById(msg.chatId);
       setState(() {
-        widget._chats.add(chat);
+        widget._chats.insert(0, chat);
       });
       return;
     } else {

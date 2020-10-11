@@ -34,9 +34,11 @@ dependencies:
   emoji_picker: ^0.1.0
   flutter_secure_storage: ^3.3.3
   firebase_auth:
+  firebase_messaging: ^7.0.3
   http:
   connectivity: ^0.4.9+2
   package_info: ^0.4.3
+  flutter_local_notifications: ^2.0.0+1
 
 dev_dependencies:
   flutter_test:
