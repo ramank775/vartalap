@@ -60,6 +60,7 @@ class SocketService {
     } catch (e) {
       await db.update("out_message", {"sent": -1},
           where: "messageId=?", whereArgs: [msg.msgId]);
+      _reconnectWs();
     }
   }
 
@@ -72,6 +73,7 @@ class SocketService {
 
   Future<void> _connectWs() async {
     try {
+      _reconnecting = true;
       Map<String, String> headers = await ApiService.getAuthHeader();
       _channel = await WebSocket.connect(_url, headers: headers);
       _retryCount = 0;
@@ -81,6 +83,8 @@ class SocketService {
     } catch (e) {
       print("Error while connecting websocket $e");
       await _reconnectWs();
+    } finally {
+      _reconnecting = false;
     }
   }
 

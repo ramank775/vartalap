@@ -147,19 +147,22 @@ class ChatState extends State<ChatScreen> {
                           itemCount: this._messages.length,
                           reverse: true,
                           itemBuilder: (context, i) {
-                            return MessageWidget(
-                              this._messages[i],
-                              this._messages[i].sender ==
-                                  this.widget.currentUser,
-                              isSelected: this
-                                  ._selectedMessges
-                                  .contains(this._messages[i]),
-                              onTab: (Message msg) {
-                                if (this._selectedMessges.length > 0) {
-                                  this.selectOrRemove(msg);
-                                }
-                              },
-                              onLongPress: selectOrRemove,
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 5.0),
+                              child: MessageWidget(
+                                this._messages[i],
+                                this._messages[i].sender ==
+                                    this.widget.currentUser,
+                                isSelected: this
+                                    ._selectedMessges
+                                    .contains(this._messages[i]),
+                                onTab: (Message msg) {
+                                  if (this._selectedMessges.length > 0) {
+                                    this.selectOrRemove(msg);
+                                  }
+                                },
+                                onLongPress: selectOrRemove,
+                              ),
                             );
                           });
                   }
