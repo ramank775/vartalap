@@ -89,7 +89,8 @@ class UserService {
   }
 
   static Future<List<User>> _getContacts() async {
-    Iterable<Contact> contacts = await ContactsService.getContacts();
+    Iterable<Contact> contacts = await ContactsService.getContacts(
+        withThumbnails: false, photoHighResolution: false);
     List<User> users = [];
     contacts.forEach((contact) {
       contact.phones.forEach((phone) {

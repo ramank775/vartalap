@@ -42,7 +42,7 @@ class ChatPreviewWidget extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 5.0),
                 child: new Text(
                   this.getDisplayContext(),
-                  style: new TextStyle(color: Colors.grey, fontSize: 15.0),
+                  style: new TextStyle(color: Colors.grey[700], fontSize: 15.0),
                 ),
               ),
               getWidget()

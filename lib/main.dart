@@ -23,7 +23,8 @@ class HomeState extends State<Home> {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        visualDensity: VisualDensity.comfortable,
+        backgroundColor: Colors.grey[100],
       ),
       initialRoute: '/',
       onGenerateRoute: _routes(),

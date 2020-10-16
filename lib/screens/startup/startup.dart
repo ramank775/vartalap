@@ -22,14 +22,20 @@ class StartupScreenState extends State<StartupScreen> {
   @override
   void initState() {
     super.initState();
+    initializeApp();
+  }
+
+  Future initializeApp() async {
     List<Future> _promises = [];
     var configStore = ConfigStore();
     info = configStore.packageInfo;
-    _promises.add(configStore.loadConfig());
+    await configStore.loadConfig();
+    await AuthService.init();
+    bool isLoggedIn = await UserService.isAuth();
+    if (isLoggedIn) {
+      _promises.add(ChatService.init());
+    }
     Timer(Duration(seconds: 1), () async {
-      await Future.wait(_promises);
-      await AuthService.init();
-      bool isLoggedIn = await UserService.isAuth();
       if (!isLoggedIn) {
         Navigator.pushReplacement(
           context,
@@ -39,8 +45,6 @@ class StartupScreenState extends State<StartupScreen> {
         );
         return;
       }
-      _promises = [];
-      _promises.add(ChatService.init());
       var value = await Permission.contacts.request();
       if (value.isGranted) {
         _promises.add(UserService.syncContacts());

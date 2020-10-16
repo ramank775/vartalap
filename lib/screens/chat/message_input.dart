@@ -116,7 +116,7 @@ class MessageInputState extends State<MessageInputWidget> {
                         },
                         keyboardType: TextInputType.multiline,
                         maxLines: null,
-                        maxLength: 100,
+                        maxLength: TextField.noMaxLength,
                         focusNode: _inputFocus,
                       ),
                     ),
