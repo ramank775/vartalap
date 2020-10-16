@@ -10,7 +10,6 @@ class PushNotificationService {
   InitializationSettings _initializationSettings;
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
-  Timer _notificationTimer;
 
   NotificationDetails _notificationDetails;
 
@@ -51,14 +50,8 @@ class PushNotificationService {
 
   void showNotification(String title, String body, dynamic payload) {
     var data = json.encode(payload);
-    if (_notificationTimer != null && _notificationTimer.isActive) {
-      _notificationTimer.cancel();
-    }
     _flutterLocalNotificationsPlugin.show(0, title, body, _notificationDetails,
         payload: data);
-    _notificationTimer = Timer(Duration(seconds: 2), () {
-      _flutterLocalNotificationsPlugin.cancel(0);
-    });
   }
 
   static PushNotificationService get instance {
