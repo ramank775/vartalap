@@ -8,6 +8,8 @@ import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/services/api_service.dart';
+import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/performance_metric.dart';
 
 class SocketService {
   static String name = "SocketService";
@@ -27,10 +29,14 @@ class SocketService {
 
   Future<void> init() async {
     _url = ConfigStore().get("ws_url");
+
     await _connectWs();
   }
 
   Future<void> send(SocketMessage msg) async {
+    var _sendMsgTrace = PerformanceMetric.newTrace('send-message');
+    await _sendMsgTrace.start();
+
     var db = await DB().getDb();
     var msgMap = msg.toMap();
     var msgStr = json.encode(msgMap);
@@ -46,6 +52,10 @@ class SocketService {
     if (_channel != null && _channel.closeCode != null) {
       await db.update("out_message", {"sent": -1},
           where: "messageId=?", whereArgs: [msg.msgId]);
+
+      _sendMsgTrace.putAttribute('channelStatus', 'closed');
+      _sendMsgTrace.stop();
+
       return;
     }
     try {
@@ -57,10 +67,17 @@ class SocketService {
       msg.state = MessageState.SENT;
       msg.type = MessageType.NOTIFICATION;
       _controller.sink.add(msg);
-    } catch (e) {
+    } catch (e, stack) {
       await db.update("out_message", {"sent": -1},
           where: "messageId=?", whereArgs: [msg.msgId]);
+
+      Crashlytics.recordError(e, stack,
+          reason: "Error while sending message to socket");
+
+      _sendMsgTrace.putAttribute('error', e.toString());
       _reconnectWs();
+    } finally {
+      _sendMsgTrace.stop();
     }
   }
 
@@ -72,6 +89,9 @@ class SocketService {
   }
 
   Future<void> _connectWs() async {
+    var _socketConnectionTrack = PerformanceMetric.newTrace('socket-connect');
+    _socketConnectionTrack.putAttribute('retryCount', _retryCount.toString());
+    await _socketConnectionTrack.start();
     try {
       _reconnecting = true;
       Map<String, String> headers = await ApiService.getAuthHeader();
@@ -79,9 +99,14 @@ class SocketService {
       _retryCount = 0;
       _channel.asBroadcastStream().listen(_onNewMessage,
           onError: _onError, onDone: _onDone, cancelOnError: false);
+      _socketConnectionTrack.stop();
       _processPendingMessage();
-    } catch (e) {
-      print("Error while connecting websocket $e");
+    } catch (e, stack) {
+      Crashlytics.recordError(e, stack,
+          reason: "Error while connecting to socket");
+
+      _socketConnectionTrack.putAttribute('error', e.toString());
+      _socketConnectionTrack.stop();
       await _reconnectWs();
     } finally {
       _reconnecting = false;
@@ -95,7 +120,9 @@ class SocketService {
     try {
       ConnectivityResult result = await _connectivity.checkConnectivity();
       if (result == ConnectivityResult.none) {
-        _connectivity.onConnectivityChanged.listen((event) {
+        if (_connectivitySub != null) return;
+
+        _connectivitySub = _connectivity.onConnectivityChanged.listen((event) {
           _reconnectWs(ignoreFlag: true);
         });
         return;
@@ -105,8 +132,9 @@ class SocketService {
           _connectivitySub = null;
         }
       }
-    } catch (e) {
-      print("Error while checking for connectivity $e, proceeding with it");
+    } catch (e, stack) {
+      Crashlytics.recordError(e, stack,
+          reason: "Error while checking connectivity");
     }
 
     _retryCount++;
@@ -146,8 +174,9 @@ class SocketService {
       try {
         var message = SocketMessage.fromMap(incomming);
         _controller.sink.add(message);
-      } catch (ex) {
-        print("Exception while decoding server msg: ${ex.toString()}");
+      } catch (ex, stack) {
+        Crashlytics.recordError(ex, stack,
+            reason: "Exception while decoding server msg");
       }
     } else if (incomming is List) {
       for (var msg in incomming) {
@@ -156,8 +185,10 @@ class SocketService {
         } else if (msg is Map) {
           try {
             _controller.sink.add(SocketMessage.fromMap(msg));
-          } catch (e) {
-            print("Exception while decoding server msg : ${msg.toString()}");
+          } catch (e, stack) {
+            Crashlytics.recordError(e, stack,
+                reason:
+                    "Exception while decoding server msg : ${msg.toString()}");
           }
         }
       }
@@ -165,28 +196,36 @@ class SocketService {
   }
 
   void _processPendingMessage() async {
+    var _pendingMessageTrack = PerformanceMetric.newTrace('pending-message');
+    await _pendingMessageTrack.start();
     if (_processingPromise != null) {
+      _pendingMessageTrack.putAttribute('alreadyRunning', 'true');
       await _processingPromise;
     }
     _processingPromise = Future<void>(() async {
       var db = await DB().getDb();
       var result = await db.query('out_message',
           columns: ["message"], where: 'sent=?', whereArgs: [-1]);
-      for (var row in result) {
-        var _smsg = SocketMessage.fromMap(json.decode(row["message"]));
-        _channel.add(row["message"]);
-        _smsg.from = name;
-        _smsg.state = MessageState.SENT;
-        _smsg.type = MessageType.NOTIFICATION;
-        _controller.sink.add(_smsg);
-        await db.update(
-            "out_message",
-            {
-              "sent": 1,
-              "sent_ts": DateTime.now().millisecondsSinceEpoch,
-            },
-            where: "messageId=?",
-            whereArgs: [_smsg.msgId]);
+
+      var batch = db.batch();
+      try {
+        for (var row in result) {
+          var _smsg = SocketMessage.fromMap(json.decode(row["message"]));
+          _channel.add(row["message"]);
+          _smsg.from = name;
+          _smsg.state = MessageState.SENT;
+          _smsg.type = MessageType.NOTIFICATION;
+          _controller.sink.add(_smsg);
+          batch.delete("out_message",
+              where: "messageId=?", whereArgs: [_smsg.msgId]);
+        }
+      } catch (e, stack) {
+        Crashlytics.recordError(e, stack,
+            reason: "Exception while processing pending messages");
+        _pendingMessageTrack.putAttribute('error', e.toString());
+      } finally {
+        await batch.commit();
+        _pendingMessageTrack.stop();
       }
     });
   }

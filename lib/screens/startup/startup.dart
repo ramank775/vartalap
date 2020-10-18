@@ -6,6 +6,8 @@ import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/login.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -27,10 +29,13 @@ class StartupScreenState extends State<StartupScreen> {
 
   Future initializeApp() async {
     List<Future> _promises = [];
+
     var configStore = ConfigStore();
     info = configStore.packageInfo;
     await configStore.loadConfig();
     await AuthService.init();
+    Crashlytics.init();
+    PerformanceMetric.init();
     bool isLoggedIn = await UserService.isAuth();
     if (isLoggedIn) {
       _promises.add(ChatService.init());

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vartalap/services/api_service.dart';
+import 'package:vartalap/services/crashanalystics.dart';
 
 class AuthResponse {
   String phoneNumber;
@@ -34,7 +35,10 @@ class AuthService {
       _resendToken = null;
       try {
         await _storage.deleteAll();
-      } catch (e) {}
+      } catch (e, stack) {
+        Crashlytics.recordError(e, stack,
+            reason: "Error while access secure storage");
+      }
     }
     _phoneNumber = phonenumber;
     _auth.verifyPhoneNumber(
@@ -48,7 +52,10 @@ class AuthService {
           await _storage.write(
               key: 'resendToken', value: resendToken.toString());
           await _storage.write(key: 'phoneNumber', value: _phoneNumber);
-        } catch (e) {}
+        } catch (e, stack) {
+          Crashlytics.recordError(e, stack,
+              reason: "Error while access secure storage");
+        }
 
         _promise.complete(true);
       },
@@ -80,15 +87,18 @@ class AuthService {
       var idTokenResult = await result.user.getIdTokenResult();
       _resp.token = idTokenResult.token;
       _resp.status = true;
-    } catch (e) {
+    } catch (e, stack) {
       _resp.error = e;
       _resp.status = false;
       _resp.phoneNumber = _phoneNumber;
+      Crashlytics.recordError(e, stack,
+          reason: "Error while authentication with firebase");
     }
     if (_resp.status) {
       try {
         await ApiService.login(_phoneNumber);
-      } catch (e) {
+      } catch (e, stack) {
+        Crashlytics.recordError(e, stack, reason: "Login api service failed");
         await _auth.signOut();
         _resp.error = e;
         _resp.status = false;
@@ -135,8 +145,9 @@ class AuthService {
         instance._resendToken = int.parse(_resendToken);
       }
       instance._user = _instance._auth.currentUser;
-    } catch (e) {
-      print(e);
+    } catch (e, stack) {
+      Crashlytics.recordError(e, stack,
+          reason: "Error while initializing auth service");
     }
   }
 }

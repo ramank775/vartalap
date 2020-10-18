@@ -1,12 +1,20 @@
+import 'dart:async';
+
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'screens/chats/chats.dart';
 import 'screens/chat/chat.dart';
 import 'screens/new_chat/new_chat.dart';
+import 'package:vartalap/services/crashanalystics.dart';
 
 void main() {
-  runApp(Home());
+  WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(() {
+    runApp(Home());
+  }, (error, stackTrace) {
+    Crashlytics.recordError(error, stackTrace);
+  });
 }
 
 class Home extends StatefulWidget {

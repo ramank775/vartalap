@@ -4,11 +4,14 @@ import 'package:contacts_service/contacts_service.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/utils/phone_number.dart';
 
 class UserService {
   static User _user;
   static AuthService _authService = AuthService.instance;
+
   static Future<bool> sendOTP(String phoneNumber) {
     return _authService.sendOtp(phoneNumber);
   }
@@ -59,6 +62,8 @@ class UserService {
   }
 
   static Future<void> syncContacts() async {
+    var syncContactTrace = PerformanceMetric.newTrace('sync-contact');
+    await syncContactTrace.start();
     var users = await _getContacts();
     var currentUser = UserService.getLoggedInUser();
     if (!users.any((user) => user.username == currentUser.username)) {
@@ -71,13 +76,16 @@ class UserService {
         user.hasAccount =
             result.containsKey(user.username) ? result[user.username] : false;
       });
-    } catch (e) {
-      print(e);
+    } catch (e, stack) {
+      Crashlytics.recordError(e, stack, reason: "Contact sync api error");
+      syncContactTrace.putAttribute('error', e);
+      syncContactTrace.stop();
       return;
     }
     Database db = await DB().getDb();
     Batch batch = db.batch();
     users.forEach((user) {
+      if (!user.hasAccount) return;
       batch.rawInsert("""INSERT OR REPLACE INTO user (
         username,
         name,
@@ -86,6 +94,7 @@ class UserService {
       ) values(?,?,?,?);""", user.toMap().values.toList());
     });
     await batch.commit();
+    syncContactTrace.stop();
   }
 
   static Future<List<User>> _getContacts() async {

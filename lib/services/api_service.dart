@@ -5,6 +5,8 @@ import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 
+import 'package:vartalap/services/performance_metric.dart';
+
 class ApiService {
   static FlutterSecureStorage _storage = new FlutterSecureStorage();
   static const String ACCESS_KEY = 'accesskey';
@@ -29,12 +31,27 @@ class ApiService {
   static Future<http.Response> _post(String path, Map<String, dynamic> data,
       {bool includeAccesskey = true}) async {
     String url = ConfigStore().get<String>("api_url");
+    String resourceUrl = "$url/$path";
+    var _httpMetric = PerformanceMetric.newHttpMetric(resourceUrl, 'post');
+
     String content = json.encode(data);
     Map<String, String> headers =
         await getAuthHeader(includeAccessKey: includeAccesskey);
     headers["Content-Type"] = "application/json";
-    http.Response resp =
-        await http.post("$url/$path", headers: headers, body: content);
+
+    await _httpMetric.start();
+    http.Response resp;
+    try {
+      resp = await http.post(resourceUrl, headers: headers, body: content);
+      _httpMetric
+        ..responsePayloadSize = resp.contentLength
+        ..responseContentType = resp.headers['Content-Type']
+        ..requestPayloadSize = resp.contentLength
+        ..httpResponseCode = resp.statusCode;
+    } finally {
+      _httpMetric.stop();
+    }
+
     return resp;
   }
 
