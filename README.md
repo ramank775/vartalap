@@ -1,9 +1,9 @@
 [![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ramank775/vartalap)
 
-<a href='https://play.google.com/store/apps/details?id=com.one9x.vartalap'><img alt='Get it on Google Play' src='https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png' width="150" /></a>
-
 # Vartalap
 Vartalap is an open source personal chat application. It is design to provide the level of transparency in the personal messaging application with your data.
+
+<a href='https://play.google.com/store/apps/details?id=com.one9x.vartalap'><img alt='Get it on Google Play' src='https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png' width="150" /></a>
 
 ## Setup with gitpod
 
