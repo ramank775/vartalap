@@ -1,10 +1,9 @@
 import 'package:vartalap/models/message.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/widgets/rich_message.dart';
 
 class MessageWidget extends StatelessWidget {
-  static final RegExp emojiRegex = RegExp(
-      r'(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])');
   final Message _msg;
   final bool _isYou;
 
@@ -82,12 +81,9 @@ class MessageWidget extends StatelessWidget {
                       constraints: BoxConstraints(
                         minWidth: MediaQuery.of(context).size.width * 0.25,
                       ),
-                      child: RichText(
-                        text: TextSpan(
-                          children:
-                              generateMessageTextSpans(this._msg.text ?? ''),
-                          style: textStyle,
-                        ),
+                      child: RichMessage(
+                        (this._msg.text ?? ''),
+                        textStyle,
                       ),
                     ),
                     Row(
@@ -135,31 +131,5 @@ class MessageWidget extends StatelessWidget {
       size: 15.0,
       color: color,
     );
-  }
-
-  List<TextSpan> generateMessageTextSpans(String text) {
-    List<TextSpan> spans = [];
-    final TextStyle emojiStyle = textStyle.copyWith(
-      fontSize: (textStyle.fontSize * 1.3),
-      letterSpacing: 2,
-    );
-
-    text.splitMapJoin(
-      emojiRegex,
-      onMatch: (m) {
-        spans.add(
-          TextSpan(
-            text: m.group(0),
-            style: emojiStyle,
-          ),
-        );
-        return "";
-      },
-      onNonMatch: (s) {
-        spans.add(TextSpan(text: s));
-        return "";
-      },
-    );
-    return spans;
   }
 }

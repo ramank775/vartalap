@@ -33,8 +33,10 @@ class PushNotificationService {
   void config(
       {Function onMessage, Function onLaunch, Function onResume}) async {
     _fcm.configure(
+      onMessage: onMessage,
       onLaunch: onLaunch,
       onResume: onResume,
+      onBackgroundMessage: myBackgroundMessageHandler,
     );
     _flutterLocalNotificationsPlugin.initialize(_initializationSettings,
         onSelectNotification: (String payload) async {
@@ -52,6 +54,12 @@ class PushNotificationService {
     var data = json.encode(payload);
     _flutterLocalNotificationsPlugin.show(0, title, body, _notificationDetails,
         payload: data);
+  }
+
+  static Future<dynamic> myBackgroundMessageHandler(
+      Map<String, dynamic> message) async {
+    print(message);
+    return Future<void>.value();
   }
 
   static PushNotificationService get instance {

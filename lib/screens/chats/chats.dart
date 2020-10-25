@@ -7,6 +7,7 @@ import 'package:vartalap/screens/chats/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
+import 'package:vartalap/widgets/rich_message.dart';
 
 class Chats extends StatefulWidget {
   @override
@@ -128,15 +129,18 @@ class ChatsState extends State<Chats> {
                     showAboutDialog(
                       context: context,
                       applicationName: config.packageInfo.appName,
-                      applicationIcon: Icon(Icons.chat_bubble_outline,
-                          color: Colors.blueAccent, size: 30.0),
+                      applicationIcon: Icon(
+                        Icons.chat_bubble_outline,
+                        color: Colors.blueAccent,
+                        size: 30.0,
+                      ),
                       applicationVersion:
                           "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
                       children: <Widget>[
                         Text('Vartalap is an open source chat messager.'),
-                        Text(
+                        RichMessage(
                           config.get("description"),
-                          style: TextStyle(fontSize: 12),
+                          TextStyle(fontSize: 12, color: Colors.black),
                         ),
                       ],
                     );

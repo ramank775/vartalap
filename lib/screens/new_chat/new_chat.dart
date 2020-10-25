@@ -1,3 +1,5 @@
+import 'package:share/share.dart';
+import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
@@ -133,7 +135,7 @@ class NewChatState extends State<NewChatScreen> {
                   fontWeight: FontWeight.bold,
                 )),
             onTap: () {
-              showFeatureNotAvailableDialog('Invite friends');
+              Share.share(ConfigStore().get('share_message'));
             },
           ));
 
