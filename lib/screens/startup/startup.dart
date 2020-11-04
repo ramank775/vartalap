@@ -38,7 +38,7 @@ class StartupScreenState extends State<StartupScreen> {
     PerformanceMetric.init();
     bool isLoggedIn = await UserService.isAuth();
     if (isLoggedIn) {
-      _promises.add(ChatService.init());
+      ChatService.init().then((value) => null);
     }
     Timer(Duration(seconds: 1), () async {
       if (!isLoggedIn) {
