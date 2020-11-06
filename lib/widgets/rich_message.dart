@@ -4,10 +4,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 class RichMessage extends StatelessWidget {
   static final RegExp emojiRegex = RegExp(
-    r'(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])',
+    r'(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|[\uf000-\uffff])',
   );
   static final RegExp hyperlinkRegex = RegExp(
-    r"(?:(?:https?|ftp):\/\/|\b(?:[a-z\d]+\.))(?:(?:[^\s()<>]+|\((?:[^\s()<>]+|(?:\([^\s()<>]+\)))?\))+(?:\((?:[^\s()<>]+|(?:\(?:[^\s()<>]+\)))?\)|[^\s`!()\[\]{};:'.,<>?«»“”‘’]))?",
+    r"(http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?",
     caseSensitive: false,
     multiLine: true,
   );
@@ -38,19 +38,26 @@ class RichMessage extends StatelessWidget {
     );
 
     final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[700]);
+    String emojiString = "";
 
     text.splitMapJoin(
       emojiRegex,
       onMatch: (m) {
-        spans.add(
-          TextSpan(
-            text: m.group(0),
-            style: emojiStyle,
-          ),
-        );
+        emojiString += m.group(0);
         return "";
       },
       onNonMatch: (s) {
+        if (s.isEmpty) {
+          return "";
+        } else if (emojiString.isNotEmpty) {
+          spans.add(
+            TextSpan(
+              text: emojiString,
+              style: emojiStyle,
+            ),
+          );
+          emojiString = "";
+        }
         s.splitMapJoin(
           hyperlinkRegex,
           onMatch: (m) {
@@ -92,6 +99,15 @@ class RichMessage extends StatelessWidget {
         return "";
       },
     );
+    if (emojiString.isNotEmpty) {
+      spans.add(
+        TextSpan(
+          text: emojiString,
+          style: emojiStyle,
+        ),
+      );
+      emojiString = "";
+    }
     return spans;
   }
 
