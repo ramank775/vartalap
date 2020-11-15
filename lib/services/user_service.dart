@@ -54,7 +54,8 @@ class UserService {
     Database db = await DB().getDb();
     var userMap = await db.query('user',
         where: "hasAccount=? and status=?",
-        whereArgs: [1, enumToInt(UserStatus.ACTIVE, UserStatus.values)]);
+        whereArgs: [1, enumToInt(UserStatus.ACTIVE, UserStatus.values)],
+        orderBy: 'name');
     var users = userMap.map((e) => User.fromMap(e)).toList();
     return users;
   }
@@ -112,12 +113,14 @@ class UserService {
         enumToInt(user.status, UserStatus.values),
         user.username
       ]);
-      batch.rawUpdate("""UPDATE chat SET title=?, pic=?
+      if (user.username != currentUser.username) {
+        batch.rawUpdate("""UPDATE chat SET title=?, pic=?
         WHERE type=1 and id in (
           SELECT chatid FROM chat_user
           WHERE userid=?
         );
       """, [user.name, user.pic, user.username]);
+      }
     });
     contactDiff[2].forEach((user) {
       batch.rawUpdate("""UPDATE user SET name=?, 
@@ -132,12 +135,14 @@ class UserService {
         enumToInt(UserStatus.DELETED, UserStatus.values),
         user.username
       ]);
-      batch.rawUpdate("""UPDATE chat SET title=?, pic=?
+      if (user.username != currentUser.username) {
+        batch.rawUpdate("""UPDATE chat SET title=?, pic=?
         WHERE type=1 and id in (
           SELECT chatid FROM chat_user
           WHERE userid=?
         );
       """, [user.username, user.pic, user.username]);
+      }
     });
     await batch.commit();
     syncContactTrace.stop();
@@ -163,16 +168,21 @@ class UserService {
     List<User> userToUpdate = [];
     List<User> userToDelete = [];
     List<User> userToInsert = [];
-    dbUsers.forEach((u) {
-      var user = users.firstWhere((e) => u == e);
+    userToDelete = dbUsers.where((u) => !users.contains(u)).toList();
+    users.forEach((u) {
+      var user = dbUsers.firstWhere(
+        (e) => u == e,
+        orElse: () => null,
+      );
       if (user == null) {
-        userToDelete.add(user);
+        userToInsert.add(u);
       } else if (user.name != u.name ||
           user.pic != u.pic ||
-          user.hasAccount != u.hasAccount) {
-        userToUpdate.add(user);
+          user.hasAccount != u.hasAccount ||
+          user.status != u.status) {
+        userToUpdate.add(u);
       } else {
-        userToInsert.add(user);
+        userToInsert.add(u);
       }
     });
     return [userToInsert, userToUpdate, userToDelete];

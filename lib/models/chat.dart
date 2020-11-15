@@ -34,7 +34,7 @@ class ChatUser extends User {
     return map;
   }
 
-  int get hashCode => this.username.hashCode;
+  int get hashCode => "user_$username".hashCode;
 
   @override
   bool operator ==(Object other) {

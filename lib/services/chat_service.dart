@@ -129,9 +129,13 @@ class ChatService {
         where: "chatid=?", whereArgs: [chatid], orderBy: "ts");
     var userResult = (await _getChatUser(chatid)).toSet();
     List<Message> msgs = [];
+    var currentUser = UserService.getLoggedInUser();
     result.forEach((msgMap) {
       var msg = Message.fromMap(msgMap);
-      var user = userResult.singleWhere((u) => u.username == msg.senderId);
+      var user = userResult.singleWhere((u) => u.username == msg.senderId,
+          orElse: () => currentUser.username == msg.senderId
+              ? ChatUser.fromUser(currentUser)
+              : null);
       msg.sender = user;
       msgs.add(msg);
     });
@@ -224,9 +228,14 @@ class ChatService {
         user.hasAccount = true;
         await UserService.addUser(user);
       }
+      var self = UserService.getLoggedInUser();
+      User currentUser = await UserService.getUserById(self.username);
+      if (currentUser == null) {
+        await UserService.addUser(self);
+      }
       chat = Chat(msg.chatId, user.name, user.pic);
       chat.addUser(ChatUser.fromUser(user));
-      var self = UserService.getLoggedInUser();
+
       chat.addUser(ChatUser.fromUser(self));
       await _saveChat(chat);
     }
