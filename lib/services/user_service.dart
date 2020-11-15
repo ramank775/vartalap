@@ -6,6 +6,7 @@ import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/crashanalystics.dart';
 import 'package:vartalap/services/performance_metric.dart';
+import 'package:vartalap/utils/enum_helper.dart';
 import 'package:vartalap/utils/phone_number.dart';
 
 class UserService {
@@ -51,7 +52,9 @@ class UserService {
       await syncContacts();
     }
     Database db = await DB().getDb();
-    var userMap = await db.query('user', where: "hasAccount=?", whereArgs: [1]);
+    var userMap = await db.query('user',
+        where: "hasAccount=? and status=?",
+        whereArgs: [1, enumToInt(UserStatus.ACTIVE, UserStatus.values)]);
     var users = userMap.map((e) => User.fromMap(e)).toList();
     return users;
   }
@@ -83,15 +86,58 @@ class UserService {
       return;
     }
     Database db = await DB().getDb();
+    var dbUsers = (await db.query('user')).map((e) => User.fromMap(e)).toList();
+    var contactDiff = _getContactDiff(dbUsers, users);
+
     Batch batch = db.batch();
-    users.forEach((user) {
-      if (!user.hasAccount) return;
+    contactDiff[0].forEach((user) {
       batch.rawInsert("""INSERT OR REPLACE INTO user (
         username,
         name,
         pic,
-        hasAccount
-      ) values(?,?,?,?);""", user.toMap().values.toList());
+        hasAccount,
+        status
+      ) values(?,?,?,?,?);""", user.toMap().values.toList());
+    });
+    contactDiff[1].forEach((user) {
+      batch.rawUpdate("""UPDATE user SET name=?, 
+        pic=?,
+        hasAccount=?,
+        status=?
+        WHERE username=?;
+      """, [
+        user.name,
+        user.pic,
+        user.hasAccount ? 1 : 0,
+        enumToInt(user.status, UserStatus.values),
+        user.username
+      ]);
+      batch.rawUpdate("""UPDATE chat SET title=?, pic=?
+        WHERE type=1 and id in (
+          SELECT chatid FROM chat_user
+          WHERE userid=?
+        );
+      """, [user.name, user.pic, user.username]);
+    });
+    contactDiff[2].forEach((user) {
+      batch.rawUpdate("""UPDATE user SET name=?, 
+        pic=?,
+        hasAccount=?,
+        status=?
+        WHERE username=?;
+      """, [
+        user.name,
+        user.pic,
+        user.hasAccount ? 1 : 0,
+        enumToInt(UserStatus.DELETED, UserStatus.values),
+        user.username
+      ]);
+      batch.rawUpdate("""UPDATE chat SET title=?, pic=?
+        WHERE type=1 and id in (
+          SELECT chatid FROM chat_user
+          WHERE userid=?
+        );
+      """, [user.username, user.pic, user.username]);
     });
     await batch.commit();
     syncContactTrace.stop();
@@ -110,5 +156,25 @@ class UserService {
       });
     });
     return users;
+  }
+
+  static List<List<User>> _getContactDiff(
+      List<User> dbUsers, List<User> users) {
+    List<User> userToUpdate = [];
+    List<User> userToDelete = [];
+    List<User> userToInsert = [];
+    dbUsers.forEach((u) {
+      var user = users.firstWhere((e) => u == e);
+      if (user == null) {
+        userToDelete.add(user);
+      } else if (user.name != u.name ||
+          user.pic != u.pic ||
+          user.hasAccount != u.hasAccount) {
+        userToUpdate.add(user);
+      } else {
+        userToInsert.add(user);
+      }
+    });
+    return [userToInsert, userToUpdate, userToDelete];
   }
 }

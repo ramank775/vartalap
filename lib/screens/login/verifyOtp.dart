@@ -98,15 +98,8 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                       onPressed: () async {
                         bool result = await UserService.authenicate(this._otp);
                         if (!result) {
-                          var snackbar = SnackBar(
-                            behavior: SnackBarBehavior.floating,
-                            backgroundColor: Colors.red,
-                            content: Text(
-                              'Incorrect one time password! Try again',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          );
-                          Scaffold.of(context).showSnackBar(snackbar);
+                          showErrorDialog(context,
+                              ['Incorrect one time password! Try again']);
                           return;
                         }
                         Navigator.of(context)
@@ -174,5 +167,28 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
     setState(() {
       _otp = _otp + value;
     });
+  }
+
+  void showErrorDialog(BuildContext context, List<String> messages) {
+    var contents = messages.map((e) => Text(e)).toList();
+    var dialog = AlertDialog(
+      title: Text("Error"),
+      content: SingleChildScrollView(
+        child: ListBody(children: contents),
+      ),
+      actions: [
+        FlatButton(
+          child: Text('OK'),
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+        ),
+      ],
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => dialog,
+    );
   }
 }

@@ -33,8 +33,12 @@ class RichMessage extends StatelessWidget {
   List<TextSpan> generateMessageTextSpans(String text) {
     List<TextSpan> spans = [];
     final TextStyle emojiStyle = style.copyWith(
-      fontSize: (style.fontSize * 1.3),
-      letterSpacing: 1,
+      fontSize: (style.fontSize * 1.5),
+      letterSpacing: 0.5,
+    );
+
+    final TextStyle combinedEmojiStyle = emojiStyle.copyWith(
+      fontSize: style.fontSize * 1.7,
     );
 
     final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[700]);
@@ -53,35 +57,36 @@ class RichMessage extends StatelessWidget {
           spans.add(
             TextSpan(
               text: emojiString,
-              style: emojiStyle,
+              style: emojiString.length > 1 ? combinedEmojiStyle : emojiStyle,
             ),
           );
           emojiString = "";
         }
         s.splitMapJoin(
-          hyperlinkRegex,
+          emailRegex,
           onMatch: (m) {
             spans.add(
               TextSpan(
                 text: m.group(0),
                 style: hyperLinkStyle,
                 recognizer: TapGestureRecognizer()
-                  ..onTap = () => _launchUrl(
-                        m.group(0),
-                      ),
+                  ..onTap =
+                      () => _launchUrl("mailto:${m.group(0)}?subject= &body= "),
               ),
             );
+
             return "";
           },
           onNonMatch: (t) {
-            t.splitMapJoin(emailRegex, onMatch: (m) {
+            t.splitMapJoin(hyperlinkRegex, onMatch: (m) {
               spans.add(
                 TextSpan(
                   text: m.group(0),
                   style: hyperLinkStyle,
                   recognizer: TapGestureRecognizer()
-                    ..onTap = () =>
-                        _launchUrl("mailto:${m.group(0)}?subject= &body= "),
+                    ..onTap = () => _launchUrl(
+                          m.group(0),
+                        ),
                 ),
               );
               return "";

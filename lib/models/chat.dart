@@ -33,20 +33,27 @@ class ChatUser extends User {
     map["role"] = enumToInt(this.role, UserRole.values);
     return map;
   }
+
+  int get hashCode => this.username.hashCode;
+
+  @override
+  bool operator ==(Object other) {
+    return hashCode == other.hashCode;
+  }
 }
 
 class Chat {
   String _id;
   String _title;
   String _pic;
-  List<ChatUser> _users = [];
+  Set<ChatUser> _users = new Set();
 
   Chat(this._id, this._title, this._pic);
 
   String get id => _id;
   String get title => _title;
   String get pic => _pic;
-  List<ChatUser> get users => _users;
+  List<ChatUser> get users => _users.toList();
 
   Chat.fromMap(Map<String, dynamic> map) {
     this._id = map["id"];
@@ -65,11 +72,6 @@ class Chat {
   int get hashCode => "chat_$id".hashCode;
 
   void addUser(ChatUser user) {
-    for (var _user in this._users) {
-      if (_user.username == user.username) {
-        return;
-      }
-    }
     this._users.add(user);
   }
 

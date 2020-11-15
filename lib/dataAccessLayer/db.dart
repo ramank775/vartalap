@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 class DB {
   final dbName = "Chat";
-  final version = 1;
+  final version = 2;
   static Database _db;
 
   Future<String> _getDatabasePath(String dbName) async {
@@ -21,7 +21,12 @@ class DB {
 
   Future<void> initDatabase() async {
     final path = await _getDatabasePath(dbName);
-    _db = await openDatabase(path, version: version, onCreate: _onCreate);
+    _db = await openDatabase(
+      path,
+      version: version,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
   }
 
   Future<void> _onCreate(Database db, dynamic version) async {
@@ -31,7 +36,8 @@ class DB {
       username TEXT PRIMARY KEY,
       name TEXT,
       pic TEXT,
-      hasAccount NUMBER
+      hasAccount NUMBER,
+      status NUMBER DEFAULT 0
     );""");
 
     batch.execute("""CREATE TABLE chat (
@@ -73,6 +79,15 @@ class DB {
       retry_count NUMBER DEFAULT 0
     );""");
     batch.commit();
+  }
+
+  Future<void> _onUpgrade(Database db, int current, int next) async {
+    if (next == 2) {
+      await db.execute("""
+        ALTER TABLE user
+          ADD status NUMBER DEFAULT 0;
+      """);
+    }
   }
 
   Future<Database> getDb() async {

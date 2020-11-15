@@ -38,7 +38,7 @@ class ChatService {
     var db = await DB().getDb();
     var currentUser = UserService.getLoggedInUser();
     var sql = """Select chat.*, 
-    message.senderid, message.text, message.text, message.state, message.ts ,
+    message.senderid, message.text, message.state, message.ts ,
     ( select count(*) 
       from message 
       where chatid == chat.id and senderid !=? and state == 0
@@ -127,7 +127,7 @@ class ChatService {
     var db = await DB().getDb();
     var result = await db.query("message",
         where: "chatid=?", whereArgs: [chatid], orderBy: "ts");
-    var userResult = await _getChatUser(chatid);
+    var userResult = (await _getChatUser(chatid)).toSet();
     List<Message> msgs = [];
     result.forEach((msgMap) {
       var msg = Message.fromMap(msgMap);

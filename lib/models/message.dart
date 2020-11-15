@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'user.dart';
 import '../utils/enum_helper.dart';
 
@@ -67,9 +69,20 @@ class Message {
   }
 
   static String _getMsgId(String senderId) {
-    return senderId +
-        DateTime.now().millisecond.toString() +
-        (++_number).toString();
+    var number = double.tryParse(senderId);
+    int sender;
+    if (number != null) {
+      sender = number.toInt();
+    } else {
+      sender = senderId.hashCode;
+    }
+    int unixEpoch10 = DateTime.now().millisecondsSinceEpoch % (pow(10, 13));
+    if ((++_number) >= 10000) {
+      _number %= 10000;
+    }
+    int rawId = (sender * pow(10, 16)) + (unixEpoch10 * pow(10, 3)) + _number;
+
+    return rawId.toRadixString(16);
   }
 
   void updateState(MessageState state) {
