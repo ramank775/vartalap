@@ -14,14 +14,17 @@ class ChatService {
   static Stream<SocketMessage> onNotificationMessagStream;
   static StreamSubscription<SocketMessage> _newMessageSub$;
   static StreamSubscription<SocketMessage> _notificationSub$;
+
   static Future<void> init() async {
     onNewMessageStream = SocketService.instance.stream
         .where((msg) => msg.type != MessageType.NOTIFICATION)
         .asyncMap(_onNewMessage)
+        .where((msg) => msg != null)
         .asBroadcastStream();
     onNotificationMessagStream = SocketService.instance.stream
         .where((msg) => msg.type == MessageType.NOTIFICATION)
         .asyncMap(_onNotificationMsg)
+        .where((msg) => msg != null)
         .asBroadcastStream();
     _newMessageSub$ = onNewMessageStream.listen((event) {});
     _notificationSub$ = onNotificationMessagStream.listen((event) {});
@@ -167,6 +170,13 @@ class ChatService {
     await batch.commit();
   }
 
+  static Future<SocketMessage> newMessage(SocketMessage msg) async {
+    if (msg.type == MessageType.NOTIFICATION) {
+      return _onNotificationMsg(msg);
+    }
+    return _onNewMessage(msg);
+  }
+
   static Future<Chat> _getChatById(String chatid) async {
     var db = await DB().getDb();
     var result = await db.query("chat", where: "id=?", whereArgs: [chatid]);
@@ -218,7 +228,16 @@ class ChatService {
     return result > 0;
   }
 
+  static Future<bool> _isDuplicate(SocketMessage message) async {
+    var db = await DB().getDb();
+    var msg =
+        await db.query("message", where: "id=?", whereArgs: [message.msgId]);
+    return msg.length > 0;
+  }
+
   static Future<SocketMessage> _onNewMessage(SocketMessage msg) async {
+    var isduplicat = await _isDuplicate(msg);
+    if (isduplicat) return null;
     print('new message ${msg.msgId}');
     Chat chat = await _getChatById(msg.chatId);
     if (chat == null) {

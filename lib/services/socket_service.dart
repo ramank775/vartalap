@@ -10,6 +10,7 @@ import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/crashanalystics.dart';
 import 'package:vartalap/services/performance_metric.dart';
+import 'package:vartalap/utils/socket_message_helper.dart';
 
 class SocketService {
   static String name = "SocketService";
@@ -31,6 +32,11 @@ class SocketService {
     _url = ConfigStore().get("ws_url");
 
     await _connectWs();
+  }
+
+  Future<void> externalNewMessage(SocketMessage msg) async {
+    _controller.sink.add(msg);
+    return _reconnectWs();
   }
 
   Future<void> send(SocketMessage msg) async {
@@ -99,6 +105,7 @@ class SocketService {
       _retryCount = 0;
       _channel.asBroadcastStream().listen(_onNewMessage,
           onError: _onError, onDone: _onDone, cancelOnError: false);
+      _channel.done.then((value) => _reconnectWs());
       _socketConnectionTrack.stop();
       _processPendingMessage();
     } catch (e, stack) {
@@ -162,36 +169,9 @@ class SocketService {
   }
 
   void _onNewMessage(event) {
-    if (event is List<String>) {
-      for (var e in event) {
-        _onNewMessage(e);
-      }
-      return;
-    }
-    dynamic incomming = json.decode(event);
-
-    if (incomming is Map) {
-      try {
-        var message = SocketMessage.fromMap(incomming);
-        _controller.sink.add(message);
-      } catch (ex, stack) {
-        Crashlytics.recordError(ex, stack,
-            reason: "Exception while decoding server msg");
-      }
-    } else if (incomming is List) {
-      for (var msg in incomming) {
-        if (msg is String) {
-          _onNewMessage(msg);
-        } else if (msg is Map) {
-          try {
-            _controller.sink.add(SocketMessage.fromMap(msg));
-          } catch (e, stack) {
-            Crashlytics.recordError(e, stack,
-                reason:
-                    "Exception while decoding server msg : ${msg.toString()}");
-          }
-        }
-      }
+    var messages = toSocketMessage(event);
+    for (var msg in messages) {
+      _controller.sink.add(msg);
     }
   }
 

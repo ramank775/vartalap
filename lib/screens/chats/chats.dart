@@ -7,6 +7,7 @@ import 'package:vartalap/screens/chats/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
+import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
 class Chats extends StatefulWidget {
@@ -32,7 +33,22 @@ class ChatsState extends State<Chats> {
       onResume: (Map<String, dynamic> message) {
         // TODO: handle resume notification
       },
-      onMessage: (Map<String, dynamic> message) {},
+      onMessage: (Map<String, dynamic> payload) {
+        if (payload == null || payload["data"] == null) return;
+        var msg = payload["data"]["message"];
+        if (msg == null) return;
+        var source = payload["source"];
+        if (source is String && source == "ON_NOTIFICATION_TAP") {
+          return;
+        }
+        try {
+          var smsg = SocketMessage.fromMap(msg);
+          SocketService.instance.externalNewMessage(smsg);
+        } catch (e, stack) {
+          print(e);
+          print(stack);
+        }
+      },
     );
   }
 
