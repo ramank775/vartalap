@@ -42,7 +42,7 @@ class ChatPreviewWidget extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 5.0),
                 child: new Text(
                   this.getDisplayContext(),
-                  style: new TextStyle(color: Colors.grey, fontSize: 15.0),
+                  style: new TextStyle(color: Colors.grey[700], fontSize: 15.0),
                 ),
               ),
               getWidget()
@@ -73,7 +73,7 @@ class ChatPreviewWidget extends StatelessWidget {
             ),
             child: Center(
                 child: Text(
-              "${this._chat.unread}+",
+              getUnreadCountText(),
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: Colors.white,
@@ -90,5 +90,12 @@ class ChatPreviewWidget extends StatelessWidget {
       return content.substring(0, 25) + "...";
     }
     return content;
+  }
+
+  String getUnreadCountText() {
+    if (this._chat.unread > 9) {
+      return "9+";
+    }
+    return this._chat.unread.toString();
   }
 }

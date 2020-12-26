@@ -1,3 +1,5 @@
+import 'package:share/share.dart';
+import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
@@ -118,29 +120,7 @@ class NewChatState extends State<NewChatScreen> {
                   fontWeight: FontWeight.bold,
                 )),
             onTap: () {
-              // Naviagate to new group screen
-            },
-          ));
-          data.add(ListTile(
-            leading: Container(
-              decoration: BoxDecoration(
-                //color: fabBgColor,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              padding: const EdgeInsets.all(8.0),
-              child: Icon(
-                Icons.person_add,
-                size: 24.0,
-                color: Colors.white,
-              ),
-            ),
-            title: Text('New contact',
-                style: TextStyle(
-                  fontSize: 18.0,
-                  fontWeight: FontWeight.bold,
-                )),
-            onTap: () {
-              //AndroidIntentHelpers.createContact(context);
+              showFeatureNotAvailableDialog('New group');
             },
           ));
           data.addAll(snapshot.data);
@@ -154,30 +134,15 @@ class NewChatState extends State<NewChatScreen> {
                   fontSize: 18.0,
                   fontWeight: FontWeight.bold,
                 )),
-            onTap: () {},
-          ));
-          data.add(ListTile(
-            leading: Container(
-              padding: const EdgeInsets.all(8.0),
-              child: Icon(Icons.help),
-            ),
-            title: Text('Contacts help',
-                style: TextStyle(
-                  fontSize: 18.0,
-                  fontWeight: FontWeight.bold,
-                )),
             onTap: () {
-              // Application.router.navigateTo(
-              //   context,
-              //   Routes.contactsHelp,
-              //   transition: TransitionType.inFromRight,
-              // );
+              Share.share(ConfigStore().get('share_message'));
             },
           ));
+
           return ListView.builder(
               itemCount: data.length,
               itemBuilder: (context, i) {
-                if (i < 2 || i > data.length - 3) {
+                if (i < 1 || i > data.length - 2) {
                   return data[i];
                 }
                 return ContactItem(
@@ -190,6 +155,32 @@ class NewChatState extends State<NewChatScreen> {
               });
         },
       ),
+    );
+  }
+
+  void showFeatureNotAvailableDialog(String header) {
+    var dialog = AlertDialog(
+      title: Text(header),
+      content: SingleChildScrollView(
+        child: ListBody(
+          children: <Widget>[
+            Text('This feature is not available yet.'),
+            Text('We are working on this, will be available soon'),
+          ],
+        ),
+      ),
+      actions: [
+        FlatButton(
+          child: Text('OK'),
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+        ),
+      ],
+    );
+    showDialog(
+      context: context,
+      builder: (context) => dialog,
     );
   }
 }

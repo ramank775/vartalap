@@ -99,6 +99,7 @@ class LoginScreen extends StatelessWidget {
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: RaisedButton(
                       onPressed: () async {
+                        List<String> errors = [];
                         if (_phoneController.text.isNotEmpty) {
                           bool status =
                               await UserService.sendOTP(_phoneController.text);
@@ -107,24 +108,14 @@ class LoginScreen extends StatelessWidget {
                                 builder: (ctx) => VerifyOtpWidget()));
                             return;
                           }
-                          SnackBar(
-                            behavior: SnackBarBehavior.floating,
-                            backgroundColor: Colors.red,
-                            content: Text(
-                              'Unable to send one time password. Please try again after sometime',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          );
+                          errors = [
+                            'Unable to send one time password.',
+                            'Please verify the phone number and try again.'
+                          ];
                         } else {
-                          SnackBar(
-                            behavior: SnackBarBehavior.floating,
-                            backgroundColor: Colors.red,
-                            content: Text(
-                              'Please enter a phone number',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          );
+                          errors.add('Plese enter a phone numer.');
                         }
+                        showErrorDialog(context, errors);
                       },
                       color: Theme.of(context).primaryColor,
                       shape: const RoundedRectangleBorder(
@@ -163,6 +154,29 @@ class LoginScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void showErrorDialog(BuildContext context, List<String> messages) {
+    var contents = messages.map((e) => Text(e)).toList();
+    var dialog = AlertDialog(
+      title: Text("Error"),
+      content: SingleChildScrollView(
+        child: ListBody(children: contents),
+      ),
+      actions: [
+        FlatButton(
+          child: Text('OK'),
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+        ),
+      ],
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => dialog,
     );
   }
 }

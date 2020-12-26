@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:package_info/package_info.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/login.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -17,14 +20,27 @@ class StartupScreen extends StatefulWidget {
 }
 
 class StartupScreenState extends State<StartupScreen> {
+  PackageInfo info;
   @override
   void initState() {
     super.initState();
+    initializeApp();
+  }
+
+  Future initializeApp() async {
+    List<Future> _promises = [];
+
+    var configStore = ConfigStore();
+    info = configStore.packageInfo;
+    await configStore.loadConfig();
+    await AuthService.init();
+    Crashlytics.init();
+    PerformanceMetric.init();
+    bool isLoggedIn = await UserService.isAuth();
+    if (isLoggedIn) {
+      ChatService.init().then((value) => null);
+    }
     Timer(Duration(seconds: 1), () async {
-      var configStore = ConfigStore();
-      await configStore.loadConfig();
-      await AuthService.init();
-      bool isLoggedIn = await UserService.isAuth();
       if (!isLoggedIn) {
         Navigator.pushReplacement(
           context,
@@ -34,16 +50,16 @@ class StartupScreenState extends State<StartupScreen> {
         );
         return;
       }
-      await ChatService.init();
       var value = await Permission.contacts.request();
       if (value.isGranted) {
-        await UserService.syncContacts();
+        _promises.add(UserService.syncContacts());
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => Chats(),
           ),
         );
+        await Future.wait(_promises);
       }
       if (value.isPermanentlyDenied) {
         openAppSettings();
@@ -79,7 +95,7 @@ class StartupScreenState extends State<StartupScreen> {
                       padding: EdgeInsets.only(top: 10.0),
                     ),
                     Text(
-                      "Vartalap",
+                      info.appName,
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 24.0,
@@ -100,7 +116,7 @@ class StartupScreenState extends State<StartupScreen> {
                       padding: EdgeInsets.only(top: 20.0),
                     ),
                     Text(
-                      "Open source chat messager",
+                      "Open source personal chat messager",
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 18.0,

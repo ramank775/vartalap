@@ -1,10 +1,14 @@
 import 'dart:async';
 
+import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/screens/chats/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/services/push_notification_service.dart';
+import 'package:vartalap/services/socket_service.dart';
+import 'package:vartalap/widgets/rich_message.dart';
 
 class Chats extends StatefulWidget {
   @override
@@ -15,11 +19,37 @@ class ChatsState extends State<Chats> {
   Future<List<ChatPreview>> _fChats;
   List<ChatPreview> _selectedChats = [];
 
+  ConfigStore config;
   @override
   void initState() {
     super.initState();
     this._fChats = ChatService.getChats();
     this._selectedChats = [];
+    this.config = ConfigStore();
+    PushNotificationService.instance.config(
+      onLaunch: (Map<String, dynamic> message) {
+        // TODO: handle background notification
+      },
+      onResume: (Map<String, dynamic> message) {
+        // TODO: handle resume notification
+      },
+      onMessage: (Map<String, dynamic> payload) {
+        if (payload == null || payload["data"] == null) return;
+        var msg = payload["data"]["message"];
+        if (msg == null) return;
+        var source = payload["source"];
+        if (source is String && source == "ON_NOTIFICATION_TAP") {
+          return;
+        }
+        try {
+          var smsg = SocketMessage.fromMap(msg);
+          SocketService.instance.externalNewMessage(smsg);
+        } catch (e, stack) {
+          print(e);
+          print(stack);
+        }
+      },
+    );
   }
 
   @override
@@ -102,7 +132,38 @@ class ChatsState extends State<Chats> {
         },
       ));
     }
-    actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
+    actions.add(PopupMenuButton(
+        itemBuilder: (BuildContext context) => [
+              PopupMenuItem(
+                value: 'About Dialog',
+                child: GestureDetector(
+                  child: Container(
+                    child: Text("About us"),
+                  ),
+                  onTap: () {
+                    Navigator.of(context).pop('About Dialog');
+                    showAboutDialog(
+                      context: context,
+                      applicationName: config.packageInfo.appName,
+                      applicationIcon: Icon(
+                        Icons.chat_bubble_outline,
+                        color: Colors.blueAccent,
+                        size: 30.0,
+                      ),
+                      applicationVersion:
+                          "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
+                      children: <Widget>[
+                        Text('Vartalap is an open source chat messager.'),
+                        RichMessage(
+                          config.get("description"),
+                          TextStyle(fontSize: 12, color: Colors.black),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              )
+            ]));
     return actions;
   }
 
@@ -115,7 +176,6 @@ class ChatsState extends State<Chats> {
       var chat = await ChatService.newIndiviualChat(result);
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
-    print("Main Screen");
     setState(() {
       _fChats = ChatService.getChats();
     });
@@ -180,12 +240,14 @@ class ChatListViewState extends State<ChatListView> {
   }
 
   _onNewMessage(SocketMessage msg) async {
+    PushNotificationService.instance
+        .showNotification('New Message', msg.text, msg.toMap());
     var chat = _chats.firstWhere((_chat) => _chat.id == msg.chatId,
         orElse: () => null);
     if (chat == null) {
       chat = await ChatService.getChatById(msg.chatId);
       setState(() {
-        widget._chats.add(chat);
+        widget._chats.insert(0, chat);
       });
       return;
     } else {
@@ -194,7 +256,7 @@ class ChatListViewState extends State<ChatListView> {
           _msg.timestamp, (chat.unread + 1));
     }
     var chats = _chats.where((_chat) => _chat.id != msg.chatId).toList();
-    chats.add(chat);
+    chats.insert(0, chat);
     setState(() {
       _chats = chats;
     });
