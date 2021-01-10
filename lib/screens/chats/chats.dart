@@ -38,7 +38,7 @@ class ChatsState extends State<Chats> {
         var msg = payload["data"]["message"];
         if (msg == null) return;
         var source = payload["source"];
-        if (source is String && source == "ON_NOTIFICATION_TAP") {
+        if (source != null && source is String && source == "ON_NOTIFICATION_TAP") {
           return;
         }
         try {
