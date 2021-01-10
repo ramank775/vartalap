@@ -111,7 +111,7 @@ class NewChatState extends State<NewChatScreen> {
               child: Icon(
                 Icons.group,
                 size: 32.0,
-                color: Colors.white,
+                color: Colors.grey,
               ),
             ),
             title: Text('New group',

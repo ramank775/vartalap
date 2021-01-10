@@ -1,7 +1,8 @@
 import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/screens/profile_img/profile_img.dart';
+// import 'package:vartalap/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/widgets/avator.dart';
 
 class ChatPreviewWidget extends StatelessWidget {
   final ChatPreview _chat;
@@ -19,9 +20,14 @@ class ChatPreviewWidget extends StatelessWidget {
           height: 5.0,
         ),
         new ListTile(
-          leading: new ProfileImg(
-              this._chat.pic ?? 'assets/images/default-user.png',
-              ProfileImgSize.MD),
+          leading: Avator(
+            text: this._chat.title,
+            width: 42,
+            height: 42,
+          ),
+          // leading: new ProfileImg(
+          //     this._chat.pic ?? 'assets/images/default-user.png',
+          //     ProfileImgSize.MD),
           title: new Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[

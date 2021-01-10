@@ -1,5 +1,6 @@
 import 'package:vartalap/models/user.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/widgets/avator.dart';
 
 class ContactItem extends StatelessWidget {
   final User user;
@@ -12,17 +13,10 @@ class ContactItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.symmetric(vertical: 2.0, horizontal: 16.0),
-      leading: SizedBox(
+      leading: Avator(
         width: 45.0,
         height: 45.0,
-        child: IconButton(
-            padding: const EdgeInsets.all(0.0),
-            icon: Icon(
-              Icons.account_circle,
-              size: 45.0,
-            ),
-            color: Colors.blueGrey,
-            onPressed: onProfileTap),
+        text: user.name,
       ),
       title: Text(
         user.name,

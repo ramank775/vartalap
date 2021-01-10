@@ -9,6 +9,7 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/widgets/avator.dart';
 import 'message.dart';
 import 'message_input.dart';
 
@@ -62,8 +63,13 @@ class ChatState extends State<ChatScreen> {
                 size: 24.0,
                 color: Colors.white,
               ),
-              new ProfileImg(this._chat.pic ?? 'assets/images/default-user.png',
-                  ProfileImgSize.SM),
+              Avator(
+                text: this._chat.title,
+                width: 32.0,
+                height: 32.0,
+              )
+              // new ProfileImg(this._chat.pic ?? 'assets/images/default-user.png',
+              //     ProfileImgSize.SM),
             ],
           ),
         ),

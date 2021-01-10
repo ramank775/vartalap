@@ -43,6 +43,7 @@ dependencies:
   firebase_crashlytics: ^0.2.1+1
   url_launcher: ^5.7.5
   share: ^0.6.5+3
+  avatar_letter: ^1.0.1
   
 dev_dependencies:
   flutter_test:
