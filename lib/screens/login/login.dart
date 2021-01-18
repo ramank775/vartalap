@@ -3,7 +3,8 @@ import 'package:vartalap/screens/login/verifyOtp.dart';
 import 'package:vartalap/services/user_service.dart';
 
 class LoginScreen extends StatelessWidget {
-  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _phoneController =
+      TextEditingController(text: "+91");
   @override
   Widget build(BuildContext context) {
     return Scaffold(
