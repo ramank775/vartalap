@@ -47,15 +47,23 @@ class UserService {
     return User.fromMap(userMap[0]);
   }
 
-  static Future<List<User>> getUsers({bool sync: false}) async {
+  static Future<List<User>> getUsers({String search, bool sync: false}) async {
     if (sync) {
       await syncContacts();
     }
+    String where = "hasAccount=? and status=?";
+    List<dynamic> whereArgs = [
+      1,
+      enumToInt(UserStatus.ACTIVE, UserStatus.values)
+    ];
+    if (search != null && search.isNotEmpty) {
+      where += " and (name like ? or username like ?)";
+      whereArgs.add("%" + search + "%");
+      whereArgs.add("%" + search + "%");
+    }
     Database db = await DB().getDb();
     var userMap = await db.query('user',
-        where: "hasAccount=? and status=?",
-        whereArgs: [1, enumToInt(UserStatus.ACTIVE, UserStatus.values)],
-        orderBy: 'name');
+        where: where, whereArgs: whereArgs, orderBy: 'name');
     var users = userMap.map((e) => User.fromMap(e)).toList();
     return users;
   }

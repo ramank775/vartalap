@@ -13,6 +13,8 @@ class NewChatScreen extends StatefulWidget {
 class NewChatState extends State<NewChatScreen> {
   Future<List<User>> _contacts;
   int _numContacts;
+  bool _openSearch = false;
+
   @override
   void initState() {
     super.initState();
@@ -27,55 +29,7 @@ class NewChatState extends State<NewChatScreen> {
   @override
   Widget build(BuildContext context) {
     return new Scaffold(
-      appBar: AppBar(
-        title: Column(
-          mainAxisSize: MainAxisSize.max,
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 2.0),
-              child: Text(
-                'Select contact',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            Container(
-              child: _numContacts == null
-                  ? null
-                  : Text(
-                      '$_numContacts contacts',
-                      style: TextStyle(
-                        fontSize: 12.0,
-                      ),
-                    ),
-            )
-          ],
-        ),
-        actions: <Widget>[
-          IconButton(
-            tooltip: 'Search',
-            icon: Icon(Icons.search),
-            onPressed: () {},
-          ),
-          PopupMenuButton(itemBuilder: (BuildContext cntx) {
-            List<PopupMenuEntry<Object>> entries = [];
-            entries.add(PopupMenuItem(
-              child: GestureDetector(
-                child: Text("Refresh"),
-                onTap: () {
-                  setState(() {
-                    _contacts = UserService.getUsers(sync: true);
-                  });
-                },
-              ),
-            ));
-            return entries;
-          })
-        ],
-      ),
+      appBar: this._openSearch ? buildSearchAppBar() : buildAppBar(),
       body: FutureBuilder<Iterable<User>>(
         future: _contacts,
         builder: (context, snapshot) {
@@ -155,6 +109,106 @@ class NewChatState extends State<NewChatScreen> {
               });
         },
       ),
+    );
+  }
+
+  AppBar buildAppBar() {
+    return AppBar(
+      title: Column(
+        mainAxisSize: MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2.0),
+            child: Text(
+              'Select contact',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Container(
+            child: _numContacts == null
+                ? null
+                : Text(
+                    '$_numContacts contacts',
+                    style: TextStyle(
+                      fontSize: 12.0,
+                    ),
+                  ),
+          )
+        ],
+      ),
+      actions: <Widget>[
+        IconButton(
+          tooltip: 'Search',
+          icon: Icon(Icons.search),
+          onPressed: () {
+            setState(() {
+              this._openSearch = true;
+            });
+          },
+        ),
+        PopupMenuButton(itemBuilder: (BuildContext cntx) {
+          List<PopupMenuEntry<Object>> entries = [];
+          entries.add(PopupMenuItem(
+            child: GestureDetector(
+              child: Text("Refresh"),
+              onTap: () {
+                setState(() {
+                  _contacts = UserService.getUsers(sync: true);
+                });
+              },
+            ),
+          ));
+          return entries;
+        })
+      ],
+    );
+  }
+
+  AppBar buildSearchAppBar() {
+    return AppBar(
+      leading: FlatButton(
+        shape: CircleBorder(),
+        padding: const EdgeInsets.only(left: 1.0),
+        onPressed: () {
+          setState(() {
+            this._openSearch = false;
+            this._contacts = UserService.getUsers();
+          });
+        },
+        child: Icon(
+          Icons.arrow_back,
+          size: 24.0,
+          color: Colors.white,
+        ),
+      ),
+      titleSpacing: 0,
+      automaticallyImplyLeading: false,
+      title: TextField(
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 20.0,
+        ),
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          hintText: "Search",
+          hintStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 20.0,
+          ),
+        ),
+        maxLines: 1,
+        autofocus: true,
+        onChanged: (value) {
+          setState(() {
+            this._contacts = UserService.getUsers(search: value);
+          });
+        },
+      ),
+      actions: [],
     );
   }
 
