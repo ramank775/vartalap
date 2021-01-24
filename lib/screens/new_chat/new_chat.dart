@@ -74,7 +74,7 @@ class NewChatState extends State<NewChatScreen> {
                   fontWeight: FontWeight.bold,
                 )),
             onTap: () {
-              showFeatureNotAvailableDialog('New group');
+              Navigator.of(context).popAndPushNamed('/new-group');
             },
           ));
           data.addAll(snapshot.data);

@@ -6,8 +6,9 @@ class ContactItem extends StatelessWidget {
   final User user;
   final Function onProfileTap;
   final Function onTap;
-
-  ContactItem({this.user, this.onProfileTap, this.onTap});
+  final bool isSelected;
+  ContactItem(
+      {this.user, this.isSelected = false, this.onProfileTap, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +32,7 @@ class ContactItem extends StatelessWidget {
         maxLines: 1,
       ),
       onTap: () => onTap(user),
+      selected: isSelected,
     );
   }
 }
