@@ -1,7 +1,7 @@
+import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/contactPreviewItem.dart';
 import 'contact.dart';
 
@@ -15,8 +15,6 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
   int _numContacts;
   bool _openSearch = false;
   List<User> _selectedUsers = [];
-
-  TextEditingController _nameController = TextEditingController();
 
   @override
   void initState() {
@@ -107,9 +105,15 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
       ),
       floatingActionButton: this._selectedUsers.length > 0
           ? FloatingActionButton(
-              onPressed: () {
-                Navigator.of(context)
+              onPressed: () async {
+                var chat = await Navigator.of(context)
                     .pushNamed('/create-group', arguments: _selectedUsers);
+                if (chat is Chat) {
+                  Navigator.of(context).popAndPushNamed(
+                    '/chat',
+                    arguments: chat,
+                  );
+                }
               },
               tooltip: 'Next',
               child: Icon(Icons.arrow_forward),

@@ -74,7 +74,8 @@ class NewChatState extends State<NewChatScreen> {
                   fontWeight: FontWeight.bold,
                 )),
             onTap: () {
-              Navigator.of(context).popAndPushNamed('/new-group');
+              Navigator.of(context).pushReplacementNamed('/new-group');
+//              Navigator.of(context).popAndPushNamed('/new-group');
             },
           ));
           data.addAll(snapshot.data);

@@ -10,6 +10,8 @@ class SocketMessage {
   String chatId;
   String text;
   MessageState state;
+  String module;
+  String action;
 
   SocketMessage.fromChatMessage(Message msg, Chat chat) {
     this.msgId = msg.id;
@@ -18,9 +20,13 @@ class SocketMessage {
     this.chatId = msg.chatId;
     this.text = msg.text;
     this.state = msg.state;
-    this.to = chat.users
-        .singleWhere((element) => element.username != msg.senderId)
-        .username;
+    if (chat.type == ChatType.GROUP) {
+      this.to = chat.id;
+    } else {
+      this.to = chat.users
+          .singleWhere((element) => element.username != msg.senderId)
+          .username;
+    }
   }
 
   SocketMessage.fromMap(Map<String, dynamic> map) {
@@ -33,6 +39,8 @@ class SocketMessage {
     this.state = map["state"] != null
         ? stringToEnum(map["state"], MessageState.values)
         : MessageState.NEW;
+    this.module = map["module"];
+    this.action = map["action"];
   }
 
   Map<String, dynamic> toMap() {
@@ -43,7 +51,9 @@ class SocketMessage {
       "type": enumToString(this.type),
       "chatId": this.chatId,
       "text": this.text,
-      "state": enumToString(this.state)
+      "state": enumToString(this.state),
+      "module": this.module,
+      "action": this.action
     };
     return map;
   }

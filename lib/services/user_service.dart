@@ -73,6 +73,25 @@ class UserService {
     await db.insert("user", user.toMap());
   }
 
+  static Future<bool> addUnknowUser(List<User> users) async {
+    List<String> usernames = users.map((u) => u.username).toList();
+    var db = await DB().getDb();
+    var result = (await db.query("user",
+            where: "username in ?",
+            whereArgs: [usernames],
+            columns: ["username"]))
+        .map((m) => m["username"])
+        .toList(growable: false);
+    Batch batch = db.batch();
+    users.forEach((user) {
+      if (!result.contains(user.username)) {
+        batch.insert("user", user.toMap());
+      }
+    });
+    await batch.commit();
+    return true;
+  }
+
   static Future<void> syncContacts() async {
     var syncContactTrace = PerformanceMetric.newTrace('sync-contact');
     await syncContactTrace.start();

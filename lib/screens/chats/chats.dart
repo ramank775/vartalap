@@ -38,7 +38,9 @@ class ChatsState extends State<Chats> {
         var msg = payload["data"]["message"];
         if (msg == null) return;
         var source = payload["source"];
-        if (source != null && source is String && source == "ON_NOTIFICATION_TAP") {
+        if (source != null &&
+            source is String &&
+            source == "ON_NOTIFICATION_TAP") {
           return;
         }
         try {
@@ -173,7 +175,12 @@ class ChatsState extends State<Chats> {
       if (result == null) {
         return;
       }
-      var chat = await ChatService.newIndiviualChat(result);
+      Chat chat;
+      if (result is Chat) {
+        chat = result;
+      } else {
+        chat = await ChatService.newIndiviualChat(result);
+      }
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
     setState(() {

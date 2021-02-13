@@ -4,7 +4,6 @@ import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/profile_img/profile_img.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';

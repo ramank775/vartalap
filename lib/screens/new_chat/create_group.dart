@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/models/user.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/contactPreviewItem.dart';
 
@@ -8,6 +9,21 @@ class CreateGroup extends StatelessWidget {
   CreateGroup(this._members);
   @override
   Widget build(BuildContext context) {
+    onGroupNameConfirm(String name) async {
+      if (name.isNotEmpty) {
+        try {
+          var chat = await ChatService.newGroupChat(name, this._members);
+          Navigator.of(context).pop(chat);
+        } on Exception catch (e) {
+          print(e);
+          showErrorDialog(context, [
+            'Error while creating new group.',
+            'Make sure you are connected to internet.'
+          ]);
+        }
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -35,7 +51,7 @@ class CreateGroup extends StatelessWidget {
             children: <Widget>[
               Container(
                 child: _CreateGroupForm(
-                  onConfirm: this.onGroupNameConfirm,
+                  onConfirm: onGroupNameConfirm,
                 ),
               ),
               Container(
@@ -70,8 +86,27 @@ class CreateGroup extends StatelessWidget {
     );
   }
 
-  onGroupNameConfirm(String name) {
-    print(name);
+  void showErrorDialog(BuildContext context, List<String> error) {
+    var dialog = AlertDialog(
+      title: Text('Error'),
+      content: SingleChildScrollView(
+        child: ListBody(
+          children: error.map((err) => Text(err)).toList(),
+        ),
+      ),
+      actions: [
+        FlatButton(
+          child: Text('OK'),
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+        ),
+      ],
+    );
+    showDialog(
+      context: context,
+      builder: (context) => dialog,
+    );
   }
 }
 

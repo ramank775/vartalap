@@ -5,6 +5,7 @@ import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
+import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/utils/enum_helper.dart';
@@ -47,13 +48,14 @@ class ChatService {
       where chatid == chat.id and senderid !=? and state == 0
     ) unread
     from chat
-    inner join message on message.id in (
+    left join message on message.id in (
       select id 
       from message
       where chatid == chat.id
       order by ts desc
       Limit 1
     )
+    where chat.type == 2 or (select count(id) from message where chatid == chat.id) > 0
     order by message.ts desc;""";
     var result = await db.rawQuery(sql, [currentUser.username]);
     return result.map((e) => ChatPreview.fromMap(e)).toList();
@@ -69,7 +71,7 @@ class ChatService {
       where message.chatid == chat.id and message.senderid !=? and message.state = 0
     ) unread
     from chat
-    inner join message on message.id in (
+    left join message on message.id in (
       select id 
       from message
       where chatid == chat.id
@@ -113,6 +115,19 @@ class ChatService {
       });
     }
     return chat;
+  }
+
+  static Future<Chat> newGroupChat(String title, List<User> members) async {
+    var memberIds = members.map((user) => user.username).toList();
+    var groupId = await ApiService.createGroup(title, memberIds, null);
+    Chat newChat = Chat(groupId, title, null, type: ChatType.GROUP);
+    members.forEach((member) {
+      newChat.addUser(ChatUser.fromUser(member));
+    });
+    var self = UserService.getLoggedInUser();
+    newChat.addUser(ChatUser.fromUser(self));
+    await _saveChat(newChat);
+    return newChat;
   }
 
   static Future<void> sendMessage(Message msg, Chat chat) async {
@@ -221,6 +236,17 @@ class ChatService {
     return result.length == users.length;
   }
 
+  static Future<bool> _removeChatUser(
+      String chatid, List<ChatUser> users) async {
+    var db = await DB().getDb();
+    var batch = db.batch();
+    users.forEach((user) {
+      batch.delete("chat_user", where: "userid=?", whereArgs: [user.username]);
+    });
+    await batch.commit();
+    return true;
+  }
+
   static Future<bool> _saveMessage(Message msg) async {
     var db = await DB().getDb();
     var result = await db.insert("message", msg.toMap());
@@ -241,22 +267,11 @@ class ChatService {
     print('new message ${msg.msgId}');
     Chat chat = await _getChatById(msg.chatId);
     if (chat == null) {
-      User user = await UserService.getUserById(msg.from);
-      if (user == null) {
-        user = User(msg.from, msg.from, null);
-        user.hasAccount = true;
-        await UserService.addUser(user);
+      if (msg.to == msg.chatId) {
+        chat = await _createGroupChat(msg.to);
+      } else {
+        chat = await _createIndiviualChat(msg.chatId, msg.from);
       }
-      var self = UserService.getLoggedInUser();
-      User currentUser = await UserService.getUserById(self.username);
-      if (currentUser == null) {
-        await UserService.addUser(self);
-      }
-      chat = Chat(msg.chatId, user.name, user.pic);
-      chat.addUser(ChatUser.fromUser(user));
-
-      chat.addUser(ChatUser.fromUser(self));
-      await _saveChat(chat);
     }
     Message _msg = Message(msg.msgId, chat.id, msg.from, msg.text,
         MessageState.NEW, DateTime.now().millisecondsSinceEpoch, msg.type);
@@ -265,8 +280,8 @@ class ChatService {
   }
 
   static Future<SocketMessage> _onNotificationMsg(SocketMessage msg) async {
+    var db = await DB().getDb();
     if (msg.from == SocketService.name) {
-      var db = await DB().getDb();
       await db.update(
           "message",
           {
@@ -274,8 +289,94 @@ class ChatService {
           },
           where: "id=?",
           whereArgs: [msg.msgId]);
+    } else if (msg.module == "group") {
+      var result = await _getChatById(msg.to);
+      if (result == null) {
+        await _createGroupChat(msg.to);
+      }
+      switch (msg.action) {
+        case 'add':
+          await _addGroupUsers(msg.to);
+          break;
+        case 'remove':
+          await _removeGroupUsers(msg.to);
+          break;
+        default:
+      }
     }
     return msg;
+  }
+
+  static Future<Chat> _fetchGroupInfo(String id) async {
+    var group = await ApiService.getGroupInfo(id);
+    Chat chat = Chat(
+      id,
+      group["name"],
+      group["profilePic"],
+      type: ChatType.GROUP,
+    );
+    List<Map<String, String>> members = group["members"];
+
+    members.forEach((member) {
+      User u = User(member["username"], member["username"], null,
+          status: UserStatus.UNKNOWN, hasAccount: true);
+      ChatUser user = ChatUser.fromUser(u);
+      user.role = stringToEnum(member["role"], UserRole.values);
+      chat.users.add(ChatUser.fromUser(u));
+    });
+    return chat;
+  }
+
+  static Future<Chat> _createGroupChat(String id) async {
+    Chat chat = await _fetchGroupInfo(id);
+    await UserService.addUnknowUser(chat.users);
+    await _saveChat(chat);
+    return chat;
+  }
+
+  static Future _addGroupUsers(String id) async {
+    Chat chat = await _fetchGroupInfo(id);
+    List<ChatUser> users = await _getChatUser(id);
+    List<ChatUser> usersToAdd;
+    chat.users.forEach((user) {
+      if (!users.contains(user)) {
+        usersToAdd.add(user);
+      }
+    });
+    if (usersToAdd.isNotEmpty) await _saveChatUser(id, usersToAdd);
+  }
+
+  static Future _removeGroupUsers(String id) async {
+    Chat chat = await _fetchGroupInfo(id);
+    List<ChatUser> users = await _getChatUser(id);
+    List<ChatUser> usersToRemove;
+    users.forEach((user) {
+      if (!chat.users.contains(user)) {
+        usersToRemove.add(user);
+      }
+    });
+    if (usersToRemove.isNotEmpty) await _removeChatUser(id, usersToRemove);
+  }
+
+  static Future<Chat> _createIndiviualChat(String id, String from) async {
+    Chat chat;
+    User user = await UserService.getUserById(from);
+    if (user == null) {
+      user = User(from, from, null, status: UserStatus.UNKNOWN);
+      user.hasAccount = true;
+      await UserService.addUser(user);
+    }
+    var self = UserService.getLoggedInUser();
+    User currentUser = await UserService.getUserById(self.username);
+    if (currentUser == null) {
+      await UserService.addUser(self);
+    }
+    chat = Chat(id, user.name, user.pic);
+    chat.addUser(ChatUser.fromUser(user));
+
+    chat.addUser(ChatUser.fromUser(self));
+    await _saveChat(chat);
+    return chat;
   }
 
   static String _createIndiviualChatId(User user) {
