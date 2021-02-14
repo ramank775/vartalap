@@ -75,13 +75,12 @@ class UserService {
 
   static Future<bool> addUnknowUser(List<User> users) async {
     List<String> usernames = users.map((u) => u.username).toList();
+    List<String> result;
+    for (var username in usernames) {
+      var u = await getUserById(username);
+      result.add(u.username);
+    }
     var db = await DB().getDb();
-    var result = (await db.query("user",
-            where: "username in ?",
-            whereArgs: [usernames],
-            columns: ["username"]))
-        .map((m) => m["username"])
-        .toList(growable: false);
     Batch batch = db.batch();
     users.forEach((user) {
       if (!result.contains(user.username)) {

@@ -265,6 +265,9 @@ class ChatService {
     var isduplicat = await _isDuplicate(msg);
     if (isduplicat) return null;
     print('new message ${msg.msgId}');
+    if (msg.chatId == null) {
+      msg.chatId = _createChatIdFromMsg(msg);
+    }
     Chat chat = await _getChatById(msg.chatId);
     if (chat == null) {
       if (msg.to == msg.chatId) {
@@ -277,6 +280,15 @@ class ChatService {
         MessageState.NEW, DateTime.now().millisecondsSinceEpoch, msg.type);
     await _saveMessage(_msg);
     return msg;
+  }
+
+  static String _createChatIdFromMsg(SocketMessage msg) {
+    if (msg.to != UserService.getLoggedInUser().username) {
+      msg.chatId = msg.to;
+    } else {
+      msg.chatId = _createIndiviualChatId(User(msg.from, msg.from, null));
+    }
+    return msg.chatId;
   }
 
   static Future<SocketMessage> _onNotificationMsg(SocketMessage msg) async {
@@ -315,14 +327,16 @@ class ChatService {
       group["profilePic"],
       type: ChatType.GROUP,
     );
-    List<Map<String, String>> members = group["members"];
+    List<Map<String, dynamic>> members = (group["members"] as List).map((m) {
+      return m as Map<String, dynamic>;
+    }).toList();
 
     members.forEach((member) {
       User u = User(member["username"], member["username"], null,
           status: UserStatus.UNKNOWN, hasAccount: true);
       ChatUser user = ChatUser.fromUser(u);
       user.role = stringToEnum(member["role"], UserRole.values);
-      chat.users.add(ChatUser.fromUser(u));
+      chat.users.add(user);
     });
     return chat;
   }
@@ -337,7 +351,7 @@ class ChatService {
   static Future _addGroupUsers(String id) async {
     Chat chat = await _fetchGroupInfo(id);
     List<ChatUser> users = await _getChatUser(id);
-    List<ChatUser> usersToAdd;
+    List<ChatUser> usersToAdd = [];
     chat.users.forEach((user) {
       if (!users.contains(user)) {
         usersToAdd.add(user);
@@ -349,7 +363,7 @@ class ChatService {
   static Future _removeGroupUsers(String id) async {
     Chat chat = await _fetchGroupInfo(id);
     List<ChatUser> users = await _getChatUser(id);
-    List<ChatUser> usersToRemove;
+    List<ChatUser> usersToRemove = [];
     users.forEach((user) {
       if (!chat.users.contains(user)) {
         usersToRemove.add(user);
