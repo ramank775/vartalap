@@ -152,12 +152,20 @@ class ChatState extends State<ChatScreen> {
                           itemCount: this._messages.length,
                           reverse: true,
                           itemBuilder: (context, i) {
+                            if (this._messages[i].sender == null) {
+                              this._messages[i].sender =
+                                  getSender(this._messages[i].senderId);
+                            }
+                            bool isYou = this._messages[i].sender ==
+                                this.widget.currentUser;
+                            bool showUserInfo =
+                                !isYou && this._chat.type == ChatType.GROUP;
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 5.0),
                               child: MessageWidget(
                                 this._messages[i],
-                                this._messages[i].sender ==
-                                    this.widget.currentUser,
+                                isYou,
+                                showUserInfo: showUserInfo,
                                 isSelected: this
                                     ._selectedMessges
                                     .contains(this._messages[i]),
@@ -261,6 +269,11 @@ class ChatState extends State<ChatScreen> {
       _unreadMessages = [];
     }
     ChatService.markAsDelivered(messages);
+  }
+
+  User getSender(String senderId) {
+    return this._chat.users.singleWhere((u) => u.username == senderId,
+        orElse: () => ChatUser(senderId, senderId, null));
   }
 
   @override
