@@ -1,6 +1,9 @@
 import 'package:share/share.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/user.dart';
+import 'package:vartalap/screens/chats/chat_preview.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'contact.dart';
@@ -10,15 +13,19 @@ class NewChatScreen extends StatefulWidget {
   State<StatefulWidget> createState() => NewChatState();
 }
 
-class NewChatState extends State<NewChatScreen> {
+class NewChatState extends State<NewChatScreen>
+    with SingleTickerProviderStateMixin {
   Future<List<User>> _contacts;
+  Future<List<Chat>> _groups;
+  TabController _tabController;
   int _numContacts;
   bool _openSearch = false;
-
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _contacts = UserService.getUsers();
+    _groups = ChatService.getGroups();
     _contacts.then((value) {
       setState(() {
         _numContacts = value.length;
@@ -27,119 +34,162 @@ class NewChatState extends State<NewChatScreen> {
   }
 
   @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return new Scaffold(
-      appBar: this._openSearch ? buildSearchAppBar() : buildAppBar(),
-      body: FutureBuilder<Iterable<User>>(
-        future: _contacts,
-        builder: (context, snapshot) {
-          switch (snapshot.connectionState) {
-            case ConnectionState.none:
-              return Center(
-                child: CircularProgressIndicator(
-                  valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
-                ),
-              );
-            case ConnectionState.active:
-            case ConnectionState.waiting:
-              return Center(
-                child: CircularProgressIndicator(
-                  valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
-                ),
-              );
-            case ConnectionState.done:
-              if (snapshot.hasError) {
-                return Center(
-                  child: Text('Error: ${snapshot.error}'),
-                );
-              }
-          }
-          List<dynamic> data = List<dynamic>();
-          data.add(ListTile(
-            leading: Container(
-              decoration: BoxDecoration(
-                //color: fabBgColor,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              padding: const EdgeInsets.all(4.0),
-              child: Icon(
-                Icons.group,
-                size: 32.0,
-                color: Colors.grey,
-              ),
-            ),
-            title: Text('New group',
-                style: TextStyle(
-                  fontSize: 18.0,
-                  fontWeight: FontWeight.bold,
-                )),
-            onTap: () {
-              Navigator.of(context).pushReplacementNamed('/new-group');
-//              Navigator.of(context).popAndPushNamed('/new-group');
-            },
-          ));
-          data.addAll(snapshot.data);
-          data.add(ListTile(
-            leading: Container(
-              padding: const EdgeInsets.all(8.0),
-              child: Icon(Icons.share),
-            ),
-            title: Text('Invite friends',
-                style: TextStyle(
-                  fontSize: 18.0,
-                  fontWeight: FontWeight.bold,
-                )),
-            onTap: () {
-              Share.share(ConfigStore().get('share_message'));
-            },
-          ));
+        appBar: this._openSearch ? buildSearchAppBar() : buildAppBar(),
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            contacts(),
+            groups(),
+          ],
+        ));
+  }
 
-          return ListView.builder(
-              itemCount: data.length,
-              itemBuilder: (context, i) {
-                if (i < 1 || i > data.length - 2) {
-                  return data[i];
-                }
-                return ContactItem(
-                    user: data.elementAt(i),
-                    onProfileTap: () =>
-                        {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
-                    onTap: (User user) async {
-                      Navigator.of(context).pop(user);
-                    });
-              });
-        },
-      ),
+  Widget contacts() {
+    return FutureBuilder<Iterable<User>>(
+      future: _contacts,
+      builder: (context, snapshot) {
+        switch (snapshot.connectionState) {
+          case ConnectionState.none:
+            return Center(
+              child: CircularProgressIndicator(
+                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+              ),
+            );
+          case ConnectionState.active:
+          case ConnectionState.waiting:
+            return Center(
+              child: CircularProgressIndicator(
+                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+              ),
+            );
+          case ConnectionState.done:
+            if (snapshot.hasError) {
+              return Center(
+                child: Text('Error: ${snapshot.error}'),
+              );
+            }
+        }
+        List<dynamic> data = List<dynamic>();
+        data.addAll(snapshot.data);
+        data.add(ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8.0),
+            child: Icon(Icons.share),
+          ),
+          title: Text('Invite friends',
+              style: TextStyle(
+                fontSize: 18.0,
+                fontWeight: FontWeight.bold,
+              )),
+          onTap: () {
+            Share.share(ConfigStore().get('share_message'));
+          },
+        ));
+
+        return ListView.builder(
+            itemCount: data.length,
+            itemBuilder: (context, i) {
+              if (i > data.length - 2) {
+                return data[i];
+              }
+              return ContactItem(
+                  user: data.elementAt(i),
+                  onProfileTap: () =>
+                      {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
+                  onTap: (User user) async {
+                    Navigator.of(context).pop(user);
+                  });
+            });
+      },
+    );
+  }
+
+  Widget groups() {
+    return FutureBuilder<Iterable<Chat>>(
+      future: _groups,
+      builder: (context, snapshot) {
+        switch (snapshot.connectionState) {
+          case ConnectionState.none:
+            return Center(
+              child: CircularProgressIndicator(
+                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+              ),
+            );
+          case ConnectionState.active:
+          case ConnectionState.waiting:
+            return Center(
+              child: CircularProgressIndicator(
+                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+              ),
+            );
+          case ConnectionState.done:
+            if (snapshot.hasError) {
+              return Center(
+                child: Text('Error: ${snapshot.error}'),
+              );
+            }
+        }
+        List<dynamic> data = List<dynamic>();
+        data.add(ListTile(
+          leading: Container(
+            decoration: BoxDecoration(
+              //color: fabBgColor,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            padding: const EdgeInsets.all(4.0),
+            child: Icon(
+              Icons.group,
+              size: 32.0,
+              color: Colors.grey,
+            ),
+          ),
+          title: Text('New group',
+              style: TextStyle(
+                fontSize: 18.0,
+                fontWeight: FontWeight.bold,
+              )),
+          onTap: () {
+            Navigator.of(context).pushReplacementNamed('/new-group');
+          },
+        ));
+
+        data.addAll(snapshot.data);
+        return ListView.builder(
+            itemCount: data.length,
+            itemBuilder: (context, i) {
+              if (i < 1) {
+                return data[i];
+              }
+              Chat chat = data.elementAt(i);
+              return ChatPreviewWidget(
+                ChatPreview(chat.id, chat.title, chat.pic, null, 0, 0),
+                (Chat ch) {
+                  Navigator.of(context).pop(ch);
+                },
+                (Chat ch) {
+                  Navigator.of(context).pop(ch);
+                },
+              );
+            });
+      },
     );
   }
 
   AppBar buildAppBar() {
     return AppBar(
-      title: Column(
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 2.0),
-            child: Text(
-              'Select contact',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          Container(
-            child: _numContacts == null
-                ? null
-                : Text(
-                    '$_numContacts contacts',
-                    style: TextStyle(
-                      fontSize: 12.0,
-                    ),
-                  ),
-          )
-        ],
+      title: Text(
+        'New Chat',
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+        ),
       ),
       actions: <Widget>[
         IconButton(
@@ -159,6 +209,7 @@ class NewChatState extends State<NewChatScreen> {
               onTap: () {
                 setState(() {
                   _contacts = UserService.getUsers(sync: true);
+                  _groups = ChatService.getGroups();
                 });
               },
             ),
@@ -166,6 +217,17 @@ class NewChatState extends State<NewChatScreen> {
           return entries;
         })
       ],
+      bottom: TabBar(
+        controller: _tabController,
+        tabs: [
+          Tab(
+            child: Icon(Icons.contacts),
+          ),
+          Tab(
+            child: Icon(Icons.group),
+          )
+        ],
+      ),
     );
   }
 
@@ -178,6 +240,7 @@ class NewChatState extends State<NewChatScreen> {
           setState(() {
             this._openSearch = false;
             this._contacts = UserService.getUsers();
+            this._groups = ChatService.getGroups();
           });
         },
         child: Icon(
@@ -205,37 +268,14 @@ class NewChatState extends State<NewChatScreen> {
         autofocus: true,
         onChanged: (value) {
           setState(() {
-            this._contacts = UserService.getUsers(search: value);
+            if (_tabController.index == 0)
+              this._contacts = UserService.getUsers(search: value);
+            else
+              this._groups = ChatService.getGroups(search: value);
           });
         },
       ),
       actions: [],
-    );
-  }
-
-  void showFeatureNotAvailableDialog(String header) {
-    var dialog = AlertDialog(
-      title: Text(header),
-      content: SingleChildScrollView(
-        child: ListBody(
-          children: <Widget>[
-            Text('This feature is not available yet.'),
-            Text('We are working on this, will be available soon'),
-          ],
-        ),
-      ),
-      actions: [
-        FlatButton(
-          child: Text('OK'),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
-        ),
-      ],
-    );
-    showDialog(
-      context: context,
-      builder: (context) => dialog,
     );
   }
 }

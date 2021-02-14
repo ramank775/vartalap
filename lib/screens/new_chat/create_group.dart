@@ -3,6 +3,7 @@ import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/contactPreviewItem.dart';
+import 'package:vartalap/widgets/loadingIndicator.dart';
 
 class CreateGroup extends StatelessWidget {
   final List<User> _members;
@@ -12,7 +13,9 @@ class CreateGroup extends StatelessWidget {
     onGroupNameConfirm(String name) async {
       if (name.isNotEmpty) {
         try {
+          showLoadingIndicator(context);
           var chat = await ChatService.newGroupChat(name, this._members);
+          Navigator.of(context).pop();
           Navigator.of(context).pop(chat);
         } on Exception catch (e) {
           print(e);
@@ -83,6 +86,23 @@ class CreateGroup extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  void showLoadingIndicator(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: AlertDialog(
+            content: LoadingIndicator(
+              text: "While we are creating group for you.",
+            ),
+          ),
+        );
+      },
     );
   }
 

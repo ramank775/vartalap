@@ -48,14 +48,13 @@ class ChatService {
       where chatid == chat.id and senderid !=? and state == 0
     ) unread
     from chat
-    left join message on message.id in (
+    inner join message on message.id in (
       select id 
       from message
       where chatid == chat.id
       order by ts desc
       Limit 1
     )
-    where chat.type == 2 or (select count(id) from message where chatid == chat.id) > 0
     order by message.ts desc;""";
     var result = await db.rawQuery(sql, [currentUser.username]);
     return result.map((e) => ChatPreview.fromMap(e)).toList();
@@ -71,7 +70,7 @@ class ChatService {
       where message.chatid == chat.id and message.senderid !=? and message.state = 0
     ) unread
     from chat
-    left join message on message.id in (
+    inner join message on message.id in (
       select id 
       from message
       where chatid == chat.id
@@ -84,6 +83,15 @@ class ChatService {
     return ChatPreview.fromMap(result[0]);
   }
 
+  static Future<List<Chat>> getGroups({String search = ""}) async {
+    var db = await DB().getDb();
+    var chats = await db.query("chat",
+        where: "chat.type == ? and title like ?",
+        whereArgs: [enumToInt(ChatType.GROUP, ChatType.values), "%$search%"]);
+
+    return chats.map((c) => Chat.fromMap(c)).toList();
+  }
+
   static Future<List<ChatUser>> getChatUserByid(String chatid) async {
     List<ChatUser> users = await _getChatUser(chatid);
     return users;
@@ -94,7 +102,8 @@ class ChatService {
     var batch = db.batch();
     for (var chat in chats) {
       batch.delete("message", where: "chatid=?", whereArgs: [chat.id]);
-      batch.delete("chat", where: "id=?", whereArgs: [chat.id]);
+      if (chat.type != ChatType.GROUP)
+        batch.delete("chat", where: "id=?", whereArgs: [chat.id]);
     }
     var result = await batch.commit();
     return result.length > 0;
