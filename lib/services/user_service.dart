@@ -75,17 +75,15 @@ class UserService {
 
   static Future<bool> addUnknowUser(List<User> users) async {
     List<String> usernames = users.map((u) => u.username).toList();
-    List<String> result;
+    List<User> result = [];
     for (var username in usernames) {
       var u = await getUserById(username);
-      result.add(u.username);
+      if (u == null) result.add(u);
     }
     var db = await DB().getDb();
     Batch batch = db.batch();
-    users.forEach((user) {
-      if (!result.contains(user.username)) {
-        batch.insert("user", user.toMap());
-      }
+    result.forEach((user) {
+      batch.insert("user", user.toMap());
     });
     await batch.commit();
     return true;
@@ -194,7 +192,9 @@ class UserService {
     List<User> userToUpdate = [];
     List<User> userToDelete = [];
     List<User> userToInsert = [];
-    userToDelete = dbUsers.where((u) => !users.contains(u)).toList();
+    userToDelete = dbUsers
+        .where((u) => (u.status != UserStatus.UNKNOWN && !users.contains(u)))
+        .toList();
     users.forEach((u) {
       var user = dbUsers.firstWhere(
         (e) => u == e,

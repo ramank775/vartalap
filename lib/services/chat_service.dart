@@ -85,9 +85,20 @@ class ChatService {
 
   static Future<List<Chat>> getGroups({String search = ""}) async {
     var db = await DB().getDb();
-    var chats = await db.query("chat",
-        where: "chat.type == ? and title like ?",
-        whereArgs: [enumToInt(ChatType.GROUP, ChatType.values), "%$search%"]);
+    var sql = """Select * 
+    from chat 
+    where type ==? and title like ?
+    order by createdOn DESC;
+    """;
+    // var chats = await db.query(
+    //   "chat",
+    //   where: "chat.type == ? and title like ?",
+    //   whereArgs: [enumToInt(ChatType.GROUP, ChatType.values), "%$search%"],
+    //   orderBy: 'createdOn DESC',
+    // );
+
+    var chats = await db.rawQuery(
+        sql, [enumToInt(ChatType.GROUP, ChatType.values), "%$search%"]);
 
     return chats.map((c) => Chat.fromMap(c)).toList();
   }
@@ -225,7 +236,7 @@ class ChatService {
   static Future<bool> _saveChat(Chat chat) async {
     var db = await DB().getDb();
     var map = chat.toMap();
-    map["createdOn"] = DateTime.now().toUtc().millisecond;
+    map["createdOn"] = DateTime.now().millisecondsSinceEpoch;
     var result = await db.insert("chat", map);
     await _saveChatUser(chat.id, chat.users);
     return result > 0;
@@ -345,7 +356,7 @@ class ChatService {
           status: UserStatus.UNKNOWN, hasAccount: true);
       ChatUser user = ChatUser.fromUser(u);
       user.role = stringToEnum(member["role"], UserRole.values);
-      chat.users.add(user);
+      chat.addUser(user);
     });
     return chat;
   }

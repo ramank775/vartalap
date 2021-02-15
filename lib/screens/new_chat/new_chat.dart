@@ -169,18 +169,27 @@ class NewChatState extends State<NewChatScreen>
                 return data[i];
               }
               Chat chat = data.elementAt(i);
+              ChatPreview preview =
+                  ChatPreview(chat.id, chat.title, chat.pic, null, 0, 0);
+              preview.type = chat.type;
               return ChatPreviewWidget(
-                ChatPreview(chat.id, chat.title, chat.pic, null, 0, 0),
-                (Chat ch) {
-                  Navigator.of(context).pop(ch);
-                },
-                (Chat ch) {
-                  Navigator.of(context).pop(ch);
-                },
+                preview,
+                onGroupTap,
+                onGroupTap,
               );
             });
       },
     );
+  }
+
+  Future onGroupTap(Chat ch) async {
+    if (ch.users.length == 0) {
+      var _users = await ChatService.getChatUserByid(ch.id);
+      _users.forEach((u) {
+        ch.addUser(u);
+      });
+    }
+    Navigator.of(context).pop(ch);
   }
 
   AppBar buildAppBar() {
