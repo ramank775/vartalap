@@ -121,6 +121,7 @@ class MessageWidget extends StatelessWidget {
             ),
           ),
           Container(
+            margin: EdgeInsets.only(left: 5),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.end,

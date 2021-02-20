@@ -18,7 +18,6 @@ class NewChatState extends State<NewChatScreen>
   Future<List<User>> _contacts;
   Future<List<Chat>> _groups;
   TabController _tabController;
-  int _numContacts;
   bool _openSearch = false;
   @override
   void initState() {
@@ -26,11 +25,6 @@ class NewChatState extends State<NewChatScreen>
     _tabController = TabController(length: 2, vsync: this);
     _contacts = UserService.getUsers();
     _groups = ChatService.getGroups();
-    _contacts.then((value) {
-      setState(() {
-        _numContacts = value.length;
-      });
-    });
   }
 
   @override
