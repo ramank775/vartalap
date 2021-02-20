@@ -46,10 +46,11 @@ class ChatPreviewWidget extends StatelessWidget {
           subtitle: new Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              new Container(
-                padding: const EdgeInsets.only(top: 5.0),
-                child: new Text(
+              Expanded(
+                child: Text(
                   this.getDisplayContext(),
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
                   style: new TextStyle(color: Colors.grey[700], fontSize: 15.0),
                 ),
               ),
@@ -94,9 +95,9 @@ class ChatPreviewWidget extends StatelessWidget {
 
   String getDisplayContext() {
     String content = this._chat.content ?? '';
-    if (content.length > 30) {
-      return content.substring(0, 25) + "...";
-    }
+    // if (content.length > 30) {
+    //   return content.substring(0, 26) + "...";
+    // }
     return content;
   }
 

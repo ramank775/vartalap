@@ -80,7 +80,7 @@ class MessageWidget extends StatelessWidget {
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: getMessageComponents(context),
                 ),
               ),
@@ -92,47 +92,57 @@ class MessageWidget extends StatelessWidget {
   List<Widget> getMessageComponents(BuildContext context) {
     List<Widget> _widgets = [];
     if (this.showUserInfo) {
-      _widgets.add(Container(
-        constraints: BoxConstraints(
-          minWidth: MediaQuery.of(context).size.width * 0.25,
-        ),
-        child: Text(
-          this._msg.sender.name,
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.blue,
-          ),
-        ),
-      ));
-    }
-    _widgets.addAll([
-      Container(
-        constraints: BoxConstraints(
-          minWidth: MediaQuery.of(context).size.width * 0.25,
-        ),
-        child: RichMessage(
-          (this._msg.text ?? ''),
-          textStyle,
-        ),
-      ),
-      Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: <Widget>[
-          Text(
-            formatMessageDateTime(this._msg.timestamp),
+      _widgets.add(
+        Container(
+          margin: EdgeInsets.only(bottom: 4),
+          child: Text(
+            this._msg.sender.name,
+            textAlign: TextAlign.start,
             style: TextStyle(
-              color: Colors.black,
-              fontSize: 11.0,
+              fontSize: 14,
+              color: Colors.blue,
             ),
           ),
-          SizedBox(
-            width: 4.0,
+        ),
+      );
+    }
+    _widgets.add(
+      Wrap(
+        alignment: WrapAlignment.end,
+        crossAxisAlignment: WrapCrossAlignment.end,
+        children: [
+          Container(
+            constraints: BoxConstraints(
+              minWidth: MediaQuery.of(context).size.width * 0.25,
+            ),
+            child: RichMessage(
+              (this._msg.text ?? ''),
+              textStyle,
+            ),
           ),
-          _isYou ? _getIcon() : Container()
+          Container(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              children: <Widget>[
+                Text(
+                  formatMessageDateTime(this._msg.timestamp),
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 11.0,
+                  ),
+                ),
+                SizedBox(
+                  width: 4.0,
+                ),
+                _isYou ? _getIcon() : Container()
+              ],
+            ),
+          ),
         ],
       ),
-    ]);
+    );
     return _widgets;
   }
 
