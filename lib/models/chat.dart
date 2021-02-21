@@ -11,6 +11,7 @@ enum ChatType {
 enum UserRole {
   USER,
   ADMIN,
+  EX_USER,
 }
 
 class ChatUser extends User {
@@ -75,6 +76,10 @@ class Chat {
 
   void addUser(ChatUser user) {
     this._users.add(user);
+  }
+
+  void resetUsers() {
+    this._users.clear();
   }
 
   @override

@@ -23,7 +23,7 @@ class ChatScreen extends StatefulWidget {
 }
 
 class ChatState extends State<ChatScreen> {
-  final Chat _chat;
+  Chat _chat;
   Future<List<Message>> _fMessages;
   List<Message> _messages;
   List<Message> _selectedMessges = [];
@@ -31,11 +31,12 @@ class ChatState extends State<ChatScreen> {
   StreamSubscription _newMessageSub;
   Timer _readTimer;
   List<Message> _unreadMessages = [];
-
+  Map<String, ChatUser> _users = Map();
   ChatState(this._chat);
   @override
   void initState() {
     super.initState();
+    this._chat.users.forEach((u) => _users[u.username] = u);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     _notificationSub = ChatService.onNotificationMessagStream
         .where((msg) => msg.chatId == this._chat.id)
@@ -75,13 +76,19 @@ class ChatState extends State<ChatScreen> {
         title: Material(
           color: Colors.white.withOpacity(0.0),
           child: InkWell(
-            onTap: () {
-              if (this._chat.type == ChatType.GROUP) {
-                Navigator.of(context).push(
+            onTap: () async {
+              if (this._chat.type == ChatType.GROUP &&
+                  this.hasSendPermission()) {
+                Chat result = await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => ChatInfo(this._chat),
                   ),
                 );
+                if (result != null) {
+                  setState(() {
+                    this._chat = result;
+                  });
+                }
               }
             },
             child: Row(
@@ -166,7 +173,7 @@ class ChatState extends State<ChatScreen> {
                           itemBuilder: (context, i) {
                             if (this._messages[i].sender == null) {
                               this._messages[i].sender =
-                                  getSender(this._messages[i].senderId);
+                                  getSender(this._messages[i]);
                             }
                             bool isYou = this._messages[i].sender ==
                                 this.widget.currentUser;
@@ -194,15 +201,22 @@ class ChatState extends State<ChatScreen> {
                   return null; //
                 }),
           ),
-          new MessageInputWidget(sendMessage: (String text) async {
-            var msg = Message.chatMessage(this._chat.id,
-                this.widget.currentUser.username, text, MessageType.TEXT);
-            msg.sender = this.widget.currentUser;
-            await ChatService.sendMessage(msg, this._chat);
-            setState(() {
-              _messages.insert(0, msg);
-            });
-          }),
+          ...this.hasSendPermission()
+              ? [
+                  MessageInputWidget(sendMessage: (String text) async {
+                    var msg = Message.chatMessage(
+                        this._chat.id,
+                        this.widget.currentUser.username,
+                        text,
+                        MessageType.TEXT);
+                    msg.sender = this.widget.currentUser;
+                    await ChatService.sendMessage(msg, this._chat);
+                    setState(() {
+                      _messages.insert(0, msg);
+                    });
+                  })
+                ]
+              : [],
         ],
       ),
     );
@@ -258,7 +272,7 @@ class ChatState extends State<ChatScreen> {
     return actions;
   }
 
-  void _onNotification(SocketMessage msg) {
+  void _onNotification(SocketMessage msg) async {
     if (msg.from == SocketService.name) {
       setState(() {
         this._messages = this._messages.map<Message>((_msg) {
@@ -268,6 +282,10 @@ class ChatState extends State<ChatScreen> {
           return _msg;
         }).toList();
       });
+    } else if (msg.module == "group") {
+      var users = await ChatService.getChatUserByid(this._chat.id);
+      this._chat.resetUsers();
+      users.forEach((u) => this._chat.addUser(u));
     }
   }
 
@@ -297,9 +315,21 @@ class ChatState extends State<ChatScreen> {
     ChatService.markAsDelivered(messages);
   }
 
-  User getSender(String senderId) {
-    return this._chat.users.singleWhere((u) => u.username == senderId,
-        orElse: () => ChatUser(senderId, senderId, null));
+  User getSender(Message msg) {
+    if (this._users.containsKey(msg.senderId)) {
+      return this._users[msg.senderId];
+    } else {
+      UserService.getUserById(msg.senderId).then((user) {
+        if (user == null) return;
+        this._users[user.username] = user;
+        msg.sender = user;
+      }, onError: (user) {});
+      return ChatUser(msg.senderId, msg.senderId, null);
+    }
+  }
+
+  bool hasSendPermission() {
+    return this._chat.users.contains(this.widget.currentUser);
   }
 
   @override

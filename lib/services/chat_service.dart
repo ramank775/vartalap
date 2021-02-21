@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:sqflite/sqflite.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
@@ -85,20 +86,19 @@ class ChatService {
 
   static Future<List<Chat>> getGroups({String search = ""}) async {
     var db = await DB().getDb();
-    var sql = """Select * 
+    var sql = """Select chat.* 
     from chat 
-    where type ==? and title like ?
+    INNER JOIN chat_user ON chat.id = chat_user.chatid
+    where chat.type ==? and chat.title like ? and chat_user.userid = ?
     order by createdOn DESC;
     """;
-    // var chats = await db.query(
-    //   "chat",
-    //   where: "chat.type == ? and title like ?",
-    //   whereArgs: [enumToInt(ChatType.GROUP, ChatType.values), "%$search%"],
-    //   orderBy: 'createdOn DESC',
-    // );
 
-    var chats = await db.rawQuery(
-        sql, [enumToInt(ChatType.GROUP, ChatType.values), "%$search%"]);
+    var currentUser = UserService.getLoggedInUser();
+    var chats = await db.rawQuery(sql, [
+      enumToInt(ChatType.GROUP, ChatType.values),
+      "%$search%",
+      currentUser.username,
+    ]);
 
     return chats.map((c) => Chat.fromMap(c)).toList();
   }
@@ -148,6 +148,42 @@ class ChatService {
     newChat.addUser(ChatUser.fromUser(self));
     await _saveChat(newChat);
     return newChat;
+  }
+
+  static Future<void> addGroupMembers(Chat chat, List<User> members) async {
+    if (chat.type != ChatType.GROUP) return;
+    var db = await DB().getDb();
+    var existingUsers = await getChatUserByid(chat.id);
+    members.retainWhere((u) => !existingUsers.contains(u));
+    await db.transaction((Transaction txn) async {
+      var batch = txn.batch();
+      members.forEach((user) {
+        Map<String, dynamic> map = Map();
+        map["userid"] = user.username;
+        map["chatid"] = chat.id;
+        map["role"] = enumToInt(UserRole.USER, UserRole.values);
+        batch.insert("chat_user", map);
+      });
+      await batch.commit();
+      await ApiService.addMembersToGroup(
+          members.map((u) => u.username).toList(), chat.id);
+    });
+  }
+
+  static Future<void> leaveGroup(Chat chat) async {
+    var currentUser = UserService.getLoggedInUser();
+    return removeGroupMembers(chat, currentUser);
+  }
+
+  static Future<void> removeGroupMembers(Chat chat, User member) async {
+    if (chat.type != ChatType.GROUP) return;
+    var db = await DB().getDb();
+    await db.transaction((Transaction txn) async {
+      await txn.delete("chat_user",
+          where: "userid=? and chatid=?",
+          whereArgs: [member.username, chat.id]);
+      await ApiService.removeMemberToGroup(member.username, chat.id);
+    });
   }
 
   static Future<void> sendMessage(Message msg, Chat chat) async {

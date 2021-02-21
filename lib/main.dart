@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:vartalap/screens/new_chat/create_group.dart';
-import 'package:vartalap/screens/new_chat/new_group_chat.dart';
+import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -59,7 +59,7 @@ class HomeState extends State<Home> {
           widget = new NewChatScreen();
           break;
         case '/new-group':
-          widget = new NewGroupChatScreen();
+          widget = new SelectGroupMemberScreen();
           break;
         case '/create-group':
           widget = new CreateGroup(settings.arguments);

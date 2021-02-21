@@ -7,8 +7,13 @@ class ContactItem extends StatelessWidget {
   final Function onProfileTap;
   final Function onTap;
   final bool isSelected;
+  final bool enabled;
   ContactItem(
-      {this.user, this.isSelected = false, this.onProfileTap, this.onTap});
+      {this.user,
+      this.isSelected = false,
+      this.onProfileTap,
+      this.onTap,
+      this.enabled = true});
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +63,7 @@ class ContactItem extends StatelessWidget {
         if (onTap != null) onTap(user);
       },
       selected: isSelected,
+      enabled: enabled,
     );
   }
 }

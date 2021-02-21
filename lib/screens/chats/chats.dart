@@ -213,12 +213,16 @@ class ChatListView extends StatefulWidget {
 
 class ChatListViewState extends State<ChatListView> {
   StreamSubscription _newMessageSub;
+  StreamSubscription _groupNotificationSub;
   List<ChatPreview> _chats;
   @override
   void initState() {
     super.initState();
     _chats = widget._chats;
     _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
+    _groupNotificationSub = ChatService.onNotificationMessagStream
+        .where((notification) => notification.module == "group")
+        .listen(_onGroupNotification);
   }
 
   @override
@@ -269,9 +273,23 @@ class ChatListViewState extends State<ChatListView> {
     });
   }
 
+  _onGroupNotification(SocketMessage msg) async {
+    var chatIdx = _chats.indexWhere((_chat) => _chat.id == msg.chatId);
+    if (chatIdx == -1) {
+      return;
+    }
+    var chat = _chats[chatIdx];
+    if (chat.users.isEmpty) return;
+
+    chat.resetUsers();
+    var users = await ChatService.getChatUserByid(chat.id);
+    users.forEach((u) => chat.addUser(u));
+  }
+
   @override
   void dispose() {
     _newMessageSub.cancel();
+    _groupNotificationSub.cancel();
     super.dispose();
   }
 }

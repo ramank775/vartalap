@@ -5,20 +5,27 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/contactPreviewItem.dart';
 import 'contact.dart';
 
-class NewGroupChatScreen extends StatefulWidget {
+class SelectGroupMemberScreen extends StatefulWidget {
+  final Chat chat;
+  SelectGroupMemberScreen({this.chat});
   @override
-  State<StatefulWidget> createState() => NewGroupChatState();
+  State<StatefulWidget> createState() => SelectGroupMemberState();
 }
 
-class NewGroupChatState extends State<NewGroupChatScreen> {
+class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
   Future<List<User>> _contacts;
   int _numContacts;
   bool _openSearch = false;
   List<User> _selectedUsers = [];
-
+  Map<String, User> _existingUser = Map();
+  bool _isUpdate = false;
   @override
   void initState() {
     super.initState();
+    if (this.widget.chat != null) {
+      this._isUpdate = true;
+      this.widget.chat.users.forEach((u) => this._existingUser[u.username] = u);
+    }
     _contacts = UserService.getUsers();
     _contacts.then((value) {
       setState(() {
@@ -87,12 +94,15 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
                 return ListView.builder(
                   itemCount: data.length,
                   itemBuilder: (context, i) {
+                    User user = data.elementAt(i);
                     return ContactItem(
-                      user: data.elementAt(i),
-                      isSelected:
-                          this._selectedUsers.contains(data.elementAt(i)),
+                      user: user,
+                      isSelected: this._selectedUsers.contains(user),
+                      enabled: !this._existingUser.containsKey(user.username),
                       onProfileTap: () => {},
                       onTap: (User user) async {
+                        if (this._existingUser.containsKey(user.username))
+                          return;
                         setState(() {
                           if (!this._selectedUsers.remove(user)) {
                             this._selectedUsers.add(user);
@@ -110,6 +120,9 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
       floatingActionButton: this._selectedUsers.length > 0
           ? FloatingActionButton(
               onPressed: () async {
+                if (this._isUpdate) {
+                  return Navigator.of(context).pop(_selectedUsers);
+                }
                 var chat = await Navigator.of(context)
                     .pushNamed('/create-group', arguments: _selectedUsers);
                 if (chat is Chat) {
@@ -120,7 +133,7 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
                 }
               },
               tooltip: 'Next',
-              child: Icon(Icons.arrow_forward),
+              child: Icon(this._isUpdate ? Icons.check : Icons.arrow_forward),
             )
           : null,
     );
@@ -136,7 +149,7 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
           Padding(
             padding: const EdgeInsets.only(bottom: 2.0),
             child: Text(
-              'New Group',
+              'Select members',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
               ),
@@ -145,7 +158,7 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
           Container(
             child: Text(
               _selectedUsers.isEmpty
-                  ? 'Add members'
+                  ? ''
                   : '${_selectedUsers.length} of $_numContacts',
               style: TextStyle(
                 fontSize: 12.0,
