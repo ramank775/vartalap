@@ -4,6 +4,7 @@ import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
+import 'package:vartalap/screens/chat/chat_info.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
@@ -47,7 +48,6 @@ class ChatState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // backgroundColor: chatDetailScaffoldBgColor,
       appBar: AppBar(
         leading: FlatButton(
           shape: CircleBorder(),
@@ -75,22 +75,22 @@ class ChatState extends State<ChatScreen> {
         title: Material(
           color: Colors.white.withOpacity(0.0),
           child: InkWell(
-            // highlightColor: highlightColor,
-            // splashColor: secondaryColor,
             onTap: () {
-              // Application.router.navigateTo(
-              //   context,
-              //   //"/profile?id=${_chat.id}",
-              //   Routes.futureTodo,
-              //   transition: TransitionType.inFromRight,
-              // );
+              if (this._chat.type == ChatType.GROUP) {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => ChatInfo(this._chat),
+                  ),
+                );
+              }
             },
             child: Row(
               mainAxisSize: MainAxisSize.max,
               children: <Widget>[
                 Column(
                   mainAxisSize: MainAxisSize.max,
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 2.0),
@@ -104,6 +104,18 @@ class ChatState extends State<ChatScreen> {
                         ),
                       ),
                     ),
+                    SizedBox(
+                      width: MediaQuery.of(context).size.width * 0.60,
+                      child: Text(
+                        this.getSubTitle(),
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.0,
+                        ),
+                      ),
+                    )
                   ],
                 ),
               ],
@@ -194,6 +206,20 @@ class ChatState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  String getSubTitle() {
+    if (this._chat.type == ChatType.GROUP) {
+      return this._chat.users.map((u) => u.name).join(", ");
+    }
+    return this
+        ._chat
+        .users
+        .firstWhere(
+          (u) => this.widget.currentUser != u,
+          orElse: () => this.widget.currentUser,
+        )
+        .username;
   }
 
   void selectOrRemove(Message msg) {

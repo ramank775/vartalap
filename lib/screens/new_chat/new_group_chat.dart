@@ -33,24 +33,29 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
       appBar: this._openSearch ? buildSearchAppBar() : buildAppBar(),
       body: Column(
         children: [
-          this._selectedUsers.length > 0
-              ? SizedBox(
-                  height: this._selectedUsers.length == 0 ? 0 : 90,
-                  child: ListView.separated(
-                    padding: EdgeInsets.only(top: 10, left: 20),
-                    scrollDirection: Axis.horizontal,
-                    shrinkWrap: true,
-                    reverse: true,
-                    itemCount: this._selectedUsers.length,
-                    separatorBuilder: (context, index) => SizedBox(
-                      width: 10,
+          ...(this._selectedUsers.length > 0
+              ? [
+                  SizedBox(
+                    height: 90,
+                    child: ListView.separated(
+                      padding: EdgeInsets.only(top: 10, left: 20),
+                      scrollDirection: Axis.horizontal,
+                      shrinkWrap: true,
+                      reverse: true,
+                      itemCount: this._selectedUsers.length,
+                      separatorBuilder: (context, index) => SizedBox(
+                        width: 10,
+                      ),
+                      itemBuilder: (context, index) {
+                        return ContactPreviewItem(user: _selectedUsers[index]);
+                      },
                     ),
-                    itemBuilder: (context, index) {
-                      return ContactPreviewItem(user: _selectedUsers[index]);
-                    },
                   ),
-                )
-              : Container(),
+                  Divider(
+                    thickness: 2,
+                  )
+                ]
+              : []),
           Flexible(
             child: FutureBuilder<Iterable<User>>(
               future: _contacts,
@@ -86,8 +91,7 @@ class NewGroupChatState extends State<NewGroupChatScreen> {
                       user: data.elementAt(i),
                       isSelected:
                           this._selectedUsers.contains(data.elementAt(i)),
-                      onProfileTap: () =>
-                          {}, // onTapProfileContactItem( context, snapshot.data.elementAt(i))
+                      onProfileTap: () => {},
                       onTap: (User user) async {
                         setState(() {
                           if (!this._selectedUsers.remove(user)) {

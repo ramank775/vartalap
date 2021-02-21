@@ -153,7 +153,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
             leading: Avator(
               width: 55,
               height: 55,
-              text: value.isEmpty ? "G I" : value,
+              text: value.isEmpty ? "Group Icon" : value,
             ),
             title: Padding(
               padding: EdgeInsets.symmetric(horizontal: 10),

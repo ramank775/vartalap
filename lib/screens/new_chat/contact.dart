@@ -14,10 +14,33 @@ class ContactItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.symmetric(vertical: 2.0, horizontal: 16.0),
-      leading: Avator(
-        width: 45.0,
-        height: 45.0,
-        text: user.name,
+      leading: Container(
+        width: 45,
+        height: 45,
+        child: Stack(
+          children: [
+            Avator(
+              width: 45.0,
+              height: 45.0,
+              text: user.name,
+            ),
+            this.isSelected
+                ? Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: CircleAvatar(
+                      backgroundColor: Theme.of(context).primaryColor,
+                      radius: 10,
+                      child: Icon(
+                        Icons.check,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                  )
+                : Container()
+          ],
+        ),
       ),
       title: Text(
         user.name,
@@ -31,7 +54,9 @@ class ContactItem extends StatelessWidget {
         user.username,
         maxLines: 1,
       ),
-      onTap: () => onTap(user),
+      onTap: () {
+        if (onTap != null) onTap(user);
+      },
       selected: isSelected,
     );
   }
