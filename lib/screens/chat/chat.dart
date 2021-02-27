@@ -31,19 +31,32 @@ class ChatState extends State<ChatScreen> {
   StreamSubscription _newMessageSub;
   Timer _readTimer;
   List<Message> _unreadMessages = [];
-  Map<String, ChatUser> _users = Map();
+  Map<String, User> _users = Map();
+  Map<String, UserNotifier> _userChangeNotifier = Map();
+
   ChatState(this._chat);
   @override
   void initState() {
     super.initState();
     this._chat.users.forEach((u) => _users[u.username] = u);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
-    _notificationSub = ChatService.onNotificationMessagStream
-        .where((msg) => msg.chatId == this._chat.id)
-        .listen(_onNotification);
+    _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
+      if (msg.chatId != null && msg.chatId == _chat.id) {
+        return true;
+      } else if (msg.module == "group" && msg.to == _chat.id) {
+        return true;
+      }
+      return false;
+    }).listen(
+      _onNotification,
+      onError: (error) {},
+      onDone: () {},
+      cancelOnError: false,
+    );
+    _notificationSub.resume();
     _newMessageSub = ChatService.onNewMessageStream
         .where((msg) => msg.chatId == this._chat.id)
-        .listen(_onNewMessage);
+        .listen(_onNewMessage, cancelOnError: false);
   }
 
   @override
@@ -171,17 +184,41 @@ class ChatState extends State<ChatScreen> {
                           itemCount: this._messages.length,
                           reverse: true,
                           itemBuilder: (context, i) {
+                            Message _msg = this._messages[i];
                             if (this._messages[i].sender == null) {
-                              this._messages[i].sender =
-                                  getSender(this._messages[i]);
+                              this._messages[i].sender = getSender(_msg);
                             }
-                            bool isYou = this._messages[i].sender ==
-                                this.widget.currentUser;
+                            bool isYou = _msg.sender == this.widget.currentUser;
                             bool showUserInfo =
                                 !isYou && this._chat.type == ChatType.GROUP;
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 5.0),
-                              child: MessageWidget(
+
+                            Widget child;
+
+                            if (this
+                                ._userChangeNotifier
+                                .containsKey(_msg.senderId)) {
+                              child = ValueListenableBuilder<User>(
+                                builder: (context, key, child) {
+                                  return MessageWidget(
+                                    this._messages[i],
+                                    isYou,
+                                    showUserInfo: showUserInfo,
+                                    isSelected: this
+                                        ._selectedMessges
+                                        .contains(this._messages[i]),
+                                    onTab: (Message msg) {
+                                      if (this._selectedMessges.length > 0) {
+                                        this.selectOrRemove(msg);
+                                      }
+                                    },
+                                    onLongPress: selectOrRemove,
+                                  );
+                                },
+                                valueListenable:
+                                    this._userChangeNotifier[_msg.senderId],
+                              );
+                            } else {
+                              child = MessageWidget(
                                 this._messages[i],
                                 isYou,
                                 showUserInfo: showUserInfo,
@@ -194,7 +231,12 @@ class ChatState extends State<ChatScreen> {
                                   }
                                 },
                                 onLongPress: selectOrRemove,
-                              ),
+                              );
+                            }
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 5.0),
+                              child: child,
                             );
                           });
                   }
@@ -284,8 +326,10 @@ class ChatState extends State<ChatScreen> {
       });
     } else if (msg.module == "group") {
       var users = await ChatService.getChatUserByid(this._chat.id);
-      this._chat.resetUsers();
-      users.forEach((u) => this._chat.addUser(u));
+      setState(() {
+        this._chat.resetUsers();
+        users.forEach((u) => this._chat.addUser(u));
+      });
     }
   }
 
@@ -319,12 +363,17 @@ class ChatState extends State<ChatScreen> {
     if (this._users.containsKey(msg.senderId)) {
       return this._users[msg.senderId];
     } else {
+      var user = ChatUser(msg.senderId, msg.senderId, null);
+      if (!this._userChangeNotifier.containsKey(msg.senderId)) {
+        this._userChangeNotifier[msg.senderId] = UserNotifier(user);
+      }
       UserService.getUserById(msg.senderId).then((user) {
         if (user == null) return;
         this._users[user.username] = user;
         msg.sender = user;
+        this._userChangeNotifier[msg.senderId].update(user);
       }, onError: (user) {});
-      return ChatUser(msg.senderId, msg.senderId, null);
+      return user;
     }
   }
 

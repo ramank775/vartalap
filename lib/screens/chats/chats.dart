@@ -47,8 +47,7 @@ class ChatsState extends State<Chats> {
           var smsg = SocketMessage.fromMap(msg);
           SocketService.instance.externalNewMessage(smsg);
         } catch (e, stack) {
-          print(e);
-          print(stack);
+          throw e;
         }
       },
     );

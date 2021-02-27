@@ -306,7 +306,6 @@ class ChatService {
   static Future<bool> _saveMessage(Message msg) async {
     var db = await DB().getDb();
     var result = await db.insert("message", msg.toMap());
-    print("Save Msg Result : $result");
     return result > 0;
   }
 
@@ -320,7 +319,6 @@ class ChatService {
   static Future<SocketMessage> _onNewMessage(SocketMessage msg) async {
     var isduplicat = await _isDuplicate(msg);
     if (isduplicat) return null;
-    print('new message ${msg.msgId}');
     if (msg.chatId == null) {
       msg.chatId = _createChatIdFromMsg(msg);
     }

@@ -18,7 +18,6 @@ class CreateGroup extends StatelessWidget {
           Navigator.of(context).pop();
           Navigator.of(context).pop(chat);
         } on Exception catch (e) {
-          print(e);
           showErrorDialog(context, [
             'Error while creating new group.',
             'Make sure you are connected to internet.'

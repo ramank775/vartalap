@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
 enum UserStatus {
@@ -42,5 +43,14 @@ class User {
   @override
   bool operator ==(Object other) {
     return hashCode == other.hashCode;
+  }
+}
+
+class UserNotifier extends ValueNotifier<User> {
+  UserNotifier(User value) : super(value);
+
+  void update(User value) {
+    this.value = value;
+    this.notifyListeners();
   }
 }

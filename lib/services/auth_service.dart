@@ -59,12 +59,8 @@ class AuthService {
 
         _promise.complete(true);
       },
-      codeAutoRetrievalTimeout: (verificationId) {
-        print("AutoRetrievalTimeout: $verificationId");
-      },
-      verificationCompleted: (phoneAuthCredential) {
-        print("VerificationCompleted: $phoneAuthCredential");
-      },
+      codeAutoRetrievalTimeout: (verificationId) {},
+      verificationCompleted: (phoneAuthCredential) {},
       verificationFailed: (error) {
         _promise.complete(false);
       },
