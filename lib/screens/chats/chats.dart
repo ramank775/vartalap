@@ -250,10 +250,9 @@ class ChatListViewState extends State<ChatListView> {
   }
 
   _onNewMessage(SocketMessage msg) async {
-    PushNotificationService.instance
-        .showNotification('New Message', msg.text, msg.toMap());
     var chat = _chats.firstWhere((_chat) => _chat.id == msg.chatId,
         orElse: () => null);
+
     if (chat == null) {
       chat = await ChatService.getChatById(msg.chatId);
       setState(() {
@@ -265,6 +264,14 @@ class ChatListViewState extends State<ChatListView> {
       chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.text,
           _msg.timestamp, (chat.unread + 1));
     }
+    PushNotificationService.instance.showNotification(
+      chat.title,
+      msg.text,
+      msg.toMap(),
+      groupKey: chat.id,
+      id: chat.id.hashCode,
+    );
+
     var chats = _chats.where((_chat) => _chat.id != msg.chatId).toList();
     chats.insert(0, chat);
     setState(() {

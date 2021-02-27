@@ -273,7 +273,7 @@ class ChatState extends State<ChatScreen> {
         .users
         .firstWhere(
           (u) => this.widget.currentUser != u,
-          orElse: () => this.widget.currentUser,
+          orElse: () => ChatUser("","", null),
         )
         .username;
   }

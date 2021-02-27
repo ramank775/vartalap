@@ -84,6 +84,15 @@ class ChatService {
     return ChatPreview.fromMap(result[0]);
   }
 
+  static Future<Chat> getChatInfo(String chatid) async {
+    var db = await DB().getDb();
+    var result = await db.query("chat", where: "id = ?", whereArgs: [chatid]);
+    if (result.isNotEmpty) {
+      return Chat.fromMap(result.first);
+    }
+    return null;
+  }
+
   static Future<List<Chat>> getGroups({String search = ""}) async {
     var db = await DB().getDb();
     var sql = """Select chat.* 
