@@ -1,4 +1,4 @@
-import 'package:emoji_picker/emoji_picker.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 
 class MessageInputWidget extends StatefulWidget {
@@ -55,10 +55,7 @@ class MessageInputState extends State<MessageInputWidget> {
       child: Stack(
         children: <Widget>[
           Column(
-            children: <Widget>[
-              buildInput(),
-              (_isShowSticker ? buildSticker() : Container()),
-            ],
+            children: <Widget>[buildInput(), buildSticker()],
           ),
         ],
       ),
@@ -142,14 +139,34 @@ class MessageInputState extends State<MessageInputWidget> {
   }
 
   Widget buildSticker() {
-    return EmojiPicker(
-      rows: 4,
-      columns: 10,
-      buttonMode: ButtonMode.MATERIAL,
-      numRecommended: 10,
-      onEmojiSelected: (emoji, category) {
-        _controller.text += emoji.emoji;
-      },
+    return Offstage(
+      offstage: !_isShowSticker,
+      child: SizedBox(
+        height: 250,
+        child: EmojiPicker(
+          onEmojiSelected: (category, emoji) {
+            _controller..text += emoji.emoji;
+          },
+          config: const Config(
+            columns: 8,
+            emojiSizeMax: 30.0,
+            verticalSpacing: 0,
+            horizontalSpacing: 0,
+            initCategory: Category.RECENT,
+            bgColor: Color(0xFFF2F2F2),
+            indicatorColor: Colors.blue,
+            iconColor: Colors.grey,
+            iconColorSelected: Colors.blue,
+            progressIndicatorColor: Colors.blue,
+            showRecentsTab: true,
+            recentsLimit: 28,
+            noRecentsText: 'No Recents',
+            noRecentsStyle: TextStyle(fontSize: 20, color: Colors.black26),
+            categoryIcons: CategoryIcons(),
+            buttonMode: ButtonMode.MATERIAL,
+          ),
+        ),
+      ),
     );
   }
 

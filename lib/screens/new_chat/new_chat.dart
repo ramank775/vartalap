@@ -71,7 +71,7 @@ class NewChatState extends State<NewChatScreen>
               );
             }
         }
-        List<dynamic> data = List<dynamic>();
+        List<dynamic> data = [];
         data.addAll(snapshot.data);
         data.add(ListTile(
           leading: Container(
@@ -131,7 +131,7 @@ class NewChatState extends State<NewChatScreen>
               );
             }
         }
-        List<dynamic> data = List<dynamic>();
+        List<dynamic> data = [];
         data.add(ListTile(
           leading: Container(
             decoration: BoxDecoration(
@@ -236,9 +236,11 @@ class NewChatState extends State<NewChatScreen>
 
   AppBar buildSearchAppBar() {
     return AppBar(
-      leading: FlatButton(
-        shape: CircleBorder(),
-        padding: const EdgeInsets.only(left: 1.0),
+      leading: TextButton(
+        style: TextButton.styleFrom(
+          shape: CircleBorder(),
+          padding: const EdgeInsets.only(left: 1.0),
+        ),
         onPressed: () {
           setState(() {
             this._openSearch = false;

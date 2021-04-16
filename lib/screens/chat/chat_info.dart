@@ -55,7 +55,7 @@ class ChatInfo extends StatelessWidget {
             ),
             Card(
               elevation: 5,
-              child: FlatButton(
+              child: TextButton(
                 child: ListTile(
                   leading: Icon(
                     Icons.group_add,
@@ -125,7 +125,7 @@ class ChatInfo extends StatelessWidget {
             ),
             Card(
               elevation: 5,
-              child: FlatButton(
+              child: TextButton(
                 child: ListTile(
                   leading: Icon(
                     Icons.exit_to_app_outlined,
@@ -171,13 +171,13 @@ class ChatInfo extends StatelessWidget {
   void showConfirmationDialog(BuildContext context,
       {void Function() onsuccess}) {
     // set up the buttons
-    Widget cancelButton = FlatButton(
+    Widget cancelButton = TextButton(
       child: Text("Cancel"),
       onPressed: () {
         Navigator.of(context).pop();
       },
     );
-    Widget continueButton = FlatButton(
+    Widget continueButton = TextButton(
       child: Text("Continue"),
       onPressed: () {
         Navigator.of(context).pop();
@@ -228,7 +228,7 @@ class ChatInfo extends StatelessWidget {
         ),
       ),
       actions: [
-        FlatButton(
+        TextButton(
           child: Text('OK'),
           onPressed: () {
             Navigator.of(context).pop();

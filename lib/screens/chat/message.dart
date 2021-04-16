@@ -81,6 +81,7 @@ class MessageWidget extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  textBaseline: TextBaseline.ideographic,
                   children: getMessageComponents(context),
                 ),
               ),
@@ -126,6 +127,7 @@ class MessageWidget extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.end,
               crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.ideographic,
               children: <Widget>[
                 Text(
                   formatMessageDateTime(this._msg.timestamp),

@@ -183,9 +183,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
 
   AppBar buildSearchAppBar() {
     return AppBar(
-      leading: FlatButton(
-        shape: CircleBorder(),
-        padding: const EdgeInsets.only(left: 1.0),
+      leading: TextButton(
+        style: TextButton.styleFrom(
+          shape: CircleBorder(),
+          padding: const EdgeInsets.only(left: 1.0),
+        ),
         onPressed: () {
           setState(() {
             this._openSearch = false;

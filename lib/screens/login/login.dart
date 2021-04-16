@@ -98,7 +98,7 @@ class LoginScreen extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 10),
                     constraints: const BoxConstraints(maxWidth: 500),
-                    child: RaisedButton(
+                    child: ElevatedButton(
                       onPressed: () async {
                         List<String> errors = [];
                         if (_phoneController.text.isNotEmpty) {
@@ -118,9 +118,12 @@ class LoginScreen extends StatelessWidget {
                         }
                         showErrorDialog(context, errors);
                       },
-                      color: Theme.of(context).primaryColor,
-                      shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(14))),
+                      style: ElevatedButton.styleFrom(
+                        primary: Theme.of(context).primaryColor,
+                        shape: const RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.all(Radius.circular(14))),
+                      ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             vertical: 8, horizontal: 8),
@@ -166,7 +169,7 @@ class LoginScreen extends StatelessWidget {
         child: ListBody(children: contents),
       ),
       actions: [
-        FlatButton(
+        TextButton(
           child: Text('OK'),
           onPressed: () {
             Navigator.of(context).pop();

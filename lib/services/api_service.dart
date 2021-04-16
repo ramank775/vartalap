@@ -30,9 +30,10 @@ class ApiService {
 
   static Future<http.Response> _post(String path, Map<String, dynamic> data,
       {bool includeAccesskey = true}) async {
-    String url = ConfigStore().get<String>("api_url");
-    String resourceUrl = "$url/$path";
-    var _httpMetric = PerformanceMetric.newHttpMetric(resourceUrl, 'post');
+    String baseUrl = ConfigStore().get<String>("api_url");
+    var resourceUrl = Uri.parse("$baseUrl/$path");
+    var _httpMetric =
+        PerformanceMetric.newHttpMetric(resourceUrl.toString(), 'post');
 
     String content = json.encode(data);
     Map<String, String> headers =
@@ -57,9 +58,10 @@ class ApiService {
 
   static Future<http.Response> _get(String path,
       {bool includeAccesskey = true}) async {
-    String url = ConfigStore().get<String>("api_url");
-    String resourceUrl = "$url/$path";
-    var _httpMetric = PerformanceMetric.newHttpMetric(resourceUrl, 'get');
+    String baseUrl = ConfigStore().get<String>("api_url");
+    var resourceUrl = Uri.parse("$baseUrl/$path");
+    var _httpMetric =
+        PerformanceMetric.newHttpMetric(resourceUrl.toString(), 'get');
 
     Map<String, String> headers =
         await getAuthHeader(includeAccessKey: includeAccesskey);
@@ -92,7 +94,7 @@ class ApiService {
   static List<Map<String, dynamic>> _handleListResponse(http.Response resp) {
     if (resp.statusCode == 200) {
       var decoded = json.decode(resp.body);
-      List<Map<String, dynamic>> response = List<Map<String, dynamic>>();
+      List<Map<String, dynamic>> response = [];
       if (decoded is List) {
         for (var i = 0; i < decoded.length; i++) {
           var resp = Map<String, dynamic>.from(decoded[i]);

@@ -63,9 +63,11 @@ class ChatState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: FlatButton(
-          shape: CircleBorder(),
-          padding: const EdgeInsets.only(left: 1.0),
+        leading: TextButton(
+          style: TextButton.styleFrom(
+            shape: CircleBorder(),
+            padding: const EdgeInsets.only(left: 1.0),
+          ),
           onPressed: () {
             Navigator.of(context).pop(true);
           },
@@ -273,7 +275,7 @@ class ChatState extends State<ChatScreen> {
         .users
         .firstWhere(
           (u) => this.widget.currentUser != u,
-          orElse: () => ChatUser("","", null),
+          orElse: () => ChatUser("", "", null),
         )
         .username;
   }

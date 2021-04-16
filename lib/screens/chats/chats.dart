@@ -27,12 +27,6 @@ class ChatsState extends State<Chats> {
     this._selectedChats = [];
     this.config = ConfigStore();
     PushNotificationService.instance.config(
-      onLaunch: (Map<String, dynamic> message) {
-        // TODO: handle background notification
-      },
-      onResume: (Map<String, dynamic> message) {
-        // TODO: handle resume notification
-      },
       onMessage: (Map<String, dynamic> payload) {
         if (payload == null || payload["data"] == null) return;
         var msg = payload["data"]["message"];
@@ -46,7 +40,7 @@ class ChatsState extends State<Chats> {
         try {
           var smsg = SocketMessage.fromMap(msg);
           SocketService.instance.externalNewMessage(smsg);
-        } catch (e, stack) {
+        } catch (e) {
           throw e;
         }
       },

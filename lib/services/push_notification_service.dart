@@ -35,9 +35,9 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
       .show(data.hashCode, title, body, _notificationDetails, payload: data);
 }
 
-Future<dynamic> fcmBackgroundMessageHandler(
-    Map<String, dynamic> payload) async {
-  var event = payload["data"]["message"];
+Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
+  var event = payload.data["message"];
+  print(event);
   var messages = toSocketMessage(event);
   for (var msg in messages) {
     var result = await ChatService.newMessage(msg);
@@ -52,14 +52,12 @@ Future<dynamic> fcmBackgroundMessageHandler(
 }
 
 class PushNotificationService {
-  FirebaseMessaging _fcm;
   static PushNotificationService _instance;
   InitializationSettings _initializationSettings;
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
   PushNotificationService() {
-    _fcm = FirebaseMessaging();
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
     _initializationSettings =
@@ -68,14 +66,12 @@ class PushNotificationService {
     this.clearAllNotification();
   }
 
-  void config(
-      {Function onMessage, Function onLaunch, Function onResume}) async {
-    _fcm.configure(
-      onMessage: onMessage,
-      onLaunch: onLaunch,
-      onResume: onResume,
-      onBackgroundMessage: fcmBackgroundMessageHandler,
-    );
+  void config({Function onMessage}) async {
+    FirebaseMessaging.onMessage.listen((event) {
+      if (onMessage != null) {
+        onMessage({"data": event.data});
+      }
+    });
     _flutterLocalNotificationsPlugin.initialize(_initializationSettings,
         onSelectNotification: (String payload) async {
       if (onMessage != null) {
@@ -89,7 +85,7 @@ class PushNotificationService {
     });
   }
 
-  Future<String> get token => _fcm.getToken();
+  Future<String> get token => FirebaseMessaging.instance.getToken();
 
   void showNotification(String title, String body, dynamic payload,
       {String groupKey, int id = 0}) {
@@ -122,6 +118,7 @@ class PushNotificationService {
 
   static PushNotificationService get instance {
     if (_instance == null) {
+      FirebaseMessaging.onBackgroundMessage(fcmBackgroundMessageHandler);
       _instance = PushNotificationService();
     }
     return _instance;

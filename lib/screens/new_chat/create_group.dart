@@ -17,7 +17,7 @@ class CreateGroup extends StatelessWidget {
           var chat = await ChatService.newGroupChat(name, this._members);
           Navigator.of(context).pop();
           Navigator.of(context).pop(chat);
-        } on Exception catch (e) {
+        } on Exception catch (_) {
           showErrorDialog(context, [
             'Error while creating new group.',
             'Make sure you are connected to internet.'
@@ -114,7 +114,7 @@ class CreateGroup extends StatelessWidget {
         ),
       ),
       actions: [
-        FlatButton(
+        TextButton(
           child: Text('OK'),
           onPressed: () {
             Navigator.of(context).pop();
@@ -176,7 +176,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                RaisedButton(
+                TextButton(
                   onPressed: () async {
                     if (value.isNotEmpty) {
                       if (this.widget.onConfirm != null) {
@@ -185,12 +185,13 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
                     } else {
                       final snackBar = SnackBar(
                           content: Text('Group name can\'t be empty!'));
-
-                      Scaffold.of(context).showSnackBar(snackBar);
+                      ScaffoldMessenger.of(context).showSnackBar(snackBar);
                     }
                   },
-                  color: Theme.of(context).primaryColor,
-                  shape: const CircleBorder(side: BorderSide.none),
+                  style: TextButton.styleFrom(
+                    primary: Theme.of(context).primaryColor,
+                    shape: const CircleBorder(side: BorderSide.none),
+                  ),
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
