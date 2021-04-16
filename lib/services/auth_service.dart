@@ -15,7 +15,7 @@ class AuthResponse {
 
 class AuthService {
   late FirebaseAuth _auth;
-  late String _phoneNumber;
+  String? _phoneNumber;
   int? _resendToken;
   late String _verificationId;
   User? _user;
@@ -43,7 +43,7 @@ class AuthService {
     _phoneNumber = phonenumber;
     _auth.verifyPhoneNumber(
       timeout: Duration(seconds: 0),
-      phoneNumber: _phoneNumber,
+      phoneNumber: _phoneNumber!,
       forceResendingToken: _resendToken,
       codeSent: (String verificationId, int? resendToken) async {
         _resendToken = resendToken;
@@ -69,7 +69,7 @@ class AuthService {
   }
 
   Future<bool> reSendOtp() {
-    return sendOtp(_phoneNumber);
+    return sendOtp(_phoneNumber!);
   }
 
   Future<AuthResponse> verify(String otp) async {
@@ -78,7 +78,7 @@ class AuthService {
     AuthResponse _resp = AuthResponse();
     try {
       var result = await _auth.signInWithCredential(credential);
-      _resp.phoneNumber = _phoneNumber;
+      _resp.phoneNumber = _phoneNumber!;
       _user = result.user;
       var idTokenResult = await result.user!.getIdTokenResult();
       _resp.token = idTokenResult.token!;
@@ -86,13 +86,13 @@ class AuthService {
     } catch (e, stack) {
       _resp.error = e;
       _resp.status = false;
-      _resp.phoneNumber = _phoneNumber;
+      _resp.phoneNumber = _phoneNumber!;
       Crashlytics.recordError(e, stack,
           reason: "Error while authentication with firebase");
     }
     if (_resp.status) {
       try {
-        await ApiService.login(_phoneNumber);
+        await ApiService.login(_phoneNumber!);
       } catch (e, stack) {
         Crashlytics.recordError(e, stack, reason: "Login api service failed");
         await _auth.signOut();
