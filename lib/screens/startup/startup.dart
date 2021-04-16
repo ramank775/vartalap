@@ -20,7 +20,7 @@ class StartupScreen extends StatefulWidget {
 }
 
 class StartupScreenState extends State<StartupScreen> {
-  PackageInfo info;
+  late PackageInfo info;
   @override
   void initState() {
     super.initState();

@@ -4,16 +4,17 @@ import 'package:vartalap/widgets/avator.dart';
 
 class ContactItem extends StatelessWidget {
   final User user;
-  final Function onProfileTap;
-  final Function onTap;
+  final Function? onProfileTap;
+  final Function? onTap;
   final bool isSelected;
   final bool enabled;
-  ContactItem(
-      {this.user,
-      this.isSelected = false,
-      this.onProfileTap,
-      this.onTap,
-      this.enabled = true});
+  ContactItem({
+    required this.user,
+    this.isSelected = false,
+    this.onProfileTap,
+    this.onTap,
+    this.enabled = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +61,7 @@ class ContactItem extends StatelessWidget {
         maxLines: 1,
       ),
       onTap: () {
-        if (onTap != null) onTap(user);
+        onTap!(user);
       },
       selected: isSelected,
       enabled: enabled,

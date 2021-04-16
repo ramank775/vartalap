@@ -5,9 +5,9 @@ import 'avator.dart';
 
 class ContactPreviewItem extends StatelessWidget {
   const ContactPreviewItem({
-    Key key,
-    @required User user,
-  })  : _user = user,
+    Key? key,
+    required User user,
+  })   : _user = user,
         super(key: key);
 
   final User _user;

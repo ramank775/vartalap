@@ -10,7 +10,7 @@ import 'package:vartalap/widgets/loadingIndicator.dart';
 class ChatInfo extends StatelessWidget {
   final Chat _chat;
 
-  const ChatInfo(this._chat, {Key key}) : super(key: key);
+  const ChatInfo(this._chat, {Key? key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
     var users = this._chat.users;
@@ -70,7 +70,7 @@ class ChatInfo extends StatelessWidget {
                   ),
                 ),
                 onPressed: () async {
-                  List<User> newMembers = await Navigator.of(context).push(
+                  List<User>? newMembers = await Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) {
                       return SelectGroupMemberScreen(
                         chat: this._chat,
@@ -169,7 +169,7 @@ class ChatInfo extends StatelessWidget {
   }
 
   void showConfirmationDialog(BuildContext context,
-      {void Function() onsuccess}) {
+      {void Function()? onsuccess}) {
     // set up the buttons
     Widget cancelButton = TextButton(
       child: Text("Cancel"),
@@ -181,7 +181,7 @@ class ChatInfo extends StatelessWidget {
       child: Text("Continue"),
       onPressed: () {
         Navigator.of(context).pop();
-        onsuccess();
+        onsuccess!();
       },
     );
     // set up the AlertDialog

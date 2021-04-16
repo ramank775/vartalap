@@ -119,7 +119,6 @@ class LoginScreen extends StatelessWidget {
                         showErrorDialog(context, errors);
                       },
                       style: ElevatedButton.styleFrom(
-                        primary: Theme.of(context).primaryColor,
                         shape: const RoundedRectangleBorder(
                             borderRadius:
                                 BorderRadius.all(Radius.circular(14))),

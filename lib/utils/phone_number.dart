@@ -1,6 +1,6 @@
 // HACK: Currently as this app is intended to work for indian user's only
 // use +91 as default country code
-String normalizePhoneNumber(String phoneNumber, {String countryCode = '+91'}) {
+String? normalizePhoneNumber(String phoneNumber, {String countryCode = '+91'}) {
   // Remove space
   phoneNumber = phoneNumber.replaceAll(' ', '');
   // Check if it's a valid phone number by parsing the string into integer

@@ -10,7 +10,7 @@ import 'package:vartalap/utils/enum_helper.dart';
 import 'package:vartalap/utils/phone_number.dart';
 
 class UserService {
-  static User _user;
+  static User? _user;
   static AuthService _authService = AuthService.instance;
 
   static Future<bool> sendOTP(String phoneNumber) {
@@ -32,22 +32,22 @@ class UserService {
   static User getLoggedInUser() {
     if (_user == null) {
       // fetch the current user
-      _user = User("Myself", _authService.phoneNumber, null);
+      _user = User("Myself", _authService.phoneNumber!, null);
     }
-    return _user;
+    return _user!;
   }
 
-  static Future<User> getUserById(String username) async {
+  static Future<User?> getUserById(String username) async {
     var db = await DB().getDb();
     var userMap =
         await db.query('user', where: "username=?", whereArgs: [username]);
     if (userMap.length == 0) {
-      return null;
+      return null as User;
     }
     return User.fromMap(userMap[0]);
   }
 
-  static Future<List<User>> getUsers({String search, bool sync: false}) async {
+  static Future<List<User>> getUsers({String? search, bool sync: false}) async {
     if (sync) {
       await syncContacts();
     }
@@ -78,7 +78,7 @@ class UserService {
     List<User> result = [];
     for (var username in usernames) {
       var u = await getUserById(username);
-      if (u == null) result.add(u);
+      if (u == null) result.add(u!);
     }
     var db = await DB().getDb();
     Batch batch = db.batch();
@@ -177,10 +177,13 @@ class UserService {
         withThumbnails: false, photoHighResolution: false);
     List<User> users = [];
     contacts.forEach((contact) {
-      contact.phones.forEach((phone) {
-        String phoneNumber = normalizePhoneNumber(phone.value);
+      (contact.phones ?? []).forEach((phone) {
+        String? phoneNumber = phone.value == null
+            ? null as String
+            : normalizePhoneNumber(phone.value!);
         if (phoneNumber != null) {
-          users.add(User(contact.displayName, phoneNumber, null));
+          users
+              .add(User(contact.displayName ?? phoneNumber, phoneNumber, null));
         }
       });
     });
@@ -196,10 +199,11 @@ class UserService {
         .where((u) => (u.status != UserStatus.UNKNOWN && !users.contains(u)))
         .toList();
     users.forEach((u) {
-      var user = dbUsers.firstWhere(
+      User? user = dbUsers.firstWhere(
         (e) => u == e,
-        orElse: () => null,
+        orElse: () => null as User,
       );
+      // ignore: unnecessary_null_comparison
       if (user == null) {
         userToInsert.add(u);
       } else if (user.name != u.name ||

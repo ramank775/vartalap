@@ -16,7 +16,8 @@ enum UserRole {
 
 class ChatUser extends User {
   UserRole role = UserRole.USER;
-  ChatUser(String name, String username, String pic, [this.role])
+  ChatUser(String name, String username, String? pic,
+      [this.role = UserRole.USER])
       : super(name, username, pic);
 
   ChatUser.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
@@ -43,17 +44,17 @@ class ChatUser extends User {
 }
 
 class Chat {
-  String _id;
-  String _title;
-  String _pic;
-  ChatType type;
+  late String _id;
+  late String _title;
+  String? _pic;
+  late ChatType type = ChatType.INDIVIDUAL;
   Set<ChatUser> _users = new Set();
 
   Chat(this._id, this._title, this._pic, {this.type = ChatType.INDIVIDUAL});
 
   String get id => _id;
   String get title => _title;
-  String get pic => _pic;
+  String? get pic => _pic;
   List<ChatUser> get users => _users.toList();
 
   Chat.fromMap(Map<String, dynamic> map) {
@@ -89,10 +90,10 @@ class Chat {
 }
 
 class ChatPreview extends Chat {
-  String _content;
-  int _ts;
-  int _unread;
-  ChatPreview(String id, String title, String pic, this._content, this._ts,
+  late String _content;
+  late int _ts;
+  late int _unread;
+  ChatPreview(String id, String title, String? pic, this._content, this._ts,
       this._unread)
       : super(id, title, pic);
 

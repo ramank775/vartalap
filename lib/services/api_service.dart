@@ -10,19 +10,24 @@ import 'package:vartalap/services/performance_metric.dart';
 class ApiService {
   static FlutterSecureStorage _storage = new FlutterSecureStorage();
   static const String ACCESS_KEY = 'accesskey';
-  static Future<String> get _accesskey {
+  static Future<String?> get _accesskey {
     return _storage.read(key: ACCESS_KEY);
   }
 
   static Future<Map<String, String>> getAuthHeader(
       {includeAccessKey = true}) async {
-    String idToken = await AuthService.instance.idToken;
-    Map<String, String> headers = {
-      "token": idToken,
-      "user": AuthService.instance.phoneNumber
-    };
+    String? idToken = await AuthService.instance.idToken;
+    Map<String, String> headers = {};
+    if (idToken != null) {
+      headers["token"] = idToken;
+    }
+    String? phone = AuthService.instance.phoneNumber;
+    if (phone != null) {
+      headers["user"] = phone;
+    }
     if (includeAccessKey) {
-      headers[ACCESS_KEY] = await _accesskey;
+      String? key = await _accesskey;
+      if (key != null) headers[ACCESS_KEY] = key;
     }
 
     return headers;
@@ -45,9 +50,9 @@ class ApiService {
     try {
       resp = await http.post(resourceUrl, headers: headers, body: content);
       _httpMetric
-        ..responsePayloadSize = resp.contentLength
-        ..responseContentType = resp.headers['Content-Type']
-        ..requestPayloadSize = resp.contentLength
+        ..responsePayloadSize = resp.contentLength ?? 0
+        ..responseContentType = resp.headers['Content-Type'] ?? ''
+        ..requestPayloadSize = resp.contentLength ?? 0
         ..httpResponseCode = resp.statusCode;
     } finally {
       _httpMetric.stop();
@@ -71,9 +76,9 @@ class ApiService {
     try {
       resp = await http.get(resourceUrl, headers: headers);
       _httpMetric
-        ..responsePayloadSize = resp.contentLength
-        ..responseContentType = resp.headers['Content-Type']
-        ..requestPayloadSize = resp.contentLength
+        ..responsePayloadSize = resp.contentLength ?? 0
+        ..responseContentType = resp.headers['Content-Type'] ?? ''
+        ..requestPayloadSize = resp.contentLength ?? 0
         ..httpResponseCode = resp.statusCode;
     } finally {
       _httpMetric.stop();
@@ -127,7 +132,7 @@ class ApiService {
   }
 
   static Future<String> createGroup(
-      String groupTitle, List<String> members, String profilePic) async {
+      String groupTitle, List<String> members, String? profilePic) async {
     http.Response response = await _post("group/create",
         {"name": groupTitle, "members": members, "profilePic": profilePic});
     Map<String, dynamic> resp = _handleResponse(response);

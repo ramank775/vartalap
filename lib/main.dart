@@ -5,6 +5,8 @@ import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'models/chat.dart';
+import 'models/user.dart';
 import 'screens/chats/chats.dart';
 import 'screens/chat/chat.dart';
 import 'screens/new_chat/new_chat.dart';
@@ -53,7 +55,7 @@ class HomeState extends State<Home> {
           widget = new Chats();
           break;
         case '/chat':
-          widget = new ChatScreen(settings.arguments);
+          widget = new ChatScreen(settings.arguments as Chat);
           break;
         case '/new-chat':
           widget = new NewChatScreen();
@@ -62,7 +64,7 @@ class HomeState extends State<Home> {
           widget = new SelectGroupMemberScreen();
           break;
         case '/create-group':
-          widget = new CreateGroup(settings.arguments);
+          widget = new CreateGroup(settings.arguments as List<User>);
           break;
         default:
           widget = new Chats();

@@ -106,7 +106,6 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                             .pushNamedAndRemoveUntil('/', (route) => false);
                       },
                       style: ElevatedButton.styleFrom(
-                        primary: Theme.of(context).primaryColor,
                         shape: const RoundedRectangleBorder(
                             borderRadius:
                                 BorderRadius.all(Radius.circular(14))),

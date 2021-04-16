@@ -8,8 +8,8 @@ class MessageWidget extends StatelessWidget {
   final bool _isYou;
 
   final bool isSelected;
-  final Function onTab;
-  final Function onLongPress;
+  final Function? onTab;
+  final Function? onLongPress;
   final bool showUserInfo;
 
   final TextStyle textStyle = TextStyle(
@@ -20,7 +20,7 @@ class MessageWidget extends StatelessWidget {
   );
 
   MessageWidget(this._msg, this._isYou,
-      {Key key,
+      {Key? key,
       this.isSelected: false,
       this.onTab,
       this.onLongPress,
@@ -31,14 +31,10 @@ class MessageWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
         onTap: () {
-          if (this.onTab != null) {
-            this.onTab(this._msg);
-          }
+          this.onTab!(this._msg);
         },
         onLongPress: () {
-          if (this.onLongPress != null) {
-            this.onLongPress(this._msg);
-          }
+          this.onLongPress!(this._msg);
         },
         child: Container(
           color: this.isSelected ? Colors.lightBlue[200] : Colors.transparent,
@@ -54,7 +50,7 @@ class MessageWidget extends StatelessWidget {
                 decoration: BoxDecoration(
                   boxShadow: [
                     new BoxShadow(
-                      color: Colors.grey[300],
+                      color: Colors.grey[300]!,
                       offset: new Offset(1.0, 1.0),
                       blurRadius: 0.5,
                     )
@@ -97,7 +93,7 @@ class MessageWidget extends StatelessWidget {
         Container(
           margin: EdgeInsets.only(bottom: 4),
           child: Text(
-            this._msg.sender.name,
+            this._msg.sender == null ? '' : this._msg.sender!.name,
             textAlign: TextAlign.start,
             style: TextStyle(
               fontSize: 14,
@@ -117,7 +113,7 @@ class MessageWidget extends StatelessWidget {
               minWidth: MediaQuery.of(context).size.width * 0.25,
             ),
             child: RichMessage(
-              (this._msg.text ?? ''),
+              (this._msg.text),
               textStyle,
             ),
           ),

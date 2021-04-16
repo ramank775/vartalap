@@ -1,13 +1,18 @@
-import 'package:avatar_letter/avatar_letter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
+import 'package:vartalap/widgets/avator_letter.dart';
 
 class Avator extends StatelessWidget {
   final String text;
   final double _opacity = 1;
   final double width;
   final double height;
-  Avator({Key key, this.text, this.width, this.height}) : super(key: key);
+  Avator({
+    Key? key,
+    required this.text,
+    required this.width,
+    required this.height,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {

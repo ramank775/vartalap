@@ -24,12 +24,12 @@ class ChatScreen extends StatefulWidget {
 
 class ChatState extends State<ChatScreen> {
   Chat _chat;
-  Future<List<Message>> _fMessages;
-  List<Message> _messages;
+  late Future<List<Message>> _fMessages;
+  late List<Message> _messages;
   List<Message> _selectedMessges = [];
-  StreamSubscription _notificationSub;
-  StreamSubscription _newMessageSub;
-  Timer _readTimer;
+  late StreamSubscription _notificationSub;
+  late StreamSubscription _newMessageSub;
+  Timer? _readTimer;
   List<Message> _unreadMessages = [];
   Map<String, User> _users = Map();
   Map<String, UserNotifier> _userChangeNotifier = Map();
@@ -94,7 +94,7 @@ class ChatState extends State<ChatScreen> {
             onTap: () async {
               if (this._chat.type == ChatType.GROUP &&
                   this.hasSendPermission()) {
-                Chat result = await Navigator.of(context).push(
+                Chat? result = await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => ChatInfo(this._chat),
                   ),
@@ -176,12 +176,12 @@ class ChatState extends State<ChatScreen> {
                           child: Text('Error: ${snapshot.error}'),
                         );
                       }
-                      if (_readTimer != null && _readTimer.isActive) {
-                        _readTimer.cancel();
+                      if (_readTimer != null && _readTimer!.isActive) {
+                        _readTimer!.cancel();
                       }
                       _readTimer =
                           Timer(Duration(seconds: 1), _onReadTimerTimeout);
-                      this._messages = snapshot.data;
+                      this._messages = snapshot.data ?? [];
                       return ListView.builder(
                           itemCount: this._messages.length,
                           reverse: true,
@@ -217,7 +217,7 @@ class ChatState extends State<ChatScreen> {
                                   );
                                 },
                                 valueListenable:
-                                    this._userChangeNotifier[_msg.senderId],
+                                    this._userChangeNotifier[_msg.senderId]!,
                               );
                             } else {
                               child = MessageWidget(
@@ -242,7 +242,6 @@ class ChatState extends State<ChatScreen> {
                             );
                           });
                   }
-                  return null; //
                 }),
           ),
           ...this.hasSendPermission()
@@ -336,13 +335,13 @@ class ChatState extends State<ChatScreen> {
   }
 
   void _onNewMessage(SocketMessage msg) {
-    var message = msg.toMessage();
+    var message = msg.toMessage()!;
 
     setState(() {
       this._unreadMessages.add(message);
       this._messages.insert(0, message);
     });
-    if (_readTimer != null && !_readTimer.isActive) {
+    if (_readTimer == null || !_readTimer!.isActive) {
       _readTimer = Timer(Duration(seconds: 1), _onReadTimerTimeout);
     }
   }
@@ -363,17 +362,17 @@ class ChatState extends State<ChatScreen> {
 
   User getSender(Message msg) {
     if (this._users.containsKey(msg.senderId)) {
-      return this._users[msg.senderId];
+      return this._users[msg.senderId]!;
     } else {
       var user = ChatUser(msg.senderId, msg.senderId, null);
       if (!this._userChangeNotifier.containsKey(msg.senderId)) {
         this._userChangeNotifier[msg.senderId] = UserNotifier(user);
       }
-      UserService.getUserById(msg.senderId).then((user) {
+      UserService.getUserById(msg.senderId).then((User? user) {
         if (user == null) return;
         this._users[user.username] = user;
         msg.sender = user;
-        this._userChangeNotifier[msg.senderId].update(user);
+        this._userChangeNotifier[msg.senderId]!.update(user);
       }, onError: (user) {});
       return user;
     }
@@ -385,7 +384,7 @@ class ChatState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _readTimer.cancel();
+    if (_readTimer != null) _readTimer!.cancel();
     _notificationSub.cancel();
     _newMessageSub.cancel();
     super.dispose();

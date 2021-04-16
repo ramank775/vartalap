@@ -15,9 +15,9 @@ class NewChatScreen extends StatefulWidget {
 
 class NewChatState extends State<NewChatScreen>
     with SingleTickerProviderStateMixin {
-  Future<List<User>> _contacts;
-  Future<List<Chat>> _groups;
-  TabController _tabController;
+  late Future<List<User>> _contacts;
+  late Future<List<Chat>> _groups;
+  late TabController _tabController;
   bool _openSearch = false;
   @override
   void initState() {
@@ -72,7 +72,7 @@ class NewChatState extends State<NewChatScreen>
             }
         }
         List<dynamic> data = [];
-        data.addAll(snapshot.data);
+        data.addAll(snapshot.data!);
         data.add(ListTile(
           leading: Container(
             padding: const EdgeInsets.all(8.0),
@@ -155,7 +155,7 @@ class NewChatState extends State<NewChatScreen>
           },
         ));
 
-        data.addAll(snapshot.data);
+        data.addAll(snapshot.data!);
         return ListView.builder(
             itemCount: data.length,
             itemBuilder: (context, i) {
@@ -164,7 +164,7 @@ class NewChatState extends State<NewChatScreen>
               }
               Chat chat = data.elementAt(i);
               ChatPreview preview =
-                  ChatPreview(chat.id, chat.title, chat.pic, null, 0, 0);
+                  ChatPreview(chat.id, chat.title, chat.pic, '', 0, 0);
               preview.type = chat.type;
               return ChatPreviewWidget(
                 preview,

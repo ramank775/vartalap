@@ -8,14 +8,14 @@ enum UserStatus {
 }
 
 class User {
-  String _name;
-  String _username;
-  String _pic;
+  late String _name;
+  late String _username;
+  String? _pic;
   UserStatus status = UserStatus.ACTIVE;
   bool hasAccount = false;
   String get name => _name;
   String get username => _username;
-  String get pic => _pic;
+  String? get pic => _pic;
 
   User(this._name, this._username, this._pic,
       {this.status = UserStatus.ACTIVE, this.hasAccount = false});

@@ -61,7 +61,7 @@ class CreateGroup extends StatelessWidget {
                   text: TextSpan(
                     style: TextStyle(
                         fontSize: 18,
-                        color: Theme.of(context).textTheme.bodyText1.color),
+                        color: Theme.of(context).textTheme.bodyText1!.color),
                     children: [
                       TextSpan(text: "Members:"),
                       TextSpan(
@@ -131,7 +131,7 @@ class CreateGroup extends StatelessWidget {
 
 class _CreateGroupForm extends StatefulWidget {
   final Function(String) onConfirm;
-  _CreateGroupForm({Key key, @required this.onConfirm}) : super(key: key);
+  _CreateGroupForm({Key? key, required this.onConfirm}) : super(key: key);
 
   @override
   __CreateGroupFormState createState() => __CreateGroupFormState();
@@ -179,9 +179,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
                 TextButton(
                   onPressed: () async {
                     if (value.isNotEmpty) {
-                      if (this.widget.onConfirm != null) {
-                        this.widget.onConfirm(value);
-                      }
+                      this.widget.onConfirm(value);
                     } else {
                       final snackBar = SnackBar(
                           content: Text('Group name can\'t be empty!'));
@@ -189,7 +187,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
                     }
                   },
                   style: TextButton.styleFrom(
-                    primary: Theme.of(context).primaryColor,
+                    backgroundColor: Theme.of(context).primaryColor,
                     shape: const CircleBorder(side: BorderSide.none),
                   ),
                   child: Container(
@@ -198,7 +196,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
                     child: Icon(
                       Icons.done,
                       color: Colors.white,
-                      size: 40,
+                      size: 30,
                     ),
                   ),
                 ),

@@ -14,18 +14,20 @@ import 'package:vartalap/utils/socket_message_helper.dart';
 
 class SocketService {
   static String name = "SocketService";
-  static SocketService _instance;
+  static SocketService? _instance;
 
-  Future<void> _processingPromise;
+  Future<void>? _processingPromise;
 
   int _retryCount = 0;
-  String _url;
+  late String _url;
   bool _closed = false;
   bool _reconnecting = false;
-  StreamSubscription<ConnectivityResult> _connectivitySub;
+  // ignore: cancel_subscriptions
+  StreamSubscription<ConnectivityResult>? _connectivitySub;
   StreamController<SocketMessage> _controller =
       StreamController<SocketMessage>.broadcast();
-  WebSocket _channel;
+  // ignore: close_sinks
+  WebSocket? _channel;
   Stream<SocketMessage> get stream => _controller.stream.asBroadcastStream();
 
   Future<void> init() async {
@@ -55,7 +57,7 @@ class SocketService {
       "retry_count": 0
     };
     db.insert("out_message", outMessage);
-    if (_channel == null || _channel.closeCode != null) {
+    if (_channel == null || _channel!.closeCode != null) {
       await db.update("out_message", {"sent": -1},
           where: "messageId=?", whereArgs: [msg.msgId]);
 
@@ -65,7 +67,7 @@ class SocketService {
       return;
     }
     try {
-      _channel.add(msgStr);
+      _channel!.add(msgStr);
       await db
           .delete("out_message", where: "messageId=?", whereArgs: [msg.msgId]);
       msg = SocketMessage.fromMap(msgMap);
@@ -89,9 +91,9 @@ class SocketService {
 
   void dispose() {
     _closed = true;
-    if (_controller != null) _controller.close();
-    if (_channel != null) _channel.close();
-    if (_connectivitySub != null) _connectivitySub.cancel();
+    _controller.close();
+    if (_channel != null) _channel!.close();
+    if (_connectivitySub != null) _connectivitySub!.cancel();
   }
 
   Future<void> _connectWs() async {
@@ -103,9 +105,9 @@ class SocketService {
       Map<String, String> headers = await ApiService.getAuthHeader();
       _channel = await WebSocket.connect(_url, headers: headers);
       _retryCount = 0;
-      _channel.asBroadcastStream().listen(_onNewMessage,
+      _channel!.asBroadcastStream().listen(_onNewMessage,
           onError: _onError, onDone: _onDone, cancelOnError: false);
-      _channel.done.then((value) => _reconnectWs());
+      _channel!.done.then((value) => _reconnectWs());
       _socketConnectionTrack.stop();
       _processPendingMessage();
     } catch (e, stack) {
@@ -135,7 +137,7 @@ class SocketService {
         return;
       } else {
         if (_connectivitySub != null) {
-          _connectivitySub.cancel();
+          _connectivitySub!.cancel();
           _connectivitySub = null;
         }
       }
@@ -149,7 +151,7 @@ class SocketService {
     if (_closed) return;
     if (_reconnecting) return;
     _reconnecting = false;
-    if (_channel == null || _channel.closeCode != null) {
+    if (_channel == null || _channel!.closeCode != null) {
       await _connectWs();
     }
   }
@@ -160,7 +162,7 @@ class SocketService {
   }
 
   void _onError(error) {
-    if (this._channel.closeCode == null) {
+    if (this._channel!.closeCode == null) {
       return;
     }
     _reconnectWs();
@@ -188,8 +190,9 @@ class SocketService {
       var batch = db.batch();
       try {
         for (var row in result) {
-          var _smsg = SocketMessage.fromMap(json.decode(row["message"]));
-          _channel.add(row["message"]);
+          var _smsg =
+              SocketMessage.fromMap(json.decode(row["message"] as String));
+          _channel!.add(row["message"]);
           _smsg.from = name;
           _smsg.state = MessageState.SENT;
           _smsg.type = MessageType.NOTIFICATION;
@@ -212,6 +215,6 @@ class SocketService {
     if (_instance == null) {
       _instance = SocketService();
     }
-    return _instance;
+    return _instance!;
   }
 }

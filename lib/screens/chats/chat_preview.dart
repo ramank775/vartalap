@@ -59,7 +59,7 @@ class ChatPreviewWidget extends StatelessWidget {
                 style: new TextStyle(fontWeight: FontWeight.bold),
               ),
               new Text(
-                (this._chat.ts ?? 0) != 0
+                (this._chat.ts) != 0
                     ? formatMessageDateTime(this._chat.ts)
                     : '',
                 style: new TextStyle(color: Colors.grey, fontSize: 14.0),
@@ -111,7 +111,7 @@ class ChatPreviewWidget extends StatelessWidget {
   }
 
   String getDisplayContext() {
-    String content = this._chat.content ?? '';
+    String content = this._chat.content;
     // if (content.length > 30) {
     //   return content.substring(0, 26) + "...";
     // }

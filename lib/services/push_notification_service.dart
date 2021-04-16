@@ -7,7 +7,7 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/utils/socket_message_helper.dart';
 
 Future<void> showNotificationService(String title, String body, dynamic payload,
-    {String groupKey, int id = 0}) {
+    {String? groupKey, int id = 0}) {
   const AndroidInitializationSettings initializationSettingsAndroid =
       AndroidInitializationSettings('@mipmap/ic_launcher');
   var _initializationSettings =
@@ -42,7 +42,7 @@ Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
   for (var msg in messages) {
     var result = await ChatService.newMessage(msg);
     if (result != null) {
-      var chat = await ChatService.getChatInfo(msg.chatId);
+      var chat = await ChatService.getChatInfo(msg.chatId!);
       if (chat == null) return;
       return showNotificationService(chat.title, msg.text, msg.toMap(),
           groupKey: chat.id, id: chat.id.hashCode);
@@ -52,8 +52,8 @@ Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
 }
 
 class PushNotificationService {
-  static PushNotificationService _instance;
-  InitializationSettings _initializationSettings;
+  static PushNotificationService? _instance;
+  late InitializationSettings _initializationSettings;
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
@@ -66,15 +66,13 @@ class PushNotificationService {
     this.clearAllNotification();
   }
 
-  void config({Function onMessage}) async {
+  void config({Function? onMessage}) async {
     FirebaseMessaging.onMessage.listen((event) {
-      if (onMessage != null) {
-        onMessage({"data": event.data});
-      }
+      onMessage!({"data": event.data});
     });
     _flutterLocalNotificationsPlugin.initialize(_initializationSettings,
-        onSelectNotification: (String payload) async {
-      if (onMessage != null) {
+        onSelectNotification: (String? payload) async {
+      if (onMessage != null && payload != null) {
         var decoded = json.decode(payload);
         Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
         return onMessage({
@@ -85,10 +83,10 @@ class PushNotificationService {
     });
   }
 
-  Future<String> get token => FirebaseMessaging.instance.getToken();
+  Future<String?> get token => FirebaseMessaging.instance.getToken();
 
   void showNotification(String title, String body, dynamic payload,
-      {String groupKey, int id = 0}) {
+      {String? groupKey, int id = 0}) {
     var _androidPlatformChannelSpecifics = AndroidNotificationDetails(
       'VARTALAP_NOTIFICATION',
       'VARTALAP_NOTIFICATION',
@@ -121,6 +119,6 @@ class PushNotificationService {
       FirebaseMessaging.onBackgroundMessage(fcmBackgroundMessageHandler);
       _instance = PushNotificationService();
     }
-    return _instance;
+    return _instance!;
   }
 }

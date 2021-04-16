@@ -6,15 +6,15 @@ import 'package:vartalap/widgets/contactPreviewItem.dart';
 import 'contact.dart';
 
 class SelectGroupMemberScreen extends StatefulWidget {
-  final Chat chat;
+  final Chat? chat;
   SelectGroupMemberScreen({this.chat});
   @override
   State<StatefulWidget> createState() => SelectGroupMemberState();
 }
 
 class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
-  Future<List<User>> _contacts;
-  int _numContacts;
+  late Future<List<User>> _contacts;
+  late int _numContacts;
   bool _openSearch = false;
   List<User> _selectedUsers = [];
   Map<String, User> _existingUser = Map();
@@ -24,7 +24,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
     super.initState();
     if (this.widget.chat != null) {
       this._isUpdate = true;
-      this.widget.chat.users.forEach((u) => this._existingUser[u.username] = u);
+      this
+          .widget
+          .chat!
+          .users
+          .forEach((u) => this._existingUser[u.username] = u);
     }
     _contacts = UserService.getUsers();
     _contacts.then((value) {
@@ -90,7 +94,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                       );
                     }
                 }
-                List<dynamic> data = snapshot.data.toList();
+                List<dynamic> data = snapshot.data!.toList();
                 return ListView.builder(
                   itemCount: data.length,
                   itemBuilder: (context, i) {

@@ -3,16 +3,16 @@ import 'package:flutter/material.dart';
 
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
-  MessageInputWidget({Key key, this.sendMessage}) : super(key: key);
+  MessageInputWidget({Key? key, required this.sendMessage}) : super(key: key);
 
   @override
   MessageInputState createState() => MessageInputState();
 }
 
 class MessageInputState extends State<MessageInputWidget> {
-  Function _sendMessage;
-  bool _isShowSticker;
-  FocusNode _inputFocus;
+  late Function _sendMessage;
+  bool _isShowSticker = false;
+  FocusNode _inputFocus = FocusNode();
   final TextEditingController _controller = TextEditingController();
   @override
   void initState() {
