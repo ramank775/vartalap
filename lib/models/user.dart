@@ -1,25 +1,30 @@
+import 'package:flutter/cupertino.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
-enum UserStatus { ACTIVE, DELETED }
+enum UserStatus {
+  ACTIVE,
+  DELETED,
+  UNKNOWN,
+}
 
 class User {
   String _name;
   String _username;
   String _pic;
-  UserStatus _status = UserStatus.ACTIVE;
+  UserStatus status = UserStatus.ACTIVE;
   bool hasAccount = false;
   String get name => _name;
   String get username => _username;
   String get pic => _pic;
-  UserStatus get status => _status;
 
-  User(this._name, this._username, this._pic);
+  User(this._name, this._username, this._pic,
+      {this.status = UserStatus.ACTIVE, this.hasAccount = false});
   User.fromMap(Map<String, dynamic> map) {
     this._name = map["name"];
     this._username = map["username"];
     this._pic = map["pic"];
     this.hasAccount = (map["hasAccount"] ?? 0) == 1;
-    this._status = map.containsKey('status')
+    this.status = map.containsKey('status')
         ? intToEnum(map['status'], UserStatus.values)
         : UserStatus.ACTIVE;
   }
@@ -38,5 +43,14 @@ class User {
   @override
   bool operator ==(Object other) {
     return hashCode == other.hashCode;
+  }
+}
+
+class UserNotifier extends ValueNotifier<User> {
+  UserNotifier(User value) : super(value);
+
+  void update(User value) {
+    this.value = value;
+    this.notifyListeners();
   }
 }

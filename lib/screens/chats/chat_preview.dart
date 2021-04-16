@@ -20,10 +20,33 @@ class ChatPreviewWidget extends StatelessWidget {
           height: 5.0,
         ),
         new ListTile(
-          leading: Avator(
-            text: this._chat.title,
+          leading: Container(
             width: 42,
             height: 42,
+            child: Stack(
+              children: [
+                Avator(
+                  width: 42.0,
+                  height: 42.0,
+                  text: this._chat.title,
+                ),
+                this.isSelected
+                    ? Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: CircleAvatar(
+                          backgroundColor: Theme.of(context).primaryColor,
+                          radius: 10,
+                          child: Icon(
+                            Icons.check,
+                            color: Colors.white,
+                            size: 14,
+                          ),
+                        ),
+                      )
+                    : Container()
+              ],
+            ),
           ),
           // leading: new ProfileImg(
           //     this._chat.pic ?? 'assets/images/default-user.png',
@@ -36,7 +59,9 @@ class ChatPreviewWidget extends StatelessWidget {
                 style: new TextStyle(fontWeight: FontWeight.bold),
               ),
               new Text(
-                formatMessageDateTime(this._chat.ts),
+                (this._chat.ts ?? 0) != 0
+                    ? formatMessageDateTime(this._chat.ts)
+                    : '',
                 style: new TextStyle(color: Colors.grey, fontSize: 14.0),
               ),
             ],
@@ -44,10 +69,11 @@ class ChatPreviewWidget extends StatelessWidget {
           subtitle: new Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              new Container(
-                padding: const EdgeInsets.only(top: 5.0),
-                child: new Text(
+              Expanded(
+                child: Text(
                   this.getDisplayContext(),
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
                   style: new TextStyle(color: Colors.grey[700], fontSize: 15.0),
                 ),
               ),
@@ -63,12 +89,6 @@ class ChatPreviewWidget extends StatelessWidget {
   }
 
   Widget getWidget() {
-    if (isSelected) {
-      return Icon(
-        Icons.check_circle,
-        color: Colors.greenAccent,
-      );
-    }
     return this._chat.unread > 0
         ? Container(
             width: 24,
@@ -91,10 +111,10 @@ class ChatPreviewWidget extends StatelessWidget {
   }
 
   String getDisplayContext() {
-    String content = this._chat.content;
-    if (content.length > 30) {
-      return content.substring(0, 25) + "...";
-    }
+    String content = this._chat.content ?? '';
+    // if (content.length > 30) {
+    //   return content.substring(0, 26) + "...";
+    // }
     return content;
   }
 

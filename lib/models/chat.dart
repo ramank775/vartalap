@@ -3,24 +3,24 @@ import 'package:vartalap/utils/enum_helper.dart';
 import 'user.dart';
 
 enum ChatType {
+  NONE,
   INDIVIDUAL,
   GROUP,
 }
 
 enum UserRole {
-  MEMBER,
+  USER,
   ADMIN,
+  EX_USER,
 }
 
 class ChatUser extends User {
-  UserRole _role = UserRole.MEMBER;
-  ChatUser(String name, String username, String pic, [this._role])
+  UserRole role = UserRole.USER;
+  ChatUser(String name, String username, String pic, [this.role])
       : super(name, username, pic);
 
-  UserRole get role => _role;
-
   ChatUser.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
-    this._role = intToEnum(map["role"], UserRole.values);
+    this.role = intToEnum(map["role"], UserRole.values);
   }
 
   ChatUser.fromUser(User user) : super(user.name, user.username, user.pic);
@@ -46,9 +46,10 @@ class Chat {
   String _id;
   String _title;
   String _pic;
+  ChatType type;
   Set<ChatUser> _users = new Set();
 
-  Chat(this._id, this._title, this._pic);
+  Chat(this._id, this._title, this._pic, {this.type = ChatType.INDIVIDUAL});
 
   String get id => _id;
   String get title => _title;
@@ -59,6 +60,7 @@ class Chat {
     this._id = map["id"];
     this._title = map["title"];
     this._pic = map["pic"];
+    this.type = intToEnum(map["type"] ?? 1, ChatType.values);
   }
 
   Map<String, dynamic> toMap() {
@@ -66,6 +68,7 @@ class Chat {
     map["id"] = this.id;
     map["title"] = this.title;
     map["pic"] = this.pic;
+    map["type"] = enumToInt(this.type, ChatType.values);
     return map;
   }
 
@@ -73,6 +76,10 @@ class Chat {
 
   void addUser(ChatUser user) {
     this._users.add(user);
+  }
+
+  void resetUsers() {
+    this._users.clear();
   }
 
   @override
@@ -91,7 +98,7 @@ class ChatPreview extends Chat {
 
   ChatPreview.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
     this._content = map["text"];
-    this._ts = map["ts"];
+    this._ts = map["ts"] ?? 0;
     this._unread = map["unread"] == null ? 0 : map["unread"];
   }
 

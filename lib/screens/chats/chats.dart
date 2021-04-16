@@ -38,15 +38,16 @@ class ChatsState extends State<Chats> {
         var msg = payload["data"]["message"];
         if (msg == null) return;
         var source = payload["source"];
-        if (source != null && source is String && source == "ON_NOTIFICATION_TAP") {
+        if (source != null &&
+            source is String &&
+            source == "ON_NOTIFICATION_TAP") {
           return;
         }
         try {
           var smsg = SocketMessage.fromMap(msg);
           SocketService.instance.externalNewMessage(smsg);
         } catch (e, stack) {
-          print(e);
-          print(stack);
+          throw e;
         }
       },
     );
@@ -173,7 +174,12 @@ class ChatsState extends State<Chats> {
       if (result == null) {
         return;
       }
-      var chat = await ChatService.newIndiviualChat(result);
+      Chat chat;
+      if (result is Chat) {
+        chat = result;
+      } else {
+        chat = await ChatService.newIndiviualChat(result);
+      }
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
     setState(() {
@@ -206,12 +212,16 @@ class ChatListView extends StatefulWidget {
 
 class ChatListViewState extends State<ChatListView> {
   StreamSubscription _newMessageSub;
+  StreamSubscription _groupNotificationSub;
   List<ChatPreview> _chats;
   @override
   void initState() {
     super.initState();
     _chats = widget._chats;
     _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
+    _groupNotificationSub = ChatService.onNotificationMessagStream
+        .where((notification) => notification.module == "group")
+        .listen(_onGroupNotification);
   }
 
   @override
@@ -240,10 +250,9 @@ class ChatListViewState extends State<ChatListView> {
   }
 
   _onNewMessage(SocketMessage msg) async {
-    PushNotificationService.instance
-        .showNotification('New Message', msg.text, msg.toMap());
     var chat = _chats.firstWhere((_chat) => _chat.id == msg.chatId,
         orElse: () => null);
+
     if (chat == null) {
       chat = await ChatService.getChatById(msg.chatId);
       setState(() {
@@ -255,6 +264,14 @@ class ChatListViewState extends State<ChatListView> {
       chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.text,
           _msg.timestamp, (chat.unread + 1));
     }
+    PushNotificationService.instance.showNotification(
+      chat.title,
+      msg.text,
+      msg.toMap(),
+      groupKey: chat.id,
+      id: chat.id.hashCode,
+    );
+
     var chats = _chats.where((_chat) => _chat.id != msg.chatId).toList();
     chats.insert(0, chat);
     setState(() {
@@ -262,9 +279,23 @@ class ChatListViewState extends State<ChatListView> {
     });
   }
 
+  _onGroupNotification(SocketMessage msg) async {
+    var chatIdx = _chats.indexWhere((_chat) => _chat.id == msg.chatId);
+    if (chatIdx == -1) {
+      return;
+    }
+    var chat = _chats[chatIdx];
+    if (chat.users.isEmpty) return;
+
+    chat.resetUsers();
+    var users = await ChatService.getChatUserByid(chat.id);
+    users.forEach((u) => chat.addUser(u));
+  }
+
   @override
   void dispose() {
     _newMessageSub.cancel();
+    _groupNotificationSub.cancel();
     super.dispose();
   }
 }

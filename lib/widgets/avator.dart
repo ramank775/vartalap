@@ -7,7 +7,6 @@ class Avator extends StatelessWidget {
   final double _opacity = 1;
   final double width;
   final double height;
-
   Avator({Key key, this.text, this.width, this.height}) : super(key: key);
 
   @override

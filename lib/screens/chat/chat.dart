@@ -4,7 +4,7 @@ import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/profile_img/profile_img.dart';
+import 'package:vartalap/screens/chat/chat_info.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
@@ -23,7 +23,7 @@ class ChatScreen extends StatefulWidget {
 }
 
 class ChatState extends State<ChatScreen> {
-  final Chat _chat;
+  Chat _chat;
   Future<List<Message>> _fMessages;
   List<Message> _messages;
   List<Message> _selectedMessges = [];
@@ -31,24 +31,37 @@ class ChatState extends State<ChatScreen> {
   StreamSubscription _newMessageSub;
   Timer _readTimer;
   List<Message> _unreadMessages = [];
+  Map<String, User> _users = Map();
+  Map<String, UserNotifier> _userChangeNotifier = Map();
 
   ChatState(this._chat);
   @override
   void initState() {
     super.initState();
+    this._chat.users.forEach((u) => _users[u.username] = u);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
-    _notificationSub = ChatService.onNotificationMessagStream
-        .where((msg) => msg.chatId == this._chat.id)
-        .listen(_onNotification);
+    _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
+      if (msg.chatId != null && msg.chatId == _chat.id) {
+        return true;
+      } else if (msg.module == "group" && msg.to == _chat.id) {
+        return true;
+      }
+      return false;
+    }).listen(
+      _onNotification,
+      onError: (error) {},
+      onDone: () {},
+      cancelOnError: false,
+    );
+    _notificationSub.resume();
     _newMessageSub = ChatService.onNewMessageStream
         .where((msg) => msg.chatId == this._chat.id)
-        .listen(_onNewMessage);
+        .listen(_onNewMessage, cancelOnError: false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // backgroundColor: chatDetailScaffoldBgColor,
       appBar: AppBar(
         leading: FlatButton(
           shape: CircleBorder(),
@@ -76,22 +89,28 @@ class ChatState extends State<ChatScreen> {
         title: Material(
           color: Colors.white.withOpacity(0.0),
           child: InkWell(
-            // highlightColor: highlightColor,
-            // splashColor: secondaryColor,
-            onTap: () {
-              // Application.router.navigateTo(
-              //   context,
-              //   //"/profile?id=${_chat.id}",
-              //   Routes.futureTodo,
-              //   transition: TransitionType.inFromRight,
-              // );
+            onTap: () async {
+              if (this._chat.type == ChatType.GROUP &&
+                  this.hasSendPermission()) {
+                Chat result = await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => ChatInfo(this._chat),
+                  ),
+                );
+                if (result != null) {
+                  setState(() {
+                    this._chat = result;
+                  });
+                }
+              }
             },
             child: Row(
               mainAxisSize: MainAxisSize.max,
               children: <Widget>[
                 Column(
                   mainAxisSize: MainAxisSize.max,
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 2.0),
@@ -105,6 +124,18 @@ class ChatState extends State<ChatScreen> {
                         ),
                       ),
                     ),
+                    SizedBox(
+                      width: MediaQuery.of(context).size.width * 0.60,
+                      child: Text(
+                        this.getSubTitle(),
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.0,
+                        ),
+                      ),
+                    )
                   ],
                 ),
               ],
@@ -153,12 +184,44 @@ class ChatState extends State<ChatScreen> {
                           itemCount: this._messages.length,
                           reverse: true,
                           itemBuilder: (context, i) {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 5.0),
-                              child: MessageWidget(
+                            Message _msg = this._messages[i];
+                            if (this._messages[i].sender == null) {
+                              this._messages[i].sender = getSender(_msg);
+                            }
+                            bool isYou = _msg.sender == this.widget.currentUser;
+                            bool showUserInfo =
+                                !isYou && this._chat.type == ChatType.GROUP;
+
+                            Widget child;
+
+                            if (this
+                                ._userChangeNotifier
+                                .containsKey(_msg.senderId)) {
+                              child = ValueListenableBuilder<User>(
+                                builder: (context, key, child) {
+                                  return MessageWidget(
+                                    this._messages[i],
+                                    isYou,
+                                    showUserInfo: showUserInfo,
+                                    isSelected: this
+                                        ._selectedMessges
+                                        .contains(this._messages[i]),
+                                    onTab: (Message msg) {
+                                      if (this._selectedMessges.length > 0) {
+                                        this.selectOrRemove(msg);
+                                      }
+                                    },
+                                    onLongPress: selectOrRemove,
+                                  );
+                                },
+                                valueListenable:
+                                    this._userChangeNotifier[_msg.senderId],
+                              );
+                            } else {
+                              child = MessageWidget(
                                 this._messages[i],
-                                this._messages[i].sender ==
-                                    this.widget.currentUser,
+                                isYou,
+                                showUserInfo: showUserInfo,
                                 isSelected: this
                                     ._selectedMessges
                                     .contains(this._messages[i]),
@@ -168,25 +231,51 @@ class ChatState extends State<ChatScreen> {
                                   }
                                 },
                                 onLongPress: selectOrRemove,
-                              ),
+                              );
+                            }
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 5.0),
+                              child: child,
                             );
                           });
                   }
                   return null; //
                 }),
           ),
-          new MessageInputWidget(sendMessage: (String text) async {
-            var msg = Message.chatMessage(this._chat.id,
-                this.widget.currentUser.username, text, MessageType.TEXT);
-            msg.sender = this.widget.currentUser;
-            await ChatService.sendMessage(msg, this._chat);
-            setState(() {
-              _messages.insert(0, msg);
-            });
-          }),
+          ...this.hasSendPermission()
+              ? [
+                  MessageInputWidget(sendMessage: (String text) async {
+                    var msg = Message.chatMessage(
+                        this._chat.id,
+                        this.widget.currentUser.username,
+                        text,
+                        MessageType.TEXT);
+                    msg.sender = this.widget.currentUser;
+                    await ChatService.sendMessage(msg, this._chat);
+                    setState(() {
+                      _messages.insert(0, msg);
+                    });
+                  })
+                ]
+              : [],
         ],
       ),
     );
+  }
+
+  String getSubTitle() {
+    if (this._chat.type == ChatType.GROUP) {
+      return this._chat.users.map((u) => u.name).join(", ");
+    }
+    return this
+        ._chat
+        .users
+        .firstWhere(
+          (u) => this.widget.currentUser != u,
+          orElse: () => ChatUser("","", null),
+        )
+        .username;
   }
 
   void selectOrRemove(Message msg) {
@@ -225,7 +314,7 @@ class ChatState extends State<ChatScreen> {
     return actions;
   }
 
-  void _onNotification(SocketMessage msg) {
+  void _onNotification(SocketMessage msg) async {
     if (msg.from == SocketService.name) {
       setState(() {
         this._messages = this._messages.map<Message>((_msg) {
@@ -234,6 +323,12 @@ class ChatState extends State<ChatScreen> {
           }
           return _msg;
         }).toList();
+      });
+    } else if (msg.module == "group") {
+      var users = await ChatService.getChatUserByid(this._chat.id);
+      setState(() {
+        this._chat.resetUsers();
+        users.forEach((u) => this._chat.addUser(u));
       });
     }
   }
@@ -262,6 +357,28 @@ class ChatState extends State<ChatScreen> {
       _unreadMessages = [];
     }
     ChatService.markAsDelivered(messages);
+  }
+
+  User getSender(Message msg) {
+    if (this._users.containsKey(msg.senderId)) {
+      return this._users[msg.senderId];
+    } else {
+      var user = ChatUser(msg.senderId, msg.senderId, null);
+      if (!this._userChangeNotifier.containsKey(msg.senderId)) {
+        this._userChangeNotifier[msg.senderId] = UserNotifier(user);
+      }
+      UserService.getUserById(msg.senderId).then((user) {
+        if (user == null) return;
+        this._users[user.username] = user;
+        msg.sender = user;
+        this._userChangeNotifier[msg.senderId].update(user);
+      }, onError: (user) {});
+      return user;
+    }
+  }
+
+  bool hasSendPermission() {
+    return this._chat.users.contains(this.widget.currentUser);
   }
 
   @override

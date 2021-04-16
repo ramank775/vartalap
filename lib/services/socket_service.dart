@@ -156,12 +156,10 @@ class SocketService {
 
   void _onDone() {
     if (_closed) return;
-    print("Socket done.. reconnecting");
     _reconnectWs();
   }
 
   void _onError(error) {
-    print(error);
     if (this._channel.closeCode == null) {
       return;
     }

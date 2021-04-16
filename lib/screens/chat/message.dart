@@ -10,6 +10,7 @@ class MessageWidget extends StatelessWidget {
   final bool isSelected;
   final Function onTab;
   final Function onLongPress;
+  final bool showUserInfo;
 
   final TextStyle textStyle = TextStyle(
     color: Colors.black,
@@ -19,7 +20,11 @@ class MessageWidget extends StatelessWidget {
   );
 
   MessageWidget(this._msg, this._isYou,
-      {Key key, this.isSelected: false, this.onTab, this.onLongPress})
+      {Key key,
+      this.isSelected: false,
+      this.onTab,
+      this.onLongPress,
+      this.showUserInfo = false})
       : super(key: Key(_msg.id));
 
   @override
@@ -75,40 +80,71 @@ class MessageWidget extends StatelessWidget {
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    Container(
-                      constraints: BoxConstraints(
-                        minWidth: MediaQuery.of(context).size.width * 0.25,
-                      ),
-                      child: RichMessage(
-                        (this._msg.text ?? ''),
-                        textStyle,
-                      ),
-                    ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: <Widget>[
-                        Text(
-                          formatMessageDateTime(this._msg.timestamp),
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 11.0,
-                          ),
-                        ),
-                        SizedBox(
-                          width: 4.0,
-                        ),
-                        _isYou ? _getIcon() : Container()
-                      ],
-                    ),
-                  ],
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: getMessageComponents(context),
                 ),
               ),
             ],
           ),
         ));
+  }
+
+  List<Widget> getMessageComponents(BuildContext context) {
+    List<Widget> _widgets = [];
+    if (this.showUserInfo) {
+      _widgets.add(
+        Container(
+          margin: EdgeInsets.only(bottom: 4),
+          child: Text(
+            this._msg.sender.name,
+            textAlign: TextAlign.start,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.blue,
+            ),
+          ),
+        ),
+      );
+    }
+    _widgets.add(
+      Wrap(
+        alignment: WrapAlignment.end,
+        crossAxisAlignment: WrapCrossAlignment.end,
+        children: [
+          Container(
+            constraints: BoxConstraints(
+              minWidth: MediaQuery.of(context).size.width * 0.25,
+            ),
+            child: RichMessage(
+              (this._msg.text ?? ''),
+              textStyle,
+            ),
+          ),
+          Container(
+            margin: EdgeInsets.only(left: 5),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              children: <Widget>[
+                Text(
+                  formatMessageDateTime(this._msg.timestamp),
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 11.0,
+                  ),
+                ),
+                SizedBox(
+                  width: 4.0,
+                ),
+                _isYou ? _getIcon() : Container()
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    return _widgets;
   }
 
   Widget _getIcon() {
