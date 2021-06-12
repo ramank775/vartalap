@@ -10,8 +10,8 @@ class SocketMessage {
   String? chatId;
   late String text;
   late MessageState state;
-  late String module;
-  late String action;
+  String? module;
+  String? action;
   ChatType chatType = ChatType.INDIVIDUAL;
 
   SocketMessage.fromChatMessage(Message msg, Chat chat) {

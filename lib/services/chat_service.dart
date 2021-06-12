@@ -10,6 +10,7 @@ import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/utils/enum_helper.dart';
+import 'package:vartalap/utils/find.dart';
 
 class ChatService {
   static late Stream<SocketMessage> onNewMessageStream;
@@ -216,11 +217,8 @@ class ChatService {
     var currentUser = UserService.getLoggedInUser();
     result.forEach((msgMap) {
       var msg = Message.fromMap(msgMap);
-      var users = userResult.where((u) => u.username == msg.senderId);
-      ChatUser? user;
-      if (users.isNotEmpty) {
-        user = users.first;
-      } else if (msg.senderId == currentUser.username) {
+      ChatUser? user = find(userResult, (u) => u.username == msg.senderId);
+      if (user == null && msg.senderId == currentUser.username) {
         user = ChatUser.fromUser(currentUser);
       }
       msg.sender = user;

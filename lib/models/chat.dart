@@ -47,7 +47,7 @@ class Chat {
   late String _id;
   late String _title;
   String? _pic;
-  late ChatType type = ChatType.INDIVIDUAL;
+  ChatType type = ChatType.INDIVIDUAL;
   Set<ChatUser> _users = new Set();
 
   Chat(this._id, this._title, this._pic, {this.type = ChatType.INDIVIDUAL});
@@ -90,9 +90,9 @@ class Chat {
 }
 
 class ChatPreview extends Chat {
-  late String _content;
-  late int _ts;
-  late int _unread;
+  String _content = '';
+  int _ts = 0;
+  int _unread = 0;
   ChatPreview(String id, String title, String? pic, this._content, this._ts,
       this._unread)
       : super(id, title, pic);

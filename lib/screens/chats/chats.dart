@@ -9,6 +9,7 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 import 'package:vartalap/services/socket_service.dart';
+import 'package:vartalap/utils/find.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
 class Chats extends StatefulWidget {
@@ -245,10 +246,7 @@ class ChatListViewState extends State<ChatListView> {
   }
 
   _onNewMessage(SocketMessage msg) async {
-    ChatPreview? chat = _chats.firstWhere((_chat) => _chat.id == msg.chatId,
-        orElse: () => null as ChatPreview);
-
-    // ignore: unnecessary_null_comparison
+    ChatPreview? chat = find(_chats, (_chat) => _chat.id == msg.chatId);
     if (chat == null) {
       chat = await ChatService.getChatById(msg.chatId!);
       setState(() {

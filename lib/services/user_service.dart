@@ -7,6 +7,7 @@ import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/crashanalystics.dart';
 import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/utils/enum_helper.dart';
+import 'package:vartalap/utils/find.dart';
 import 'package:vartalap/utils/phone_number.dart';
 
 class UserService {
@@ -42,7 +43,7 @@ class UserService {
     var userMap =
         await db.query('user', where: "username=?", whereArgs: [username]);
     if (userMap.length == 0) {
-      return null as User;
+      return null;
     }
     return User.fromMap(userMap[0]);
   }
@@ -178,9 +179,8 @@ class UserService {
     List<User> users = [];
     contacts.forEach((contact) {
       (contact.phones ?? []).forEach((phone) {
-        String? phoneNumber = phone.value == null
-            ? null as String
-            : normalizePhoneNumber(phone.value!);
+        String? phoneNumber =
+            phone.value == null ? null : normalizePhoneNumber(phone.value!);
         if (phoneNumber != null) {
           users
               .add(User(contact.displayName ?? phoneNumber, phoneNumber, null));
@@ -199,10 +199,7 @@ class UserService {
         .where((u) => (u.status != UserStatus.UNKNOWN && !users.contains(u)))
         .toList();
     users.forEach((u) {
-      User? user = dbUsers.firstWhere(
-        (e) => u == e,
-        orElse: () => null as User,
-      );
+      User? user = find(dbUsers, (e) => u == e);
       // ignore: unnecessary_null_comparison
       if (user == null) {
         userToInsert.add(u);
