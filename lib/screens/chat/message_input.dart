@@ -55,14 +55,15 @@ class MessageInputState extends State<MessageInputWidget> {
       child: Stack(
         children: <Widget>[
           Column(
-            children: <Widget>[buildInput(), buildSticker()],
+            children: <Widget>[buildInput(context), buildSticker(context)],
           ),
         ],
       ),
     );
   }
 
-  Widget buildInput() {
+  Widget buildInput(BuildContext context) {
+    var theme = Theme.of(context);
     return Container(
       child: Padding(
         padding: const EdgeInsets.all(8.0),
@@ -73,8 +74,8 @@ class MessageInputState extends State<MessageInputWidget> {
               flex: 1,
               child: Container(
                 decoration: BoxDecoration(
+                  color: theme.primaryColorLight,
                   borderRadius: BorderRadius.all(const Radius.circular(30.0)),
-                  color: Colors.white,
                 ),
                 child: Row(
                   children: <Widget>[
@@ -103,7 +104,6 @@ class MessageInputState extends State<MessageInputWidget> {
                           contentPadding: const EdgeInsets.all(0.0),
                           hintText: 'Type a message',
                           hintStyle: TextStyle(
-                            // color: textFieldHintColor,
                             fontSize: 16.0,
                           ),
                           counterText: '',
@@ -138,7 +138,8 @@ class MessageInputState extends State<MessageInputWidget> {
     );
   }
 
-  Widget buildSticker() {
+  Widget buildSticker(BuildContext context) {
+    var theme = Theme.of(context);
     return Offstage(
       offstage: !_isShowSticker,
       child: SizedBox(
@@ -147,17 +148,17 @@ class MessageInputState extends State<MessageInputWidget> {
           onEmojiSelected: (category, emoji) {
             _controller..text += emoji.emoji;
           },
-          config: const Config(
+          config: Config(
             columns: 8,
             emojiSizeMax: 30.0,
             verticalSpacing: 0,
             horizontalSpacing: 0,
             initCategory: Category.RECENT,
-            bgColor: Color(0xFFF2F2F2),
-            indicatorColor: Colors.blue,
-            iconColor: Colors.grey,
-            iconColorSelected: Colors.blue,
-            progressIndicatorColor: Colors.blue,
+            bgColor: theme.scaffoldBackgroundColor,
+            indicatorColor: theme.accentColor,
+            //iconColor: Colors.grey,
+            //iconColorSelected: Colors.blue,
+            //progressIndicatorColor: Colors.blue,
             showRecentsTab: true,
             recentsLimit: 28,
             noRecentsText: 'No Recents',

@@ -195,7 +195,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
                         const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                     child: Icon(
                       Icons.done,
-                      color: Colors.white,
+                      //color: Colors.white,
                       size: 30,
                     ),
                   ),

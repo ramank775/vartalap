@@ -64,7 +64,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                   ),
                   Divider(
                     thickness: 2,
-                  )
+                  ),
                 ]
               : []),
           Flexible(
@@ -159,16 +159,16 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
               ),
             ),
           ),
-          Container(
-            child: Text(
-              _selectedUsers.isEmpty
-                  ? ''
-                  : '${_selectedUsers.length} of $_numContacts',
-              style: TextStyle(
-                fontSize: 12.0,
-              ),
-            ),
-          )
+          _selectedUsers.isEmpty
+              ? Container()
+              : Container(
+                  child: Text(
+                    '${_selectedUsers.length} of $_numContacts',
+                    style: TextStyle(
+                      fontSize: 12.0,
+                    ),
+                  ),
+                )
         ],
       ),
       actions: <Widget>[
@@ -208,15 +208,15 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
       automaticallyImplyLeading: false,
       title: TextField(
         style: TextStyle(
-          color: Colors.white,
           fontSize: 20.0,
+          color: Colors.white,
         ),
         decoration: InputDecoration(
           border: InputBorder.none,
           hintText: "Search",
           hintStyle: TextStyle(
-            color: Colors.white,
             fontSize: 20.0,
+            color: Colors.white,
           ),
         ),
         maxLines: 1,

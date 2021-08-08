@@ -8,7 +8,7 @@ class LoginScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      //backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -29,7 +29,7 @@ class LoginScreen extends StatelessWidget {
                             constraints: const BoxConstraints(maxHeight: 340),
                             margin: const EdgeInsets.symmetric(horizontal: 8),
                             child: CircleAvatar(
-                              backgroundColor: Colors.white,
+                              //backgroundColor: Colors.white,
                               radius: 50.0,
                               child: Icon(Icons.chat_bubble_outline,
                                   color: Colors.blueAccent, size: 50.0),
@@ -131,7 +131,7 @@ class LoginScreen extends StatelessWidget {
                           children: <Widget>[
                             Text(
                               'Next',
-                              style: TextStyle(color: Colors.white),
+                              //style: TextStyle(color: Colors.white),
                             ),
                             Container(
                               padding: const EdgeInsets.all(8),
@@ -142,7 +142,7 @@ class LoginScreen extends StatelessWidget {
                               ),
                               child: Icon(
                                 Icons.arrow_forward_ios,
-                                color: Colors.white,
+                                //color: Colors.white,
                                 size: 16,
                               ),
                             )

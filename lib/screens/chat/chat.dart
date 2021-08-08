@@ -61,6 +61,37 @@ class ChatState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    var subtitle = this.getSubTitle();
+    var titleWidgets = <Widget>[
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2.0),
+        child: Text(
+          this._selectedMessges.length > 0
+              ? _selectedMessges.length.toString() + " selected"
+              : _chat.title,
+          style: TextStyle(
+            fontSize: 18.0,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    ];
+    if (this._selectedMessges.length == 0 && subtitle.length > 0) {
+      titleWidgets.add(
+        SizedBox(
+          width: MediaQuery.of(context).size.width * 0.60,
+          child: Text(
+            subtitle,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: TextStyle(
+              fontSize: 12.0,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         leading: TextButton(
@@ -89,7 +120,7 @@ class ChatState extends State<ChatScreen> {
           ),
         ),
         title: Material(
-          color: Colors.white.withOpacity(0.0),
+          color: Colors.transparent,
           child: InkWell(
             onTap: () async {
               if (this._chat.type == ChatType.GROUP &&
@@ -113,32 +144,7 @@ class ChatState extends State<ChatScreen> {
                   mainAxisSize: MainAxisSize.max,
                   mainAxisAlignment: MainAxisAlignment.end,
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                      child: Text(
-                        this._selectedMessges.length > 0
-                            ? _selectedMessges.length.toString() + " selected"
-                            : _chat.title,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18.0,
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: MediaQuery.of(context).size.width * 0.60,
-                      child: Text(
-                        this.getSubTitle(),
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.0,
-                        ),
-                      ),
-                    )
-                  ],
+                  children: titleWidgets,
                 ),
               ],
             ),

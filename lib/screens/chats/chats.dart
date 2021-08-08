@@ -9,7 +9,9 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 import 'package:vartalap/services/socket_service.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/find.dart';
+import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
 class Chats extends StatefulWidget {
@@ -20,8 +22,8 @@ class Chats extends StatefulWidget {
 class ChatsState extends State<Chats> {
   late Future<List<ChatPreview>> _fChats;
   List<ChatPreview> _selectedChats = [];
-
   late ConfigStore config;
+
   @override
   void initState() {
     super.initState();
@@ -51,9 +53,12 @@ class ChatsState extends State<Chats> {
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
+    return Scaffold(
       appBar: AppBar(
-        title: new Text('Vartalap'),
+        title: Text(
+          config.packageInfo.appName,
+          style: ThemeInfo.appTitle.copyWith(fontWeight: FontWeight.bold),
+        ),
         actions: getActions(),
       ),
       body: new Container(
@@ -95,6 +100,7 @@ class ChatsState extends State<Chats> {
         onPressed: () => navigate('/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
+        backgroundColor: Theme.of(context).accentColor,
       ),
     );
   }
@@ -142,18 +148,18 @@ class ChatsState extends State<Chats> {
                     showAboutDialog(
                       context: context,
                       applicationName: config.packageInfo.appName,
-                      applicationIcon: Icon(
-                        Icons.chat_bubble_outline,
-                        color: Colors.blueAccent,
-                        size: 30.0,
-                      ),
+                      applicationIcon: AppLogo(size: 25),
                       applicationVersion:
                           "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
                       children: <Widget>[
-                        Text('Vartalap is an open source chat messager.'),
+                        Text(
+                          config.subtitle,
+                        ),
                         RichMessage(
                           config.get("description"),
-                          TextStyle(fontSize: 12, color: Colors.black),
+                          TextStyle(
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     );
@@ -191,7 +197,7 @@ class ChatListView extends StatefulWidget {
     required List<ChatPreview> selectedChats,
     required Function selectOrRemove,
     required Function navigate,
-  })   : _chats = chats,
+  })  : _chats = chats,
         _selectedChats = selectedChats,
         _selectOrRemove = selectOrRemove,
         _navigate = navigate,

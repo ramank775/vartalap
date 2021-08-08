@@ -30,7 +30,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        //backgroundColor: Colors.white,
         leading: IconButton(
           icon: Container(
             padding: EdgeInsets.all(10.0),
@@ -129,7 +129,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                               ),
                               child: Icon(
                                 Icons.arrow_forward_ios,
-                                color: Colors.white,
+                                //color: Colors.white,
                                 size: 16,
                               ),
                             )

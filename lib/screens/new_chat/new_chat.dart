@@ -40,29 +40,25 @@ class NewChatState extends State<NewChatScreen>
         body: TabBarView(
           controller: _tabController,
           children: [
-            contacts(),
+            contacts(context),
             groups(),
           ],
         ));
   }
 
-  Widget contacts() {
+  Widget contacts(BuildContext context) {
     return FutureBuilder<Iterable<User>>(
       future: _contacts,
       builder: (context, snapshot) {
         switch (snapshot.connectionState) {
           case ConnectionState.none:
             return Center(
-              child: CircularProgressIndicator(
-                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
-              ),
+              child: CircularProgressIndicator(),
             );
           case ConnectionState.active:
           case ConnectionState.waiting:
             return Center(
-              child: CircularProgressIndicator(
-                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
-              ),
+              child: CircularProgressIndicator(),
             );
           case ConnectionState.done:
             if (snapshot.hasError) {
@@ -76,7 +72,10 @@ class NewChatState extends State<NewChatScreen>
         data.add(ListTile(
           leading: Container(
             padding: const EdgeInsets.all(8.0),
-            child: Icon(Icons.share),
+            child: Icon(
+              Icons.share,
+              color: Theme.of(context).textTheme.bodyText1?.color,
+            ),
           ),
           title: Text('Invite friends',
               style: TextStyle(
@@ -251,21 +250,21 @@ class NewChatState extends State<NewChatScreen>
         child: Icon(
           Icons.arrow_back,
           size: 24.0,
-          color: Colors.white,
+          //color: Colors.white,
         ),
       ),
       titleSpacing: 0,
       automaticallyImplyLeading: false,
       title: TextField(
         style: TextStyle(
-          color: Colors.white,
+          //color: Colors.white,
           fontSize: 20.0,
         ),
         decoration: InputDecoration(
           border: InputBorder.none,
           hintText: "Search",
           hintStyle: TextStyle(
-            color: Colors.white,
+            //color: Colors.white,
             fontSize: 20.0,
           ),
         ),
