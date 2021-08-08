@@ -3,15 +3,15 @@ import 'package:vartalap/models/message.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
 class SocketMessage {
-  String msgId;
-  String to;
-  String from;
-  MessageType type;
-  String chatId;
-  String text;
-  MessageState state;
-  String module;
-  String action;
+  String? msgId;
+  late String to;
+  late String from;
+  late MessageType type;
+  String? chatId;
+  late String text;
+  late MessageState state;
+  String? module;
+  String? action;
   ChatType chatType = ChatType.INDIVIDUAL;
 
   SocketMessage.fromChatMessage(Message msg, Chat chat) {
@@ -64,9 +64,18 @@ class SocketMessage {
     return map;
   }
 
-  Message toMessage() {
-    Message msg = Message(this.msgId, this.chatId, this.from, this.text,
-        MessageState.NEW, DateTime.now().millisecondsSinceEpoch, this.type);
+  Message? toMessage() {
+    if (this.msgId == null || this.chatId == null) {
+      return null;
+    }
+    Message msg = Message(
+      this.msgId!,
+      this.chatId!,
+      this.from,
+      this.text,
+      MessageState.NEW,
+      this.type,
+    );
 
     return msg;
   }

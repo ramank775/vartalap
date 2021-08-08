@@ -3,11 +3,15 @@ import 'dart:async';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/socketMessage.dart';
+import 'package:vartalap/models/user.dart';
 import 'package:vartalap/screens/chats/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 import 'package:vartalap/services/socket_service.dart';
+import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/find.dart';
+import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
 class Chats extends StatefulWidget {
@@ -16,10 +20,10 @@ class Chats extends StatefulWidget {
 }
 
 class ChatsState extends State<Chats> {
-  Future<List<ChatPreview>> _fChats;
+  late Future<List<ChatPreview>> _fChats;
   List<ChatPreview> _selectedChats = [];
+  late ConfigStore config;
 
-  ConfigStore config;
   @override
   void initState() {
     super.initState();
@@ -27,14 +31,8 @@ class ChatsState extends State<Chats> {
     this._selectedChats = [];
     this.config = ConfigStore();
     PushNotificationService.instance.config(
-      onLaunch: (Map<String, dynamic> message) {
-        // TODO: handle background notification
-      },
-      onResume: (Map<String, dynamic> message) {
-        // TODO: handle resume notification
-      },
       onMessage: (Map<String, dynamic> payload) {
-        if (payload == null || payload["data"] == null) return;
+        if (payload["data"] == null) return;
         var msg = payload["data"]["message"];
         if (msg == null) return;
         var source = payload["source"];
@@ -46,7 +44,7 @@ class ChatsState extends State<Chats> {
         try {
           var smsg = SocketMessage.fromMap(msg);
           SocketService.instance.externalNewMessage(smsg);
-        } catch (e, stack) {
+        } catch (e) {
           throw e;
         }
       },
@@ -55,9 +53,12 @@ class ChatsState extends State<Chats> {
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
+    return Scaffold(
       appBar: AppBar(
-        title: new Text('Vartalap'),
+        title: Text(
+          config.packageInfo.appName,
+          style: ThemeInfo.appTitle.copyWith(fontWeight: FontWeight.bold),
+        ),
         actions: getActions(),
       ),
       body: new Container(
@@ -87,7 +88,7 @@ class ChatsState extends State<Chats> {
                 }
             }
             return ChatListView(
-              chats: snapshot.data,
+              chats: snapshot.data!,
               selectedChats: _selectedChats,
               selectOrRemove: this.selectOrRemove,
               navigate: this.navigate,
@@ -99,11 +100,12 @@ class ChatsState extends State<Chats> {
         onPressed: () => navigate('/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
+        backgroundColor: Theme.of(context).accentColor,
       ),
     );
   }
 
-  void selectOrRemove(Chat chat) {
+  void selectOrRemove(ChatPreview chat) {
     setState(() {
       if (!_selectedChats.remove(chat)) {
         _selectedChats.add(chat);
@@ -146,18 +148,18 @@ class ChatsState extends State<Chats> {
                     showAboutDialog(
                       context: context,
                       applicationName: config.packageInfo.appName,
-                      applicationIcon: Icon(
-                        Icons.chat_bubble_outline,
-                        color: Colors.blueAccent,
-                        size: 30.0,
-                      ),
+                      applicationIcon: AppLogo(size: 25),
                       applicationVersion:
                           "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
                       children: <Widget>[
-                        Text('Vartalap is an open source chat messager.'),
+                        Text(
+                          config.subtitle,
+                        ),
                         RichMessage(
                           config.get("description"),
-                          TextStyle(fontSize: 12, color: Colors.black),
+                          TextStyle(
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     );
@@ -168,7 +170,7 @@ class ChatsState extends State<Chats> {
     return actions;
   }
 
-  Future<void> navigate(String screen, {Object data}) async {
+  Future<void> navigate(String screen, {Object? data}) async {
     var result = await Navigator.pushNamed(context, screen, arguments: data);
     if (screen == "/new-chat") {
       if (result == null) {
@@ -178,7 +180,7 @@ class ChatsState extends State<Chats> {
       if (result is Chat) {
         chat = result;
       } else {
-        chat = await ChatService.newIndiviualChat(result);
+        chat = await ChatService.newIndiviualChat(result as User);
       }
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
@@ -189,13 +191,13 @@ class ChatsState extends State<Chats> {
 }
 
 class ChatListView extends StatefulWidget {
-  const ChatListView(
-      {Key key,
-      @required List<ChatPreview> chats,
-      @required List<ChatPreview> selectedChats,
-      @required Function selectOrRemove,
-      @required Function navigate})
-      : _chats = chats,
+  const ChatListView({
+    Key? key,
+    required List<ChatPreview> chats,
+    required List<ChatPreview> selectedChats,
+    required Function selectOrRemove,
+    required Function navigate,
+  })  : _chats = chats,
         _selectedChats = selectedChats,
         _selectOrRemove = selectOrRemove,
         _navigate = navigate,
@@ -211,9 +213,9 @@ class ChatListView extends StatefulWidget {
 }
 
 class ChatListViewState extends State<ChatListView> {
-  StreamSubscription _newMessageSub;
-  StreamSubscription _groupNotificationSub;
-  List<ChatPreview> _chats;
+  late StreamSubscription _newMessageSub;
+  late StreamSubscription _groupNotificationSub;
+  late List<ChatPreview> _chats;
   @override
   void initState() {
     super.initState();
@@ -250,17 +252,15 @@ class ChatListViewState extends State<ChatListView> {
   }
 
   _onNewMessage(SocketMessage msg) async {
-    var chat = _chats.firstWhere((_chat) => _chat.id == msg.chatId,
-        orElse: () => null);
-
+    ChatPreview? chat = find(_chats, (_chat) => _chat.id == msg.chatId);
     if (chat == null) {
-      chat = await ChatService.getChatById(msg.chatId);
+      chat = await ChatService.getChatById(msg.chatId!);
       setState(() {
-        widget._chats.insert(0, chat);
+        widget._chats.insert(0, chat!);
       });
       return;
     } else {
-      var _msg = msg.toMessage();
+      var _msg = msg.toMessage()!;
       chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.text,
           _msg.timestamp, (chat.unread + 1));
     }

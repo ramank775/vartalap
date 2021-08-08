@@ -11,6 +11,8 @@ import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/app_logo.dart';
 
 class StartupScreen extends StatefulWidget {
   @override
@@ -20,19 +22,17 @@ class StartupScreen extends StatefulWidget {
 }
 
 class StartupScreenState extends State<StartupScreen> {
-  PackageInfo info;
+  late PackageInfo info;
+  var configStore = ConfigStore();
   @override
   void initState() {
     super.initState();
-    initializeApp();
+    initializeApp().then((value) => {info = configStore.packageInfo});
   }
 
-  Future initializeApp() async {
+  Future<void> initializeApp() async {
     List<Future> _promises = [];
-
-    var configStore = ConfigStore();
     info = configStore.packageInfo;
-    await configStore.loadConfig();
     await AuthService.init();
     Crashlytics.init();
     PerformanceMetric.init();
@@ -69,12 +69,13 @@ class StartupScreenState extends State<StartupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    var theme = Theme.of(context);
     return Scaffold(
         body: Stack(
       fit: StackFit.expand,
       children: [
         Container(
-          decoration: BoxDecoration(color: Colors.blueAccent),
+          decoration: BoxDecoration(color: theme.primaryColor),
         ),
         Column(
           mainAxisAlignment: MainAxisAlignment.start,
@@ -85,20 +86,14 @@ class StartupScreenState extends State<StartupScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircleAvatar(
-                      backgroundColor: Colors.white,
-                      radius: 50.0,
-                      child: Icon(Icons.chat_bubble_outline,
-                          color: Colors.blueAccent, size: 50.0),
-                    ),
+                    AppLogo(size: 50),
                     Padding(
                       padding: EdgeInsets.only(top: 10.0),
                     ),
                     Text(
                       info.appName,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24.0,
+                      style: ThemeInfo.appTitle.copyWith(
+                        fontSize: 30,
                         fontWeight: FontWeight.bold,
                       ),
                     )
@@ -107,24 +102,31 @@ class StartupScreenState extends State<StartupScreen> {
               ),
             ),
             Expanded(
-                flex: 1,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(backgroundColor: Colors.white),
-                    Padding(
-                      padding: EdgeInsets.only(top: 20.0),
-                    ),
-                    Text(
-                      "Open source personal chat messager",
-                      style: TextStyle(
-                        color: Colors.white,
+              flex: 1,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    backgroundColor: Colors.white,
+                    color: theme.iconTheme.color,
+                  ),
+                  Padding(
+                    padding: EdgeInsets.only(top: 20.0),
+                  ),
+                  Text(
+                    configStore.subtitle,
+                    style: TextStyle(
                         fontSize: 18.0,
                         fontWeight: FontWeight.bold,
-                      ),
-                    )
-                  ],
-                ))
+                        color: Colors.white),
+                  ),
+                  Text(
+                    "v${info.version}+${info.buildNumber}",
+                    style: TextStyle(color: Colors.white),
+                  )
+                ],
+              ),
+            )
           ],
         )
       ],

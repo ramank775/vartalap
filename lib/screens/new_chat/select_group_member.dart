@@ -6,15 +6,15 @@ import 'package:vartalap/widgets/contactPreviewItem.dart';
 import 'contact.dart';
 
 class SelectGroupMemberScreen extends StatefulWidget {
-  final Chat chat;
+  final Chat? chat;
   SelectGroupMemberScreen({this.chat});
   @override
   State<StatefulWidget> createState() => SelectGroupMemberState();
 }
 
 class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
-  Future<List<User>> _contacts;
-  int _numContacts;
+  late Future<List<User>> _contacts;
+  late int _numContacts;
   bool _openSearch = false;
   List<User> _selectedUsers = [];
   Map<String, User> _existingUser = Map();
@@ -24,7 +24,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
     super.initState();
     if (this.widget.chat != null) {
       this._isUpdate = true;
-      this.widget.chat.users.forEach((u) => this._existingUser[u.username] = u);
+      this
+          .widget
+          .chat!
+          .users
+          .forEach((u) => this._existingUser[u.username] = u);
     }
     _contacts = UserService.getUsers();
     _contacts.then((value) {
@@ -60,7 +64,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                   ),
                   Divider(
                     thickness: 2,
-                  )
+                  ),
                 ]
               : []),
           Flexible(
@@ -90,7 +94,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                       );
                     }
                 }
-                List<dynamic> data = snapshot.data.toList();
+                List<dynamic> data = snapshot.data!.toList();
                 return ListView.builder(
                   itemCount: data.length,
                   itemBuilder: (context, i) {
@@ -155,16 +159,16 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
               ),
             ),
           ),
-          Container(
-            child: Text(
-              _selectedUsers.isEmpty
-                  ? ''
-                  : '${_selectedUsers.length} of $_numContacts',
-              style: TextStyle(
-                fontSize: 12.0,
-              ),
-            ),
-          )
+          _selectedUsers.isEmpty
+              ? Container()
+              : Container(
+                  child: Text(
+                    '${_selectedUsers.length} of $_numContacts',
+                    style: TextStyle(
+                      fontSize: 12.0,
+                    ),
+                  ),
+                )
         ],
       ),
       actions: <Widget>[
@@ -183,9 +187,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
 
   AppBar buildSearchAppBar() {
     return AppBar(
-      leading: FlatButton(
-        shape: CircleBorder(),
-        padding: const EdgeInsets.only(left: 1.0),
+      leading: TextButton(
+        style: TextButton.styleFrom(
+          shape: CircleBorder(),
+          padding: const EdgeInsets.only(left: 1.0),
+        ),
         onPressed: () {
           setState(() {
             this._openSearch = false;
@@ -202,15 +208,15 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
       automaticallyImplyLeading: false,
       title: TextField(
         style: TextStyle(
-          color: Colors.white,
           fontSize: 20.0,
+          color: Colors.white,
         ),
         decoration: InputDecoration(
           border: InputBorder.none,
           hintText: "Search",
           hintStyle: TextStyle(
-            color: Colors.white,
             fontSize: 20.0,
+            color: Colors.white,
           ),
         ),
         maxLines: 1,

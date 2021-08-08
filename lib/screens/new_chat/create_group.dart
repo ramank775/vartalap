@@ -17,7 +17,7 @@ class CreateGroup extends StatelessWidget {
           var chat = await ChatService.newGroupChat(name, this._members);
           Navigator.of(context).pop();
           Navigator.of(context).pop(chat);
-        } on Exception catch (e) {
+        } on Exception catch (_) {
           showErrorDialog(context, [
             'Error while creating new group.',
             'Make sure you are connected to internet.'
@@ -61,7 +61,7 @@ class CreateGroup extends StatelessWidget {
                   text: TextSpan(
                     style: TextStyle(
                         fontSize: 18,
-                        color: Theme.of(context).textTheme.bodyText1.color),
+                        color: Theme.of(context).textTheme.bodyText1!.color),
                     children: [
                       TextSpan(text: "Members:"),
                       TextSpan(
@@ -114,7 +114,7 @@ class CreateGroup extends StatelessWidget {
         ),
       ),
       actions: [
-        FlatButton(
+        TextButton(
           child: Text('OK'),
           onPressed: () {
             Navigator.of(context).pop();
@@ -131,7 +131,7 @@ class CreateGroup extends StatelessWidget {
 
 class _CreateGroupForm extends StatefulWidget {
   final Function(String) onConfirm;
-  _CreateGroupForm({Key key, @required this.onConfirm}) : super(key: key);
+  _CreateGroupForm({Key? key, required this.onConfirm}) : super(key: key);
 
   @override
   __CreateGroupFormState createState() => __CreateGroupFormState();
@@ -176,28 +176,27 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                RaisedButton(
+                TextButton(
                   onPressed: () async {
                     if (value.isNotEmpty) {
-                      if (this.widget.onConfirm != null) {
-                        this.widget.onConfirm(value);
-                      }
+                      this.widget.onConfirm(value);
                     } else {
                       final snackBar = SnackBar(
                           content: Text('Group name can\'t be empty!'));
-
-                      Scaffold.of(context).showSnackBar(snackBar);
+                      ScaffoldMessenger.of(context).showSnackBar(snackBar);
                     }
                   },
-                  color: Theme.of(context).primaryColor,
-                  shape: const CircleBorder(side: BorderSide.none),
+                  style: TextButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    shape: const CircleBorder(side: BorderSide.none),
+                  ),
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                     child: Icon(
                       Icons.done,
-                      color: Colors.white,
-                      size: 40,
+                      //color: Colors.white,
+                      size: 30,
                     ),
                   ),
                 ),

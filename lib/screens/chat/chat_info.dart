@@ -10,7 +10,7 @@ import 'package:vartalap/widgets/loadingIndicator.dart';
 class ChatInfo extends StatelessWidget {
   final Chat _chat;
 
-  const ChatInfo(this._chat, {Key key}) : super(key: key);
+  const ChatInfo(this._chat, {Key? key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
     var users = this._chat.users;
@@ -53,115 +53,123 @@ class ChatInfo extends StatelessWidget {
                 ),
               ),
             ),
-            Card(
-              elevation: 5,
-              child: FlatButton(
-                child: ListTile(
-                  leading: Icon(
-                    Icons.group_add,
-                    size: 30,
-                    color: Theme.of(context).primaryColor,
-                  ),
-                  title: Text(
-                    "Add members",
-                    style: TextStyle(
-                      color: Theme.of(context).primaryColor,
-                    ),
-                  ),
-                ),
-                onPressed: () async {
-                  List<User> newMembers = await Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) {
-                      return SelectGroupMemberScreen(
-                        chat: this._chat,
-                      );
-                    }),
-                  );
-                  if (newMembers != null) {
-                    try {
-                      showLoadingIndicator(context,
-                          "While add new members to the group for you.");
-                      await ChatService.addGroupMembers(this._chat, newMembers);
-                      Navigator.of(context).pop(); // close the loaded;
-                    } catch (error) {
-                      Navigator.of(context).pop(); // close the loaded;
-                      showErrorDialog(context, [
-                        "Error while adding new members to group",
-                        "Make sure you are connected to internet and try again."
-                      ]);
-                      return;
-                    }
-                    newMembers.forEach(
-                        (u) => this._chat.addUser(ChatUser.fromUser(u)));
-                    Navigator.of(context).pop(this._chat);
-                  }
-                },
-              ),
-            ),
-            Card(
-              elevation: 5,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Expanded(
+              child: ListView(
                 children: [
-                  Container(
-                    width: MediaQuery.of(context).size.width,
-                    margin: EdgeInsets.only(left: 25, top: 10, bottom: 5),
-                    child: Text(
-                      "Members",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).primaryColor,
+                  Card(
+                    elevation: 5,
+                    child: TextButton(
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.group_add,
+                          size: 30,
+                        ),
+                        title: Text(
+                          "Add members",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                      textAlign: TextAlign.left,
+                      onPressed: () async {
+                        List<User>? newMembers =
+                            await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (context) {
+                            return SelectGroupMemberScreen(
+                              chat: this._chat,
+                            );
+                          }),
+                        );
+                        if (newMembers != null) {
+                          try {
+                            showLoadingIndicator(context,
+                                "While add new members to the group for you.");
+                            await ChatService.addGroupMembers(
+                                this._chat, newMembers);
+                            Navigator.of(context).pop(); // close the loaded;
+                          } catch (error) {
+                            Navigator.of(context).pop(); // close the loaded;
+                            showErrorDialog(context, [
+                              "Error while adding new members to group",
+                              "Make sure you are connected to internet and try again."
+                            ]);
+                            return;
+                          }
+                          newMembers.forEach(
+                              (u) => this._chat.addUser(ChatUser.fromUser(u)));
+                          Navigator.of(context).pop(this._chat);
+                        }
+                      },
                     ),
                   ),
-                  Divider(
-                    thickness: 2,
+                  Card(
+                    elevation: 5,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: MediaQuery.of(context).size.width,
+                          margin: EdgeInsets.only(left: 25, top: 10, bottom: 5),
+                          child: Text(
+                            "Members",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              //color: Theme.of(context).primaryColor,
+                            ),
+                            textAlign: TextAlign.left,
+                          ),
+                        ),
+                        Divider(
+                          thickness: 2,
+                        ),
+                        ...users.map((u) => ContactItem(user: u)).toList(),
+                      ],
+                    ),
                   ),
-                  ...users.map((u) => ContactItem(user: u)).toList(),
+                  Card(
+                    elevation: 5,
+                    child: TextButton(
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.exit_to_app_outlined,
+                          color: Colors.red,
+                        ),
+                        title: Text(
+                          "Exit group",
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      onPressed: () async {
+                        showConfirmationDialog(context, onsuccess: () async {
+                          try {
+                            showLoadingIndicator(context,
+                                "While we inform other members about your farewell!!");
+                            await ChatService.leaveGroup(this._chat);
+                            var users = await ChatService.getChatUserByid(
+                                this._chat.id);
+                            this._chat.resetUsers();
+                            users.forEach((u) => this._chat.addUser(u));
+                            Navigator.of(context)
+                                .pop(); // Close the loading indicator
+                            Navigator.of(context).pop(this._chat);
+                          } catch (err) {
+                            Navigator.of(context).pop();
+                            showErrorDialog(context, [
+                              'Sorry, something wents wrong.',
+                              'Make sure you are connected to internet and try again.'
+                            ]);
+                          }
+                        });
+                      },
+                    ),
+                  ),
                 ],
               ),
-            ),
-            Card(
-              elevation: 5,
-              child: FlatButton(
-                child: ListTile(
-                  leading: Icon(
-                    Icons.exit_to_app_outlined,
-                    color: Colors.red,
-                  ),
-                  title: Text(
-                    "Exit group",
-                    style: TextStyle(
-                      color: Colors.red,
-                    ),
-                  ),
-                ),
-                onPressed: () async {
-                  showConfirmationDialog(context, onsuccess: () async {
-                    try {
-                      showLoadingIndicator(context,
-                          "While we inform other members about your farewell!!");
-                      await ChatService.leaveGroup(this._chat);
-                      var users =
-                          await ChatService.getChatUserByid(this._chat.id);
-                      this._chat.resetUsers();
-                      users.forEach((u) => this._chat.addUser(u));
-                      Navigator.of(context)
-                          .pop(); // Close the loading indicator
-                      Navigator.of(context).pop(this._chat);
-                    } catch (err) {
-                      Navigator.of(context).pop();
-                      showErrorDialog(context, [
-                        'Sorry, something wents wrong.',
-                        'Make sure you are connected to internet and try again.'
-                      ]);
-                    }
-                  });
-                },
-              ),
-            ),
+            )
           ],
         ),
       ),
@@ -169,19 +177,19 @@ class ChatInfo extends StatelessWidget {
   }
 
   void showConfirmationDialog(BuildContext context,
-      {void Function() onsuccess}) {
+      {void Function()? onsuccess}) {
     // set up the buttons
-    Widget cancelButton = FlatButton(
+    Widget cancelButton = TextButton(
       child: Text("Cancel"),
       onPressed: () {
         Navigator.of(context).pop();
       },
     );
-    Widget continueButton = FlatButton(
+    Widget continueButton = TextButton(
       child: Text("Continue"),
       onPressed: () {
         Navigator.of(context).pop();
-        onsuccess();
+        onsuccess!();
       },
     );
     // set up the AlertDialog
@@ -228,7 +236,7 @@ class ChatInfo extends StatelessWidget {
         ),
       ),
       actions: [
-        FlatButton(
+        TextButton(
           child: Text('OK'),
           onPressed: () {
             Navigator.of(context).pop();

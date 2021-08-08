@@ -30,7 +30,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        //backgroundColor: Colors.white,
         leading: IconButton(
           icon: Container(
             padding: EdgeInsets.all(10.0),
@@ -94,7 +94,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                     margin: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 10),
                     constraints: const BoxConstraints(maxWidth: 500),
-                    child: RaisedButton(
+                    child: ElevatedButton(
                       onPressed: () async {
                         bool result = await UserService.authenicate(this._otp);
                         if (!result) {
@@ -105,9 +105,11 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                         Navigator.of(context)
                             .pushNamedAndRemoveUntil('/', (route) => false);
                       },
-                      color: Theme.of(context).primaryColor,
-                      shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(14))),
+                      style: ElevatedButton.styleFrom(
+                        shape: const RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.all(Radius.circular(14))),
+                      ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             vertical: 8, horizontal: 8),
@@ -127,7 +129,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                               ),
                               child: Icon(
                                 Icons.arrow_forward_ios,
-                                color: Colors.white,
+                                //color: Colors.white,
                                 size: 16,
                               ),
                             )
@@ -177,7 +179,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
         child: ListBody(children: contents),
       ),
       actions: [
-        FlatButton(
+        TextButton(
           child: Text('OK'),
           onPressed: () {
             Navigator.of(context).pop();

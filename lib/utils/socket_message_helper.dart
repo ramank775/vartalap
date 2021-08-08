@@ -15,7 +15,7 @@ List<SocketMessage> toSocketMessage(dynamic event) {
 
   if (incomming is Map) {
     try {
-      var message = SocketMessage.fromMap(incomming);
+      var message = SocketMessage.fromMap(incomming as Map<String, dynamic>);
       _messages.add(message);
     } catch (ex, stack) {
       Crashlytics.recordError(ex, stack,
@@ -27,7 +27,7 @@ List<SocketMessage> toSocketMessage(dynamic event) {
         _messages.addAll(toSocketMessage(msg));
       } else if (msg is Map) {
         try {
-          _messages.add(SocketMessage.fromMap(msg));
+          _messages.add(SocketMessage.fromMap(msg as Map<String, dynamic>));
         } catch (e, stack) {
           Crashlytics.recordError(e, stack,
               reason:

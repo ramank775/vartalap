@@ -33,12 +33,12 @@ class RichMessage extends StatelessWidget {
   List<TextSpan> generateMessageTextSpans(String text) {
     List<TextSpan> spans = [];
     final TextStyle emojiStyle = style.copyWith(
-      fontSize: (style.fontSize * 1.5),
+      fontSize: (style.fontSize! * 1.5),
       letterSpacing: 0.5,
     );
 
     final TextStyle combinedEmojiStyle = emojiStyle.copyWith(
-      fontSize: style.fontSize * 1.7,
+      fontSize: style.fontSize! * 1.7,
     );
 
     final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[700]);
@@ -47,7 +47,7 @@ class RichMessage extends StatelessWidget {
     text.splitMapJoin(
       emojiRegex,
       onMatch: (m) {
-        emojiString += m.group(0);
+        emojiString += m.group(0)!;
         return "";
       },
       onNonMatch: (s) {
@@ -85,7 +85,7 @@ class RichMessage extends StatelessWidget {
                   style: hyperLinkStyle,
                   recognizer: TapGestureRecognizer()
                     ..onTap = () => _launchUrl(
-                          m.group(0),
+                          m.group(0)!,
                         ),
                 ),
               );

@@ -1,5 +1,6 @@
 import 'package:vartalap/models/message.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/utils/color_helper.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
@@ -8,19 +9,12 @@ class MessageWidget extends StatelessWidget {
   final bool _isYou;
 
   final bool isSelected;
-  final Function onTab;
-  final Function onLongPress;
+  final Function? onTab;
+  final Function? onLongPress;
   final bool showUserInfo;
 
-  final TextStyle textStyle = TextStyle(
-    color: Colors.black,
-    fontSize: 16.0,
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0.25,
-  );
-
   MessageWidget(this._msg, this._isYou,
-      {Key key,
+      {Key? key,
       this.isSelected: false,
       this.onTab,
       this.onLongPress,
@@ -29,19 +23,16 @@ class MessageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    var theme = Theme.of(context);
     return GestureDetector(
         onTap: () {
-          if (this.onTab != null) {
-            this.onTab(this._msg);
-          }
+          this.onTab!(this._msg);
         },
         onLongPress: () {
-          if (this.onLongPress != null) {
-            this.onLongPress(this._msg);
-          }
+          this.onLongPress!(this._msg);
         },
         child: Container(
-          color: this.isSelected ? Colors.lightBlue[200] : Colors.transparent,
+          color: this.isSelected ? theme.selectedRowColor : Colors.transparent,
           constraints: BoxConstraints(
             minWidth: double.infinity,
           ),
@@ -54,12 +45,12 @@ class MessageWidget extends StatelessWidget {
                 decoration: BoxDecoration(
                   boxShadow: [
                     new BoxShadow(
-                      color: Colors.grey[300],
+                      color: theme.backgroundColor,
                       offset: new Offset(1.0, 1.0),
                       blurRadius: 0.5,
                     )
                   ],
-                  color: _isYou ? Colors.lightBlueAccent[100] : Colors.white38,
+                  color: _isYou ? theme.accentColor : theme.primaryColorLight,
                   borderRadius: _isYou
                       ? BorderRadius.only(
                           topLeft: Radius.circular(8.0),
@@ -81,6 +72,7 @@ class MessageWidget extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  textBaseline: TextBaseline.ideographic,
                   children: getMessageComponents(context),
                 ),
               ),
@@ -90,17 +82,24 @@ class MessageWidget extends StatelessWidget {
   }
 
   List<Widget> getMessageComponents(BuildContext context) {
+    var theme = Theme.of(context);
+    final TextStyle textStyle = TextStyle(
+      fontSize: 16.0,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0.25,
+      color: theme.textTheme.bodyText1?.color,
+    );
     List<Widget> _widgets = [];
     if (this.showUserInfo) {
       _widgets.add(
         Container(
           margin: EdgeInsets.only(bottom: 4),
           child: Text(
-            this._msg.sender.name,
+            this._msg.sender == null ? '' : this._msg.sender!.name,
             textAlign: TextAlign.start,
             style: TextStyle(
               fontSize: 14,
-              color: Colors.blue,
+              color: getColor(this._msg.sender!.name, opacity: 1),
             ),
           ),
         ),
@@ -116,7 +115,7 @@ class MessageWidget extends StatelessWidget {
               minWidth: MediaQuery.of(context).size.width * 0.25,
             ),
             child: RichMessage(
-              (this._msg.text ?? ''),
+              this._msg.text,
               textStyle,
             ),
           ),
@@ -126,11 +125,11 @@ class MessageWidget extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.end,
               crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.ideographic,
               children: <Widget>[
                 Text(
                   formatMessageDateTime(this._msg.timestamp),
                   style: TextStyle(
-                    color: Colors.black,
                     fontSize: 11.0,
                   ),
                 ),
