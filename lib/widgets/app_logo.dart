@@ -12,7 +12,7 @@ class AppLogo extends StatelessWidget {
       radius: this.size,
       child: Icon(
         Icons.chat_bubble_outline,
-        color: theme.primaryColor,
+        color: theme.accentColor,
         size: this.size,
       ),
     );

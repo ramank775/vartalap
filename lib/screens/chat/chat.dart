@@ -111,8 +111,8 @@ class ChatState extends State<ChatScreen> {
               ),
               Avator(
                 text: this._chat.title,
-                width: 32.0,
-                height: 32.0,
+                width: 30.0,
+                height: 30.0,
               )
               // new ProfileImg(this._chat.pic ?? 'assets/images/default-user.png',
               //     ProfileImgSize.SM),

@@ -63,6 +63,7 @@ class ChatInfo extends StatelessWidget {
                         leading: Icon(
                           Icons.group_add,
                           size: 30,
+                          color: Theme.of(context).accentColor,
                         ),
                         title: Text(
                           "Add members",
