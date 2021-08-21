@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-//import 'package:vartalap/utils/color_helper.dart';
+import 'package:vartalap/utils/color_helper.dart';
 
 class ThemeInfo {
   static ThemeMode get themeMode {
@@ -21,11 +21,22 @@ class ThemeInfo {
     primaryColorLight: Colors.white,
   );
 
-  static ThemeData darkTheme = ThemeData.dark().copyWith(
+  static var defaultDarkTheme = ThemeData.dark();
+  static ThemeData darkTheme = defaultDarkTheme.copyWith(
+    colorScheme: ColorScheme.fromSwatch(
+      primarySwatch: generateMaterialColor(
+        Color.fromRGBO(0, 153, 122, 1),
+      ),
+    ),
+    visualDensity: VisualDensity.adaptivePlatformDensity,
+    backgroundColor: defaultDarkTheme.backgroundColor,
     scaffoldBackgroundColor: Colors.grey[850],
     accentColor: Color.fromRGBO(0, 153, 122, 1),
     selectedRowColor: Color.fromRGBO(27, 133, 133, 1),
     primaryColorLight: Colors.grey[700],
+    iconTheme: defaultDarkTheme.iconTheme.copyWith(
+      color: Color.fromRGBO(0, 153, 122, 1),
+    ),
   );
 
   // Green theme

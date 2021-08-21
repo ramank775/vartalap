@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:random_color/random_color.dart';
 
 MaterialColor generateMaterialColor(Color color) {
   return MaterialColor(color.value, {
@@ -34,17 +35,14 @@ Color shadeColor(Color color, double factor) => Color.fromRGBO(
     shadeValue(color.blue, factor),
     1);
 
-Color getColor(String text, {double opacity = 0.65}) {
+Color getColor(String text, {double opacity = 1}) {
   var hash = 0;
   if (text.length == 0) return Colors.amber;
   for (var i = 0; i < text.length; i++) {
     hash = text.codeUnitAt(i) + ((hash << 5) - hash);
     hash = hash & hash;
   }
-  var rgb = [0, 0, 0];
-  for (var i = 0; i < 3; i++) {
-    var value = (hash >> (i * 8)) & 255;
-    rgb[i] = value;
-  }
-  return Color.fromRGBO(rgb[0], rgb[1], rgb[2], opacity);
+  var _colorGenerator = RandomColor(hash);
+  var color = _colorGenerator.randomColor();
+  return color.withOpacity(opacity);
 }

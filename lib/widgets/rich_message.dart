@@ -1,6 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:vartalap/utils/url_helper.dart';
 
 class RichMessage extends StatelessWidget {
   static final RegExp emojiRegex = RegExp(
@@ -41,7 +41,7 @@ class RichMessage extends StatelessWidget {
       fontSize: style.fontSize! * 1.7,
     );
 
-    final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[700]);
+    final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[400]);
     String emojiString = "";
 
     text.splitMapJoin(
@@ -117,11 +117,6 @@ class RichMessage extends StatelessWidget {
   }
 
   void _launchUrl(String link) async {
-    link = link.toLowerCase();
-    var uri = Uri.parse(link);
-    if (!uri.hasScheme) {
-      link = "http://$link";
-    }
-    if (await canLaunch(link)) await launch(link);
+    await launchUrl(link);
   }
 }

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:package_info/package_info.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
-import 'package:vartalap/screens/login/login.dart';
+import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/crashanalystics.dart';
@@ -40,96 +40,95 @@ class StartupScreenState extends State<StartupScreen> {
     if (isLoggedIn) {
       ChatService.init().then((value) => null);
     }
-    Timer(Duration(seconds: 1), () async {
-      if (!isLoggedIn) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (ctx) => LoginScreen(),
-          ),
-        );
-        return;
-      }
-      var value = await Permission.contacts.request();
-      if (value.isGranted) {
-        _promises.add(UserService.syncContacts());
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => Chats(),
-          ),
-        );
-        await Future.wait(_promises);
-      }
-      if (value.isPermanentlyDenied) {
-        openAppSettings();
-      }
-    });
+    if (!isLoggedIn) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (ctx) => IntroductionScreen(),
+        ),
+      );
+      return;
+    }
+    var value = await Permission.contacts.request();
+    if (value.isGranted) {
+      _promises.add(UserService.syncContacts());
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => Chats(),
+        ),
+      );
+      await Future.wait(_promises);
+    }
+    if (value.isPermanentlyDenied) {
+      openAppSettings();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     var theme = Theme.of(context);
     return Scaffold(
-        body: Stack(
-      fit: StackFit.expand,
-      children: [
-        Container(
-          decoration: BoxDecoration(color: theme.primaryColor),
-        ),
-        Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Container(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            decoration: BoxDecoration(color: theme.primaryColor),
+          ),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Container(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      AppLogo(size: 50),
+                      Padding(
+                        padding: EdgeInsets.only(top: 10.0),
+                      ),
+                      Text(
+                        info.appName,
+                        style: ThemeInfo.appTitle.copyWith(
+                          fontSize: 30,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 1,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    AppLogo(size: 50),
+                    CircularProgressIndicator(
+                      backgroundColor: Colors.white,
+                      color: theme.iconTheme.color,
+                    ),
                     Padding(
-                      padding: EdgeInsets.only(top: 10.0),
+                      padding: EdgeInsets.only(top: 20.0),
                     ),
                     Text(
-                      info.appName,
-                      style: ThemeInfo.appTitle.copyWith(
-                        fontSize: 30,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      configStore.subtitle,
+                      style: TextStyle(
+                          fontSize: 18.0,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white),
+                    ),
+                    Text(
+                      "v${info.version}+${info.buildNumber}",
+                      style: TextStyle(color: Colors.white),
                     )
                   ],
                 ),
-              ),
-            ),
-            Expanded(
-              flex: 1,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    backgroundColor: Colors.white,
-                    color: theme.iconTheme.color,
-                  ),
-                  Padding(
-                    padding: EdgeInsets.only(top: 20.0),
-                  ),
-                  Text(
-                    configStore.subtitle,
-                    style: TextStyle(
-                        fontSize: 18.0,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white),
-                  ),
-                  Text(
-                    "v${info.version}+${info.buildNumber}",
-                    style: TextStyle(color: Colors.white),
-                  )
-                ],
-              ),
-            )
-          ],
-        )
-      ],
-    ));
+              )
+            ],
+          )
+        ],
+      ),
+    );
   }
 }

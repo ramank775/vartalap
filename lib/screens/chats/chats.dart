@@ -11,6 +11,7 @@ import 'package:vartalap/services/push_notification_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/find.dart';
+import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
@@ -26,6 +27,7 @@ class ChatsState extends State<Chats> {
 
   @override
   void initState() {
+    config = ConfigStore();
     super.initState();
     this._fChats = ChatService.getChats();
     this._selectedChats = [];
@@ -135,38 +137,44 @@ class ChatsState extends State<Chats> {
         },
       ));
     }
-    actions.add(PopupMenuButton(
-        itemBuilder: (BuildContext context) => [
-              PopupMenuItem(
-                value: 'About Dialog',
-                child: GestureDetector(
-                  child: Container(
-                    child: Text("About us"),
-                  ),
-                  onTap: () {
-                    Navigator.of(context).pop('About Dialog');
-                    showAboutDialog(
-                      context: context,
-                      applicationName: config.packageInfo.appName,
-                      applicationIcon: AppLogo(size: 25),
-                      applicationVersion:
-                          "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
-                      children: <Widget>[
-                        Text(
-                          config.subtitle,
-                        ),
-                        RichMessage(
-                          config.get("description"),
-                          TextStyle(
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+    actions.add(
+      PopupMenuButton(
+        onSelected: (value) {
+          //Navigator.of(context).pop(value);
+          if (value == 'About Dialog') {
+            showAboutDialog(
+              context: context,
+              applicationName: config.packageInfo.appName,
+              applicationIcon: AppLogo(size: 25),
+              applicationVersion:
+                  "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
+              children: <Widget>[
+                Text(
+                  config.subtitle,
                 ),
-              )
-            ]));
+                RichMessage(
+                  config.get("description"),
+                  TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).textTheme.bodyText1?.color,
+                  ),
+                ),
+              ],
+            );
+          } else if (value == 'Privacy Policy') {
+            var link = config.get('privacy_policy');
+            launchUrl(link);
+          }
+        },
+        itemBuilder: (BuildContext context) => [
+          PopupMenuItem(value: 'About Dialog', child: Text("About us")),
+          PopupMenuItem(
+            value: 'Privacy Policy',
+            child: Text("Privacy Policy"),
+          )
+        ],
+      ),
+    );
     return actions;
   }
 
