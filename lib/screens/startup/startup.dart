@@ -6,7 +6,7 @@ import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/crashlystics.dart';
 import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';

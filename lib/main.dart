@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
@@ -12,10 +13,11 @@ import 'models/user.dart';
 import 'screens/chats/chats.dart';
 import 'screens/chat/chat.dart';
 import 'screens/new_chat/new_chat.dart';
-import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/crashlystics.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   var store = ConfigStore();
   await store.loadConfig();
   runZonedGuarded(() {

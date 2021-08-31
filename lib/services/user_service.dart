@@ -4,7 +4,7 @@ import 'package:contacts_service/contacts_service.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/auth_service.dart';
-import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/crashlystics.dart';
 import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 import 'package:vartalap/utils/find.dart';

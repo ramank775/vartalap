@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:vartalap/models/socketMessage.dart';
-import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/crashlystics.dart';
 
 List<SocketMessage> toSocketMessage(dynamic event) {
   List<SocketMessage> _messages = [];

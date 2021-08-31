@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/widgets.dart';
 
@@ -5,7 +6,7 @@ class Crashlytics {
   static FirebaseCrashlytics _crashlytics = FirebaseCrashlytics.instance;
 
   static init() {
-    _crashlytics.setCrashlyticsCollectionEnabled(true);
+    _crashlytics.setCrashlyticsCollectionEnabled(kReleaseMode);
     Function? originalOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails errorDetails) async {
       await FirebaseCrashlytics.instance.recordFlutterError(errorDetails);

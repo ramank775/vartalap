@@ -8,7 +8,7 @@ import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/services/api_service.dart';
-import 'package:vartalap/services/crashanalystics.dart';
+import 'package:vartalap/services/crashlystics.dart';
 import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/utils/socket_message_helper.dart';
 
