@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/screens/keyboard/keyboard.dart';
+import 'package:vartalap/widgets/keyboard.dart';
 import 'package:vartalap/services/user_service.dart';
 
 class VerifyOtpWidget extends StatefulWidget {
@@ -93,8 +93,6 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                                 ['Incorrect one time password! Try again']);
                             return;
                           }
-                          Navigator.of(context)
-                              .pushNamedAndRemoveUntil('/', (route) => false);
                         },
                         style: ElevatedButton.styleFrom(
                           shape: const RoundedRectangleBorder(

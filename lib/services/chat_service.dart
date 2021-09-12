@@ -227,11 +227,11 @@ class ChatService {
     return msgs.reversed.toList();
   }
 
-  static Future<bool> deleteMessages(List<Message> msgs) async {
+  static Future<bool> deleteMessages(List<String> msgIds) async {
     var db = await DB().getDb();
     var batch = db.batch();
-    for (var msg in msgs) {
-      batch.delete("message", where: "id=?", whereArgs: [msg.id]);
+    for (var id in msgIds) {
+      batch.delete("message", where: "id=?", whereArgs: [id]);
     }
     var result = await batch.commit();
     return result.length > 0;

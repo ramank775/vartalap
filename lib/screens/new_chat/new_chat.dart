@@ -2,7 +2,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/chats/chat_preview.dart';
+import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';

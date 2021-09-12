@@ -66,3 +66,8 @@ class ThemeInfo {
     );
   }
 }
+
+@immutable
+abstract class VartalapTheme {
+  const VartalapTheme({Key? key});
+}

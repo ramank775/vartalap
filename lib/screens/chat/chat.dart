@@ -9,28 +9,31 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'message.dart';
 import 'message_input.dart';
 
 class ChatScreen extends StatefulWidget {
   final Chat chat;
-  final User currentUser = UserService.getLoggedInUser();
   ChatScreen(this.chat) : super(key: Key(chat.id));
 
   @override
-  ChatState createState() => ChatState(chat);
+  ChatState createState() => ChatState(
+        chat,
+      );
 }
 
 class ChatState extends State<ChatScreen> {
   Chat _chat;
+  late User _currentUser;
   late Future<List<Message>> _fMessages;
   late List<Message> _messages;
-  List<Message> _selectedMessges = [];
+  List<String> _selectedMessges = [];
   late StreamSubscription _notificationSub;
   late StreamSubscription _newMessageSub;
   Timer? _readTimer;
-  List<Message> _unreadMessages = [];
+  List<String> _unreadMessages = [];
   Map<String, User> _users = Map();
   Map<String, UserNotifier> _userChangeNotifier = Map();
 
@@ -38,6 +41,7 @@ class ChatState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    this._currentUser = CurrentUser.of(context).user!;
     this._chat.users.forEach((u) => _users[u.username] = u);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
@@ -196,7 +200,7 @@ class ChatState extends State<ChatScreen> {
                             if (this._messages[i].sender == null) {
                               this._messages[i].sender = getSender(_msg);
                             }
-                            bool isYou = _msg.sender == this.widget.currentUser;
+                            bool isYou = _msg.sender == this._currentUser;
                             bool showUserInfo =
                                 !isYou && this._chat.type == ChatType.GROUP;
 
@@ -253,12 +257,9 @@ class ChatState extends State<ChatScreen> {
           ...this.hasSendPermission()
               ? [
                   MessageInputWidget(sendMessage: (String text) async {
-                    var msg = Message.chatMessage(
-                        this._chat.id,
-                        this.widget.currentUser.username,
-                        text,
-                        MessageType.TEXT);
-                    msg.sender = this.widget.currentUser;
+                    var msg = Message.chatMessage(this._chat.id,
+                        this._currentUser.username, text, MessageType.TEXT);
+                    msg.sender = this._currentUser;
                     await ChatService.sendMessage(msg, this._chat);
                     setState(() {
                       _messages.insert(0, msg);
@@ -279,7 +280,7 @@ class ChatState extends State<ChatScreen> {
         ._chat
         .users
         .firstWhere(
-          (u) => this.widget.currentUser != u,
+          (u) => this._currentUser != u,
           orElse: () => ChatUser("", "", null),
         )
         .username;
@@ -287,8 +288,8 @@ class ChatState extends State<ChatScreen> {
 
   void selectOrRemove(Message msg) {
     setState(() {
-      if (!_selectedMessges.remove(msg)) {
-        _selectedMessges.add(msg);
+      if (!_selectedMessges.remove(msg.id)) {
+        _selectedMessges.add(msg.id);
       }
     });
   }
@@ -344,7 +345,7 @@ class ChatState extends State<ChatScreen> {
     var message = msg.toMessage()!;
 
     setState(() {
-      this._unreadMessages.add(message);
+      this._unreadMessages.add(message.id);
       this._messages.insert(0, message);
     });
     if (_readTimer == null || !_readTimer!.isActive) {
@@ -355,12 +356,12 @@ class ChatState extends State<ChatScreen> {
   void _onReadTimerTimeout() {
     var messages = this
         ._messages
-        .where((msg) => (msg.senderId != this.widget.currentUser.username &&
+        .where((msg) => (msg.senderId != this._currentUser.username &&
             msg.state == MessageState.NEW))
         .map((e) => e.id)
         .toList();
     if (_unreadMessages.length > 0) {
-      messages.addAll(_unreadMessages.map((e) => e.id));
+      messages.addAll(_unreadMessages.map((e) => e));
       _unreadMessages = [];
     }
     ChatService.markAsDelivered(messages);
@@ -385,7 +386,7 @@ class ChatState extends State<ChatScreen> {
   }
 
   bool hasSendPermission() {
-    return this._chat.users.contains(this.widget.currentUser);
+    return this._chat.users.contains(this._currentUser);
   }
 
   @override

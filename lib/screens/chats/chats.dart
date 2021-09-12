@@ -4,7 +4,9 @@ import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/chats/chat_preview.dart';
+import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/widgets/Inherited/config_provider.dart';
+import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
@@ -27,11 +29,10 @@ class ChatsState extends State<Chats> {
 
   @override
   void initState() {
-    config = ConfigStore();
     super.initState();
+
     this._fChats = ChatService.getChats();
     this._selectedChats = [];
-    this.config = ConfigStore();
     PushNotificationService.instance.config(
       onMessage: (Map<String, dynamic> payload) {
         if (payload["data"] == null) return;
@@ -55,6 +56,7 @@ class ChatsState extends State<Chats> {
 
   @override
   Widget build(BuildContext context) {
+    config = ConfigProvider.of(context).configStore;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -139,7 +141,7 @@ class ChatsState extends State<Chats> {
     }
     actions.add(
       PopupMenuButton(
-        onSelected: (value) {
+        onSelected: (value) async {
           //Navigator.of(context).pop(value);
           if (value == 'About Dialog') {
             showAboutDialog(
@@ -164,6 +166,8 @@ class ChatsState extends State<Chats> {
           } else if (value == 'Privacy Policy') {
             var link = config.get('privacy_policy');
             launchUrl(link);
+          } else if (value == "Logout") {
+            await AuthService.instance.signout();
           }
         },
         itemBuilder: (BuildContext context) => [
@@ -171,7 +175,8 @@ class ChatsState extends State<Chats> {
           PopupMenuItem(
             value: 'Privacy Policy',
             child: Text("Privacy Policy"),
-          )
+          ),
+          PopupMenuItem(child: Text("Logout"), value: "Logout"),
         ],
       ),
     );
