@@ -50,14 +50,15 @@ class HomeState extends State<Home> {
       configStore: configStore,
       child: AuthListner(
         app: MaterialApp(
-            title: widget.appName,
-            debugShowCheckedModeBanner: false,
-            navigatorKey: _navigatorKey,
-            themeMode: ThemeInfo.themeMode,
-            theme: ThemeInfo.lightTheme,
-            darkTheme: ThemeInfo.darkTheme,
-            onGenerateRoute: _routes(),
-            home: StartupScreen()),
+          title: widget.appName,
+          debugShowCheckedModeBanner: false,
+          navigatorKey: _navigatorKey,
+          themeMode: VartalapTheme.themeMode,
+          theme: VartalapTheme.lightTheme.appTheme,
+          darkTheme: VartalapTheme.darkTheme.appTheme,
+          onGenerateRoute: _routes(),
+          home: StartupScreen(),
+        ),
       ),
     );
   }

@@ -22,13 +22,11 @@ class Avator extends StatelessWidget {
       height: this.height,
       child: AvatarLetter(
         backgroundColor: getColor(this.text, opacity: this._opacity),
-        backgroundColorHex: null,
         text: this.text,
         numberLetters: 2,
         upperCase: true,
         letterType: LetterType.Circular,
         textColor: Colors.white,
-        textColorHex: null,
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/login/verifyOtp.dart';
 import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
 class LoginScreen extends StatelessWidget {
@@ -36,8 +37,7 @@ class LoginScreen extends StatelessWidget {
                     margin: EdgeInsets.only(top: 10),
                     child: Text(
                       config.packageInfo.appName,
-                      style: TextStyle(
-                        color: Theme.of(context).accentColor,
+                      style: VartalapTheme.theme.appTitleStyle.copyWith(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,
                       ),
@@ -62,14 +62,15 @@ class LoginScreen extends StatelessWidget {
                             text: 'We will send you an ',
                           ),
                           TextSpan(
-                              text: 'One Time Password ',
-                              style: TextStyle(fontWeight: FontWeight.bold)),
+                            text: 'One Time Password ',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
                           TextSpan(
                             text: 'on this mobile number',
                           ),
                         ],
                         style: TextStyle(
-                          color: Theme.of(context).accentColor,
+                          color: Theme.of(context).iconTheme.color,
                         ),
                       ),
                     ),
@@ -108,8 +109,11 @@ class LoginScreen extends StatelessWidget {
                           bool status =
                               await UserService.sendOTP(_phoneController.text);
                           if (status) {
-                            Navigator.of(context).push(MaterialPageRoute(
-                                builder: (ctx) => VerifyOtpWidget()));
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (ctx) => VerifyOtpWidget(),
+                              ),
+                            );
                             return;
                           }
                           errors = [

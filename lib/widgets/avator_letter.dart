@@ -13,17 +13,16 @@ Color parseColor({required String hexCode}) {
   return col;
 }
 
+@immutable
 class AvatarLetter extends StatelessWidget {
   final LetterType letterType;
   final String text;
   final double fontSize;
   final FontWeight fontWeight;
   final String? fontFamily;
-  Color? backgroundColor;
-  String? backgroundColorHex;
-  Color? textColor;
-  String? textColorHex;
-  double? size;
+  final Color? backgroundColor;
+  final Color? textColor;
+  final double? size;
   final int numberLetters;
   final bool upperCase;
 
@@ -32,10 +31,8 @@ class AvatarLetter extends StatelessWidget {
       this.letterType = LetterType.Rectangle,
       required this.text,
       required this.textColor,
-      required this.textColorHex,
       required this.backgroundColor,
-      required this.backgroundColorHex,
-      this.size,
+      this.size = 50.0,
       this.numberLetters = 1,
       this.fontWeight = FontWeight.bold,
       this.fontFamily,
@@ -46,26 +43,7 @@ class AvatarLetter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    size = (size == null || size! < 30.0) ? 50.0 : size;
-    backgroundColor = _colorBackgroundConfig();
-    textColor = _colorTextConfig();
     return _leeterView();
-  }
-
-  Color _colorBackgroundConfig() {
-    if (backgroundColor == null && backgroundColorHex == null)
-      return Colors.black;
-    else if (backgroundColor == null && backgroundColorHex != null)
-      return parseColor(hexCode: backgroundColorHex!);
-    return backgroundColor!;
-  }
-
-  Color _colorTextConfig() {
-    if (textColor == null && textColorHex == null)
-      return Colors.white;
-    else if (textColor == null && textColorHex != null)
-      return parseColor(hexCode: textColorHex!);
-    return textColor!;
   }
 
   String _runeString({required String value}) {

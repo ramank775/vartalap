@@ -1,5 +1,6 @@
 import 'package:vartalap/models/message.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/color_helper.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/rich_message.dart';
@@ -23,7 +24,9 @@ class MessageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var theme = Theme.of(context);
+    final theme = VartalapTheme.theme.appTheme;
+    final senderColor = VartalapTheme.theme.senderColor;
+    final receiverColor = VartalapTheme.theme.receiverColor;
     return GestureDetector(
         onTap: () {
           this.onTab!(this._msg);
@@ -50,7 +53,7 @@ class MessageWidget extends StatelessWidget {
                       blurRadius: 0.5,
                     )
                   ],
-                  color: _isYou ? theme.accentColor : theme.primaryColorLight,
+                  color: _isYou ? senderColor : receiverColor,
                   borderRadius: _isYou
                       ? BorderRadius.only(
                           topLeft: Radius.circular(8.0),

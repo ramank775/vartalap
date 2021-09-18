@@ -41,7 +41,6 @@ class ChatState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    this._currentUser = CurrentUser.of(context).user!;
     this._chat.users.forEach((u) => _users[u.username] = u);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
@@ -65,6 +64,7 @@ class ChatState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    this._currentUser = CurrentUser.of(context).user!;
     var subtitle = this.getSubTitle();
     var titleWidgets = <Widget>[
       Padding(

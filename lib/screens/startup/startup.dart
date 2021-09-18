@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:package_info/package_info.dart';
+//import 'package:package_info/package_info.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/introduction.dart';
@@ -13,17 +13,20 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
 class StartupScreen extends StatelessWidget {
+  const StartupScreen({Key? key}) : super(key: key);
+
   Future<void> _initializeApp(
       ConfigStore configStore, BuildContext context) async {
     List<Future> _promises = [];
     await AuthService.init();
     Crashlytics.init();
     PerformanceMetric.init();
-    bool isLoggedIn = await UserService.isAuth();
-    if (!isLoggedIn) {
+    bool isLogin = CurrentUser.of(context).user != null;
+    if (!isLogin) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -79,7 +82,7 @@ class StartupScreen extends StatelessWidget {
                       ),
                       Text(
                         packageInfo.appName,
-                        style: ThemeInfo.appTitle.copyWith(
+                        style: VartalapTheme.theme.appTitleStyle.copyWith(
                           fontSize: 30,
                           fontWeight: FontWeight.bold,
                         ),

@@ -5,13 +5,13 @@ import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 import 'package:vartalap/services/socket_service.dart';
-import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/find.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
@@ -61,7 +61,10 @@ class ChatsState extends State<Chats> {
       appBar: AppBar(
         title: Text(
           config.packageInfo.appName,
-          style: ThemeInfo.appTitle.copyWith(fontWeight: FontWeight.bold),
+          style: VartalapTheme.theme.appTitleStyle.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
         ),
         actions: getActions(),
       ),
@@ -104,7 +107,6 @@ class ChatsState extends State<Chats> {
         onPressed: () => navigate('/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
-        backgroundColor: Theme.of(context).accentColor,
       ),
     );
   }

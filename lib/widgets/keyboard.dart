@@ -67,22 +67,26 @@ class _NumericKeyboardState extends State<NumericKeyboard> {
               alignment: widget.mainAxisAlignment,
               children: <Widget>[
                 InkWell(
-                    borderRadius: BorderRadius.circular(45),
-                    onTap: widget.leftButtonFn,
-                    child: Container(
-                        alignment: Alignment.center,
-                        width: 50,
-                        height: 50,
-                        child: widget.leftIcon)),
+                  borderRadius: BorderRadius.circular(45),
+                  onTap: widget.leftButtonFn,
+                  child: Container(
+                    alignment: Alignment.center,
+                    width: 50,
+                    height: 50,
+                    child: widget.leftIcon,
+                  ),
+                ),
                 _calcButton('0'),
                 InkWell(
-                    borderRadius: BorderRadius.circular(45),
-                    onTap: widget.rightButtonFn,
-                    child: Container(
-                        alignment: Alignment.center,
-                        width: 50,
-                        height: 50,
-                        child: widget.rightIcon))
+                  borderRadius: BorderRadius.circular(45),
+                  onTap: widget.rightButtonFn,
+                  child: Container(
+                    alignment: Alignment.center,
+                    width: 50,
+                    height: 50,
+                    child: widget.rightIcon,
+                  ),
+                )
               ],
             ),
           ],
