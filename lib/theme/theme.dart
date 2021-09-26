@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import 'package:vartalap/utils/color_helper.dart';
 
+final Color _primaryLightColor = Colors.blue;
+final Color _primaryDarkColor = Color.fromRGBO(0, 153, 122, 1);
+
 final _defaultLightTheme = ThemeData.light();
 final ThemeData _lightTheme = _defaultLightTheme.copyWith(
   colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.blue),
@@ -38,9 +41,6 @@ final _appTitle = TextStyle(
   fontFamily: "sofia",
 );
 
-final Color _primaryLightColor = Colors.blue;
-final Color _primaryDarkColor = Color.fromRGBO(0, 153, 122, 1);
-
 @immutable
 class VartalapTheme {
   const VartalapTheme({
@@ -61,7 +61,7 @@ class VartalapTheme {
   final Color receiverColor;
 
   static ThemeMode get themeMode {
-    ThemeMode t = ThemeMode.system;
+    ThemeMode t = ThemeMode.dark;
     return t;
   }
 
@@ -73,7 +73,7 @@ class VartalapTheme {
       ),
       appLogoColor: _primaryDarkColor,
       linkTitleStyle: TextStyle(
-        color: Colors.deepPurple[700],
+        color: Colors.lightBlueAccent[100],
         decoration: TextDecoration.underline,
       ),
       receiverColor: _darkTheme.primaryColorLight,
@@ -89,7 +89,7 @@ class VartalapTheme {
       ),
       appLogoColor: Colors.blue,
       linkTitleStyle: TextStyle(
-        color: Colors.deepPurple[700],
+        color: Colors.purpleAccent[700],
         decoration: TextDecoration.underline,
       ),
       receiverColor: _lightTheme.primaryColorLight,

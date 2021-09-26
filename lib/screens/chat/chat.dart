@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:vartalap/models/chat.dart';
+import 'package:vartalap/models/dateHeader.dart';
 import 'package:vartalap/models/message.dart';
+import 'package:vartalap/models/messageSpacer.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/screens/chat/chat_info.dart';
@@ -9,6 +11,7 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'message.dart';
@@ -29,6 +32,7 @@ class ChatState extends State<ChatScreen> {
   late User _currentUser;
   late Future<List<Message>> _fMessages;
   late List<Message> _messages;
+  late List<Object> _displayMessages;
   List<String> _selectedMessges = [];
   late StreamSubscription _notificationSub;
   late StreamSubscription _newMessageSub;
@@ -192,64 +196,16 @@ class ChatState extends State<ChatScreen> {
                       _readTimer =
                           Timer(Duration(seconds: 1), _onReadTimerTimeout);
                       this._messages = snapshot.data ?? [];
+                      this._displayMessages = calculateChatMessages(
+                        this._messages,
+                        _currentUser,
+                        showUserNames: this._chat.type == ChatType.GROUP,
+                      )[0] as List<Object>;
                       return ListView.builder(
-                          itemCount: this._messages.length,
+                          itemCount: this._displayMessages.length,
                           reverse: true,
                           itemBuilder: (context, i) {
-                            Message _msg = this._messages[i];
-                            if (this._messages[i].sender == null) {
-                              this._messages[i].sender = getSender(_msg);
-                            }
-                            bool isYou = _msg.sender == this._currentUser;
-                            bool showUserInfo =
-                                !isYou && this._chat.type == ChatType.GROUP;
-
-                            Widget child;
-
-                            if (this
-                                ._userChangeNotifier
-                                .containsKey(_msg.senderId)) {
-                              child = ValueListenableBuilder<User>(
-                                builder: (context, key, child) {
-                                  return MessageWidget(
-                                    this._messages[i],
-                                    isYou,
-                                    showUserInfo: showUserInfo,
-                                    isSelected: this
-                                        ._selectedMessges
-                                        .contains(this._messages[i]),
-                                    onTab: (Message msg) {
-                                      if (this._selectedMessges.length > 0) {
-                                        this.selectOrRemove(msg);
-                                      }
-                                    },
-                                    onLongPress: selectOrRemove,
-                                  );
-                                },
-                                valueListenable:
-                                    this._userChangeNotifier[_msg.senderId]!,
-                              );
-                            } else {
-                              child = MessageWidget(
-                                this._messages[i],
-                                isYou,
-                                showUserInfo: showUserInfo,
-                                isSelected: this
-                                    ._selectedMessges
-                                    .contains(this._messages[i]),
-                                onTab: (Message msg) {
-                                  if (this._selectedMessges.length > 0) {
-                                    this.selectOrRemove(msg);
-                                  }
-                                },
-                                onLongPress: selectOrRemove,
-                              );
-                            }
-
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 5.0),
-                              child: child,
-                            );
+                            return _messageBuilder(this._displayMessages[i]);
                           });
                   }
                 }),
@@ -270,6 +226,73 @@ class ChatState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  Widget _messageBuilder(Object object) {
+    if (object is DateHeader) {
+      return Container(
+        alignment: Alignment.center,
+        margin: const EdgeInsets.only(
+          bottom: 32,
+          top: 16,
+        ),
+        child: Text(
+          object.date,
+          //style: widget.theme.dateDividerTextStyle,
+        ),
+      );
+    } else if (object is MessageSpacer) {
+      return SizedBox(
+        height: object.height,
+      );
+    } else if (object is Map) {
+      Message _msg = object["message"];
+      if (_msg.sender == null) {
+        _msg.sender = getSender(_msg);
+      }
+      bool isYou = _msg.sender == this._currentUser;
+      bool showUserInfo = !isYou && this._chat.type == ChatType.GROUP;
+
+      Widget child;
+
+      if (this._userChangeNotifier.containsKey(_msg.senderId)) {
+        child = ValueListenableBuilder<User>(
+          builder: (context, key, child) {
+            return MessageWidget(
+              _msg,
+              isYou,
+              showUserInfo: showUserInfo,
+              isSelected: this._selectedMessges.contains(_msg.id),
+              onTab: (Message msg) {
+                if (this._selectedMessges.length > 0) {
+                  this.selectOrRemove(msg);
+                }
+              },
+              onLongPress: selectOrRemove,
+            );
+          },
+          valueListenable: this._userChangeNotifier[_msg.senderId]!,
+        );
+      } else {
+        child = MessageWidget(
+          _msg,
+          isYou,
+          showUserInfo: showUserInfo,
+          isSelected: this._selectedMessges.contains(_msg.id),
+          onTab: (Message msg) {
+            if (this._selectedMessges.length > 0) {
+              this.selectOrRemove(msg);
+            }
+          },
+          onLongPress: selectOrRemove,
+        );
+      }
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 5.0),
+        child: child,
+      );
+    }
+    return const SizedBox();
   }
 
   String getSubTitle() {

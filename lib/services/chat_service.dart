@@ -316,7 +316,11 @@ class ChatService {
 
   static Future<bool> _saveMessage(Message msg) async {
     var db = await DB().getDb();
-    var result = await db.insert("message", msg.toMap());
+    var result = await db.insert(
+      "message",
+      msg.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
     return result > 0;
   }
 

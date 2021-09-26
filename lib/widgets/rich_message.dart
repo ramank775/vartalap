@@ -23,8 +23,8 @@ class RichMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: TextSpan(
+    return SelectableText.rich(
+      TextSpan(
         children: generateMessageTextSpans(text),
         style: this.style,
       ),

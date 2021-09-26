@@ -35,7 +35,10 @@ class MessageWidget extends StatelessWidget {
           this.onLongPress!(this._msg);
         },
         child: Container(
-          color: this.isSelected ? theme.selectedRowColor : Colors.transparent,
+          decoration: BoxDecoration(
+              color: this.isSelected
+                  ? theme.selectedRowColor
+                  : Colors.transparent),
           constraints: BoxConstraints(
             minWidth: double.infinity,
           ),
@@ -44,6 +47,19 @@ class MessageWidget extends StatelessWidget {
             mainAxisAlignment:
                 _isYou ? MainAxisAlignment.end : MainAxisAlignment.start,
             children: <Widget>[
+              ...!_isYou
+                  ? [
+                      Container(
+                        child: this.isSelected
+                            ? Checkbox(
+                                shape: CircleBorder(),
+                                value: this.isSelected,
+                                onChanged: (_) => this.onTab,
+                              )
+                            : null,
+                      )
+                    ]
+                  : [],
               Container(
                 decoration: BoxDecoration(
                   boxShadow: [
@@ -79,6 +95,19 @@ class MessageWidget extends StatelessWidget {
                   children: getMessageComponents(context),
                 ),
               ),
+              ..._isYou
+                  ? [
+                      Container(
+                        child: this.isSelected
+                            ? Checkbox(
+                                shape: CircleBorder(),
+                                value: this.isSelected,
+                                onChanged: (_) => this.onTab,
+                              )
+                            : null,
+                      )
+                    ]
+                  : []
             ],
           ),
         ));
@@ -131,7 +160,7 @@ class MessageWidget extends StatelessWidget {
               textBaseline: TextBaseline.ideographic,
               children: <Widget>[
                 Text(
-                  formatMessageDateTime(this._msg.timestamp),
+                  formatMessageTime(this._msg.timestamp),
                   style: TextStyle(
                     fontSize: 11.0,
                   ),
@@ -162,6 +191,9 @@ class MessageWidget extends StatelessWidget {
       case MessageState.DELIVERED:
         icon = Icons.done_all;
         color = Colors.blueAccent;
+        break;
+      case MessageState.OTHER:
+        return Container();
     }
 
     return Icon(
