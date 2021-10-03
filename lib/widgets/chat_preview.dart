@@ -1,6 +1,7 @@
 import 'package:vartalap/models/chat.dart';
 // import 'package:vartalap/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/avator.dart';
 
@@ -14,10 +15,12 @@ class ChatPreviewWidget extends StatelessWidget {
       : super(key: Key(_chat.id));
   @override
   Widget build(BuildContext context) {
+    final vtheme = VartalapTheme.theme;
+    final theme = vtheme.appTheme;
     return new Column(
       children: [
         ListTileTheme(
-          selectedColor: Theme.of(context).selectedRowColor,
+          selectedColor: theme.selectedRowColor,
           child: ListTile(
             leading: Container(
               width: 42,
@@ -34,7 +37,7 @@ class ChatPreviewWidget extends StatelessWidget {
                           bottom: 0,
                           right: 0,
                           child: CircleAvatar(
-                            backgroundColor: Theme.of(context).primaryColor,
+                            backgroundColor: theme.selectedRowColor,
                             radius: 10,
                             child: Icon(
                               Icons.check,
@@ -60,7 +63,9 @@ class ChatPreviewWidget extends StatelessWidget {
                   ),
                 ),
                 new Text(
-                  (this._chat.ts) != 0 ? formatMessageDate(this._chat.ts) : '',
+                  (this._chat.ts) != 0
+                      ? formatMessageTimestamp(this._chat.ts)
+                      : '',
                   style: new TextStyle(fontSize: 14.0),
                 ),
               ],
@@ -98,7 +103,7 @@ class ChatPreviewWidget extends StatelessWidget {
             height: 24,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Theme.of(context).primaryColor,
+              color: Theme.of(context).selectedRowColor,
             ),
             child: Center(
                 child: Text(
