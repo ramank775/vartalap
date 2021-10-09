@@ -72,12 +72,12 @@ class MessageWidget extends StatelessWidget {
                   color: _isYou ? senderColor : receiverColor,
                   borderRadius: _isYou
                       ? BorderRadius.only(
-                          topLeft: Radius.circular(8.0),
-                          bottomLeft: Radius.circular(8.0),
+                          topLeft: Radius.circular(15.0),
+                          bottomLeft: Radius.circular(15.0),
                         )
                       : BorderRadius.only(
-                          topRight: Radius.circular(8.0),
-                          bottomRight: Radius.circular(8.0),
+                          topRight: Radius.circular(15.0),
+                          bottomRight: Radius.circular(15.0),
                         ),
                 ),
                 constraints: BoxConstraints(
@@ -116,7 +116,7 @@ class MessageWidget extends StatelessWidget {
   List<Widget> getMessageComponents(BuildContext context) {
     var theme = Theme.of(context);
     final TextStyle textStyle = TextStyle(
-      fontSize: 16.0,
+      fontSize: 18.0,
       fontWeight: FontWeight.w400,
       letterSpacing: 0.25,
       color: theme.textTheme.bodyText1?.color,
@@ -130,7 +130,7 @@ class MessageWidget extends StatelessWidget {
             this._msg.sender == null ? '' : this._msg.sender!.name,
             textAlign: TextAlign.start,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               color: getColor(this._msg.sender!.name, opacity: 1),
             ),
           ),

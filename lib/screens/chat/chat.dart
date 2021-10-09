@@ -11,6 +11,7 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -236,9 +237,18 @@ class ChatState extends State<ChatScreen> {
           bottom: 32,
           top: 16,
         ),
-        child: Text(
-          object.date,
-          //style: widget.theme.dateDividerTextStyle,
+        child: Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: VartalapTheme.theme.receiverColor,
+            borderRadius: BorderRadius.all(
+              Radius.circular(5),
+            ),
+          ),
+          child: Text(
+            object.date,
+            //style: widget.theme.dateDividerTextStyle,
+          ),
         ),
       );
     } else if (object is MessageSpacer) {

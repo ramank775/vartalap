@@ -8,7 +8,7 @@ class RichMessage extends StatelessWidget {
     r'(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|[\uf000-\uffff])',
   );
   static final RegExp hyperlinkRegex = RegExp(
-    r"(http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?",
+    r"(http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/|ws:\/\/|wss:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?",
     caseSensitive: false,
     multiLine: true,
   );
