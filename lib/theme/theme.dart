@@ -52,6 +52,7 @@ class VartalapTheme {
     required this.linkTitleStyle,
     required this.receiverColor,
     required this.senderColor,
+    this.readMessage = Colors.blueAccent,
   });
 
   final TextStyle appTitleStyle;
@@ -60,6 +61,7 @@ class VartalapTheme {
   final ThemeData appTheme;
   final Color senderColor;
   final Color receiverColor;
+  final Color readMessage;
 
   static ThemeMode get themeMode {
     ThemeMode t = kReleaseMode ? ThemeMode.system : ThemeMode.dark;
@@ -79,6 +81,7 @@ class VartalapTheme {
       ),
       receiverColor: _darkTheme.primaryColorLight,
       senderColor: _primaryDarkColor,
+      readMessage: Colors.green[900]!,
     );
   }
 
@@ -95,6 +98,7 @@ class VartalapTheme {
       ),
       receiverColor: _lightTheme.primaryColorLight,
       senderColor: Colors.blue[300]!,
+      readMessage: Colors.blue[900]!,
     );
   }
 

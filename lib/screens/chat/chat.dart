@@ -4,7 +4,7 @@ import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/dateHeader.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/messageSpacer.dart';
-import 'package:vartalap/models/socketMessage.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/screens/chat/chat_info.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -31,8 +31,8 @@ class ChatScreen extends StatefulWidget {
 class ChatState extends State<ChatScreen> {
   Chat _chat;
   late User _currentUser;
-  late Future<List<Message>> _fMessages;
-  late List<Message> _messages;
+  late Future<List<TextMessage>> _fMessages;
+  late List<TextMessage> _messages;
   late List<Object> _displayMessages;
   List<String> _selectedMessges = [];
   late StreamSubscription _notificationSub;
@@ -49,9 +49,10 @@ class ChatState extends State<ChatScreen> {
     this._chat.users.forEach((u) => _users[u.username] = u);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
-      if (msg.chatId != null && msg.chatId == _chat.id) {
+      final msgInfo = msg.head;
+      if (msgInfo.chatid != null && msgInfo.chatid == _chat.id) {
         return true;
-      } else if (msg.module == "group" && msg.to == _chat.id) {
+      } else if (msgInfo.type == ChatType.GROUP && msgInfo.to == _chat.id) {
         return true;
       }
       return false;
@@ -63,7 +64,7 @@ class ChatState extends State<ChatScreen> {
     );
     _notificationSub.resume();
     _newMessageSub = ChatService.onNewMessageStream
-        .where((msg) => msg.chatId == this._chat.id)
+        .where((msg) => msg.head.chatid == this._chat.id)
         .listen(_onNewMessage, cancelOnError: false);
   }
 
@@ -166,7 +167,7 @@ class ChatState extends State<ChatScreen> {
         children: <Widget>[
           Flexible(
             flex: 1,
-            child: FutureBuilder<List<Message>>(
+            child: FutureBuilder<List<TextMessage>>(
                 future: _fMessages,
                 builder: (context, snapshot) {
                   switch (snapshot.connectionState) {
@@ -214,7 +215,7 @@ class ChatState extends State<ChatScreen> {
           ...this.hasSendPermission()
               ? [
                   MessageInputWidget(sendMessage: (String text) async {
-                    var msg = Message.chatMessage(this._chat.id,
+                    var msg = TextMessage.chatMessage(this._chat.id,
                         this._currentUser.username, text, MessageType.TEXT);
                     msg.sender = this._currentUser;
                     await ChatService.sendMessage(msg, this._chat);
@@ -256,7 +257,7 @@ class ChatState extends State<ChatScreen> {
         height: object.height,
       );
     } else if (object is Map) {
-      Message _msg = object["message"];
+      TextMessage _msg = object["message"];
       if (_msg.sender == null) {
         _msg.sender = getSender(_msg);
       }
@@ -273,7 +274,7 @@ class ChatState extends State<ChatScreen> {
               isYou,
               showUserInfo: showUserInfo,
               isSelected: this._selectedMessges.contains(_msg.id),
-              onTab: (Message msg) {
+              onTab: (TextMessage msg) {
                 if (this._selectedMessges.length > 0) {
                   this.selectOrRemove(msg);
                 }
@@ -289,7 +290,7 @@ class ChatState extends State<ChatScreen> {
           isYou,
           showUserInfo: showUserInfo,
           isSelected: this._selectedMessges.contains(_msg.id),
-          onTab: (Message msg) {
+          onTab: (TextMessage msg) {
             if (this._selectedMessges.length > 0) {
               this.selectOrRemove(msg);
             }
@@ -319,7 +320,7 @@ class ChatState extends State<ChatScreen> {
         .username;
   }
 
-  void selectOrRemove(Message msg) {
+  void selectOrRemove(TextMessage msg) {
     setState(() {
       if (!_selectedMessges.remove(msg.id)) {
         _selectedMessges.add(msg.id);
@@ -355,17 +356,28 @@ class ChatState extends State<ChatScreen> {
     return actions;
   }
 
-  void _onNotification(SocketMessage msg) async {
-    if (msg.from == SocketService.name) {
+  void _onNotification(RemoteMessage msg) async {
+    final msgInfo = msg.head;
+    if (msgInfo.from == SocketService.name) {
       setState(() {
-        this._messages = this._messages.map<Message>((_msg) {
-          if (_msg.id == msg.msgId) {
-            _msg.updateState(msg.state);
+        this._messages = this._messages.map<TextMessage>((_msg) {
+          if (_msg.id == msg.body["id"]) {
+            _msg.updateState(msg.body["state"]);
           }
           return _msg;
         }).toList();
       });
-    } else if (msg.module == "group") {
+    } else if (msgInfo.action == "state") {
+      StateMessge state = toChatMessage(msg) as StateMessge;
+      setState(() {
+        this._messages = this._messages.map<TextMessage>((msg) {
+          if (state.msgIds.contains(msg.id)) {
+            msg.updateState(state.state);
+          }
+          return msg;
+        }).toList();
+      });
+    } else if (msgInfo.type == ChatType.GROUP) {
       var users = await ChatService.getChatUserByid(this._chat.id);
       setState(() {
         this._chat.resetUsers();
@@ -374,8 +386,8 @@ class ChatState extends State<ChatScreen> {
     }
   }
 
-  void _onNewMessage(SocketMessage msg) {
-    var message = msg.toMessage()!;
+  void _onNewMessage(RemoteMessage msg) {
+    TextMessage message = toChatMessage(msg) as TextMessage;
 
     setState(() {
       this._unreadMessages.add(message.id);
@@ -386,21 +398,31 @@ class ChatState extends State<ChatScreen> {
     }
   }
 
-  void _onReadTimerTimeout() {
+  Future _onReadTimerTimeout() async {
     var messages = this
         ._messages
         .where((msg) => (msg.senderId != this._currentUser.username &&
-            msg.state == MessageState.NEW))
+            (msg.state == MessageState.NEW ||
+                msg.state == MessageState.DELIVERED)))
         .map((e) => e.id)
         .toList();
     if (_unreadMessages.length > 0) {
       messages.addAll(_unreadMessages.map((e) => e));
       _unreadMessages = [];
     }
-    ChatService.markAsDelivered(messages);
+    if (messages.length == 0) return;
+    await ChatService.markAsRead(messages, this._chat);
+    setState(() {
+      this._messages = this._messages.map((msg) {
+        if (messages.contains(msg.id)) {
+          msg.updateState(MessageState.READ);
+        }
+        return msg;
+      }).toList();
+    });
   }
 
-  User getSender(Message msg) {
+  User getSender(TextMessage msg) {
     if (this._users.containsKey(msg.senderId)) {
       return this._users[msg.senderId]!;
     } else {

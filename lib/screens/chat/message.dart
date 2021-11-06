@@ -6,7 +6,7 @@ import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
 class MessageWidget extends StatelessWidget {
-  final Message _msg;
+  final TextMessage _msg;
   final bool _isYou;
 
   final bool isSelected;
@@ -14,13 +14,15 @@ class MessageWidget extends StatelessWidget {
   final Function? onLongPress;
   final bool showUserInfo;
 
-  MessageWidget(this._msg, this._isYou,
-      {Key? key,
-      this.isSelected: false,
-      this.onTab,
-      this.onLongPress,
-      this.showUserInfo = false})
-      : super(key: Key(_msg.id));
+  MessageWidget(
+    this._msg,
+    this._isYou, {
+    Key? key,
+    this.isSelected: false,
+    this.onTab,
+    this.onLongPress,
+    this.showUserInfo = false,
+  }) : super(key: Key(_msg.id));
 
   @override
   Widget build(BuildContext context) {
@@ -28,96 +30,70 @@ class MessageWidget extends StatelessWidget {
     final senderColor = VartalapTheme.theme.senderColor;
     final receiverColor = VartalapTheme.theme.receiverColor;
     return GestureDetector(
-        onTap: () {
-          this.onTab!(this._msg);
-        },
-        onLongPress: () {
-          this.onLongPress!(this._msg);
-        },
-        child: Container(
-          decoration: BoxDecoration(
-              color: this.isSelected
-                  ? theme.selectedRowColor
-                  : Colors.transparent),
-          constraints: BoxConstraints(
-            minWidth: double.infinity,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment:
-                _isYou ? MainAxisAlignment.end : MainAxisAlignment.start,
-            children: <Widget>[
-              ...!_isYou
-                  ? [
-                      Container(
-                        child: this.isSelected
-                            ? Checkbox(
-                                shape: CircleBorder(),
-                                value: this.isSelected,
-                                onChanged: (_) => this.onTab,
-                              )
-                            : null,
+      onTap: () {
+        this.onTab!(this._msg);
+      },
+      onLongPress: () {
+        this.onLongPress!(this._msg);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+            color:
+                this.isSelected ? theme.selectedRowColor : Colors.transparent),
+        constraints: BoxConstraints(
+          minWidth: double.infinity,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.max,
+          mainAxisAlignment:
+              _isYou ? MainAxisAlignment.end : MainAxisAlignment.start,
+          children: <Widget>[
+            Container(
+              decoration: BoxDecoration(
+                boxShadow: [
+                  new BoxShadow(
+                    color: theme.backgroundColor,
+                    offset: new Offset(1.0, 1.0),
+                    blurRadius: 0.5,
+                  )
+                ],
+                color: _isYou ? senderColor : receiverColor,
+                borderRadius: _isYou
+                    ? BorderRadius.only(
+                        topLeft: Radius.circular(15.0),
+                        bottomLeft: Radius.circular(15.0),
                       )
-                    ]
-                  : [],
-              Container(
-                decoration: BoxDecoration(
-                  boxShadow: [
-                    new BoxShadow(
-                      color: theme.backgroundColor,
-                      offset: new Offset(1.0, 1.0),
-                      blurRadius: 0.5,
-                    )
-                  ],
-                  color: _isYou ? senderColor : receiverColor,
-                  borderRadius: _isYou
-                      ? BorderRadius.only(
-                          topLeft: Radius.circular(15.0),
-                          bottomLeft: Radius.circular(15.0),
-                        )
-                      : BorderRadius.only(
-                          topRight: Radius.circular(15.0),
-                          bottomRight: Radius.circular(15.0),
-                        ),
-                ),
-                constraints: BoxConstraints(
-                  minWidth: MediaQuery.of(context).size.width * 0.25,
-                  maxWidth: MediaQuery.of(context).size.width * 0.75,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8.0,
-                  vertical: 6.0,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  textBaseline: TextBaseline.ideographic,
-                  children: getMessageComponents(context),
-                ),
+                    : BorderRadius.only(
+                        topRight: Radius.circular(15.0),
+                        bottomRight: Radius.circular(15.0),
+                      ),
               ),
-              ..._isYou
-                  ? [
-                      Container(
-                        child: this.isSelected
-                            ? Checkbox(
-                                shape: CircleBorder(),
-                                value: this.isSelected,
-                                onChanged: (_) => this.onTab,
-                              )
-                            : null,
-                      )
-                    ]
-                  : []
-            ],
-          ),
-        ));
+              constraints: BoxConstraints(
+                minWidth: MediaQuery.of(context).size.width * 0.25,
+                maxWidth: MediaQuery.of(context).size.width * 0.75,
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: 6.0,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                textBaseline: TextBaseline.ideographic,
+                children: getMessageComponents(context),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   List<Widget> getMessageComponents(BuildContext context) {
     var theme = Theme.of(context);
     final TextStyle textStyle = TextStyle(
-      fontSize: 18.0,
-      fontWeight: FontWeight.w400,
+      fontSize: theme.primaryTextTheme.subtitle1!.fontSize,
+      fontWeight: theme.primaryTextTheme.subtitle1!.fontWeight,
       letterSpacing: 0.25,
       color: theme.textTheme.bodyText1?.color,
     );
@@ -190,10 +166,13 @@ class MessageWidget extends StatelessWidget {
         break;
       case MessageState.DELIVERED:
         icon = Icons.done_all;
-        color = Colors.blueAccent;
         break;
       case MessageState.OTHER:
         return Container();
+      case MessageState.READ:
+        icon = Icons.done_all;
+        color = VartalapTheme.theme.readMessage;
+        break;
     }
 
     return Icon(

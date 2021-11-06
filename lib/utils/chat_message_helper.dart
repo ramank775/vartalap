@@ -2,11 +2,12 @@ import 'package:vartalap/models/dateHeader.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/messageSpacer.dart';
 import 'package:vartalap/models/previewImage.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 
 List<Object> calculateChatMessages(
-  List<Message> messages,
+  List<ChatMessage> messages,
   User user, {
   String Function(DateTime)? customDateHeaderText,
   required bool showUserNames,
@@ -106,4 +107,25 @@ List<Object> calculateChatMessages(
   }
 
   return [chatMessages, gallery];
+}
+
+ChatMessage toChatMessage(RemoteMessage msg) {
+  ChatMessage chatMsg;
+  if (msg.head.contentType == MessageType.NOTIFICATION &&
+      msg.head.action == "state") {
+    chatMsg = StateMessge(
+      msg.head.chatid!,
+      msg.head.from,
+      MessageState.OTHER,
+    );
+  } else {
+    chatMsg = TextMessage(
+      msg.id,
+      msg.head.chatid!,
+      msg.head.from,
+    );
+  }
+
+  chatMsg.fromRemoteBody(msg.body);
+  return chatMsg;
 }
