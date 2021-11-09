@@ -64,7 +64,7 @@ class ChatService {
     message.senderid, message.text, message.state, message.ts ,
     ( select count(*) 
       from message 
-      where chatid == chat.id and senderid !=? and state == 0
+      where chatid == chat.id and senderid !=? and state in (0,2)
     ) unread
     from chat
     inner join message on message.id in (

@@ -19,16 +19,19 @@ class RichMessage extends StatelessWidget {
 
   final TextStyle style;
   final String text;
-  RichMessage(this.text, this.style);
+  final bool selectable;
+  RichMessage(this.text, this.style, {this.selectable = false});
 
   @override
   Widget build(BuildContext context) {
-    return SelectableText.rich(
-      TextSpan(
-        children: generateMessageTextSpans(text),
-        style: this.style,
-      ),
+    final txtSpan = TextSpan(
+      children: generateMessageTextSpans(text),
+      style: this.style,
     );
+    if (selectable) {
+      return SelectableText.rich(txtSpan);
+    }
+    return RichText(text: txtSpan);
   }
 
   List<TextSpan> generateMessageTextSpans(String text) {
