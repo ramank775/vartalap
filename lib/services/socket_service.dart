@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:connectivity/connectivity.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:vartalap/models/message.dart';
