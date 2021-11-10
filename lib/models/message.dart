@@ -7,12 +7,17 @@ enum MessageState {
   NEW,
   SENT,
   DELIVERED,
+  OTHER,
 }
 
 enum MessageType {
   TEXT,
   NOTIFICATION,
   ATTACHMENT,
+  IMAGE,
+  VIDEO,
+  AUDIO,
+  OTHER,
 }
 
 class Message {
@@ -32,7 +37,7 @@ class Message {
   MessageState get state => _state;
   MessageType get type => _type;
   int get timestamp => _ts;
-  set timstamp(int ts) {
+  set timestamp(int ts) {
     this._ts = ts;
   }
 

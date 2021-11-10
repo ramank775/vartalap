@@ -5,6 +5,7 @@ enum UserStatus {
   ACTIVE,
   DELETED,
   UNKNOWN,
+  OTHER,
 }
 
 class User {

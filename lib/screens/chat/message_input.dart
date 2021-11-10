@@ -1,4 +1,5 @@
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 class MessageInputWidget extends StatefulWidget {
@@ -112,6 +113,9 @@ class MessageInputState extends State<MessageInputWidget> {
                           sendMessage();
                         },
                         keyboardType: TextInputType.multiline,
+                        style: TextStyle(
+                          fontSize: 19,
+                        ),
                         maxLines: null,
                         maxLength: TextField.noMaxLength,
                         focusNode: _inputFocus,
@@ -155,7 +159,7 @@ class MessageInputState extends State<MessageInputWidget> {
             horizontalSpacing: 0,
             initCategory: Category.RECENT,
             bgColor: theme.scaffoldBackgroundColor,
-            indicatorColor: theme.accentColor,
+            indicatorColor: theme.indicatorColor,
             showRecentsTab: true,
             recentsLimit: 28,
             noRecentsText: 'No Recents',
@@ -163,7 +167,7 @@ class MessageInputState extends State<MessageInputWidget> {
             categoryIcons: CategoryIcons(),
             buttonMode: ButtonMode.MATERIAL,
             iconColorSelected: theme.selectedRowColor,
-            progressIndicatorColor: theme.accentColor,
+            progressIndicatorColor: theme.indicatorColor,
           ),
         ),
       ),

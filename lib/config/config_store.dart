@@ -6,7 +6,7 @@ import 'package:package_info/package_info.dart';
 
 class ConfigStore {
   static ConfigStore _singleTon = ConfigStore._internal();
-  static String _configFile = "config.json";
+  static String _configFile = kDebugMode ? "config.local.json" : "config.json";
   static String _licenseFile = "LICENCE";
   static bool _isloaded = false;
   factory ConfigStore() {

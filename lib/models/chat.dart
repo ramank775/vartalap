@@ -6,12 +6,14 @@ enum ChatType {
   NONE,
   INDIVIDUAL,
   GROUP,
+  OTHER,
 }
 
 enum UserRole {
   USER,
   ADMIN,
   EX_USER,
+  OTHER,
 }
 
 class ChatUser extends User {

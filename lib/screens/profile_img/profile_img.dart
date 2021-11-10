@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ProfileImgSize { MD, SM }
+enum ProfileImgSize { MD, SM, OTHER }
 
 class ProfileImg extends StatelessWidget {
   final String _uri;

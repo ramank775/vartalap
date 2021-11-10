@@ -1,5 +1,6 @@
 import 'package:vartalap/models/message.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/color_helper.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/rich_message.dart';
@@ -23,7 +24,9 @@ class MessageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var theme = Theme.of(context);
+    final theme = VartalapTheme.theme.appTheme;
+    final senderColor = VartalapTheme.theme.senderColor;
+    final receiverColor = VartalapTheme.theme.receiverColor;
     return GestureDetector(
         onTap: () {
           this.onTab!(this._msg);
@@ -32,7 +35,10 @@ class MessageWidget extends StatelessWidget {
           this.onLongPress!(this._msg);
         },
         child: Container(
-          color: this.isSelected ? theme.selectedRowColor : Colors.transparent,
+          decoration: BoxDecoration(
+              color: this.isSelected
+                  ? theme.selectedRowColor
+                  : Colors.transparent),
           constraints: BoxConstraints(
             minWidth: double.infinity,
           ),
@@ -41,6 +47,19 @@ class MessageWidget extends StatelessWidget {
             mainAxisAlignment:
                 _isYou ? MainAxisAlignment.end : MainAxisAlignment.start,
             children: <Widget>[
+              ...!_isYou
+                  ? [
+                      Container(
+                        child: this.isSelected
+                            ? Checkbox(
+                                shape: CircleBorder(),
+                                value: this.isSelected,
+                                onChanged: (_) => this.onTab,
+                              )
+                            : null,
+                      )
+                    ]
+                  : [],
               Container(
                 decoration: BoxDecoration(
                   boxShadow: [
@@ -50,15 +69,15 @@ class MessageWidget extends StatelessWidget {
                       blurRadius: 0.5,
                     )
                   ],
-                  color: _isYou ? theme.accentColor : theme.primaryColorLight,
+                  color: _isYou ? senderColor : receiverColor,
                   borderRadius: _isYou
                       ? BorderRadius.only(
-                          topLeft: Radius.circular(8.0),
-                          bottomLeft: Radius.circular(8.0),
+                          topLeft: Radius.circular(15.0),
+                          bottomLeft: Radius.circular(15.0),
                         )
                       : BorderRadius.only(
-                          topRight: Radius.circular(8.0),
-                          bottomRight: Radius.circular(8.0),
+                          topRight: Radius.circular(15.0),
+                          bottomRight: Radius.circular(15.0),
                         ),
                 ),
                 constraints: BoxConstraints(
@@ -76,6 +95,19 @@ class MessageWidget extends StatelessWidget {
                   children: getMessageComponents(context),
                 ),
               ),
+              ..._isYou
+                  ? [
+                      Container(
+                        child: this.isSelected
+                            ? Checkbox(
+                                shape: CircleBorder(),
+                                value: this.isSelected,
+                                onChanged: (_) => this.onTab,
+                              )
+                            : null,
+                      )
+                    ]
+                  : []
             ],
           ),
         ));
@@ -84,7 +116,7 @@ class MessageWidget extends StatelessWidget {
   List<Widget> getMessageComponents(BuildContext context) {
     var theme = Theme.of(context);
     final TextStyle textStyle = TextStyle(
-      fontSize: 16.0,
+      fontSize: 18.0,
       fontWeight: FontWeight.w400,
       letterSpacing: 0.25,
       color: theme.textTheme.bodyText1?.color,
@@ -98,7 +130,7 @@ class MessageWidget extends StatelessWidget {
             this._msg.sender == null ? '' : this._msg.sender!.name,
             textAlign: TextAlign.start,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               color: getColor(this._msg.sender!.name, opacity: 1),
             ),
           ),
@@ -128,7 +160,7 @@ class MessageWidget extends StatelessWidget {
               textBaseline: TextBaseline.ideographic,
               children: <Widget>[
                 Text(
-                  formatMessageDateTime(this._msg.timestamp),
+                  formatMessageTime(this._msg.timestamp),
                   style: TextStyle(
                     fontSize: 11.0,
                   ),
@@ -159,6 +191,9 @@ class MessageWidget extends StatelessWidget {
       case MessageState.DELIVERED:
         icon = Icons.done_all;
         color = Colors.blueAccent;
+        break;
+      case MessageState.OTHER:
+        return Container();
     }
 
     return Icon(

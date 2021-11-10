@@ -1,12 +1,21 @@
-String formatMessageDateTime(int timestamp) {
-  var date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-  var currentDate = DateTime.now();
-  var format = (int n) => n < 10 ? "0$n" : n;
+String formatMessageDate(int timestamp) {
+  final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+  final format = (int n) => n < 10 ? "0$n" : n;
 
-  if (date.day == currentDate.day &&
-      date.month == currentDate.month &&
-      date.year == currentDate.year) {
-    return "${date.hour}:${format(date.minute)}";
+  return "${date.day}/${format(date.month)}/${format(date.year)}";
+}
+
+String formatMessageTime(int timestamp) {
+  var date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+  var format = (int n) => n < 10 ? "0$n" : n;
+  return "${date.hour}:${format(date.minute)}";
+}
+
+String formatMessageTimestamp(int timestamp) {
+  final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+  final today = DateTime.now();
+  if (date.year == today.year && date.day == today.day) {
+    return formatMessageTime(timestamp);
   }
-  return "${date.day}/${format(date.month)} ${date.hour}:${format(date.minute)}";
+  return formatMessageDate(timestamp);
 }

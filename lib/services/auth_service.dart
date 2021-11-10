@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/crashlystics.dart';
@@ -14,17 +13,19 @@ class AuthResponse {
 }
 
 class AuthService {
-  late FirebaseAuth _auth;
+  FirebaseAuth _auth = FirebaseAuth.instance;
   String? _phoneNumber;
   int? _resendToken;
   late String _verificationId;
   User? _user;
   static FlutterSecureStorage _storage = new FlutterSecureStorage();
   static AuthService? _instance;
+  late Stream authStateChange;
 
   AuthService() {
-    _auth = FirebaseAuth.instance;
-    _auth.authStateChanges().listen((event) {
+    final stream = _auth.authStateChanges();
+    authStateChange = stream.isBroadcast ? stream : stream.asBroadcastStream();
+    authStateChange.listen((event) {
       _user = event;
     });
   }
@@ -108,6 +109,10 @@ class AuthService {
     return _user != null;
   }
 
+  Future<void> signout() async {
+    await this._auth.signOut();
+  }
+
   String? get phoneNumber {
     if (isLoggedIn()) {
       return _user!.phoneNumber;
@@ -130,7 +135,6 @@ class AuthService {
   }
 
   static Future<void> init() async {
-    await Firebase.initializeApp();
     try {
       String? _phoneNumber = await _storage.read(key: 'phoneNumber');
       if (_phoneNumber != null) {

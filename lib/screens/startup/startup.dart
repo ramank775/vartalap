@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:package_info/package_info.dart';
+//import 'package:package_info/package_info.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/introduction.dart';
@@ -12,35 +12,21 @@ import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/Inherited/config_provider.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
-class StartupScreen extends StatefulWidget {
-  @override
-  State<StatefulWidget> createState() {
-    return StartupScreenState();
-  }
-}
+class StartupScreen extends StatelessWidget {
+  const StartupScreen({Key? key}) : super(key: key);
 
-class StartupScreenState extends State<StartupScreen> {
-  late PackageInfo info;
-  var configStore = ConfigStore();
-  @override
-  void initState() {
-    super.initState();
-    initializeApp().then((value) => {info = configStore.packageInfo});
-  }
-
-  Future<void> initializeApp() async {
+  Future<void> _initializeApp(
+      ConfigStore configStore, BuildContext context) async {
     List<Future> _promises = [];
-    info = configStore.packageInfo;
     await AuthService.init();
     Crashlytics.init();
     PerformanceMetric.init();
-    bool isLoggedIn = await UserService.isAuth();
-    if (isLoggedIn) {
-      ChatService.init().then((value) => null);
-    }
-    if (!isLoggedIn) {
+    bool isLogin = CurrentUser.of(context).user != null;
+    if (!isLogin) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -49,14 +35,16 @@ class StartupScreenState extends State<StartupScreen> {
       );
       return;
     }
+
+    ChatService.init().then((value) => null);
     var value = await Permission.contacts.request();
     if (value.isGranted) {
       _promises.add(UserService.syncContacts());
-      Navigator.pushReplacement(
-        context,
+      Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
           builder: (context) => Chats(),
         ),
+        (route) => false,
       );
       await Future.wait(_promises);
     }
@@ -67,7 +55,11 @@ class StartupScreenState extends State<StartupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    var theme = Theme.of(context);
+    final theme = Theme.of(context);
+    final configStore = ConfigProvider.of(context).configStore;
+    this._initializeApp(configStore, context);
+    final packageInfo = configStore.packageInfo;
+
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
@@ -89,8 +81,8 @@ class StartupScreenState extends State<StartupScreen> {
                         padding: EdgeInsets.only(top: 10.0),
                       ),
                       Text(
-                        info.appName,
-                        style: ThemeInfo.appTitle.copyWith(
+                        packageInfo.appName,
+                        style: VartalapTheme.theme.appTitleStyle.copyWith(
                           fontSize: 30,
                           fontWeight: FontWeight.bold,
                         ),
@@ -119,7 +111,7 @@ class StartupScreenState extends State<StartupScreen> {
                           color: Colors.white),
                     ),
                     Text(
-                      "v${info.version}+${info.buildNumber}",
+                      "v${packageInfo.version}+${packageInfo.buildNumber}",
                       style: TextStyle(color: Colors.white),
                     )
                   ],

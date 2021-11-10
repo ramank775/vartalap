@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/url_helper.dart';
 
 class RichMessage extends StatelessWidget {
@@ -7,7 +8,7 @@ class RichMessage extends StatelessWidget {
     r'(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|[\uf000-\uffff])',
   );
   static final RegExp hyperlinkRegex = RegExp(
-    r"(http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?",
+    r"(http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/|ws:\/\/|wss:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?",
     caseSensitive: false,
     multiLine: true,
   );
@@ -22,8 +23,8 @@ class RichMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: TextSpan(
+    return SelectableText.rich(
+      TextSpan(
         children: generateMessageTextSpans(text),
         style: this.style,
       ),
@@ -41,7 +42,8 @@ class RichMessage extends StatelessWidget {
       fontSize: style.fontSize! * 1.7,
     );
 
-    final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[400]);
+    final TextStyle hyperLinkStyle =
+        this.style.merge(VartalapTheme.theme.linkTitleStyle);
     String emojiString = "";
 
     text.splitMapJoin(

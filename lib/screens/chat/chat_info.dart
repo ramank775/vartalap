@@ -25,7 +25,7 @@ class ChatInfo extends StatelessWidget {
           children: [
             Container(
               height: 80,
-              color: Theme.of(context).primaryColor,
+              color: Theme.of(context).cardColor,
               child: ListTile(
                 leading: CircleAvatar(
                   radius: 30,
@@ -63,7 +63,6 @@ class ChatInfo extends StatelessWidget {
                         leading: Icon(
                           Icons.group_add,
                           size: 30,
-                          color: Theme.of(context).accentColor,
                         ),
                         title: Text(
                           "Add members",

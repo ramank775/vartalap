@@ -1,15 +1,18 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/socketMessage.dart';
 import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/chats/chat_preview.dart';
+import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/Inherited/config_provider.dart';
+import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 import 'package:vartalap/services/socket_service.dart';
-import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/find.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
@@ -27,11 +30,10 @@ class ChatsState extends State<Chats> {
 
   @override
   void initState() {
-    config = ConfigStore();
     super.initState();
+
     this._fChats = ChatService.getChats();
     this._selectedChats = [];
-    this.config = ConfigStore();
     PushNotificationService.instance.config(
       onMessage: (Map<String, dynamic> payload) {
         if (payload["data"] == null) return;
@@ -55,11 +57,15 @@ class ChatsState extends State<Chats> {
 
   @override
   Widget build(BuildContext context) {
+    config = ConfigProvider.of(context).configStore;
     return Scaffold(
       appBar: AppBar(
         title: Text(
           config.packageInfo.appName,
-          style: ThemeInfo.appTitle.copyWith(fontWeight: FontWeight.bold),
+          style: VartalapTheme.theme.appTitleStyle.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
         ),
         actions: getActions(),
       ),
@@ -102,7 +108,6 @@ class ChatsState extends State<Chats> {
         onPressed: () => navigate('/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
-        backgroundColor: Theme.of(context).accentColor,
       ),
     );
   }
@@ -139,7 +144,7 @@ class ChatsState extends State<Chats> {
     }
     actions.add(
       PopupMenuButton(
-        onSelected: (value) {
+        onSelected: (value) async {
           //Navigator.of(context).pop(value);
           if (value == 'About Dialog') {
             showAboutDialog(
@@ -159,20 +164,35 @@ class ChatsState extends State<Chats> {
                     color: Theme.of(context).textTheme.bodyText1?.color,
                   ),
                 ),
+                Text("------------------------------------------------"),
+                RichMessage(
+                    """Server Info:\n API URL: ${config.get("api_url")} \n WebSocket: ${config.get("ws_url")}""",
+                    TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).textTheme.bodyText1?.color,
+                    ))
               ],
             );
           } else if (value == 'Privacy Policy') {
             var link = config.get('privacy_policy');
             launchUrl(link);
+          } else if (value == "Logout") {
+            await AuthService.instance.signout();
           }
         },
-        itemBuilder: (BuildContext context) => [
-          PopupMenuItem(value: 'About Dialog', child: Text("About us")),
-          PopupMenuItem(
-            value: 'Privacy Policy',
-            child: Text("Privacy Policy"),
-          )
-        ],
+        itemBuilder: (BuildContext context) {
+          final options = [
+            PopupMenuItem(value: 'About Dialog', child: Text("About us")),
+            PopupMenuItem(
+              value: 'Privacy Policy',
+              child: Text("Privacy Policy"),
+            ),
+          ];
+          if (!kReleaseMode) {
+            options.add(PopupMenuItem(child: Text("Logout"), value: "Logout"));
+          }
+          return options;
+        },
       ),
     );
     return actions;

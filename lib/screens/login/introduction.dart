@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
@@ -10,6 +11,10 @@ class IntroductionScreen extends StatelessWidget {
   final config = ConfigStore();
   @override
   Widget build(BuildContext context) {
+    final theme = VartalapTheme.theme;
+    final linkTheme = theme.linkTitleStyle.copyWith(
+      fontWeight: FontWeight.bold,
+    );
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(10.0),
@@ -36,8 +41,7 @@ class IntroductionScreen extends StatelessWidget {
                     margin: EdgeInsets.only(top: 10),
                     child: Text(
                       config.packageInfo.appName,
-                      style: TextStyle(
-                        color: Theme.of(context).accentColor,
+                      style: VartalapTheme.theme.appTitleStyle.copyWith(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,
                       ),
@@ -63,10 +67,7 @@ class IntroductionScreen extends StatelessWidget {
                           ),
                           TextSpan(
                             text: 'Privacy Policy. ',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[400],
-                            ),
+                            style: linkTheme,
                             recognizer: TapGestureRecognizer()
                               ..onTap = () => launchUrl(
                                     config.get('privacy_policy'),
@@ -77,10 +78,7 @@ class IntroductionScreen extends StatelessWidget {
                           ),
                           TextSpan(
                             text: 'Terms of Service',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[400],
-                            ),
+                            style: linkTheme,
                             recognizer: TapGestureRecognizer()
                               ..onTap = () => launchUrl(
                                     config.get('privacy_policy'),

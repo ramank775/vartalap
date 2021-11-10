@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 
 class AppLogo extends StatelessWidget {
   final double size;
@@ -6,13 +7,13 @@ class AppLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var theme = Theme.of(context);
+    final theme = VartalapTheme.theme;
     return CircleAvatar(
       backgroundColor: Colors.white,
       radius: this.size,
       child: Icon(
         Icons.chat_bubble_outline,
-        color: theme.accentColor,
+        color: theme.appLogoColor,
         size: this.size,
       ),
     );
