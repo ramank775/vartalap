@@ -8,6 +8,7 @@ class ConfigStore {
   static ConfigStore _singleTon = ConfigStore._internal();
   static String _configFile = "config.json";
   static String _licenseFile = "LICENCE";
+  static bool _isloaded = false;
   factory ConfigStore() {
     return _singleTon;
   }
@@ -20,9 +21,12 @@ class ConfigStore {
     version: '',
   );
 
+  String subtitle = "Open source personal chat messager";
+
   ConfigStore._internal();
 
   Future<void> loadConfig() async {
+    if (_isloaded) return;
     String rawContent = await rootBundle.loadString(_configFile);
     Map<String, dynamic> content =
         Map<String, dynamic>.from(json.decode(rawContent));
@@ -33,6 +37,7 @@ class ConfigStore {
       var license = await rootBundle.loadString(_licenseFile);
       yield LicenseEntryWithLineBreaks([packageInfo.appName], license);
     });
+    _isloaded = true;
   }
 
   T get<T>(String key) {

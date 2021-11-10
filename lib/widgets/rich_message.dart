@@ -1,6 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:vartalap/utils/url_helper.dart';
 
 class RichMessage extends StatelessWidget {
   static final RegExp emojiRegex = RegExp(
@@ -33,21 +33,21 @@ class RichMessage extends StatelessWidget {
   List<TextSpan> generateMessageTextSpans(String text) {
     List<TextSpan> spans = [];
     final TextStyle emojiStyle = style.copyWith(
-      fontSize: (style.fontSize * 1.5),
+      fontSize: (style.fontSize! * 1.5),
       letterSpacing: 0.5,
     );
 
     final TextStyle combinedEmojiStyle = emojiStyle.copyWith(
-      fontSize: style.fontSize * 1.7,
+      fontSize: style.fontSize! * 1.7,
     );
 
-    final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[700]);
+    final TextStyle hyperLinkStyle = style.copyWith(color: Colors.blue[400]);
     String emojiString = "";
 
     text.splitMapJoin(
       emojiRegex,
       onMatch: (m) {
-        emojiString += m.group(0);
+        emojiString += m.group(0)!;
         return "";
       },
       onNonMatch: (s) {
@@ -85,7 +85,7 @@ class RichMessage extends StatelessWidget {
                   style: hyperLinkStyle,
                   recognizer: TapGestureRecognizer()
                     ..onTap = () => _launchUrl(
-                          m.group(0),
+                          m.group(0)!,
                         ),
                 ),
               );
@@ -117,11 +117,6 @@ class RichMessage extends StatelessWidget {
   }
 
   void _launchUrl(String link) async {
-    link = link.toLowerCase();
-    var uri = Uri.parse(link);
-    if (!uri.hasScheme) {
-      link = "http://$link";
-    }
-    if (await canLaunch(link)) await launch(link);
+    await launchUrl(link);
   }
 }

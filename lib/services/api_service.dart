@@ -10,19 +10,24 @@ import 'package:vartalap/services/performance_metric.dart';
 class ApiService {
   static FlutterSecureStorage _storage = new FlutterSecureStorage();
   static const String ACCESS_KEY = 'accesskey';
-  static Future<String> get _accesskey {
+  static Future<String?> get _accesskey {
     return _storage.read(key: ACCESS_KEY);
   }
 
   static Future<Map<String, String>> getAuthHeader(
       {includeAccessKey = true}) async {
-    String idToken = await AuthService.instance.idToken;
-    Map<String, String> headers = {
-      "token": idToken,
-      "user": AuthService.instance.phoneNumber
-    };
+    String? idToken = await AuthService.instance.idToken;
+    Map<String, String> headers = {};
+    if (idToken != null) {
+      headers["token"] = idToken;
+    }
+    String? phone = AuthService.instance.phoneNumber;
+    if (phone != null) {
+      headers["user"] = phone;
+    }
     if (includeAccessKey) {
-      headers[ACCESS_KEY] = await _accesskey;
+      String? key = await _accesskey;
+      if (key != null) headers[ACCESS_KEY] = key;
     }
 
     return headers;
@@ -30,9 +35,10 @@ class ApiService {
 
   static Future<http.Response> _post(String path, Map<String, dynamic> data,
       {bool includeAccesskey = true}) async {
-    String url = ConfigStore().get<String>("api_url");
-    String resourceUrl = "$url/$path";
-    var _httpMetric = PerformanceMetric.newHttpMetric(resourceUrl, 'post');
+    String baseUrl = ConfigStore().get<String>("api_url");
+    var resourceUrl = Uri.parse("$baseUrl/$path");
+    var _httpMetric =
+        PerformanceMetric.newHttpMetric(resourceUrl.toString(), 'post');
 
     String content = json.encode(data);
     Map<String, String> headers =
@@ -44,9 +50,35 @@ class ApiService {
     try {
       resp = await http.post(resourceUrl, headers: headers, body: content);
       _httpMetric
-        ..responsePayloadSize = resp.contentLength
-        ..responseContentType = resp.headers['Content-Type']
-        ..requestPayloadSize = resp.contentLength
+        ..responsePayloadSize = resp.contentLength ?? 0
+        ..responseContentType = resp.headers['Content-Type'] ?? ''
+        ..requestPayloadSize = resp.contentLength ?? 0
+        ..httpResponseCode = resp.statusCode;
+    } finally {
+      _httpMetric.stop();
+    }
+
+    return resp;
+  }
+
+  static Future<http.Response> _get(String path,
+      {bool includeAccesskey = true}) async {
+    String baseUrl = ConfigStore().get<String>("api_url");
+    var resourceUrl = Uri.parse("$baseUrl/$path");
+    var _httpMetric =
+        PerformanceMetric.newHttpMetric(resourceUrl.toString(), 'get');
+
+    Map<String, String> headers =
+        await getAuthHeader(includeAccessKey: includeAccesskey);
+
+    await _httpMetric.start();
+    http.Response resp;
+    try {
+      resp = await http.get(resourceUrl, headers: headers);
+      _httpMetric
+        ..responsePayloadSize = resp.contentLength ?? 0
+        ..responseContentType = resp.headers['Content-Type'] ?? ''
+        ..requestPayloadSize = resp.contentLength ?? 0
         ..httpResponseCode = resp.statusCode;
     } finally {
       _httpMetric.stop();
@@ -59,6 +91,21 @@ class ApiService {
     if (resp.statusCode == 200) {
       var decoded = json.decode(resp.body);
       Map<String, dynamic> response = Map<String, dynamic>.from(decoded);
+      return response;
+    }
+    throw Exception("Response code ${resp.statusCode}");
+  }
+
+  static List<Map<String, dynamic>> _handleListResponse(http.Response resp) {
+    if (resp.statusCode == 200) {
+      var decoded = json.decode(resp.body);
+      List<Map<String, dynamic>> response = [];
+      if (decoded is List) {
+        for (var i = 0; i < decoded.length; i++) {
+          var resp = Map<String, dynamic>.from(decoded[i]);
+          response.add(resp);
+        }
+      }
       return response;
     }
     throw Exception("Response code ${resp.statusCode}");
@@ -81,6 +128,41 @@ class ApiService {
   static Future<Map<String, dynamic>> syncContact(List<String> users) async {
     http.Response response = await _post("profile/user/sync", {"users": users});
     Map<String, dynamic> resp = _handleResponse(response);
+    return resp;
+  }
+
+  static Future<String> createGroup(
+      String groupTitle, List<String> members, String? profilePic) async {
+    http.Response response = await _post("group/create",
+        {"name": groupTitle, "members": members, "profilePic": profilePic});
+    Map<String, dynamic> resp = _handleResponse(response);
+    return resp["groupId"].toString();
+  }
+
+  static Future<bool> addMembersToGroup(
+      List<String> members, String groupId) async {
+    http.Response response =
+        await _post("group/$groupId/add", {"members": members});
+    Map<String, dynamic> resp = _handleResponse(response);
+    return resp["status"];
+  }
+
+  static Future<bool> removeMemberToGroup(String member, String groupId) async {
+    http.Response response =
+        await _post("group/$groupId/remove", {"member": member});
+    Map<String, dynamic> resp = _handleResponse(response);
+    return resp["status"];
+  }
+
+  static Future<Map<String, dynamic>> getGroupInfo(String groupId) async {
+    http.Response response = await _get("group/$groupId");
+    Map<String, dynamic> resp = _handleResponse(response);
+    return resp;
+  }
+
+  static Future<List<Map<String, dynamic>>> getGroups() async {
+    http.Response response = await _get("group/get");
+    var resp = _handleListResponse(response);
     return resp;
   }
 }

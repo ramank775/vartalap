@@ -1,12 +1,12 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/screens/login/verifyOtp.dart';
-import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
-class LoginScreen extends StatelessWidget {
-  final TextEditingController _phoneController =
-      TextEditingController(text: "+91");
+import 'login.dart';
+
+class IntroductionScreen extends StatelessWidget {
   final config = ConfigStore();
   @override
   Widget build(BuildContext context) {
@@ -16,7 +16,7 @@ class LoginScreen extends StatelessWidget {
         child: Column(
           children: <Widget>[
             Expanded(
-              flex: 5,
+              flex: 2,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -47,7 +47,7 @@ class LoginScreen extends StatelessWidget {
               ),
             ),
             Expanded(
-              flex: 4,
+              flex: 1,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -59,67 +59,55 @@ class LoginScreen extends StatelessWidget {
                       text: TextSpan(
                         children: <TextSpan>[
                           TextSpan(
-                            text: 'We will send you an ',
+                            text: 'Read our ',
                           ),
                           TextSpan(
-                              text: 'One Time Password ',
-                              style: TextStyle(fontWeight: FontWeight.bold)),
-                          TextSpan(
-                            text: 'on this mobile number',
+                            text: 'Privacy Policy. ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue[400],
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () => launchUrl(
+                                    config.get('privacy_policy'),
+                                  ),
                           ),
+                          TextSpan(
+                            text: 'Tap "Agree and continue" to accept the ',
+                          ),
+                          TextSpan(
+                            text: 'Terms of Service',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue[400],
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () => launchUrl(
+                                    config.get('privacy_policy'),
+                                  ),
+                          )
                         ],
-                        style: TextStyle(
-                          color: Theme.of(context).accentColor,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: TextField(
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: "+91...",
-                          icon: Icon(Icons.phone),
-                        ),
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        maxLines: 1,
-                        autofocus: true,
+                        style: Theme.of(context)
+                            .textTheme
+                            .caption
+                            ?.copyWith(fontSize: 14),
                       ),
                     ),
                   ),
                   Container(
                     margin: const EdgeInsets.symmetric(
                       horizontal: 20,
-                      vertical: 5,
+                      vertical: 15,
                     ),
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: ElevatedButton(
                       onPressed: () async {
-                        List<String> errors = [];
-                        if (_phoneController.text.isNotEmpty) {
-                          bool status =
-                              await UserService.sendOTP(_phoneController.text);
-                          if (status) {
-                            Navigator.of(context).push(MaterialPageRoute(
-                                builder: (ctx) => VerifyOtpWidget()));
-                            return;
-                          }
-                          errors = [
-                            'Unable to send one time password.',
-                            'Please verify the phone number and try again.'
-                          ];
-                        } else {
-                          errors.add('Plese enter a phone numer.');
-                        }
-                        showErrorDialog(context, errors);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) => LoginScreen(),
+                          ),
+                        );
                       },
                       style: ElevatedButton.styleFrom(
                         shape: const RoundedRectangleBorder(
@@ -137,7 +125,7 @@ class LoginScreen extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: <Widget>[
                             Text(
-                              'Next',
+                              'AGREE AND CONTINUE',
                             ),
                             Container(
                               padding: const EdgeInsets.all(8),
@@ -156,35 +144,15 @@ class LoginScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  Text(
+                    "v${config.packageInfo.version}+${config.packageInfo.buildNumber}",
+                  )
                 ],
               ),
             )
           ],
         ),
       ),
-    );
-  }
-
-  void showErrorDialog(BuildContext context, List<String> messages) {
-    var contents = messages.map((e) => Text(e)).toList();
-    var dialog = AlertDialog(
-      title: Text("Error"),
-      content: SingleChildScrollView(
-        child: ListBody(children: contents),
-      ),
-      actions: [
-        TextButton(
-          child: Text('OK'),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
-        ),
-      ],
-    );
-
-    showDialog(
-      context: context,
-      builder: (context) => dialog,
     );
   }
 }

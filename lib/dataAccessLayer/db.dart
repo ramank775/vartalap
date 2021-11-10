@@ -5,7 +5,15 @@ import 'package:sqflite/sqflite.dart';
 class DB {
   final dbName = "Chat";
   final version = 2;
-  static Database _db;
+  late Future<Database> _db = initDatabase();
+
+  static final DB _singleton = DB._internal();
+
+  factory DB() {
+    return _singleton;
+  }
+
+  DB._internal();
 
   Future<String> _getDatabasePath(String dbName) async {
     final databasePath = await getDatabasesPath();
@@ -19,14 +27,15 @@ class DB {
     return path;
   }
 
-  Future<void> initDatabase() async {
+  Future<Database> initDatabase() async {
     final path = await _getDatabasePath(dbName);
-    _db = await openDatabase(
+    var db = await openDatabase(
       path,
       version: version,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+    return db;
   }
 
   Future<void> _onCreate(Database db, dynamic version) async {
@@ -91,9 +100,6 @@ class DB {
   }
 
   Future<Database> getDb() async {
-    if (_db == null) {
-      await initDatabase();
-    }
     return _db;
   }
 }

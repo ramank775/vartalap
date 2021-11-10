@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/widgets.dart';
 
@@ -5,17 +6,21 @@ class Crashlytics {
   static FirebaseCrashlytics _crashlytics = FirebaseCrashlytics.instance;
 
   static init() {
-    _crashlytics.setCrashlyticsCollectionEnabled(true);
-    Function originalOnError = FlutterError.onError;
+    _crashlytics.setCrashlyticsCollectionEnabled(kReleaseMode);
+    Function? originalOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails errorDetails) async {
       await FirebaseCrashlytics.instance.recordFlutterError(errorDetails);
       // Forward to original handler.
-      originalOnError(errorDetails);
+      originalOnError!(errorDetails);
     };
   }
 
-  static Future<void> recordError(dynamic exception, StackTrace stack,
-      {dynamic reason, Iterable<DiagnosticsNode> information}) async {
+  static Future<void> recordError(
+    dynamic exception,
+    StackTrace stack, {
+    dynamic reason,
+    Iterable<DiagnosticsNode> information = const [],
+  }) async {
     return _crashlytics.recordError(exception, stack,
         reason: reason, information: information, printDetails: false);
   }

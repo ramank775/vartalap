@@ -3,24 +3,25 @@ import 'package:vartalap/utils/enum_helper.dart';
 import 'user.dart';
 
 enum ChatType {
+  NONE,
   INDIVIDUAL,
   GROUP,
 }
 
 enum UserRole {
-  MEMBER,
+  USER,
   ADMIN,
+  EX_USER,
 }
 
 class ChatUser extends User {
-  UserRole _role = UserRole.MEMBER;
-  ChatUser(String name, String username, String pic, [this._role])
+  UserRole role = UserRole.USER;
+  ChatUser(String name, String username, String? pic,
+      [this.role = UserRole.USER])
       : super(name, username, pic);
 
-  UserRole get role => _role;
-
   ChatUser.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
-    this._role = intToEnum(map["role"], UserRole.values);
+    this.role = intToEnum(map["role"], UserRole.values);
   }
 
   ChatUser.fromUser(User user) : super(user.name, user.username, user.pic);
@@ -43,22 +44,24 @@ class ChatUser extends User {
 }
 
 class Chat {
-  String _id;
-  String _title;
-  String _pic;
+  late String _id;
+  late String _title;
+  String? _pic;
+  ChatType type = ChatType.INDIVIDUAL;
   Set<ChatUser> _users = new Set();
 
-  Chat(this._id, this._title, this._pic);
+  Chat(this._id, this._title, this._pic, {this.type = ChatType.INDIVIDUAL});
 
   String get id => _id;
   String get title => _title;
-  String get pic => _pic;
+  String? get pic => _pic;
   List<ChatUser> get users => _users.toList();
 
   Chat.fromMap(Map<String, dynamic> map) {
     this._id = map["id"];
     this._title = map["title"];
     this._pic = map["pic"];
+    this.type = intToEnum(map["type"] ?? 1, ChatType.values);
   }
 
   Map<String, dynamic> toMap() {
@@ -66,6 +69,7 @@ class Chat {
     map["id"] = this.id;
     map["title"] = this.title;
     map["pic"] = this.pic;
+    map["type"] = enumToInt(this.type, ChatType.values);
     return map;
   }
 
@@ -75,6 +79,10 @@ class Chat {
     this._users.add(user);
   }
 
+  void resetUsers() {
+    this._users.clear();
+  }
+
   @override
   bool operator ==(Object other) {
     return hashCode == other.hashCode;
@@ -82,16 +90,16 @@ class Chat {
 }
 
 class ChatPreview extends Chat {
-  String _content;
-  int _ts;
-  int _unread;
-  ChatPreview(String id, String title, String pic, this._content, this._ts,
+  String _content = '';
+  int _ts = 0;
+  int _unread = 0;
+  ChatPreview(String id, String title, String? pic, this._content, this._ts,
       this._unread)
       : super(id, title, pic);
 
   ChatPreview.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
     this._content = map["text"];
-    this._ts = map["ts"];
+    this._ts = map["ts"] ?? 0;
     this._unread = map["unread"] == null ? 0 : map["unread"];
   }
 

@@ -17,14 +17,14 @@ enum MessageType {
 
 class Message {
   static int _number = 0;
-  String _id;
-  String _chatId;
-  String _text;
-  String _senderId;
-  MessageState _state;
-  MessageType _type = MessageType.TEXT;
-  int _ts = DateTime.now().millisecondsSinceEpoch;
-  User sender;
+  late String _id;
+  late String _chatId;
+  late String _text;
+  late String _senderId;
+  late MessageState _state;
+  late MessageType _type = MessageType.TEXT;
+  late int _ts = DateTime.now().millisecondsSinceEpoch;
+  User? sender;
   String get id => _id;
   String get chatId => _chatId;
   String get senderId => _senderId;
@@ -32,9 +32,13 @@ class Message {
   MessageState get state => _state;
   MessageType get type => _type;
   int get timestamp => _ts;
+  set timstamp(int ts) {
+    this._ts = ts;
+  }
 
+  final int defaultTime = DateTime.now().millisecondsSinceEpoch;
   Message(this._id, this._chatId, this._senderId, this._text, this._state,
-      [this._ts, this._type]);
+      [this._type = MessageType.TEXT]);
 
   Message.chatMessage(
       String chatId, String senderId, String text, MessageType type) {
@@ -76,11 +80,14 @@ class Message {
     } else {
       sender = senderId.hashCode;
     }
-    int unixEpoch10 = DateTime.now().millisecondsSinceEpoch % (pow(10, 13));
+    int unixEpoch10 =
+        DateTime.now().millisecondsSinceEpoch % (pow(10, 13)) as int;
     if ((++_number) >= 10000) {
       _number %= 10000;
     }
-    int rawId = (sender * pow(10, 16)) + (unixEpoch10 * pow(10, 3)) + _number;
+    int rawId = (sender * pow(10, 16) as int) +
+        (unixEpoch10 * pow(10, 3) as int) +
+        _number;
 
     return rawId.toRadixString(16);
   }

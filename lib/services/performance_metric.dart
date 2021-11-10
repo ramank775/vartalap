@@ -39,13 +39,13 @@ class HttpPerformanceTrace {
     return _metric.stop();
   }
 
-  int get httpResponseCode => _metric.httpResponseCode;
+  int get httpResponseCode => _metric.httpResponseCode!;
 
-  int get requestPayloadSize => _metric.requestPayloadSize;
+  int get requestPayloadSize => _metric.requestPayloadSize ?? 0;
 
-  String get responseContentType => _metric.responseContentType;
+  String get responseContentType => _metric.responseContentType ?? '';
 
-  int get responsePayloadSize => _metric.responsePayloadSize;
+  int get responsePayloadSize => _metric.responsePayloadSize ?? 0;
 
   set httpResponseCode(int httpResponseCode) {
     _metric.httpResponseCode = httpResponseCode;

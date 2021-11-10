@@ -1,7 +1,8 @@
 import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/screens/profile_img/profile_img.dart';
+// import 'package:vartalap/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/widgets/avator.dart';
 
 class ChatPreviewWidget extends StatelessWidget {
   final ChatPreview _chat;
@@ -15,70 +16,101 @@ class ChatPreviewWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return new Column(
       children: [
+        ListTileTheme(
+          selectedColor: Theme.of(context).selectedRowColor,
+          child: ListTile(
+            leading: Container(
+              width: 42,
+              height: 42,
+              child: Stack(
+                children: [
+                  Avator(
+                    width: 42.0,
+                    height: 42.0,
+                    text: this._chat.title,
+                  ),
+                  this.isSelected
+                      ? Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: CircleAvatar(
+                            backgroundColor: Theme.of(context).primaryColor,
+                            radius: 10,
+                            child: Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                          ),
+                        )
+                      : Container()
+                ],
+              ),
+            ),
+            // leading: new ProfileImg(
+            //     this._chat.pic ?? 'assets/images/default-user.png',
+            //     ProfileImgSize.MD),
+            title: new Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                new Text(
+                  this._chat.title,
+                  style: new TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                new Text(
+                  (this._chat.ts) != 0
+                      ? formatMessageDateTime(this._chat.ts)
+                      : '',
+                  style: new TextStyle(fontSize: 14.0),
+                ),
+              ],
+            ),
+            subtitle: new Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    this.getDisplayContext(),
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: new TextStyle(fontSize: 15.0),
+                  ),
+                ),
+                getWidget(context)
+              ],
+            ),
+            onTap: () => this._onTap(this._chat),
+            onLongPress: () => this._onLongPress(this._chat),
+            selected: this.isSelected,
+          ),
+        ),
         new Divider(
           height: 5.0,
         ),
-        new ListTile(
-          leading: new ProfileImg(
-              this._chat.pic ?? 'assets/images/default-user.png',
-              ProfileImgSize.MD),
-          title: new Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              new Text(
-                this._chat.title,
-                style: new TextStyle(fontWeight: FontWeight.bold),
-              ),
-              new Text(
-                formatMessageDateTime(this._chat.ts),
-                style: new TextStyle(color: Colors.grey, fontSize: 14.0),
-              ),
-            ],
-          ),
-          subtitle: new Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              new Container(
-                padding: const EdgeInsets.only(top: 5.0),
-                child: new Text(
-                  this.getDisplayContext(),
-                  style: new TextStyle(color: Colors.grey[700], fontSize: 15.0),
-                ),
-              ),
-              getWidget()
-            ],
-          ),
-          onTap: () => this._onTap(this._chat),
-          onLongPress: () => this._onLongPress(this._chat),
-          selected: this.isSelected,
-        )
       ],
     );
   }
 
-  Widget getWidget() {
-    if (isSelected) {
-      return Icon(
-        Icons.check_circle,
-        color: Colors.greenAccent,
-      );
-    }
+  Widget getWidget(BuildContext context) {
     return this._chat.unread > 0
         ? Container(
             width: 24,
             height: 24,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.greenAccent,
+              color: Theme.of(context).primaryColor,
             ),
             child: Center(
                 child: Text(
               getUnreadCountText(),
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11),
+                fontWeight: FontWeight.bold,
+                fontSize: 11,
+                color: Colors.white,
+              ),
             )),
           )
         : Text("");
@@ -86,9 +118,9 @@ class ChatPreviewWidget extends StatelessWidget {
 
   String getDisplayContext() {
     String content = this._chat.content;
-    if (content.length > 30) {
-      return content.substring(0, 25) + "...";
-    }
+    // if (content.length > 30) {
+    //   return content.substring(0, 26) + "...";
+    // }
     return content;
   }
 

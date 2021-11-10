@@ -1,18 +1,18 @@
-import 'package:emoji_picker/emoji_picker.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
-  MessageInputWidget({Key key, this.sendMessage}) : super(key: key);
+  MessageInputWidget({Key? key, required this.sendMessage}) : super(key: key);
 
   @override
   MessageInputState createState() => MessageInputState();
 }
 
 class MessageInputState extends State<MessageInputWidget> {
-  Function _sendMessage;
-  bool _isShowSticker;
-  FocusNode _inputFocus;
+  late Function _sendMessage;
+  bool _isShowSticker = false;
+  FocusNode _inputFocus = FocusNode();
   final TextEditingController _controller = TextEditingController();
   @override
   void initState() {
@@ -55,17 +55,15 @@ class MessageInputState extends State<MessageInputWidget> {
       child: Stack(
         children: <Widget>[
           Column(
-            children: <Widget>[
-              buildInput(),
-              (_isShowSticker ? buildSticker() : Container()),
-            ],
+            children: <Widget>[buildInput(context), buildSticker(context)],
           ),
         ],
       ),
     );
   }
 
-  Widget buildInput() {
+  Widget buildInput(BuildContext context) {
+    var theme = Theme.of(context);
     return Container(
       child: Padding(
         padding: const EdgeInsets.all(8.0),
@@ -76,8 +74,8 @@ class MessageInputState extends State<MessageInputWidget> {
               flex: 1,
               child: Container(
                 decoration: BoxDecoration(
+                  color: theme.primaryColorLight,
                   borderRadius: BorderRadius.all(const Radius.circular(30.0)),
-                  color: Colors.white,
                 ),
                 child: Row(
                   children: <Widget>[
@@ -106,7 +104,6 @@ class MessageInputState extends State<MessageInputWidget> {
                           contentPadding: const EdgeInsets.all(0.0),
                           hintText: 'Type a message',
                           hintStyle: TextStyle(
-                            // color: textFieldHintColor,
                             fontSize: 16.0,
                           ),
                           counterText: '',
@@ -141,15 +138,35 @@ class MessageInputState extends State<MessageInputWidget> {
     );
   }
 
-  Widget buildSticker() {
-    return EmojiPicker(
-      rows: 4,
-      columns: 10,
-      buttonMode: ButtonMode.MATERIAL,
-      numRecommended: 10,
-      onEmojiSelected: (emoji, category) {
-        _controller.text += emoji.emoji;
-      },
+  Widget buildSticker(BuildContext context) {
+    var theme = Theme.of(context);
+    return Offstage(
+      offstage: !_isShowSticker,
+      child: SizedBox(
+        height: 250,
+        child: EmojiPicker(
+          onEmojiSelected: (category, emoji) {
+            _controller..text += emoji.emoji;
+          },
+          config: Config(
+            columns: 8,
+            emojiSizeMax: 25.0,
+            verticalSpacing: 0,
+            horizontalSpacing: 0,
+            initCategory: Category.RECENT,
+            bgColor: theme.scaffoldBackgroundColor,
+            indicatorColor: theme.accentColor,
+            showRecentsTab: true,
+            recentsLimit: 28,
+            noRecentsText: 'No Recents',
+            noRecentsStyle: TextStyle(fontSize: 20),
+            categoryIcons: CategoryIcons(),
+            buttonMode: ButtonMode.MATERIAL,
+            iconColorSelected: theme.selectedRowColor,
+            progressIndicatorColor: theme.accentColor,
+          ),
+        ),
+      ),
     );
   }
 
