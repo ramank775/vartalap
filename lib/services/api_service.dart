@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 
@@ -33,7 +34,7 @@ class ApiService {
     return headers;
   }
 
-  static Future<http.Response> _post(String path, Map<String, dynamic> data,
+  static Future<http.Response> _post(String path, dynamic data,
       {bool includeAccesskey = true}) async {
     String baseUrl = ConfigStore().get<String>("api_url");
     var resourceUrl = Uri.parse("$baseUrl/$path");
@@ -88,9 +89,14 @@ class ApiService {
   }
 
   static Map<String, dynamic> _handleResponse(http.Response resp) {
-    if (resp.statusCode == 200) {
-      var decoded = json.decode(resp.body);
-      Map<String, dynamic> response = Map<String, dynamic>.from(decoded);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      Map<String, dynamic> response;
+      if (resp.body.length > 0) {
+        var decoded = json.decode(resp.body);
+        response = Map<String, dynamic>.from(decoded);
+      } else {
+        response = {};
+      }
       return response;
     }
     throw Exception("Response code ${resp.statusCode}");
@@ -164,5 +170,11 @@ class ApiService {
     http.Response response = await _get("group/get");
     var resp = _handleListResponse(response);
     return resp;
+  }
+
+  static Future sendMessages(Iterable<RemoteMessage> messages) async {
+    final body = messages.map((msg) => json.encode(msg.toMap())).toList();
+    final resp = await _post("messages", body);
+    _handleResponse(resp);
   }
 }

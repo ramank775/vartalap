@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
+import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/services/api_service.dart';
@@ -68,16 +69,13 @@ class SocketService {
     }
     try {
       _channel!.add(msgStr);
+      msg = _sendMessageAck(msg);
+      _controller.sink.add(msg);
       await db.delete(
         "out_message",
         where: "messageId=?",
         whereArgs: [msg.id],
       );
-      msg = RemoteMessage.fromMap(msgMap);
-      msg.head.from = name;
-      msg.head.contentType = MessageType.NOTIFICATION;
-      msg.body = {"id": msg.id, "state": MessageState.SENT};
-      _controller.sink.add(msg);
     } catch (e, stack) {
       await db.update("out_message", {"sent": -1},
           where: "messageId=?", whereArgs: [msg.id]);
@@ -90,6 +88,17 @@ class SocketService {
     } finally {
       _sendMsgTrace.stop();
     }
+  }
+
+  RemoteMessage _sendMessageAck(RemoteMessage msg) {
+    final stateMsg = StateMessge(msg.head.chatid!, name, MessageState.SENT);
+    stateMsg.msgIds.add(msg.id);
+    final chat = Chat(msg.head.chatid!, '', null, type: msg.head.type);
+    if (chat.type == ChatType.INDIVIDUAL) {
+      chat.addUser(ChatUser('', msg.head.to, ''));
+    }
+    msg = RemoteMessage.fromChatMessage(stateMsg, chat);
+    return msg;
   }
 
   void dispose() {
@@ -194,12 +203,10 @@ class SocketService {
       var batch = db.batch();
       try {
         for (var row in result) {
+          _channel!.add(row["message"]);
           var _smsg =
               RemoteMessage.fromMap(json.decode(row["message"] as String));
-          _channel!.add(row["message"]);
-          _smsg.head.from = name;
-          _smsg.head.contentType = MessageType.NOTIFICATION;
-          _smsg.body = {"id": _smsg.id, "state": MessageState.SENT};
+          _smsg = _sendMessageAck(_smsg);
           _controller.sink.add(_smsg);
           batch.delete("out_message",
               where: "messageId=?", whereArgs: [_smsg.id]);

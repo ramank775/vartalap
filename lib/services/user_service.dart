@@ -11,6 +11,7 @@ import 'package:vartalap/utils/find.dart';
 import 'package:vartalap/utils/phone_number.dart';
 
 class UserService {
+  static bool _syncInProgress = false;
   static User? _user;
   static AuthService _authService = AuthService.instance;
 
@@ -91,6 +92,8 @@ class UserService {
   }
 
   static Future<void> syncContacts() async {
+    if (!_syncInProgress) return;
+    _syncInProgress = true;
     var syncContactTrace = PerformanceMetric.newTrace('sync-contact');
     await syncContactTrace.start();
     var users = await _getContacts();
@@ -171,6 +174,7 @@ class UserService {
     });
     await batch.commit();
     syncContactTrace.stop();
+    _syncInProgress = false;
   }
 
   static Future<List<User>> _getContacts() async {

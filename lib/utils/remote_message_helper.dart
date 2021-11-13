@@ -5,7 +5,7 @@ import 'package:vartalap/services/crashlystics.dart';
 
 List<RemoteMessage> toRemoteMessage(dynamic event) {
   List<RemoteMessage> _messages = [];
-  if (event is List<String>) {
+  if (event is List) {
     for (var e in event) {
       _messages.addAll(toRemoteMessage(e));
     }

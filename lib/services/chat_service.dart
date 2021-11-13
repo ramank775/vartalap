@@ -31,21 +31,7 @@ class ChatService {
         .where((RemoteMessage? msg) => msg != null)
         .asBroadcastStream();
     _newMessageSub$ = onNewMessageStream.listen((msg) async {
-      if (msg.head.chatid == null) return;
-      final chat = await getChatInfo(msg.head.chatid!);
-      if (chat == null) return;
-      if (chat.type == ChatType.INDIVIDUAL) {
-        final chatusers = await getChatUserByid(msg.head.chatid!);
-        chatusers.forEach((user) {
-          chat.addUser(user);
-        });
-      }
-      final currentUser = UserService.getLoggedInUser();
-      final stateNotification = StateMessge(
-          msg.head.chatid!, currentUser.username, MessageState.DELIVERED);
-      stateNotification.msgIds.add(msg.id);
-      final smsg = RemoteMessage.fromChatMessage(stateNotification, chat);
-      await SocketService.instance.send(smsg);
+      await ackMessageDelivery([msg], socket: true);
     });
     _notificationSub$ = onNotificationMessagStream.listen((event) {});
     await SocketService.instance.init();
@@ -269,13 +255,18 @@ class ChatService {
     var db = await DB().getDb();
     var batch = db.batch();
     msgIds.forEach((id) {
+      int stateIdx = enumToInt(state, MessageState.values);
       batch.update(
           "message",
           {
-            "state": enumToInt(state, MessageState.values),
+            "state": stateIdx,
           },
-          where: "id=?",
-          whereArgs: [id]);
+          where: "id=? and state < ? and state !=?",
+          whereArgs: [
+            id,
+            stateIdx,
+            enumToInt(MessageState.OTHER, MessageState.values)
+          ]);
     });
     await batch.commit();
   }
@@ -285,6 +276,52 @@ class ChatService {
       return _onNotificationMsg(msg);
     }
     return _onNewMessage(msg);
+  }
+
+  static Future ackMessageDelivery(List<RemoteMessage> msgs,
+      {bool socket = false}) async {
+    final List<RemoteMessage> messages = [];
+    final Set<String> chatIds = new Set();
+    for (var i = 0; i < msgs.length; i++) {
+      final msg = msgs[i];
+      if (msg.head.chatid == null) continue;
+      messages.add(msg);
+      chatIds.add(msg.head.chatid!);
+    }
+    if (messages.isEmpty) return;
+    Map<String, Chat> chats = {};
+    for (var i = 0; i < chatIds.length; i++) {
+      final chatid = chatIds.elementAt(i);
+      final chat = await getChatInfo(chatid);
+      if (chat == null) continue;
+      if (chat.type == ChatType.INDIVIDUAL) {
+        final chatusers = await getChatUserByid(chatid);
+        chatusers.forEach((user) {
+          chat.addUser(user);
+        });
+      }
+      chats[chatid] = chat;
+    }
+
+    if (chats.isEmpty) return;
+
+    final currentUser = UserService.getLoggedInUser();
+    final deliveryAck = messages.map((msg) {
+      final stateNotification = StateMessge(
+          msg.head.chatid!, currentUser.username, MessageState.DELIVERED);
+      stateNotification.msgIds.add(msg.id);
+      final chat = chats[msg.head.chatid!]!;
+      final smsg = RemoteMessage.fromChatMessage(stateNotification, chat);
+      return smsg;
+    });
+
+    if (socket) {
+      deliveryAck.forEach((smsg) {
+        SocketService.instance.send(smsg);
+      });
+    } else {
+      await ApiService.sendMessages(deliveryAck);
+    }
   }
 
   static Future<Chat?> _getChatById(String chatid) async {
@@ -395,17 +432,7 @@ class ChatService {
   }
 
   static Future<RemoteMessage> _onNotificationMsg(RemoteMessage msg) async {
-    var db = await DB().getDb();
-    if (msg.head.from == SocketService.name) {
-      await db.update(
-        "message",
-        {
-          "state": enumToInt(msg.body["state"], MessageState.values),
-        },
-        where: "id=?",
-        whereArgs: [msg.body["id"]],
-      );
-    } else if (msg.head.action == "state") {
+    if (msg.head.action == "state") {
       final List<String> ids =
           (msg.body["ids"] as List).map((e) => e.toString()).toList();
       final MessageState state =

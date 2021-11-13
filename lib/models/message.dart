@@ -23,6 +23,18 @@ enum MessageType {
   OTHER,
 }
 
+class NotificationContent {
+  bool _showNotification = false;
+  String? _text;
+  String? get content => this._text;
+  bool get show => this._showNotification;
+
+  NotificationContent({String? text, bool show = false}) {
+    this._text = text;
+    this._showNotification = show;
+  }
+}
+
 abstract class ChatMessage {
   static int _number = 0;
   String _action = "message";
@@ -85,10 +97,19 @@ abstract class ChatMessage {
 
   void fromRemoteBody(Map<String, dynamic> body);
 
+  NotificationContent get notificationContent =>
+      NotificationContent(show: false);
+
+  String get previewContent => "";
+
   String calcContentHash() {
     final map = this.toRemoteBody();
     final text = json.encode(map);
     return this._hash(text);
+  }
+
+  void updateState(MessageState state) {
+    this._state = state;
   }
 
   String _hash(String s) {
@@ -115,10 +136,6 @@ abstract class ChatMessage {
         _number;
 
     return rawId.toRadixString(16);
-  }
-
-  void updateState(MessageState state) {
-    this._state = state;
   }
 
   int get hashCode => "message_$id".hashCode;
@@ -167,6 +184,7 @@ class TextMessage extends ChatMessage {
     };
   }
 
+  @override
   void fromRemoteBody(Map<String, dynamic> body) {
     this._text = body["text"];
     this._state = body.containsKey("state")
@@ -177,6 +195,14 @@ class TextMessage extends ChatMessage {
         : MessageState.NEW;
   }
 
+  @override
+  NotificationContent get notificationContent =>
+      NotificationContent(text: this._text, show: true);
+
+  @override
+  String get previewContent => this._text;
+
+  @override
   String calcContentHash() {
     return this._hash(this.text);
   }

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -291,8 +290,8 @@ class ChatListViewState extends State<ChatListView> {
       });
       return;
     } else {
-      var _msg = toChatMessage(msg) as TextMessage;
-      chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.text,
+      var _msg = toChatMessage(msg);
+      chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.previewContent,
           _msg.timestamp, (chat.unread + 1));
     }
     PushNotificationService.instance.showNotification(
