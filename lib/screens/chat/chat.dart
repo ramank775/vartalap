@@ -1,20 +1,17 @@
 import 'dart:async';
 
 import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/dateHeader.dart';
 import 'package:vartalap/models/message.dart';
-import 'package:vartalap/models/messageSpacer.dart';
 import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/screens/chat/chat_info.dart';
 import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/avator.dart';
-import 'message.dart';
+import 'package:vartalap/widgets/chatlist.dart';
+import 'package:vartalap/widgets/notifier/iterable_notifier.dart';
 import 'message_input.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -31,21 +28,17 @@ class ChatState extends State<ChatScreen> {
   Chat _chat;
   late User _currentUser;
   late Future<List<ChatMessage>> _fMessages;
-  late List<ChatMessage> _messages;
-  late List<Object> _displayMessages;
-  List<String> _selectedMessges = [];
+  late ChatMessageController _messageController;
+  final _selectedMessges = SetNotifier<String>(Set<String>());
   late StreamSubscription _notificationSub;
   late StreamSubscription _newMessageSub;
   Timer? _readTimer;
   Set<String> _unreadMessages = Set<String>();
-  Map<String, User> _users = Map();
-  Map<String, UserNotifier> _userChangeNotifier = Map();
 
   ChatState(this._chat);
   @override
   void initState() {
     super.initState();
-    this._chat.users.forEach((u) => _users[u.username] = u);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     this._fMessages.then((messages) {
       final unread = messages
@@ -79,37 +72,6 @@ class ChatState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     this._currentUser = CurrentUser.of(context).user!;
-    var subtitle = this.getSubTitle();
-    var titleWidgets = <Widget>[
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2.0),
-        child: Text(
-          this._selectedMessges.length > 0
-              ? _selectedMessges.length.toString() + " selected"
-              : _chat.title,
-          style: TextStyle(
-            fontSize: 18.0,
-            color: Colors.white,
-          ),
-        ),
-      ),
-    ];
-    if (this._selectedMessges.length == 0 && subtitle.length > 0) {
-      titleWidgets.add(
-        SizedBox(
-          width: MediaQuery.of(context).size.width * 0.60,
-          child: Text(
-            subtitle,
-            overflow: TextOverflow.ellipsis,
-            softWrap: false,
-            style: TextStyle(
-              fontSize: 12.0,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      );
-    }
     return Scaffold(
       appBar: AppBar(
         leading: TextButton(
@@ -157,14 +119,7 @@ class ChatState extends State<ChatScreen> {
             },
             child: Row(
               mainAxisSize: MainAxisSize.max,
-              children: <Widget>[
-                Column(
-                  mainAxisSize: MainAxisSize.max,
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: titleWidgets,
-                ),
-              ],
+              children: <Widget>[this.getTitle(context)],
             ),
           ),
         ),
@@ -205,18 +160,22 @@ class ChatState extends State<ChatScreen> {
                       }
                       _readTimer =
                           Timer(Duration(seconds: 1), _onReadTimerTimeout);
-                      this._messages = snapshot.data ?? [];
-                      this._displayMessages = calculateChatMessages(
-                        this._messages,
-                        _currentUser,
-                        showUserNames: this._chat.type == ChatType.GROUP,
-                      )[0] as List<Object>;
-                      return ListView.builder(
-                          itemCount: this._displayMessages.length,
-                          reverse: true,
-                          itemBuilder: (context, i) {
-                            return _messageBuilder(this._displayMessages[i]);
-                          });
+                      final messages = snapshot.data ?? [];
+                      this._messageController =
+                          ChatMessageController(messages: messages);
+                      final Map<String, User> users = {};
+                      this._chat.users.forEach((u) => users[u.username] = u);
+                      return ChatList(
+                        controller: this._messageController,
+                        users: users,
+                        showName: this._chat.type == ChatType.GROUP,
+                        onTab: (TextMessage msg) {
+                          if (this._selectedMessges.value.length > 0) {
+                            this.selectOrRemove(msg);
+                          }
+                        },
+                        onLongPress: selectOrRemove,
+                      );
                   }
                 }),
           ),
@@ -227,9 +186,7 @@ class ChatState extends State<ChatScreen> {
                         this._currentUser.username, text, MessageType.TEXT);
                     msg.sender = this._currentUser;
                     await ChatService.sendMessage(msg, this._chat);
-                    setState(() {
-                      _messages.insert(0, msg);
-                    });
+                    this._messageController.add(msg);
                   })
                 ]
               : [],
@@ -238,80 +195,50 @@ class ChatState extends State<ChatScreen> {
     );
   }
 
-  Widget _messageBuilder(Object object) {
-    if (object is DateHeader) {
-      return Container(
-        alignment: Alignment.center,
-        margin: const EdgeInsets.only(
-          bottom: 32,
-          top: 16,
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            color: VartalapTheme.theme.receiverColor,
-            borderRadius: BorderRadius.all(
-              Radius.circular(5),
+  Widget getTitle(BuildContext context) {
+    return ValueListenableBuilder<Iterable<String>>(
+      valueListenable: this._selectedMessges,
+      builder: (BuildContext context, Iterable<String> selectedMessages,
+          Widget? child) {
+        var subtitle = this.getSubTitle();
+        var titleWidgets = <Widget>[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+            child: Text(
+              this._selectedMessges.value.isNotEmpty
+                  ? _selectedMessges.value.length.toString() + " selected"
+                  : _chat.title,
+              style: TextStyle(
+                fontSize: 18.0,
+                color: Colors.white,
+              ),
             ),
           ),
-          child: Text(
-            object.date,
-            //style: widget.theme.dateDividerTextStyle,
-          ),
-        ),
-      );
-    } else if (object is MessageSpacer) {
-      return SizedBox(
-        height: object.height,
-      );
-    } else if (object is Map) {
-      TextMessage _msg = object["message"];
-      if (_msg.sender == null) {
-        _msg.sender = getSender(_msg);
-      }
-      bool isYou = _msg.sender == this._currentUser;
-      bool showUserInfo = !isYou && this._chat.type == ChatType.GROUP;
-
-      Widget child;
-
-      if (this._userChangeNotifier.containsKey(_msg.senderId)) {
-        child = ValueListenableBuilder<User>(
-          builder: (context, key, child) {
-            return MessageWidget(
-              _msg,
-              isYou,
-              showUserInfo: showUserInfo,
-              isSelected: this._selectedMessges.contains(_msg.id),
-              onTab: (TextMessage msg) {
-                if (this._selectedMessges.length > 0) {
-                  this.selectOrRemove(msg);
-                }
-              },
-              onLongPress: selectOrRemove,
-            );
-          },
-          valueListenable: this._userChangeNotifier[_msg.senderId]!,
+        ];
+        if (this._selectedMessges.value.isEmpty && subtitle.isNotEmpty) {
+          titleWidgets.add(
+            SizedBox(
+              width: MediaQuery.of(context).size.width * 0.60,
+              child: Text(
+                subtitle,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+                style: TextStyle(
+                  fontSize: 12.0,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          );
+        }
+        return Column(
+          mainAxisSize: MainAxisSize.max,
+          mainAxisAlignment: MainAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: titleWidgets,
         );
-      } else {
-        child = MessageWidget(
-          _msg,
-          isYou,
-          showUserInfo: showUserInfo,
-          isSelected: this._selectedMessges.contains(_msg.id),
-          onTab: (TextMessage msg) {
-            if (this._selectedMessges.length > 0) {
-              this.selectOrRemove(msg);
-            }
-          },
-          onLongPress: selectOrRemove,
-        );
-      }
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 5.0),
-        child: child,
-      );
-    }
-    return const SizedBox();
+      },
+    );
   }
 
   String getSubTitle() {
@@ -329,52 +256,66 @@ class ChatState extends State<ChatScreen> {
   }
 
   void selectOrRemove(TextMessage msg) {
-    setState(() {
-      if (!_selectedMessges.remove(msg.id)) {
-        _selectedMessges.add(msg.id);
-      }
-    });
+    if (!_selectedMessges.value.remove(msg.id)) {
+      _selectedMessges.value.add(msg.id);
+    }
+    msg.isSelected = !msg.isSelected;
+    this._messageController.update(msg);
+    this._selectedMessges.update();
   }
 
   List<Widget> getActions() {
-    List<Widget> actions = [];
-    if (this._selectedMessges.length > 0) {
-      actions.add(IconButton(
-        icon: Icon(Icons.clear),
-        onPressed: () {
-          setState(() {
-            this._selectedMessges = [];
-          });
-        },
-      ));
-      actions.add(IconButton(
-        icon: Icon(Icons.delete),
-        onPressed: () async {
-          await ChatService.deleteMessages(this._selectedMessges);
-          setState(() {
-            this
-                ._messages
-                .removeWhere((msg) => this._selectedMessges.contains(msg));
-            this._selectedMessges = [];
-          });
-        },
-      ));
-    }
-    actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
-    return actions;
+    Widget child = ValueListenableBuilder(
+      valueListenable: this._selectedMessges,
+      builder: (context, key, child) {
+        List<Widget> actions = [];
+        if (this._selectedMessges.value.isNotEmpty) {
+          actions.add(IconButton(
+            icon: Icon(Icons.clear),
+            onPressed: () {
+              List<ChatMessage> msgs = [];
+              this._selectedMessges.value.forEach((id) {
+                final notifier =
+                    this._messageController.messageChangeNotifier[id];
+                if (notifier != null) {
+                  notifier.value.isSelected = false;
+                  msgs.add(notifier.value);
+                }
+              });
+              this._messageController.updateAll(msgs);
+              this._selectedMessges.value.clear();
+              this._selectedMessges.update();
+            },
+          ));
+          actions.add(IconButton(
+            icon: Icon(Icons.delete),
+            onPressed: () async {
+              await ChatService.deleteMessages(
+                  this._selectedMessges.value.toList());
+              this._messageController.deleteAll(this._selectedMessges.value);
+              this._selectedMessges.value.clear();
+              this._selectedMessges.update();
+            },
+          ));
+        }
+        actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
+        return Row(children: actions);
+      },
+    );
+    return [child];
   }
 
   void _onNotification(RemoteMessage msg) async {
     final msgInfo = msg.head;
     if (msgInfo.action == "state") {
       StateMessge state = toChatMessage(msg) as StateMessge;
-      setState(() {
-        this._messages = this._messages.map<ChatMessage>((msg) {
-          if (state.msgIds.contains(msg.id)) {
-            msg.updateState(state.state);
-          }
-          return msg;
-        }).toList();
+      state.msgIds.forEach((id) {
+        final notifier = this._messageController.messageChangeNotifier[id];
+        if (notifier != null) {
+          final message = notifier.value;
+          if (message.updateState(state.state))
+            this._messageController.update(message);
+        }
       });
     } else if (msgInfo.type == ChatType.GROUP) {
       var users = await ChatService.getChatUserByid(this._chat.id);
@@ -387,10 +328,8 @@ class ChatState extends State<ChatScreen> {
 
   void _onNewMessage(RemoteMessage msg) {
     final message = toChatMessage(msg);
-    setState(() {
-      this._unreadMessages.add(message.id);
-      this._messages.insert(0, message);
-    });
+    this._unreadMessages.add(message.id);
+    this._messageController.add(message);
     if (_readTimer == null || !_readTimer!.isActive) {
       _readTimer = Timer(Duration(seconds: 1), _onReadTimerTimeout);
     }
@@ -400,24 +339,6 @@ class ChatState extends State<ChatScreen> {
     if (_unreadMessages.isEmpty) return;
     ChatService.markAsRead(_unreadMessages.toList(), this._chat).ignore();
     _unreadMessages = Set<String>();
-  }
-
-  User getSender(TextMessage msg) {
-    if (this._users.containsKey(msg.senderId)) {
-      return this._users[msg.senderId]!;
-    } else {
-      var user = ChatUser(msg.senderId, msg.senderId, null);
-      if (!this._userChangeNotifier.containsKey(msg.senderId)) {
-        this._userChangeNotifier[msg.senderId] = UserNotifier(user);
-      }
-      UserService.getUserById(msg.senderId).then((User? user) {
-        if (user == null) return;
-        this._users[user.username] = user;
-        msg.sender = user;
-        this._userChangeNotifier[msg.senderId]!.update(user);
-      }, onError: (user) {});
-      return user;
-    }
   }
 
   bool hasSendPermission() {
@@ -430,5 +351,6 @@ class ChatState extends State<ChatScreen> {
     if (_readTimer != null) _readTimer!.cancel();
     _notificationSub.cancel();
     _newMessageSub.cancel();
+    this._messageController.dispose();
   }
 }

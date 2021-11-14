@@ -1,4 +1,4 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
 enum UserStatus {

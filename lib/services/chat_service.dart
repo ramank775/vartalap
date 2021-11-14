@@ -252,10 +252,10 @@ class ChatService {
 
   static Future updateMessageState(
       List<String> msgIds, MessageState state) async {
-    var db = await DB().getDb();
+    final db = await DB().getDb();
+    int stateIdx = enumToInt(state, MessageState.values);
     var batch = db.batch();
     msgIds.forEach((id) {
-      int stateIdx = enumToInt(state, MessageState.values);
       batch.update(
           "message",
           {

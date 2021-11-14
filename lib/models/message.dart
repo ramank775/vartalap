@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/utils/enum_helper.dart';
@@ -55,6 +56,8 @@ abstract class ChatMessage {
     this._ts = ts;
   }
 
+  bool isSelected = false;
+
   final int defaultTime = DateTime.now().millisecondsSinceEpoch;
   User? sender;
   ChatMessage(
@@ -108,8 +111,14 @@ abstract class ChatMessage {
     return this._hash(text);
   }
 
-  void updateState(MessageState state) {
+  bool updateState(MessageState state) {
+    if (this._state != MessageState.OTHER) {
+      int existingState = enumToInt(this._state, MessageState.values);
+      int newState = enumToInt(state, MessageState.values);
+      if (existingState > newState) return false;
+    }
     this._state = state;
+    return true;
   }
 
   String _hash(String s) {
@@ -143,6 +152,14 @@ abstract class ChatMessage {
   @override
   bool operator ==(Object other) {
     return hashCode == other.hashCode;
+  }
+}
+
+class ChatMessageNotifier extends ValueNotifier<ChatMessage> {
+  ChatMessageNotifier(ChatMessage value) : super(value);
+  update(ChatMessage newValue) {
+    this.value = newValue;
+    this.notifyListeners();
   }
 }
 
