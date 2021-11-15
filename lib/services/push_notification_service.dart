@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/remoteMessage.dart' as vRemoteMessage;
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
@@ -47,7 +48,7 @@ Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
   final List<vRemoteMessage.RemoteMessage> deliveryAcks = [];
   for (var msg in messages) {
     var result = await ChatService.newMessage(msg);
-    if (result != null) {
+    if (result != null && msg.head.contentType != MessageType.NOTIFICATION) {
       var chat = await ChatService.getChatInfo(msg.head.chatid!);
       if (chat == null) return;
       deliveryAcks.add(result);
