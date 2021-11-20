@@ -6,7 +6,7 @@ import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
-import 'contact.dart';
+import 'package:vartalap/widgets/contact.dart';
 
 class NewChatScreen extends StatefulWidget {
   @override

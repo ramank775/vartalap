@@ -1,6 +1,5 @@
 import 'dart:async';
 
-//import 'package:package_info/package_info.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/introduction.dart';

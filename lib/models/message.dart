@@ -76,7 +76,7 @@ abstract class ChatMessage {
     this._state = MessageState.NEW;
     this._type = type;
   }
-  ChatMessage.fromMap(Map<String, dynamic> map) {
+  ChatMessage.fromMap(Map<String, dynamic> map, {bool persistent = false}) {
     this._id = map["id"];
     this._chatId = map["chatid"];
     this._senderId = map["senderid"];
@@ -85,7 +85,7 @@ abstract class ChatMessage {
     this._type = intToEnum(map["type"], MessageType.values);
   }
 
-  Map<String, dynamic> toMap() {
+  Map<String, dynamic> toMap({bool persistent = false}) {
     Map<String, dynamic> map = new Map<String, dynamic>();
     map["id"] = this._id;
     map["chatid"] = this._chatId;
@@ -156,9 +156,15 @@ abstract class ChatMessage {
 }
 
 class ChatMessageNotifier extends ValueNotifier<ChatMessage> {
-  ChatMessageNotifier(ChatMessage value) : super(value);
+  late ChatMessage _value;
+  ChatMessageNotifier(ChatMessage value) : super(value) {
+    this._value = value;
+  }
+  @override
+  ChatMessage get value => this._value;
+
   update(ChatMessage newValue) {
-    this.value = newValue;
+    this._value = newValue;
     this.notifyListeners();
   }
 }
@@ -183,12 +189,13 @@ class TextMessage extends ChatMessage {
     this._text = text;
   }
 
-  TextMessage.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
+  TextMessage.fromMap(Map<String, dynamic> map, {bool persistent = false})
+      : super.fromMap(map, persistent: persistent) {
     this._text = map["text"];
   }
 
-  Map<String, dynamic> toMap() {
-    Map<String, dynamic> map = super.toMap();
+  Map<String, dynamic> toMap({bool persistent = false}) {
+    Map<String, dynamic> map = super.toMap(persistent: persistent);
     map["text"] = this._text;
     return map;
   }
@@ -228,7 +235,8 @@ class TextMessage extends ChatMessage {
 class StateMessge extends ChatMessage {
   List<String> msgIds = [];
 
-  StateMessge(String chatId, String senderId, MessageState state)
+  StateMessge(String chatId, String senderId,
+      [MessageState state = MessageState.OTHER])
       : super('', chatId, senderId, state, "state", MessageType.NOTIFICATION) {
     this._id = ChatMessage._getMsgId(senderId);
   }
@@ -242,5 +250,46 @@ class StateMessge extends ChatMessage {
   @override
   Map<String, dynamic> toRemoteBody() {
     return {"ids": this.msgIds, "state": enumToString(this.state)};
+  }
+}
+
+class CustomMessage extends ChatMessage {
+  Map<String, dynamic> _rawbody = {};
+
+  CustomMessage.fromMap(Map<String, dynamic> map, {bool persistent = false})
+      : super.fromMap(map, persistent: persistent) {
+    if (persistent) {
+      final body = map["body"];
+      if (body != null) {
+        this._rawbody = json.decode(body);
+      }
+    }
+  }
+
+  CustomMessage.chatMessage(String chatId, String senderId, MessageType type)
+      : super.chatMessage(chatId, senderId, type);
+
+  CustomMessage(String id, String chatId, String senderId)
+      : super(id, chatId, senderId);
+
+  @override
+  Map<String, dynamic> toMap({bool persistent = false}) {
+    final map = super.toMap(persistent: persistent);
+    if (persistent) {
+      map["body"] = json.encode(this._rawbody);
+    } else {
+      map["body"] = this._rawbody;
+    }
+    return map;
+  }
+
+  @override
+  void fromRemoteBody(Map<String, dynamic> body) {
+    this._rawbody = body;
+  }
+
+  @override
+  Map<String, dynamic> toRemoteBody() {
+    return this._rawbody;
   }
 }

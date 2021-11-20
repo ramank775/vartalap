@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 class DB {
   final dbName = "Chat";
-  final version = 2;
+  final version = 3;
   late Future<Database> _db = initDatabase();
 
   static final DB _singleton = DB._internal();
@@ -95,6 +95,11 @@ class DB {
       await db.execute("""
         ALTER TABLE user
           ADD status NUMBER DEFAULT 0;
+      """);
+    } else if (next == 3) {
+      await db.execute("""
+        ALTER TABLE message
+          ADD body TEXT;
       """);
     }
   }

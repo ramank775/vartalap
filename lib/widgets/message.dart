@@ -6,7 +6,7 @@ import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 
 class MessageWidget extends StatelessWidget {
-  final TextMessage _msg;
+  final ChatMessage _msg;
   final bool _isYou;
 
   final bool isSelected;
@@ -90,13 +90,6 @@ class MessageWidget extends StatelessWidget {
   }
 
   List<Widget> getMessageComponents(BuildContext context) {
-    var theme = Theme.of(context);
-    final TextStyle textStyle = TextStyle(
-      fontSize: theme.primaryTextTheme.subtitle1!.fontSize,
-      fontWeight: theme.primaryTextTheme.subtitle1!.fontWeight,
-      letterSpacing: 0.25,
-      color: theme.textTheme.bodyText1?.color,
-    );
     List<Widget> _widgets = [];
     if (this.showUserInfo) {
       _widgets.add(
@@ -122,10 +115,7 @@ class MessageWidget extends StatelessWidget {
             constraints: BoxConstraints(
               minWidth: MediaQuery.of(context).size.width * 0.25,
             ),
-            child: RichMessage(
-              this._msg.text,
-              textStyle,
-            ),
+            child: getMessageWidget(context),
           ),
           Container(
             margin: EdgeInsets.only(left: 5),
@@ -152,6 +142,28 @@ class MessageWidget extends StatelessWidget {
       ),
     );
     return _widgets;
+  }
+
+  Widget getMessageWidget(BuildContext context) {
+    final theme = Theme.of(context);
+    final TextStyle textStyle = TextStyle(
+      fontSize: theme.primaryTextTheme.subtitle1!.fontSize,
+      fontWeight: theme.primaryTextTheme.subtitle1!.fontWeight,
+      letterSpacing: 0.25,
+      color: theme.textTheme.bodyText1?.color,
+    );
+    switch (this._msg.type) {
+      case MessageType.TEXT:
+        {
+          final msg = this._msg as TextMessage;
+          return RichMessage(
+            msg.text,
+            textStyle,
+          );
+        }
+      default:
+        return SizedBox();
+    }
   }
 
   Widget _getIcon() {

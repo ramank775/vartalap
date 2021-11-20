@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/models/user.dart';
 
-import 'avator.dart';
+import 'package:vartalap/widgets/avator.dart';
 
 class ContactPreviewItem extends StatelessWidget {
   const ContactPreviewItem({
     Key? key,
     required User user,
-  })   : _user = user,
+  })  : _user = user,
         super(key: key);
 
   final User _user;

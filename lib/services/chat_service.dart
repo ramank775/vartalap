@@ -9,6 +9,7 @@ import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 import 'package:vartalap/utils/find.dart';
 
@@ -199,7 +200,7 @@ class ChatService {
     });
   }
 
-  static Future<void> sendMessage(TextMessage msg, Chat chat) async {
+  static Future<void> sendMessage(ChatMessage msg, Chat chat) async {
     var _isNew = (await _getChatById(chat.id)) == null;
     if (_isNew) {
       await _saveChat(chat);
@@ -210,23 +211,28 @@ class ChatService {
     await SocketService.instance.send(smsg);
   }
 
-  static Future<List<TextMessage>> getChatMessages(String chatid) async {
-    var db = await DB().getDb();
-    var result = await db.query("message",
-        where: "chatid=?", whereArgs: [chatid], orderBy: "ts");
-    var userResult = (await _getChatUser(chatid)).toSet();
-    List<TextMessage> msgs = [];
-    var currentUser = UserService.getLoggedInUser();
-    result.forEach((msgMap) {
-      var msg = TextMessage.fromMap(msgMap);
+  static Future<List<ChatMessage>> getChatMessages(String chatid) async {
+    final db = await DB().getDb();
+    final result = await db.query(
+      "message",
+      where: "chatid=?",
+      whereArgs: [chatid],
+      orderBy: "ts DESC",
+    );
+    final userResult = (await _getChatUser(chatid)).toSet();
+
+    final currentUser = UserService.getLoggedInUser();
+    List<ChatMessage> msgs = result.map((msgMap) {
+      final msg = buildChatMessage(msgMap, persistent: true);
       ChatUser? user = find(userResult, (u) => u.username == msg.senderId);
       if (user == null && msg.senderId == currentUser.username) {
         user = ChatUser.fromUser(currentUser);
       }
       msg.sender = user;
-      msgs.add(msg);
-    });
-    return msgs.reversed.toList();
+      //msgs.add(msg);
+      return msg;
+    }).toList();
+    return msgs; //.reversed.toList();
   }
 
   static Future<bool> deleteMessages(List<String> msgIds) async {
@@ -379,11 +385,11 @@ class ChatService {
     return true;
   }
 
-  static Future<bool> _saveMessage(TextMessage msg) async {
+  static Future<bool> _saveMessage(ChatMessage msg) async {
     var db = await DB().getDb();
     var result = await db.insert(
       "message",
-      msg.toMap(),
+      msg.toMap(persistent: true),
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
     return result > 0;
@@ -409,15 +415,8 @@ class ChatService {
         chat = await _createIndiviualChat(msg.head.chatid!, msg.head.from);
       }
     }
-    TextMessage _msg = TextMessage(
-      msg.id,
-      chat.id,
-      msg.head.from,
-      msg.body['text'],
-      MessageState.DELIVERED,
-      msg.head.contentType,
-    );
-    await _saveMessage(_msg);
+    final chatMsg = toChatMessage(msg);
+    await _saveMessage(chatMsg);
     return msg;
   }
 
@@ -517,7 +516,7 @@ class ChatService {
       user.hasAccount = true;
       await UserService.addUser(user);
     }
-    var self = UserService.getLoggedInUser();
+    final self = UserService.getLoggedInUser();
     User? currentUser = await UserService.getUserById(self.username);
     if (currentUser == null) {
       await UserService.addUser(self);

@@ -5,6 +5,7 @@ import 'package:vartalap/models/previewImage.dart';
 import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/utils/enum_helper.dart';
 
 List<Object> calculateChatMessages(
   List<ChatMessage> messages,
@@ -54,9 +55,6 @@ List<Object> calculateChatMessages(
     }
 
     if (nextMessageHasCreatedAt) {
-      // nextMessageDateThreshold =
-      //     nextMessage!.timestamp - message.timestamp >= 900000;
-
       nextMessageDifferentDay =
           DateTime.fromMillisecondsSinceEpoch(message.timestamp).day !=
               DateTime.fromMillisecondsSinceEpoch(nextMessage!.timestamp).day;
@@ -118,8 +116,14 @@ ChatMessage toChatMessage(RemoteMessage msg) {
       msg.head.from,
       MessageState.OTHER,
     );
-  } else {
+  } else if (msg.head.contentType == MessageType.TEXT) {
     chatMsg = TextMessage(
+      msg.id,
+      msg.head.chatid!,
+      msg.head.from,
+    );
+  } else {
+    chatMsg = CustomMessage(
       msg.id,
       msg.head.chatid!,
       msg.head.from,
@@ -128,4 +132,15 @@ ChatMessage toChatMessage(RemoteMessage msg) {
 
   chatMsg.fromRemoteBody(msg.body);
   return chatMsg;
+}
+
+ChatMessage buildChatMessage(Map<String, dynamic> map,
+    {bool persistent = false}) {
+  final type = intToEnum(map["type"], MessageType.values);
+  switch (type) {
+    case MessageType.TEXT:
+      return TextMessage.fromMap(map, persistent: persistent);
+    default:
+      return CustomMessage.fromMap(map, persistent: persistent);
+  }
 }

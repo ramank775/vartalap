@@ -12,7 +12,7 @@ import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/chatlist.dart';
 import 'package:vartalap/widgets/notifier/iterable_notifier.dart';
-import 'message_input.dart';
+import 'package:vartalap/widgets/message_input.dart';
 
 class ChatScreen extends StatefulWidget {
   final Chat chat;
@@ -163,13 +163,13 @@ class ChatState extends State<ChatScreen> {
                       final messages = snapshot.data ?? [];
                       this._messageController =
                           ChatMessageController(messages: messages);
-                      final Map<String, User> users = {};
+                      final Map<String, ChatUser> users = {};
                       this._chat.users.forEach((u) => users[u.username] = u);
                       return ChatList(
                         controller: this._messageController,
                         users: users,
                         showName: this._chat.type == ChatType.GROUP,
-                        onTab: (TextMessage msg) {
+                        onTab: (ChatMessage msg) {
                           if (this._selectedMessges.value.length > 0) {
                             this.selectOrRemove(msg);
                           }
@@ -182,7 +182,7 @@ class ChatState extends State<ChatScreen> {
           ...this.hasSendPermission()
               ? [
                   MessageInputWidget(sendMessage: (String text) async {
-                    var msg = TextMessage.chatMessage(this._chat.id,
+                    final msg = TextMessage.chatMessage(this._chat.id,
                         this._currentUser.username, text, MessageType.TEXT);
                     msg.sender = this._currentUser;
                     await ChatService.sendMessage(msg, this._chat);
@@ -255,7 +255,7 @@ class ChatState extends State<ChatScreen> {
         .username;
   }
 
-  void selectOrRemove(TextMessage msg) {
+  void selectOrRemove(ChatMessage msg) {
     if (!_selectedMessges.value.remove(msg.id)) {
       _selectedMessges.value.add(msg.id);
     }

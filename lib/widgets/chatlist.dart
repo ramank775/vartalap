@@ -4,7 +4,7 @@ import 'package:vartalap/models/dateHeader.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/messageSpacer.dart';
 import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/chat/message.dart';
+import 'package:vartalap/widgets/message.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
@@ -77,12 +77,15 @@ class ChatMessageController extends ValueNotifier<List<ChatMessage>> {
   }
 }
 
+typedef MessageTapCallback = void Function(ChatMessage msg);
+typedef MessageLongPressCallback = void Function(ChatMessage msg);
+
 class ChatList extends StatelessWidget {
   final ChatMessageController controller;
   final bool showName;
-  final Function? onTab;
-  final Function? onLongPress;
-  final Map<String, User> users;
+  final MessageTapCallback? onTab;
+  final MessageLongPressCallback? onLongPress;
+  final Map<String, ChatUser> users;
   final Map<String, UserNotifier> _userChangeNotifier = {};
   ChatList({
     Key? key,
@@ -133,7 +136,6 @@ class ChatList extends StatelessWidget {
           ),
           child: Text(
             object.date,
-            //style: widget.theme.dateDividerTextStyle,
           ),
         ),
       );
@@ -142,7 +144,7 @@ class ChatList extends StatelessWidget {
         height: object.height,
       );
     } else if (object is Map) {
-      TextMessage msg = object["message"];
+      ChatMessage msg = object["message"];
       bool isYou = msg.sender == currentUser;
       bool showUserInfo = !isYou && this.showName;
       if (msg.sender == null) {
@@ -190,15 +192,14 @@ class ChatList extends StatelessWidget {
   User _getSender(String senderId) {
     if (this.users.containsKey(senderId)) {
       return this.users[senderId]!;
+    } else if (this._userChangeNotifier.containsKey(senderId)) {
+      return this._userChangeNotifier[senderId]!.value;
     } else {
-      var user = ChatUser(senderId, senderId, null);
-      if (!this._userChangeNotifier.containsKey(senderId)) {
-        this._userChangeNotifier[senderId] = UserNotifier(user);
-      }
-
+      final user = User(senderId, senderId, null);
+      this._userChangeNotifier[senderId] = UserNotifier(user);
       UserService.getUserById(senderId).then((User? user) {
         if (user == null) return;
-        this.users[user.username] = user;
+        this.users[user.username] = ChatUser.fromUser(user);
         this._userChangeNotifier[senderId]!.update(user);
       }, onError: (user) {});
       return user;
