@@ -4,33 +4,36 @@ import 'package:sqflite/sqflite.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
-import 'package:vartalap/models/socketMessage.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/socket_service.dart';
 import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 import 'package:vartalap/utils/find.dart';
 
 class ChatService {
-  static late Stream<SocketMessage> onNewMessageStream;
-  static late Stream<SocketMessage> onNotificationMessagStream;
-  static late StreamSubscription<SocketMessage> _newMessageSub$;
-  static late StreamSubscription<SocketMessage> _notificationSub$;
+  static late Stream<RemoteMessage> onNewMessageStream;
+  static late Stream<RemoteMessage> onNotificationMessagStream;
+  static late StreamSubscription<RemoteMessage> _newMessageSub$;
+  static late StreamSubscription<RemoteMessage> _notificationSub$;
 
   static Future<void> init() async {
     onNewMessageStream = SocketService.instance.stream
-        .where((msg) => msg.type != MessageType.NOTIFICATION)
+        .where((msg) => msg.head.contentType != MessageType.NOTIFICATION)
         .asyncMap(_onNewMessage)
-        .where((SocketMessage? msg) => msg != null)
+        .where((RemoteMessage? msg) => msg != null)
         .map((event) => event!)
         .asBroadcastStream();
     onNotificationMessagStream = SocketService.instance.stream
-        .where((msg) => msg.type == MessageType.NOTIFICATION)
+        .where((msg) => msg.head.contentType == MessageType.NOTIFICATION)
         .asyncMap(_onNotificationMsg)
-        .where((SocketMessage? msg) => msg != null)
+        .where((RemoteMessage? msg) => msg != null)
         .asBroadcastStream();
-    _newMessageSub$ = onNewMessageStream.listen((event) {});
+    _newMessageSub$ = onNewMessageStream.listen((msg) async {
+      await ackMessageDelivery([msg], socket: true);
+    });
     _notificationSub$ = onNotificationMessagStream.listen((event) {});
     await SocketService.instance.init();
   }
@@ -48,7 +51,7 @@ class ChatService {
     message.senderid, message.text, message.state, message.ts ,
     ( select count(*) 
       from message 
-      where chatid == chat.id and senderid !=? and state == 0
+      where chatid == chat.id and senderid !=? and state in (0,2)
     ) unread
     from chat
     inner join message on message.id in (
@@ -197,34 +200,39 @@ class ChatService {
     });
   }
 
-  static Future<void> sendMessage(Message msg, Chat chat) async {
+  static Future<void> sendMessage(ChatMessage msg, Chat chat) async {
     var _isNew = (await _getChatById(chat.id)) == null;
     if (_isNew) {
       await _saveChat(chat);
     }
     await _saveMessage(msg);
     if (_isSelfChat(chat)) return;
-    SocketMessage smsg = SocketMessage.fromChatMessage(msg, chat);
+    RemoteMessage smsg = RemoteMessage.fromChatMessage(msg, chat);
     await SocketService.instance.send(smsg);
   }
 
-  static Future<List<Message>> getChatMessages(String chatid) async {
-    var db = await DB().getDb();
-    var result = await db.query("message",
-        where: "chatid=?", whereArgs: [chatid], orderBy: "ts");
-    var userResult = (await _getChatUser(chatid)).toSet();
-    List<Message> msgs = [];
-    var currentUser = UserService.getLoggedInUser();
-    result.forEach((msgMap) {
-      var msg = Message.fromMap(msgMap);
+  static Future<List<ChatMessage>> getChatMessages(String chatid) async {
+    final db = await DB().getDb();
+    final result = await db.query(
+      "message",
+      where: "chatid=?",
+      whereArgs: [chatid],
+      orderBy: "ts DESC",
+    );
+    final userResult = (await _getChatUser(chatid)).toSet();
+
+    final currentUser = UserService.getLoggedInUser();
+    List<ChatMessage> msgs = result.map((msgMap) {
+      final msg = buildChatMessage(msgMap, persistent: true);
       ChatUser? user = find(userResult, (u) => u.username == msg.senderId);
       if (user == null && msg.senderId == currentUser.username) {
         user = ChatUser.fromUser(currentUser);
       }
       msg.sender = user;
-      msgs.add(msg);
-    });
-    return msgs.reversed.toList();
+      //msgs.add(msg);
+      return msg;
+    }).toList();
+    return msgs; //.reversed.toList();
   }
 
   static Future<bool> deleteMessages(List<String> msgIds) async {
@@ -237,26 +245,89 @@ class ChatService {
     return result.length > 0;
   }
 
-  static Future markAsDelivered(List<String> msgIds) async {
-    var db = await DB().getDb();
+  static Future markAsRead(List<String> msgIds, Chat chat) async {
+    if (msgIds.length == 0) return;
+    await updateMessageState(msgIds, MessageState.READ);
+    final current = UserService.getLoggedInUser();
+    final stateNotification =
+        StateMessge(chat.id, current.username, MessageState.READ);
+    stateNotification.msgIds.addAll(msgIds);
+    final smsg = RemoteMessage.fromChatMessage(stateNotification, chat);
+    await SocketService.instance.send(smsg);
+  }
+
+  static Future updateMessageState(
+      List<String> msgIds, MessageState state) async {
+    final db = await DB().getDb();
+    int stateIdx = enumToInt(state, MessageState.values);
     var batch = db.batch();
     msgIds.forEach((id) {
       batch.update(
           "message",
           {
-            "state": enumToInt(MessageState.DELIVERED, MessageState.values),
+            "state": stateIdx,
           },
-          where: "id=?",
-          whereArgs: [id]);
+          where: "id=? and state < ? and state !=?",
+          whereArgs: [
+            id,
+            stateIdx,
+            enumToInt(MessageState.OTHER, MessageState.values)
+          ]);
     });
     await batch.commit();
   }
 
-  static Future<SocketMessage?> newMessage(SocketMessage msg) async {
-    if (msg.type == MessageType.NOTIFICATION) {
+  static Future<RemoteMessage?> newMessage(RemoteMessage msg) async {
+    if (msg.head.contentType == MessageType.NOTIFICATION) {
       return _onNotificationMsg(msg);
     }
     return _onNewMessage(msg);
+  }
+
+  static Future ackMessageDelivery(List<RemoteMessage> msgs,
+      {bool socket = false}) async {
+    final List<RemoteMessage> messages = [];
+    final Set<String> chatIds = new Set();
+    for (var i = 0; i < msgs.length; i++) {
+      final msg = msgs[i];
+      if (msg.head.chatid == null) continue;
+      messages.add(msg);
+      chatIds.add(msg.head.chatid!);
+    }
+    if (messages.isEmpty) return;
+    Map<String, Chat> chats = {};
+    for (var i = 0; i < chatIds.length; i++) {
+      final chatid = chatIds.elementAt(i);
+      final chat = await getChatInfo(chatid);
+      if (chat == null) continue;
+      if (chat.type == ChatType.INDIVIDUAL) {
+        final chatusers = await getChatUserByid(chatid);
+        chatusers.forEach((user) {
+          chat.addUser(user);
+        });
+      }
+      chats[chatid] = chat;
+    }
+
+    if (chats.isEmpty) return;
+
+    final currentUser = UserService.getLoggedInUser();
+    final deliveryAck = messages.map((msg) {
+      final stateNotification = StateMessge(
+          msg.head.chatid!, currentUser.username, MessageState.DELIVERED);
+      stateNotification.msgIds.add(msg.id);
+      final chat = chats[msg.head.chatid!]!;
+      final smsg = RemoteMessage.fromChatMessage(stateNotification, chat);
+      return smsg;
+    });
+
+    if (socket) {
+      deliveryAck.forEach((smsg) {
+        SocketService.instance.send(smsg);
+      });
+    } else {
+      await ApiService.sendMessages(deliveryAck);
+    }
   }
 
   static Future<Chat?> _getChatById(String chatid) async {
@@ -314,79 +385,69 @@ class ChatService {
     return true;
   }
 
-  static Future<bool> _saveMessage(Message msg) async {
+  static Future<bool> _saveMessage(ChatMessage msg) async {
     var db = await DB().getDb();
     var result = await db.insert(
       "message",
-      msg.toMap(),
+      msg.toMap(persistent: true),
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
     return result > 0;
   }
 
-  static Future<bool> _isDuplicate(SocketMessage message) async {
+  static Future<bool> _isDuplicate(RemoteMessage message) async {
     var db = await DB().getDb();
-    var msg =
-        await db.query("message", where: "id=?", whereArgs: [message.msgId]);
+    var msg = await db.query("message", where: "id=?", whereArgs: [message.id]);
     return msg.length > 0;
   }
 
-  static Future<SocketMessage?> _onNewMessage(SocketMessage msg) async {
+  static Future<RemoteMessage?> _onNewMessage(RemoteMessage msg) async {
     var isduplicat = await _isDuplicate(msg);
     if (isduplicat) return null;
-    if (msg.chatId == null) {
-      msg.chatId = _createChatIdFromMsg(msg);
+    if (msg.head.chatid == null) {
+      msg.head.chatid = _createChatIdFromMsg(msg);
     }
-    Chat? chat = await _getChatById(msg.chatId!);
+    Chat? chat = await _getChatById(msg.head.chatid!);
     if (chat == null) {
-      if (msg.to == msg.chatId) {
-        chat = await _createGroupChat(msg.to);
+      if (msg.head.to == msg.head.chatid) {
+        chat = await _createGroupChat(msg.head.to);
       } else {
-        chat = await _createIndiviualChat(msg.chatId!, msg.from);
+        chat = await _createIndiviualChat(msg.head.chatid!, msg.head.from);
       }
     }
-    Message _msg = Message(
-      msg.msgId!,
-      chat.id,
-      msg.from,
-      msg.text,
-      MessageState.NEW,
-      msg.type,
-    );
-    await _saveMessage(_msg);
+    final chatMsg = toChatMessage(msg);
+    await _saveMessage(chatMsg);
     return msg;
   }
 
-  static String _createChatIdFromMsg(SocketMessage msg) {
-    if (msg.to != UserService.getLoggedInUser().username) {
-      msg.chatId = msg.to;
+  static String _createChatIdFromMsg(RemoteMessage msg) {
+    if (msg.head.to != UserService.getLoggedInUser().username) {
+      msg.head.chatid = msg.head.to;
     } else {
-      msg.chatId = _createIndiviualChatId(User(msg.from, msg.from, null));
+      msg.head.chatid =
+          _createIndiviualChatId(User(msg.head.from, msg.head.from, null));
     }
-    return msg.chatId!;
+    return msg.head.chatid!;
   }
 
-  static Future<SocketMessage> _onNotificationMsg(SocketMessage msg) async {
-    var db = await DB().getDb();
-    if (msg.from == SocketService.name) {
-      await db.update(
-          "message",
-          {
-            "state": enumToInt(msg.state, MessageState.values),
-          },
-          where: "id=?",
-          whereArgs: [msg.msgId]);
-    } else if (msg.module == "group") {
-      var result = await _getChatById(msg.to);
+  static Future<RemoteMessage> _onNotificationMsg(RemoteMessage msg) async {
+    if (msg.head.action == "state") {
+      final List<String> ids =
+          (msg.body["ids"] as List).map((e) => e.toString()).toList();
+      final MessageState state =
+          stringToEnum(msg.body["state"], MessageState.values);
+      await updateMessageState(ids, state);
+    } else if (msg.head.type == ChatType.GROUP) {
+      var result = await _getChatById(msg.head.to);
       if (result == null) {
-        await _createGroupChat(msg.to);
+        await _createGroupChat(msg.head.to);
       }
-      switch (msg.action) {
+      switch (msg.head.action) {
         case 'add':
-          await _addGroupUsers(msg.to);
+          await _addGroupUsers(msg.head.to);
           break;
         case 'remove':
-          await _removeGroupUsers(msg.to);
+          await _removeGroupUsers(msg.head.to);
           break;
         default:
       }
@@ -455,7 +516,7 @@ class ChatService {
       user.hasAccount = true;
       await UserService.addUser(user);
     }
-    var self = UserService.getLoggedInUser();
+    final self = UserService.getLoggedInUser();
     User? currentUser = await UserService.getUserById(self.username);
     if (currentUser == null) {
       await UserService.addUser(self);

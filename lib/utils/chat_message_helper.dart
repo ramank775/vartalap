@@ -2,11 +2,13 @@ import 'package:vartalap/models/dateHeader.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/messageSpacer.dart';
 import 'package:vartalap/models/previewImage.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/utils/enum_helper.dart';
 
 List<Object> calculateChatMessages(
-  List<Message> messages,
+  List<ChatMessage> messages,
   User user, {
   String Function(DateTime)? customDateHeaderText,
   required bool showUserNames,
@@ -53,9 +55,6 @@ List<Object> calculateChatMessages(
     }
 
     if (nextMessageHasCreatedAt) {
-      // nextMessageDateThreshold =
-      //     nextMessage!.timestamp - message.timestamp >= 900000;
-
       nextMessageDifferentDay =
           DateTime.fromMillisecondsSinceEpoch(message.timestamp).day !=
               DateTime.fromMillisecondsSinceEpoch(nextMessage!.timestamp).day;
@@ -106,4 +105,42 @@ List<Object> calculateChatMessages(
   }
 
   return [chatMessages, gallery];
+}
+
+ChatMessage toChatMessage(RemoteMessage msg) {
+  ChatMessage chatMsg;
+  if (msg.head.contentType == MessageType.NOTIFICATION &&
+      msg.head.action == "state") {
+    chatMsg = StateMessge(
+      msg.head.chatid!,
+      msg.head.from,
+      MessageState.OTHER,
+    );
+  } else if (msg.head.contentType == MessageType.TEXT) {
+    chatMsg = TextMessage(
+      msg.id,
+      msg.head.chatid!,
+      msg.head.from,
+    );
+  } else {
+    chatMsg = CustomMessage(
+      msg.id,
+      msg.head.chatid!,
+      msg.head.from,
+    );
+  }
+
+  chatMsg.fromRemoteBody(msg.body);
+  return chatMsg;
+}
+
+ChatMessage buildChatMessage(Map<String, dynamic> map,
+    {bool persistent = false}) {
+  final type = intToEnum(map["type"], MessageType.values);
+  switch (type) {
+    case MessageType.TEXT:
+      return TextMessage.fromMap(map, persistent: persistent);
+    default:
+      return CustomMessage.fromMap(map, persistent: persistent);
+  }
 }

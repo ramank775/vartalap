@@ -1,6 +1,6 @@
 import 'package:vartalap/utils/enum_helper.dart';
 
-import 'user.dart';
+import 'package:vartalap/models/user.dart';
 
 enum ChatType {
   NONE,

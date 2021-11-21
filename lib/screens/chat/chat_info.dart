@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/new_chat/contact.dart';
+import 'package:vartalap/widgets/contact.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/widgets/avator.dart';

@@ -1,32 +1,51 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/performance_metric.dart';
+import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/auth_listener.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
-import 'models/chat.dart';
-import 'models/user.dart';
-import 'screens/chats/chats.dart';
-import 'screens/chat/chat.dart';
-import 'screens/new_chat/new_chat.dart';
+import 'package:vartalap/models/chat.dart';
+import 'package:vartalap/models/user.dart';
+import 'package:vartalap/screens/chats/chats.dart';
+import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/services/crashlystics.dart';
 
 final configStore = ConfigStore();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  await configStore.loadConfig();
+  await initializeApp();
   runZonedGuarded(() {
     runApp(Home(configStore.packageInfo.appName));
   }, (error, stackTrace) {
     Crashlytics.recordError(error, stackTrace);
   });
+}
+
+Future initializeApp() async {
+  await Firebase.initializeApp();
+  await configStore.loadConfig();
+  await AuthService.init();
+  Crashlytics.init();
+  PerformanceMetric.init();
+  if (AuthService.instance.isLoggedIn()) {
+    ChatService.init().ignore();
+    Permission.contacts.status.then((status) {
+      if (status.isGranted) {
+        UserService.syncContacts(onInit: true).ignore();
+      }
+    });
+  }
 }
 
 class Home extends StatefulWidget {

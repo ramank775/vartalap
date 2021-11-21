@@ -1,5 +1,4 @@
 import 'package:vartalap/models/chat.dart';
-// import 'package:vartalap/screens/profile_img/profile_img.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
@@ -75,7 +74,7 @@ class ChatPreviewWidget extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    this.getDisplayContext(),
+                    this._chat.content,
                     softWrap: false,
                     overflow: TextOverflow.ellipsis,
                     style: new TextStyle(fontSize: 15.0),
@@ -107,7 +106,7 @@ class ChatPreviewWidget extends StatelessWidget {
             ),
             child: Center(
                 child: Text(
-              getUnreadCountText(),
+              _getUnreadCountText(),
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
@@ -119,15 +118,7 @@ class ChatPreviewWidget extends StatelessWidget {
         : Text("");
   }
 
-  String getDisplayContext() {
-    String content = this._chat.content;
-    // if (content.length > 30) {
-    //   return content.substring(0, 26) + "...";
-    // }
-    return content;
-  }
-
-  String getUnreadCountText() {
+  String _getUnreadCountText() {
     if (this._chat.unread > 9) {
       return "9+";
     }

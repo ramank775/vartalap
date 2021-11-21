@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/models/message.dart';
+import 'package:vartalap/models/remoteMessage.dart' as vRemoteMessage;
 import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/utils/socket_message_helper.dart';
+import 'package:vartalap/utils/chat_message_helper.dart';
+import 'package:vartalap/utils/remote_message_helper.dart';
 
 Future<void> showNotificationService(String title, String body, dynamic payload,
     {String? groupKey, int id = 0}) {
@@ -36,19 +41,25 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
 }
 
 Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
-  var event = payload.data["message"];
-  print(event);
-  var messages = toSocketMessage(event);
+  await Firebase.initializeApp();
+  await ConfigStore().loadConfig();
+  final event = payload.data["message"];
+  final messages = toRemoteMessage(event);
+  final List<vRemoteMessage.RemoteMessage> deliveryAcks = [];
   for (var msg in messages) {
     var result = await ChatService.newMessage(msg);
-    if (result != null) {
-      var chat = await ChatService.getChatInfo(msg.chatId!);
+    if (result != null && msg.head.contentType != MessageType.NOTIFICATION) {
+      var chat = await ChatService.getChatInfo(msg.head.chatid!);
       if (chat == null) return;
-      return showNotificationService(chat.title, msg.text, msg.toMap(),
-          groupKey: chat.id, id: chat.id.hashCode);
+      deliveryAcks.add(result);
+      final notify = toChatMessage(msg).notificationContent;
+      if (notify.show && notify.content != null) {
+        showNotificationService(chat.title, notify.content!, msg.toMap(),
+            groupKey: chat.id, id: chat.id.hashCode);
+      }
     }
   }
-  return Future<void>.value();
+  return await ChatService.ackMessageDelivery(deliveryAcks, socket: false);
 }
 
 class PushNotificationService {

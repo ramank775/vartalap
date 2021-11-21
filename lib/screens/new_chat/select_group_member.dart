@@ -3,7 +3,7 @@ import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/contactPreviewItem.dart';
-import 'contact.dart';
+import 'package:vartalap/widgets/contact.dart';
 
 class SelectGroupMemberScreen extends StatefulWidget {
   final Chat? chat;

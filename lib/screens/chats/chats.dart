@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/socketMessage.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -46,7 +47,7 @@ class ChatsState extends State<Chats> {
           return;
         }
         try {
-          var smsg = SocketMessage.fromMap(msg);
+          var smsg = RemoteMessage.fromMap(msg);
           SocketService.instance.externalNewMessage(smsg);
         } catch (e) {
           throw e;
@@ -250,7 +251,7 @@ class ChatListViewState extends State<ChatListView> {
     _chats = widget._chats;
     _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
     _groupNotificationSub = ChatService.onNotificationMessagStream
-        .where((notification) => notification.module == "group")
+        .where((notification) => notification.head.type == ChatType.GROUP)
         .listen(_onGroupNotification);
   }
 
@@ -279,36 +280,37 @@ class ChatListViewState extends State<ChatListView> {
     );
   }
 
-  _onNewMessage(SocketMessage msg) async {
-    ChatPreview? chat = find(_chats, (_chat) => _chat.id == msg.chatId);
+  _onNewMessage(RemoteMessage msg) async {
+    final msgInfo = msg.head;
+    ChatPreview? chat = find(_chats, (_chat) => _chat.id == msgInfo.chatid);
     if (chat == null) {
-      chat = await ChatService.getChatById(msg.chatId!);
+      chat = await ChatService.getChatById(msgInfo.chatid!);
       setState(() {
         widget._chats.insert(0, chat!);
       });
       return;
     } else {
-      var _msg = msg.toMessage()!;
-      chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.text,
+      var _msg = toChatMessage(msg);
+      chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.previewContent,
           _msg.timestamp, (chat.unread + 1));
     }
     PushNotificationService.instance.showNotification(
       chat.title,
-      msg.text,
+      chat.content,
       msg.toMap(),
       groupKey: chat.id,
       id: chat.id.hashCode,
     );
 
-    var chats = _chats.where((_chat) => _chat.id != msg.chatId).toList();
+    var chats = _chats.where((_chat) => _chat.id != msg.head.chatid).toList();
     chats.insert(0, chat);
     setState(() {
       _chats = chats;
     });
   }
 
-  _onGroupNotification(SocketMessage msg) async {
-    var chatIdx = _chats.indexWhere((_chat) => _chat.id == msg.chatId);
+  _onGroupNotification(RemoteMessage msg) async {
+    var chatIdx = _chats.indexWhere((_chat) => _chat.id == msg.head.chatid);
     if (chatIdx == -1) {
       return;
     }

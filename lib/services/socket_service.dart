@@ -2,15 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:connectivity/connectivity.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
+import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
-import 'package:vartalap/models/socketMessage.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/crashlystics.dart';
 import 'package:vartalap/services/performance_metric.dart';
-import 'package:vartalap/utils/socket_message_helper.dart';
+import 'package:vartalap/utils/remote_message_helper.dart';
 
 class SocketService {
   static String name = "SocketService";
@@ -24,11 +25,11 @@ class SocketService {
   bool _reconnecting = false;
   // ignore: cancel_subscriptions
   StreamSubscription<ConnectivityResult>? _connectivitySub;
-  StreamController<SocketMessage> _controller =
-      StreamController<SocketMessage>.broadcast();
+  StreamController<RemoteMessage> _controller =
+      StreamController<RemoteMessage>.broadcast();
   // ignore: close_sinks
   WebSocket? _channel;
-  Stream<SocketMessage> get stream => _controller.stream.asBroadcastStream();
+  Stream<RemoteMessage> get stream => _controller.stream.asBroadcastStream();
 
   Future<void> init() async {
     _url = ConfigStore().get("ws_url");
@@ -36,12 +37,12 @@ class SocketService {
     await _connectWs();
   }
 
-  Future<void> externalNewMessage(SocketMessage msg) async {
+  Future<void> externalNewMessage(RemoteMessage msg) async {
     _controller.sink.add(msg);
     return _reconnectWs();
   }
 
-  Future<void> send(SocketMessage msg) async {
+  Future<void> send(RemoteMessage msg) async {
     var _sendMsgTrace = PerformanceMetric.newTrace('send-message');
     await _sendMsgTrace.start();
 
@@ -49,7 +50,7 @@ class SocketService {
     var msgMap = msg.toMap();
     var msgStr = json.encode(msgMap);
     var outMessage = {
-      "messageId": msg.msgId,
+      "messageId": msg.id,
       "message": msgStr,
       "sent": 0,
       "created_ts": DateTime.now().millisecondsSinceEpoch,
@@ -59,7 +60,7 @@ class SocketService {
     db.insert("out_message", outMessage);
     if (_channel == null || _channel!.closeCode != null) {
       await db.update("out_message", {"sent": -1},
-          where: "messageId=?", whereArgs: [msg.msgId]);
+          where: "messageId=?", whereArgs: [msg.id]);
 
       _sendMsgTrace.putAttribute('channelStatus', 'closed');
       _sendMsgTrace.stop();
@@ -68,16 +69,16 @@ class SocketService {
     }
     try {
       _channel!.add(msgStr);
-      await db
-          .delete("out_message", where: "messageId=?", whereArgs: [msg.msgId]);
-      msg = SocketMessage.fromMap(msgMap);
-      msg.from = name;
-      msg.state = MessageState.SENT;
-      msg.type = MessageType.NOTIFICATION;
+      msg = _sendMessageAck(msg);
       _controller.sink.add(msg);
+      await db.delete(
+        "out_message",
+        where: "messageId=?",
+        whereArgs: [msg.id],
+      );
     } catch (e, stack) {
       await db.update("out_message", {"sent": -1},
-          where: "messageId=?", whereArgs: [msg.msgId]);
+          where: "messageId=?", whereArgs: [msg.id]);
 
       Crashlytics.recordError(e, stack,
           reason: "Error while sending message to socket");
@@ -87,6 +88,17 @@ class SocketService {
     } finally {
       _sendMsgTrace.stop();
     }
+  }
+
+  RemoteMessage _sendMessageAck(RemoteMessage msg) {
+    final stateMsg = StateMessge(msg.head.chatid!, name, MessageState.SENT);
+    stateMsg.msgIds.add(msg.id);
+    final chat = Chat(msg.head.chatid!, '', null, type: msg.head.type);
+    if (chat.type == ChatType.INDIVIDUAL) {
+      chat.addUser(ChatUser('', msg.head.to, ''));
+    }
+    msg = RemoteMessage.fromChatMessage(stateMsg, chat);
+    return msg;
   }
 
   void dispose() {
@@ -104,6 +116,7 @@ class SocketService {
       _reconnecting = true;
       Map<String, String> headers = await ApiService.getAuthHeader();
       _channel = await WebSocket.connect(_url, headers: headers);
+      _channel!.pingInterval = Duration(seconds: 30);
       _retryCount = 0;
       _channel!.asBroadcastStream().listen(_onNewMessage,
           onError: _onError, onDone: _onDone, cancelOnError: false);
@@ -169,7 +182,7 @@ class SocketService {
   }
 
   void _onNewMessage(event) {
-    var messages = toSocketMessage(event);
+    var messages = toRemoteMessage(event);
     for (var msg in messages) {
       _controller.sink.add(msg);
     }
@@ -190,15 +203,13 @@ class SocketService {
       var batch = db.batch();
       try {
         for (var row in result) {
-          var _smsg =
-              SocketMessage.fromMap(json.decode(row["message"] as String));
           _channel!.add(row["message"]);
-          _smsg.from = name;
-          _smsg.state = MessageState.SENT;
-          _smsg.type = MessageType.NOTIFICATION;
+          var _smsg =
+              RemoteMessage.fromMap(json.decode(row["message"] as String));
+          _smsg = _sendMessageAck(_smsg);
           _controller.sink.add(_smsg);
           batch.delete("out_message",
-              where: "messageId=?", whereArgs: [_smsg.msgId]);
+              where: "messageId=?", whereArgs: [_smsg.id]);
         }
       } catch (e, stack) {
         Crashlytics.recordError(e, stack,

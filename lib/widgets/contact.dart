@@ -66,7 +66,9 @@ class ContactItem extends StatelessWidget {
           maxLines: 1,
         ),
         onTap: () {
-          onTap!(user);
+          if (onTap != null) {
+            onTap!(user);
+          }
         },
         selected: isSelected,
         enabled: enabled,

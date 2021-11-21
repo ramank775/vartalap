@@ -1,13 +1,13 @@
 import 'dart:convert';
 
-import 'package:vartalap/models/socketMessage.dart';
+import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/services/crashlystics.dart';
 
-List<SocketMessage> toSocketMessage(dynamic event) {
-  List<SocketMessage> _messages = [];
-  if (event is List<String>) {
+List<RemoteMessage> toRemoteMessage(dynamic event) {
+  List<RemoteMessage> _messages = [];
+  if (event is List) {
     for (var e in event) {
-      _messages.addAll(toSocketMessage(e));
+      _messages.addAll(toRemoteMessage(e));
     }
     return _messages;
   }
@@ -15,7 +15,7 @@ List<SocketMessage> toSocketMessage(dynamic event) {
 
   if (incomming is Map) {
     try {
-      var message = SocketMessage.fromMap(incomming as Map<String, dynamic>);
+      var message = RemoteMessage.fromMap(incomming as Map<String, dynamic>);
       _messages.add(message);
     } catch (ex, stack) {
       Crashlytics.recordError(ex, stack,
@@ -24,10 +24,10 @@ List<SocketMessage> toSocketMessage(dynamic event) {
   } else if (incomming is List) {
     for (var msg in incomming) {
       if (msg is String) {
-        _messages.addAll(toSocketMessage(msg));
+        _messages.addAll(toRemoteMessage(msg));
       } else if (msg is Map) {
         try {
-          _messages.add(SocketMessage.fromMap(msg as Map<String, dynamic>));
+          _messages.add(RemoteMessage.fromMap(msg as Map<String, dynamic>));
         } catch (e, stack) {
           Crashlytics.recordError(e, stack,
               reason:

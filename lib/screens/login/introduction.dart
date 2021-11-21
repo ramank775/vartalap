@@ -5,7 +5,7 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
-import 'login.dart';
+import 'package:vartalap/screens/login/login.dart';
 
 class IntroductionScreen extends StatelessWidget {
   final config = ConfigStore();

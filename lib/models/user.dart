@@ -1,4 +1,4 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
 enum UserStatus {
@@ -48,10 +48,16 @@ class User {
 }
 
 class UserNotifier extends ValueNotifier<User> {
-  UserNotifier(User value) : super(value);
+  late User _value;
+  UserNotifier(User value) : super(value) {
+    this._value = value;
+  }
+
+  @override
+  User get value => _value;
 
   void update(User value) {
-    this.value = value;
+    this._value = value;
     this.notifyListeners();
   }
 }
