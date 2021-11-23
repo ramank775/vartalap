@@ -9,7 +9,12 @@ final Color _primaryDarkColor = Color.fromRGBO(0, 153, 122, 1);
 
 final _defaultLightTheme = ThemeData.light();
 final ThemeData _lightTheme = _defaultLightTheme.copyWith(
-  colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.blue),
+  appBarTheme: AppBarTheme(
+    backgroundColor: Colors.blue,
+  ),
+  colorScheme: ColorScheme.fromSwatch(
+    primarySwatch: Colors.blue,
+  ),
   scaffoldBackgroundColor: Colors.grey[100],
   primaryColor: Colors.blue,
   visualDensity: VisualDensity.comfortable,
@@ -22,20 +27,22 @@ final ThemeData _lightTheme = _defaultLightTheme.copyWith(
 
 final _defaultDarkTheme = ThemeData.dark();
 final ThemeData _darkTheme = _defaultDarkTheme.copyWith(
-  colorScheme: ColorScheme.fromSwatch(
-    primarySwatch: generateMaterialColor(
-      Color.fromRGBO(0, 153, 122, 1),
-    ),
-    brightness: Brightness.dark,
+  appBarTheme: AppBarTheme(
     backgroundColor: Colors.grey[850],
   ),
-  visualDensity: VisualDensity.adaptivePlatformDensity,
-  scaffoldBackgroundColor: Colors.grey[850],
-  selectedRowColor: Color.fromRGBO(27, 133, 133, 1),
-  primaryColorLight: Colors.grey[700],
-  iconTheme: _defaultDarkTheme.iconTheme.copyWith(
-    color: Color.fromRGBO(0, 153, 122, 1),
+  colorScheme: ColorScheme.fromSwatch(
+    primarySwatch: generateMaterialColor(_primaryDarkColor),
+    brightness: Brightness.dark,
+    backgroundColor: Colors.grey[900],
   ),
+  visualDensity: VisualDensity.comfortable,
+  scaffoldBackgroundColor: Colors.grey[900],
+  selectedRowColor: Color.fromRGBO(27, 133, 133, 1),
+  primaryColorLight: Colors.grey[800],
+  iconTheme: _defaultDarkTheme.iconTheme.copyWith(
+    color: _primaryDarkColor,
+  ),
+  cardColor: Colors.grey[850],
 );
 
 final _appTitle = TextStyle(

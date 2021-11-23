@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -67,7 +69,7 @@ class MessageInputState extends State<MessageInputWidget> {
     var theme = Theme.of(context);
     return Container(
       child: Padding(
-        padding: const EdgeInsets.all(8.0),
+        padding: const EdgeInsets.only(top: 8.0),
         child: Row(
           mainAxisSize: MainAxisSize.max,
           children: <Widget>[
@@ -76,7 +78,7 @@ class MessageInputState extends State<MessageInputWidget> {
               child: Container(
                 decoration: BoxDecoration(
                   color: theme.primaryColorLight,
-                  borderRadius: BorderRadius.all(const Radius.circular(30.0)),
+                  //borderRadius: BorderRadius.all(const Radius.circular(30.0)),
                 ),
                 child: Row(
                   children: <Widget>[
@@ -89,7 +91,6 @@ class MessageInputState extends State<MessageInputWidget> {
                         _isShowSticker
                             ? _inputFocus.requestFocus()
                             : _inputFocus.unfocus();
-
                         setState(() {
                           _isShowSticker = !_isShowSticker;
                         });
@@ -125,17 +126,14 @@ class MessageInputState extends State<MessageInputWidget> {
                     //   icon: Icon(Icons.attach_file),
                     //   onPressed: () {},
                     // ),
+                    IconButton(
+                      onPressed: sendMessage,
+                      icon: Icon(Icons.send),
+                    ),
                   ],
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.only(left: 4.0),
-              child: IconButton(
-                onPressed: sendMessage,
-                icon: Icon(Icons.send),
-              ),
-            )
           ],
         ),
       ),
