@@ -68,74 +68,71 @@ class MessageInputState extends State<MessageInputWidget> {
   Widget buildInput(BuildContext context) {
     var theme = Theme.of(context);
     return Container(
-      child: Padding(
-        padding: const EdgeInsets.only(top: 8.0),
-        child: Row(
-          mainAxisSize: MainAxisSize.max,
-          children: <Widget>[
-            Flexible(
-              flex: 1,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: theme.primaryColorLight,
-                  //borderRadius: BorderRadius.all(const Radius.circular(30.0)),
-                ),
-                child: Row(
-                  children: <Widget>[
-                    IconButton(
-                      padding: const EdgeInsets.all(0.0),
-                      icon: Icon(_isShowSticker
-                          ? Icons.keyboard
-                          : Icons.insert_emoticon),
-                      onPressed: () {
-                        _isShowSticker
-                            ? _inputFocus.requestFocus()
-                            : _inputFocus.unfocus();
-                        setState(() {
-                          _isShowSticker = !_isShowSticker;
-                        });
-                      },
-                    ),
-                    Flexible(
-                      child: TextField(
-                        controller: _controller,
-                        textCapitalization: TextCapitalization.sentences,
-                        textInputAction: TextInputAction.send,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(0.0),
-                          hintText: 'Type a message',
-                          hintStyle: TextStyle(
-                            fontSize: 16.0,
-                          ),
-                          counterText: '',
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        children: <Widget>[
+          Flexible(
+            flex: 1,
+            child: Container(
+              decoration: BoxDecoration(
+                color: theme.primaryColorLight,
+                //borderRadius: BorderRadius.all(const Radius.circular(30.0)),
+              ),
+              child: Row(
+                children: <Widget>[
+                  IconButton(
+                    padding: const EdgeInsets.all(0.0),
+                    icon: Icon(_isShowSticker
+                        ? Icons.keyboard
+                        : Icons.insert_emoticon_sharp),
+                    onPressed: () {
+                      _isShowSticker
+                          ? _inputFocus.requestFocus()
+                          : _inputFocus.unfocus();
+                      setState(() {
+                        _isShowSticker = !_isShowSticker;
+                      });
+                    },
+                  ),
+                  Flexible(
+                    child: TextField(
+                      controller: _controller,
+                      textCapitalization: TextCapitalization.sentences,
+                      textInputAction: TextInputAction.send,
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(0.0),
+                        hintText: 'Type a message',
+                        hintStyle: TextStyle(
+                          fontSize: 16.0,
                         ),
-                        onSubmitted: (String text) {
-                          sendMessage();
-                        },
-                        keyboardType: TextInputType.multiline,
-                        style: TextStyle(
-                          fontSize: 19,
-                        ),
-                        maxLines: null,
-                        maxLength: TextField.noMaxLength,
-                        focusNode: _inputFocus,
+                        counterText: '',
                       ),
+                      onSubmitted: (String text) {
+                        sendMessage();
+                      },
+                      keyboardType: TextInputType.multiline,
+                      style: TextStyle(
+                        fontSize: 19,
+                      ),
+                      maxLines: null,
+                      maxLength: TextField.noMaxLength,
+                      focusNode: _inputFocus,
                     ),
-                    // IconButton(
-                    //   icon: Icon(Icons.attach_file),
-                    //   onPressed: () {},
-                    // ),
-                    IconButton(
-                      onPressed: sendMessage,
-                      icon: Icon(Icons.send),
-                    ),
-                  ],
-                ),
+                  ),
+                  // IconButton(
+                  //   icon: Icon(Icons.attach_file),
+                  //   onPressed: () {},
+                  // ),
+                  IconButton(
+                    onPressed: sendMessage,
+                    icon: Icon(Icons.send_rounded),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

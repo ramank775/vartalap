@@ -35,14 +35,27 @@ Color shadeColor(Color color, double factor) => Color.fromRGBO(
     shadeValue(color.blue, factor),
     1);
 
-Color getColor(String text, {double opacity = 1}) {
+Color getColor(
+  String text, {
+  double opacity = 1,
+  Brightness brightness = Brightness.light,
+}) {
   var hash = 0;
   if (text.length == 0) return Colors.amber;
   for (var i = 0; i < text.length; i++) {
     hash = text.codeUnitAt(i) + ((hash << 5) - hash);
     hash = hash & hash;
   }
-  var _colorGenerator = RandomColor(hash);
-  var color = _colorGenerator.randomColor();
+  final _colorGenerator = RandomColor(hash);
+  final colorBrightness = brightness == Brightness.dark
+      ? ColorBrightness.veryLight
+      : ColorBrightness.primary;
+  final colorSaturation = brightness == Brightness.dark
+      ? ColorSaturation.highSaturation
+      : ColorSaturation.mediumSaturation;
+  final color = _colorGenerator.randomColor(
+    colorBrightness: colorBrightness,
+    colorSaturation: colorSaturation,
+  );
   return color.withOpacity(opacity);
 }

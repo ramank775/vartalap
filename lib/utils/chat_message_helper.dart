@@ -78,13 +78,14 @@ List<Object> calculateChatMessages(
       'showName':
           notMyMessage && showUserNames && showName && message.sender != null,
       'showStatus': true,
+      'showNip': !nextMessageInGroup,
     });
 
     if (!nextMessageInGroup) {
       chatMessages.insert(
         0,
         MessageSpacer(
-          height: 12,
+          height: 5,
           id: message.id,
         ),
       );

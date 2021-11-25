@@ -145,8 +145,10 @@ class ChatList extends StatelessWidget {
       );
     } else if (object is Map) {
       ChatMessage msg = object["message"];
+      bool showName = object["showName"];
+      bool showNip = object["showNip"];
       bool isYou = msg.sender == currentUser;
-      bool showUserInfo = !isYou && this.showName;
+      bool showUserInfo = !isYou && this.showName && showName;
       if (msg.sender == null) {
         msg.sender = this._getSender(msg.senderId);
       }
@@ -163,6 +165,7 @@ class ChatList extends StatelessWidget {
                   isYou,
                   showUserInfo: showUserInfo,
                   isSelected: msg.isSelected,
+                  showNip: showNip,
                   onTab: this.onTab,
                   onLongPress: this.onLongPress,
                 );
@@ -174,6 +177,7 @@ class ChatList extends StatelessWidget {
             isYou,
             showUserInfo: showUserInfo,
             isSelected: msg.isSelected,
+            showNip: showNip,
             onTab: this.onTab,
             onLongPress: this.onLongPress,
           );
@@ -181,10 +185,7 @@ class ChatList extends StatelessWidget {
         valueListenable: notifier,
       );
 
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 5.0),
-        child: child,
-      );
+      return child;
     }
     return const SizedBox();
   }
