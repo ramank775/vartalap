@@ -56,11 +56,16 @@ class MessageWidget extends StatelessWidget {
                   : receiverColor,
           showNip: this.showNip,
           nip: this._isYou ? BubbleNip.rightBottom : BubbleNip.leftBottom,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            textBaseline: TextBaseline.ideographic,
-            children: getMessageComponents(context),
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              textBaseline: TextBaseline.ideographic,
+              children: getMessageComponents(context),
+            ),
           ),
         ),
       ),
