@@ -97,7 +97,7 @@ class UserService {
     if (onInit) {
       _syncOnInit = true;
     }
-    if (!_syncInProgress) return;
+    if (_syncInProgress) return;
     _syncInProgress = true;
     var syncContactTrace = PerformanceMetric.newTrace('sync-contact');
     await syncContactTrace.start();
