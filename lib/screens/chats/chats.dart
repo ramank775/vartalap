@@ -109,6 +109,7 @@ class ChatsState extends State<Chats> {
         onPressed: () => navigate('/new-chat'),
         tooltip: 'New',
         child: Icon(Icons.add),
+        backgroundColor: Theme.of(context).iconTheme.color,
       ),
     );
   }

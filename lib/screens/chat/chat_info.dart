@@ -25,7 +25,7 @@ class ChatInfo extends StatelessWidget {
           children: [
             Container(
               height: 80,
-              color: Theme.of(context).cardColor,
+              color: Theme.of(context).appBarTheme.backgroundColor,
               child: ListTile(
                 leading: CircleAvatar(
                   radius: 30,
@@ -40,7 +40,7 @@ class ChatInfo extends StatelessWidget {
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 24,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(

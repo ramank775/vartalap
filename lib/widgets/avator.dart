@@ -17,11 +17,16 @@ class Avator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return SizedBox(
       width: this.width,
       height: this.height,
       child: AvatarLetter(
-        backgroundColor: getColor(this.text, opacity: this._opacity),
+        backgroundColor: getColor(
+          this.text,
+          opacity: this._opacity,
+          brightness: brightness,
+        ),
         text: this.text,
         numberLetters: 2,
         upperCase: true,

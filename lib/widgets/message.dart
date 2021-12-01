@@ -1,3 +1,4 @@
+import 'package:bubble/bubble.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -13,7 +14,7 @@ class MessageWidget extends StatelessWidget {
   final Function? onTab;
   final Function? onLongPress;
   final bool showUserInfo;
-
+  final bool showNip;
   MessageWidget(
     this._msg,
     this._isYou, {
@@ -22,6 +23,7 @@ class MessageWidget extends StatelessWidget {
     this.onTab,
     this.onLongPress,
     this.showUserInfo = false,
+    this.showNip = true,
   }) : super(key: Key(_msg.id));
 
   @override
@@ -29,6 +31,7 @@ class MessageWidget extends StatelessWidget {
     final theme = VartalapTheme.theme.appTheme;
     final senderColor = VartalapTheme.theme.senderColor;
     final receiverColor = VartalapTheme.theme.receiverColor;
+    final selectedRowColor = theme.selectedRowColor;
     return GestureDetector(
       onTap: () {
         this.onTab!(this._msg);
@@ -37,53 +40,33 @@ class MessageWidget extends StatelessWidget {
         this.onLongPress!(this._msg);
       },
       child: Container(
+        padding: const EdgeInsets.only(bottom: 2),
         decoration: BoxDecoration(
-            color:
-                this.isSelected ? theme.selectedRowColor : Colors.transparent),
+          color: this.isSelected ? selectedRowColor : Colors.transparent,
+        ),
         constraints: BoxConstraints(
           minWidth: double.infinity,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.max,
-          mainAxisAlignment:
-              _isYou ? MainAxisAlignment.end : MainAxisAlignment.start,
-          children: <Widget>[
-            Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  new BoxShadow(
-                    color: theme.backgroundColor,
-                    offset: new Offset(1.0, 1.0),
-                    blurRadius: 0.5,
-                  )
-                ],
-                color: _isYou ? senderColor : receiverColor,
-                borderRadius: _isYou
-                    ? BorderRadius.only(
-                        topLeft: Radius.circular(15.0),
-                        bottomLeft: Radius.circular(15.0),
-                      )
-                    : BorderRadius.only(
-                        topRight: Radius.circular(15.0),
-                        bottomRight: Radius.circular(15.0),
-                      ),
-              ),
-              constraints: BoxConstraints(
-                minWidth: MediaQuery.of(context).size.width * 0.25,
-                maxWidth: MediaQuery.of(context).size.width * 0.75,
-              ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12.0,
-                vertical: 6.0,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                textBaseline: TextBaseline.ideographic,
-                children: getMessageComponents(context),
-              ),
+        child: Bubble(
+          alignment: this._isYou ? Alignment.topRight : Alignment.topLeft,
+          color: this.isSelected
+              ? selectedRowColor
+              : this._isYou
+                  ? senderColor
+                  : receiverColor,
+          showNip: this.showNip,
+          nip: this._isYou ? BubbleNip.rightBottom : BubbleNip.leftBottom,
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              textBaseline: TextBaseline.ideographic,
+              children: getMessageComponents(context),
+            ),
+          ),
         ),
       ),
     );
@@ -92,6 +75,7 @@ class MessageWidget extends StatelessWidget {
   List<Widget> getMessageComponents(BuildContext context) {
     List<Widget> _widgets = [];
     if (this.showUserInfo) {
+      final brightness = Theme.of(context).brightness;
       _widgets.add(
         Container(
           margin: EdgeInsets.only(bottom: 4),
@@ -100,7 +84,11 @@ class MessageWidget extends StatelessWidget {
             textAlign: TextAlign.start,
             style: TextStyle(
               fontSize: 12,
-              color: getColor(this._msg.sender!.name, opacity: 1),
+              color: getColor(
+                this._msg.sender!.name,
+                opacity: 1,
+                brightness: brightness,
+              ),
             ),
           ),
         ),
@@ -182,7 +170,7 @@ class MessageWidget extends StatelessWidget {
       case MessageState.OTHER:
         return Container();
       case MessageState.READ:
-        icon = Icons.done_all;
+        icon = Icons.done_all_sharp;
         color = VartalapTheme.theme.readMessage;
         break;
     }
