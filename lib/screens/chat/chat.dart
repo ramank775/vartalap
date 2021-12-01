@@ -337,7 +337,8 @@ class ChatState extends State<ChatScreen> {
 
   _onReadTimerTimeout() {
     if (_unreadMessages.isEmpty) return;
-    ChatService.markAsRead(_unreadMessages.toList(), this._chat).ignore();
+    final future = ChatService.markAsRead(_unreadMessages.toList(), this._chat);
+    unawaited(future);
     _unreadMessages = Set<String>();
   }
 

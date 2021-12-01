@@ -29,7 +29,7 @@ class StartupScreen extends StatelessWidget {
 
     var value = await Permission.contacts.request();
     if (value.isGranted) {
-      UserService.syncContacts(onInit: true).ignore();
+      unawaited(UserService.syncContacts(onInit: true));
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
           builder: (context) => Chats(),
