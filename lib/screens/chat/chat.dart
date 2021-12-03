@@ -24,7 +24,7 @@ class ChatScreen extends StatefulWidget {
       );
 }
 
-class ChatState extends State<ChatScreen> {
+class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   Chat _chat;
   late User _currentUser;
   late Future<List<ChatMessage>> _fMessages;
@@ -39,6 +39,7 @@ class ChatState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance!.addObserver(this);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     this._fMessages.then((messages) {
       final unread = messages
@@ -67,6 +68,21 @@ class ChatState extends State<ChatScreen> {
         .where((msg) => msg.head.chatid == this._chat.id)
         .listen(_onNewMessage, cancelOnError: false);
     _newMessageSub.resume();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    // These are the callbacks
+    switch (state) {
+      case AppLifecycleState.resumed:
+        this._newMessageSub.resume();
+        this._notificationSub.resume();
+        break;
+      default:
+        break;
+    }
   }
 
   @override
@@ -104,7 +120,7 @@ class ChatState extends State<ChatScreen> {
           child: InkWell(
             onTap: () async {
               if (this._chat.type == ChatType.GROUP &&
-                  this.hasSendPermission()) {
+                  this._hasSendPermission()) {
                 Chat? result = await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => ChatInfo(this._chat),
@@ -119,11 +135,11 @@ class ChatState extends State<ChatScreen> {
             },
             child: Row(
               mainAxisSize: MainAxisSize.max,
-              children: <Widget>[this.getTitle(context)],
+              children: <Widget>[this._getTitle(context)],
             ),
           ),
         ),
-        actions: this.getActions(),
+        actions: this._getActions(),
       ),
       body: Column(
         mainAxisSize: MainAxisSize.max,
@@ -158,8 +174,8 @@ class ChatState extends State<ChatScreen> {
                       if (_readTimer != null && _readTimer!.isActive) {
                         _readTimer!.cancel();
                       }
-                      _readTimer =
-                          Timer(Duration(seconds: 1), _onReadTimerTimeout);
+                      _readTimer = Timer(
+                          Duration(milliseconds: 200), _onReadTimerTimeout);
                       final messages = snapshot.data ?? [];
                       this._messageController =
                           ChatMessageController(messages: messages);
@@ -171,15 +187,15 @@ class ChatState extends State<ChatScreen> {
                         showName: this._chat.type == ChatType.GROUP,
                         onTab: (ChatMessage msg) {
                           if (this._selectedMessges.value.length > 0) {
-                            this.selectOrRemove(msg);
+                            this._selectOrRemove(msg);
                           }
                         },
-                        onLongPress: selectOrRemove,
+                        onLongPress: _selectOrRemove,
                       );
                   }
                 }),
           ),
-          ...this.hasSendPermission()
+          ...this._hasSendPermission()
               ? [
                   MessageInputWidget(sendMessage: (String text) async {
                     final msg = TextMessage.chatMessage(this._chat.id,
@@ -195,12 +211,12 @@ class ChatState extends State<ChatScreen> {
     );
   }
 
-  Widget getTitle(BuildContext context) {
+  Widget _getTitle(BuildContext context) {
     return ValueListenableBuilder<Iterable<String>>(
       valueListenable: this._selectedMessges,
       builder: (BuildContext context, Iterable<String> selectedMessages,
           Widget? child) {
-        var subtitle = this.getSubTitle();
+        var subtitle = this._getSubTitle();
         var titleWidgets = <Widget>[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2.0),
@@ -241,7 +257,7 @@ class ChatState extends State<ChatScreen> {
     );
   }
 
-  String getSubTitle() {
+  String _getSubTitle() {
     if (this._chat.type == ChatType.GROUP) {
       return this._chat.users.map((u) => u.name).join(", ");
     }
@@ -255,7 +271,7 @@ class ChatState extends State<ChatScreen> {
         .username;
   }
 
-  void selectOrRemove(ChatMessage msg) {
+  void _selectOrRemove(ChatMessage msg) {
     if (!_selectedMessges.value.remove(msg.id)) {
       _selectedMessges.value.add(msg.id);
     }
@@ -264,7 +280,7 @@ class ChatState extends State<ChatScreen> {
     this._selectedMessges.update();
   }
 
-  List<Widget> getActions() {
+  List<Widget> _getActions() {
     Widget child = ValueListenableBuilder(
       valueListenable: this._selectedMessges,
       builder: (context, key, child) {
@@ -331,27 +347,33 @@ class ChatState extends State<ChatScreen> {
     this._unreadMessages.add(message.id);
     this._messageController.add(message);
     if (_readTimer == null || !_readTimer!.isActive) {
-      _readTimer = Timer(Duration(seconds: 1), _onReadTimerTimeout);
+      _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
     }
   }
 
   _onReadTimerTimeout() {
     if (_unreadMessages.isEmpty) return;
-    final future = ChatService.markAsRead(_unreadMessages.toList(), this._chat);
-    unawaited(future);
+    final unreadMessages = _unreadMessages.toList();
     _unreadMessages = Set<String>();
+    final future = ChatService.markAsRead(unreadMessages, this._chat);
+    unawaited(future);
+    if (_unreadMessages.isNotEmpty && _readTimer == null ||
+        !_readTimer!.isActive) {
+      _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
+    }
   }
 
-  bool hasSendPermission() {
+  bool _hasSendPermission() {
     return this._chat.users.contains(this._currentUser);
   }
 
   @override
   void dispose() {
-    super.dispose();
+    WidgetsBinding.instance!.removeObserver(this);
     if (_readTimer != null) _readTimer!.cancel();
     _notificationSub.cancel();
     _newMessageSub.cancel();
     this._messageController.dispose();
+    super.dispose();
   }
 }
