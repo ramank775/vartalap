@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 class DB {
   final dbName = "Chat";
-  final version = 3;
+  final version = 4;
   late Future<Database> _db = initDatabase();
 
   static final DB _singleton = DB._internal();
@@ -101,6 +101,12 @@ class DB {
         ALTER TABLE message
           ADD body TEXT;
       """);
+    } else if (next == 4) {
+      await db.delete(
+        "out_message",
+        where: "sent != ?",
+        whereArgs: [-1],
+      );
     }
   }
 
