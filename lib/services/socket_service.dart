@@ -43,25 +43,22 @@ class SocketService {
   }
 
   Future<void> send(RemoteMessage msg) async {
-    var _sendMsgTrace = PerformanceMetric.newTrace('send-message');
+    final _sendMsgTrace = PerformanceMetric.newTrace('send-message');
     await _sendMsgTrace.start();
 
-    var db = await DB().getDb();
-    var msgMap = msg.toMap();
-    var msgStr = json.encode(msgMap);
-    var outMessage = {
+    final db = await DB().getDb();
+    final msgMap = msg.toMap();
+    final msgStr = json.encode(msgMap);
+    final outMessage = {
       "messageId": msg.id,
       "message": msgStr,
-      "sent": 0,
+      "sent": -1,
       "created_ts": DateTime.now().millisecondsSinceEpoch,
       "sent_ts": 0,
-      "retry_count": 0
+      "retry_count": 0,
     };
-    db.insert("out_message", outMessage);
     if (_channel == null || _channel!.closeCode != null) {
-      await db.update("out_message", {"sent": -1},
-          where: "messageId=?", whereArgs: [msg.id]);
-
+      await db.insert("out_message", outMessage);
       _sendMsgTrace.putAttribute('channelStatus', 'closed');
       _sendMsgTrace.stop();
       _reconnectWs();
@@ -69,17 +66,10 @@ class SocketService {
     }
     try {
       _channel!.add(msgStr);
-      msg = _sendMessageAck(msg);
-      _controller.sink.add(msg);
-      await db.delete(
-        "out_message",
-        where: "messageId=?",
-        whereArgs: [msg.id],
-      );
+      final ackmsg = _sendMessageAck(msg);
+      _controller.sink.add(ackmsg);
     } catch (e, stack) {
-      await db.update("out_message", {"sent": -1},
-          where: "messageId=?", whereArgs: [msg.id]);
-
+      await db.insert("out_message", outMessage);
       Crashlytics.recordError(e, stack,
           reason: "Error while sending message to socket");
 
@@ -196,18 +186,22 @@ class SocketService {
       await _processingPromise;
     }
     _processingPromise = Future<void>(() async {
-      var db = await DB().getDb();
-      var result = await db.query('out_message',
-          columns: ["message"], where: 'sent=?', whereArgs: [-1]);
+      final db = await DB().getDb();
+      final result = await db.query(
+        'out_message',
+        columns: ["message"],
+        where: 'sent=?',
+        whereArgs: [-1],
+      );
 
-      var batch = db.batch();
+      final batch = db.batch();
       try {
-        for (var row in result) {
+        for (final row in result) {
           _channel!.add(row["message"]);
-          var _smsg =
+          final _smsg =
               RemoteMessage.fromMap(json.decode(row["message"] as String));
-          _smsg = _sendMessageAck(_smsg);
-          _controller.sink.add(_smsg);
+          final _ackmsg = _sendMessageAck(_smsg);
+          _controller.sink.add(_ackmsg);
           batch.delete("out_message",
               where: "messageId=?", whereArgs: [_smsg.id]);
         }
@@ -220,6 +214,7 @@ class SocketService {
         _pendingMessageTrack.stop();
       }
     });
+    unawaited(_processingPromise!);
   }
 
   static SocketService get instance {
