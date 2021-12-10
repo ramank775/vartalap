@@ -1,6 +1,6 @@
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
-import 'package:contacts_service/contacts_service.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -183,16 +183,19 @@ class UserService {
   }
 
   static Future<List<User>> _getContacts() async {
-    Iterable<Contact> contacts = await ContactsService.getContacts(
-        withThumbnails: false, photoHighResolution: false);
+    Iterable<Contact> contacts = await FlutterContacts.getContacts(
+        withProperties: true, withThumbnail: false, withPhoto: false);
     List<User> users = [];
     contacts.forEach((contact) {
-      (contact.phones ?? []).forEach((phone) {
-        String? phoneNumber =
-            phone.value == null ? null : normalizePhoneNumber(phone.value!);
+      (contact.phones).forEach((phone) {
+        String? phoneNumber = normalizePhoneNumber(phone.normalizedNumber);
         if (phoneNumber != null) {
-          users
-              .add(User(contact.displayName ?? phoneNumber, phoneNumber, null));
+          users.add(User(
+              contact.displayName.isNotEmpty
+                  ? contact.displayName
+                  : phoneNumber,
+              phoneNumber,
+              null));
         }
       });
     });

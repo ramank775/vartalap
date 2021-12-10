@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:vartalap/widgets/avator_letter.dart';
 import 'package:vartalap/utils/color_helper.dart';
 

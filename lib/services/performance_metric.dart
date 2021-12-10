@@ -13,15 +13,15 @@ class PerformanceTrace {
     return _trace.stop();
   }
 
-  Future<void> putAttribute(String name, dynamic value) {
+  void putAttribute(String name, dynamic value) {
     return _trace.putAttribute(name, value.toString());
   }
 
-  Future<void> setMetric(String name, int value) {
+  void setMetric(String name, int value) {
     return _trace.setMetric(name, value);
   }
 
-  Future<void> incrementMetric(String name) {
+  void incrementMetric(String name) {
     return _trace.incrementMetric(name, 1);
   }
 }
