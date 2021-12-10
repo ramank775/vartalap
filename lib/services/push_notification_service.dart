@@ -21,7 +21,7 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
   var _androidPlatformChannelSpecifics = AndroidNotificationDetails(
     'VARTALAP_NOTIFICATION',
     'VARTALAP_NOTIFICATION',
-    'Vartalap notification channel',
+    channelDescription: 'Vartalap notification channel',
     importance: Importance.max,
     priority: Priority.high,
     ticker: 'Vartalap notification',
@@ -101,7 +101,7 @@ class PushNotificationService {
     var _androidPlatformChannelSpecifics = AndroidNotificationDetails(
       'VARTALAP_NOTIFICATION',
       'VARTALAP_NOTIFICATION',
-      'Vartalap notification channel',
+      channelDescription: 'Vartalap notification channel',
       importance: Importance.max,
       priority: Priority.high,
       ticker: 'Vartalap notification',
