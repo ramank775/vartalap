@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
-import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/services/api_service.dart';
@@ -80,14 +79,63 @@ class SocketService {
     }
   }
 
+  Future<void> sendNotifications(Iterable<RemoteMessage> msgs) async {
+    final trace = PerformanceMetric.newTrace('send-notification-message');
+    await trace.start();
+
+    final db = await DB().getDb();
+    final outMsgs = msgs.map((msg) {
+      final msgStr = json.encode(msg.toMap());
+      return {
+        "messageId": msg.id,
+        "message": msgStr,
+        "sent": -1,
+        "created_ts": DateTime.now().millisecondsSinceEpoch,
+        "sent_ts": 0,
+        "retry_count": 0,
+      };
+    });
+
+    if (_channel == null || _channel!.closeCode != null) {
+      final batch = db.batch();
+      outMsgs.forEach((outMessage) {
+        batch.insert("out_message", outMessage);
+      });
+      await batch.commit();
+      trace.putAttribute('channelStatus', 'closed');
+      trace.stop();
+      _reconnectWs();
+      return;
+    }
+    List<String> sent = [];
+    try {
+      outMsgs.forEach((msg) {
+        _channel!.add(msg["message"]);
+        sent.add(msg["messageId"] as String);
+      });
+    } catch (e, stack) {
+      final batch = db.batch();
+      outMsgs.forEach((outMessage) {
+        if (sent.contains(outMessage["messageId"])) {
+          return;
+        }
+        batch.insert("out_message", outMessage);
+      });
+      await batch.commit();
+      Crashlytics.recordError(e, stack,
+          reason: "Error while sending message to socket");
+
+      trace.putAttribute('error', e.toString());
+      _reconnectWs();
+    } finally {
+      trace.stop();
+    }
+  }
+
   RemoteMessage _sendMessageAck(RemoteMessage msg) {
     final stateMsg = StateMessge(msg.head.chatid!, name, MessageState.SENT);
     stateMsg.msgIds.add(msg.id);
-    final chat = Chat(msg.head.chatid!, '', null, type: msg.head.type);
-    if (chat.type == ChatType.INDIVIDUAL) {
-      chat.addUser(ChatUser('', msg.head.to, ''));
-    }
-    msg = RemoteMessage.fromChatMessage(stateMsg, chat);
+    msg = RemoteMessage.fromMessage(stateMsg, msg.head.from, msg.head.type);
     return msg;
   }
 
