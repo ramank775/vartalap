@@ -207,7 +207,22 @@ class ChatService {
     }
     await _saveMessage(msg);
     if (_isSelfChat(chat)) return;
-    RemoteMessage smsg = RemoteMessage.fromChatMessage(msg, chat);
+    String to = chat.id;
+    if (chat.type == ChatType.INDIVIDUAL) {
+      final users = chat.users;
+      var idx = users.indexWhere(
+        (u) => msg.senderId != u.username,
+      );
+      if (idx == -1) {
+        final chatUsers = await getChatUserByid(chat.id);
+        idx = chatUsers.indexWhere((u) => u.username != msg.senderId);
+        if (idx == -1) return;
+        to = chatUsers[idx].username;
+      } else {
+        to = users[idx].username;
+      }
+    }
+    RemoteMessage smsg = RemoteMessage.fromMessage(msg, to, chat.type);
     await SocketService.instance.send(smsg);
   }
 
@@ -245,19 +260,31 @@ class ChatService {
     return result.length > 0;
   }
 
-  static Future markAsRead(List<String> msgIds, Chat chat) async {
-    if (msgIds.length == 0) return;
+  static Future markAsRead(List<ChatMessage> msgs, Chat chat) async {
+    if (msgs.length == 0) return;
+    final msgIds = msgs.map((msg) => msg.id);
     await updateMessageState(msgIds, MessageState.READ);
     final current = UserService.getLoggedInUser();
-    final stateNotification =
-        StateMessge(chat.id, current.username, MessageState.READ);
-    stateNotification.msgIds.addAll(msgIds);
-    final smsg = RemoteMessage.fromChatMessage(stateNotification, chat);
-    await SocketService.instance.send(smsg);
+    final Map<String, StateMessge> senderMessageMapping = {};
+    msgs.forEach((msg) {
+      if (!senderMessageMapping.containsKey(msg.senderId)) {
+        senderMessageMapping[msg.senderId] =
+            StateMessge(chat.id, current.username, MessageState.READ);
+      }
+      senderMessageMapping[msg.senderId]!.msgIds.add(msg.id);
+    });
+    List<RemoteMessage> rmsgs = [];
+    senderMessageMapping.forEach((key, value) {
+      final smsg = RemoteMessage.fromMessage(value, key, ChatType.INDIVIDUAL);
+      rmsgs.add(smsg);
+    });
+    await SocketService.instance.sendNotifications(rmsgs);
   }
 
   static Future updateMessageState(
-      List<String> msgIds, MessageState state) async {
+    Iterable<String> msgIds,
+    MessageState state,
+  ) async {
     final db = await DB().getDb();
     int stateIdx = enumToInt(state, MessageState.values);
     var batch = db.batch();
@@ -286,47 +313,30 @@ class ChatService {
 
   static Future ackMessageDelivery(List<RemoteMessage> msgs,
       {bool socket = false}) async {
-    final List<RemoteMessage> messages = [];
-    final Set<String> chatIds = new Set();
-    for (var i = 0; i < msgs.length; i++) {
-      final msg = msgs[i];
-      if (msg.head.chatid == null) continue;
-      messages.add(msg);
-      chatIds.add(msg.head.chatid!);
-    }
-    if (messages.isEmpty) return;
-    Map<String, Chat> chats = {};
-    for (var i = 0; i < chatIds.length; i++) {
-      final chatid = chatIds.elementAt(i);
-      final chat = await getChatInfo(chatid);
-      if (chat == null) continue;
-      if (chat.type == ChatType.INDIVIDUAL) {
-        final chatusers = await getChatUserByid(chatid);
-        chatusers.forEach((user) {
-          chat.addUser(user);
-        });
-      }
-      chats[chatid] = chat;
-    }
+    final messages = msgs.where((msg) => msg.head.chatid != null);
 
-    if (chats.isEmpty) return;
+    if (messages.isEmpty) return;
 
     final currentUser = UserService.getLoggedInUser();
-    final deliveryAck = messages.map((msg) {
+    final deliveryAcks = messages.map((msg) {
       final stateNotification = StateMessge(
-          msg.head.chatid!, currentUser.username, MessageState.DELIVERED);
+        msg.head.chatid!,
+        currentUser.username,
+        MessageState.DELIVERED,
+      );
       stateNotification.msgIds.add(msg.id);
-      final chat = chats[msg.head.chatid!]!;
-      final smsg = RemoteMessage.fromChatMessage(stateNotification, chat);
+      final smsg = RemoteMessage.fromMessage(
+        stateNotification,
+        msg.head.from,
+        ChatType.INDIVIDUAL,
+      );
       return smsg;
     });
 
     if (socket) {
-      deliveryAck.forEach((smsg) {
-        SocketService.instance.send(smsg);
-      });
+      SocketService.instance.sendNotifications(deliveryAcks);
     } else {
-      await ApiService.sendMessages(deliveryAck);
+      await ApiService.sendMessages(deliveryAcks);
     }
   }
 

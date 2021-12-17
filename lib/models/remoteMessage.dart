@@ -76,6 +76,7 @@ class RemoteMessage {
   late Meta meta;
   late Map<String, dynamic> body;
 
+  @deprecated
   RemoteMessage.fromChatMessage(ChatMessage msg, Chat chat) {
     this.id = msg.id;
     String to;
@@ -101,6 +102,25 @@ class RemoteMessage {
     );
 
     this.body = msg.toRemoteBody();
+  }
+
+  RemoteMessage.fromMessage(ChatMessage stateMsg, String to, ChatType type) {
+    this.id = stateMsg.id;
+    this.head = Head(
+      action: stateMsg.action,
+      contentType: stateMsg.type,
+      chatid: stateMsg.chatId,
+      from: stateMsg.senderId,
+      type: type,
+      to: to,
+    );
+
+    this.meta = Meta(
+      createdAt: stateMsg.timestamp,
+      contentHash: stateMsg.calcContentHash(),
+    );
+
+    this.body = stateMsg.toRemoteBody();
   }
 
   RemoteMessage.fromMap(Map<String, dynamic> map) {

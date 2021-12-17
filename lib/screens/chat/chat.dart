@@ -33,7 +33,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   late StreamSubscription _notificationSub;
   late StreamSubscription _newMessageSub;
   Timer? _readTimer;
-  Set<String> _unreadMessages = Set<String>();
+  Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
 
   ChatState(this._chat);
   @override
@@ -42,11 +42,10 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance!.addObserver(this);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     this._fMessages.then((messages) {
-      final unread = messages
-          .where((msg) => (msg.senderId != this._currentUser.username &&
+      final unread = messages.where((msg) =>
+          (msg.senderId != this._currentUser.username &&
               (msg.state == MessageState.NEW ||
-                  msg.state == MessageState.DELIVERED)))
-          .map((e) => e.id);
+                  msg.state == MessageState.DELIVERED)));
       _unreadMessages.addAll(unread);
     });
     _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
@@ -344,7 +343,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _onNewMessage(RemoteMessage msg) {
     final message = toChatMessage(msg);
-    this._unreadMessages.add(message.id);
+    this._unreadMessages.add(message);
     this._messageController.add(message);
     if (_readTimer == null || !_readTimer!.isActive) {
       _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
@@ -354,7 +353,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   _onReadTimerTimeout() {
     if (_unreadMessages.isEmpty) return;
     final unreadMessages = _unreadMessages.toList();
-    _unreadMessages = Set<String>();
+    _unreadMessages = Set<ChatMessage>();
     final future = ChatService.markAsRead(unreadMessages, this._chat);
     unawaited(future);
     if (_unreadMessages.isNotEmpty && _readTimer == null ||
