@@ -1,54 +1,84 @@
-[![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ramank775/vartalap)
-
 # Vartalap
-Vartalap is an open source personal chat application. It is design to provide the level of transparency in the personal messaging application with your data.
 
-<a href='https://play.google.com/store/apps/details?id=com.one9x.vartalap'><img alt='Get it on Google Play' src='https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png' width="150" /></a>
+[Vartalap](https://vartalap.one9x.org) is an open source personal chat application. It is design to provide the level of transparency in the personal messaging application with your data.
 
-## Setup with gitpod
+## Supported Platform
 
-`
-flutter channel master
-`
+- [x] Android
+- [ ] Ios
 
-`
-flutter doctor -v
-`
+## Features
+- Texts with emoji 
+- Group Chat
 
-#### Feel free to use your own ports configuration
+## Setup
 
-`
-SMARTPHONE_INTERNAL_IP = 192.168.0.10
-`
+### Local setup
 
-`
-SMARTPHONE_INTERNAL_PORT = 5555
-`
+- Download or clone the repo `https://github.com/ramank775/vartalap.git`
+- Get the required dependencies `flutter pub get`
 
-#### [Localhost command] To switch adb on your device to work over the network using port 5555
+- Setup local chatsever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
+- Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
+- Update `api_url` and `ws_url` of  [chat-server](https://www.github.com/ramank775/chat-server)
 
-`
-adb tcpip SMARTPHONE_INTERNAL_PORT
-`
 
-#### [Localhost command] Check connection from localhost
+### Setup with gitpod
+Click on the gitpod badge to start cloud IDE 
 
-`
-adb connect SMARTPHONE_INTERNAL_IP:SMARTPHONE_INTERNAL_PORT
-`
+[![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ramank775/vartalap) 
 
-#### [Localhost command] Ngrok tcp forward to your mobile or Forward a chosen port on your router
+Localhost command
+- Feel free to use your own ports configuration
 
-`
-ngrok tcp SMARTPHONE_INTERNAL_IP:SMARTPHONE_INTERNAL_PORT
-`
+    `SMARTPHONE_INTERNAL_IP = 192.168.0.10`
 
-#### [Gitpod command] Connect from your Gitpod to your localhost for debugging
+    `SMARTPHONE_INTERNAL_PORT = 5555`
 
-`
-adb connect NGROK_ADDRESS:NGROK_PORT
-`
+-  To switch adb on your device to work over the network using port 5555
 
-`
-flutter run
-`
+    `adb tcpip SMARTPHONE_INTERNAL_PORT`
+
+- Check connection from localhost
+
+    `adb connect SMARTPHONE_INTERNAL_IP:SMARTPHONE_INTERNAL_PORT`
+
+-  Ngrok tcp forward to your mobile or Forward a chosen port on your router
+
+    `ngrok tcp SMARTPHONE_INTERNAL_IP:SMARTPHONE_INTERNAL_PORT`
+
+Gitpod command
+- Connect from your Gitpod to your localhost for debugging
+    `adb connect NGROK_ADDRESS:NGROK_PORT`
+
+    `flutter run`
+
+Chat Server
+- Start chatsever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
+- Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
+- Update `api_url` and `ws_url` of  [chat-server](https://www.github.com/ramank775/chat-server)
+
+
+
+# Contribution
+[Vartalap](https://vartalap.one9x.org) is an open source project. We are looking for building the community around the project, welcoming everyone or anyone who is interested in contributing.
+
+- Facing any issue? Raise an issue [here](https://github.com/ramank775/vartalap/issues) with the necessary details.
+
+- Looking for a new feture? Raise an feature request [here](https://github.com/ramank775/vartalap/issues).
+
+- Wants to resolve an issue? **Thanks!** initiate the discussion on issue of your choice.
+
+## Code Of Conduct
+
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](code_of_conduct.md)
+
+Vartalap has adopted [Contributor Covenant](code_of_conduct.md), we expect project participants to adhere to. Please read the [full text](code_of_conduct.md) to understand what action will and will not be tolerated.
+
+
+# LICENSE
+[GNU GENERAL PUBLIC LICENSE](./LICENSE)
+
+# Contact us
+- Twitter [@vartalap_app](https://twitter.com/vartalap_app).
+
