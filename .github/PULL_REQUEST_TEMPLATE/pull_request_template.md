@@ -1,4 +1,6 @@
 ## Pull Request template
+**IMPORTANT: Please do not create a Pull Request without creating an issue first.**
+
 Please, go through these steps before you submit a PR.
 
 1. Make sure that your PR is not a duplicate.
