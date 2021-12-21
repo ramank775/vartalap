@@ -63,9 +63,11 @@ Chat Server
 # Contribution
 [Vartalap](https://vartalap.one9x.org) is an open source project. We are looking for building the community around the project, welcoming everyone or anyone who is interested in contributing.
 
-- Facing any issue? Raise an issue [here](https://github.com/ramank775/vartalap/issues) with the necessary details.
+- Facing any issue? Raise an issue [here](https://github.com/ramank775/vartalap/issues/new?assignees=&labels=bug&template=bug_report.md&title=%5BBUG%5D) with the necessary details.
 
-- Looking for a new feture? Raise an feature request [here](https://github.com/ramank775/vartalap/issues).
+- Looking for a new feture? Raise an feature request [here](https://github.com/ramank775/vartalap/issues/new?assignees=&labels=enhancement&template=feature_request.md&title=%5BFEAT%5D).
+
+- Found a security issue? Report it responsibility, view our security policy [here](https://github.com/ramank775/vartalap/security/policy).
 
 - Wants to resolve an issue? **Thanks!** initiate the discussion on issue of your choice.
 
