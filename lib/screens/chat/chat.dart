@@ -28,7 +28,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   Chat _chat;
   late User _currentUser;
   late Future<List<ChatMessage>> _fMessages;
-  late ChatMessageController _messageController;
+  ChatMessageController _messageController =
+      new ChatMessageController(messages: []);
   final _selectedMessges = SetNotifier<String>(Set<String>());
   late StreamSubscription _notificationSub;
   late StreamSubscription _newMessageSub;
@@ -36,6 +37,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
 
   ChatState(this._chat);
+
   @override
   void initState() {
     super.initState();
@@ -48,7 +50,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                   msg.state == MessageState.DELIVERED)));
       _unreadMessages.addAll(unread);
     });
-    _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
+
+    this._notificationSub = ChatService.onNotificationMessagStream.where((msg) {
       final msgInfo = msg.head;
       if (msgInfo.chatid != null && msgInfo.chatid == _chat.id) {
         return true;
@@ -62,10 +65,11 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       onDone: () {},
       cancelOnError: false,
     );
-    _notificationSub.resume();
-    _newMessageSub = ChatService.onNewMessageStream
+    this._newMessageSub = ChatService.onNewMessageStream
         .where((msg) => msg.head.chatid == this._chat.id)
         .listen(_onNewMessage, cancelOnError: false);
+
+    _notificationSub.resume();
     _newMessageSub.resume();
   }
 

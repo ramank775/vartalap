@@ -242,18 +242,36 @@ class ChatListView extends StatefulWidget {
   State<StatefulWidget> createState() => ChatListViewState();
 }
 
-class ChatListViewState extends State<ChatListView> {
+class ChatListViewState extends State<ChatListView>
+    with WidgetsBindingObserver {
   late StreamSubscription _newMessageSub;
   late StreamSubscription _groupNotificationSub;
   late List<ChatPreview> _chats;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance!.addObserver(this);
     _chats = widget._chats;
     _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
     _groupNotificationSub = ChatService.onNotificationMessagStream
         .where((notification) => notification.head.type == ChatType.GROUP)
         .listen(_onGroupNotification);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    // These are the callbacks
+    switch (state) {
+      case AppLifecycleState.resumed:
+        this._newMessageSub.resume();
+        this._groupNotificationSub.resume();
+        PushNotificationService.instance.clearAllNotification();
+        break;
+      default:
+        break;
+    }
   }
 
   @override

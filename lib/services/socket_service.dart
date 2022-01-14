@@ -246,8 +246,10 @@ class SocketService {
       try {
         for (final row in result) {
           _channel!.add(row["message"]);
-          final _smsg =
-              RemoteMessage.fromMap(json.decode(row["message"] as String));
+          final _smsg = RemoteMessage.fromMap(
+            json.decode(row["message"] as String),
+            ignoreError: true,
+          );
           final _ackmsg = _sendMessageAck(_smsg);
           _controller.sink.add(_ackmsg);
           batch.delete("out_message",
