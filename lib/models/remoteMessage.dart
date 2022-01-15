@@ -123,7 +123,25 @@ class RemoteMessage {
     this.body = stateMsg.toRemoteBody();
   }
 
-  RemoteMessage.fromMap(Map<String, dynamic> map) {
+  RemoteMessage.fromMap(Map<String, dynamic> map, {bool ignoreError = false}) {
+    if (!map.containsKey("_v") && ignoreError) {
+      // If the message doesn't counts version
+      // It's probably an older message stuck in pending queue
+      // If Ignore Error flag is set, Simply create a dummy Remote message
+      this._v = 1.0;
+      this.id = map.containsKey("id") ? map["id"] : "";
+      this.head = Head(
+        type: ChatType.OTHER,
+        to: "",
+        from: "",
+        chatid: "",
+        contentType: MessageType.OTHER,
+        action: "",
+      );
+      this.meta = Meta();
+      this.body = {};
+      return;
+    }
     this._v = map["_v"] + .0;
     this.id = map["id"];
     this.head = Head.fromMap(map["head"]);

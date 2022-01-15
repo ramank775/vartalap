@@ -14,23 +14,22 @@ import 'package:vartalap/utils/enum_helper.dart';
 import 'package:vartalap/utils/find.dart';
 
 class ChatService {
-  static late Stream<RemoteMessage> onNewMessageStream;
-  static late Stream<RemoteMessage> onNotificationMessagStream;
+  static Stream<RemoteMessage> onNewMessageStream = SocketService
+      .instance.stream
+      .where((msg) => msg.head.contentType != MessageType.NOTIFICATION)
+      .asyncMap(_onNewMessage)
+      .where((RemoteMessage? msg) => msg != null)
+      .map((event) => event!)
+      .asBroadcastStream();
+  static Stream<RemoteMessage> onNotificationMessagStream = SocketService
+      .instance.stream
+      .where((msg) => msg.head.contentType == MessageType.NOTIFICATION)
+      .asyncMap(_onNotificationMsg)
+      .where((RemoteMessage? msg) => msg != null)
+      .asBroadcastStream();
   static late StreamSubscription<RemoteMessage> _newMessageSub$;
   static late StreamSubscription<RemoteMessage> _notificationSub$;
-
   static Future<void> init() async {
-    onNewMessageStream = SocketService.instance.stream
-        .where((msg) => msg.head.contentType != MessageType.NOTIFICATION)
-        .asyncMap(_onNewMessage)
-        .where((RemoteMessage? msg) => msg != null)
-        .map((event) => event!)
-        .asBroadcastStream();
-    onNotificationMessagStream = SocketService.instance.stream
-        .where((msg) => msg.head.contentType == MessageType.NOTIFICATION)
-        .asyncMap(_onNotificationMsg)
-        .where((RemoteMessage? msg) => msg != null)
-        .asBroadcastStream();
     _newMessageSub$ = onNewMessageStream.listen((msg) async {
       await ackMessageDelivery([msg], socket: true);
     });

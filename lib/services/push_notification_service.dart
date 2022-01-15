@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/widgets.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/remoteMessage.dart' as vRemoteMessage;
+import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/utils/remote_message_helper.dart';
@@ -43,6 +45,7 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
 Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
   await Firebase.initializeApp();
   await ConfigStore().loadConfig();
+  await AuthService.init();
   final event = payload.data["message"];
   final messages = toRemoteMessage(event);
   final List<vRemoteMessage.RemoteMessage> deliveryAcks = [];
@@ -107,10 +110,13 @@ class PushNotificationService {
       ticker: 'Vartalap notification',
       showWhen: true,
       playSound: true,
-      timeoutAfter: 500,
+      timeoutAfter:
+          WidgetsBinding.instance!.lifecycleState == AppLifecycleState.resumed
+              ? 500
+              : null,
       groupKey: groupKey,
       setAsGroupSummary: true,
-      groupAlertBehavior: GroupAlertBehavior.summary,
+      groupAlertBehavior: GroupAlertBehavior.all,
     );
 
     var _notificationDetails =

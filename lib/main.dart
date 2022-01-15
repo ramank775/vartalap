@@ -39,10 +39,10 @@ Future initializeApp() async {
   Crashlytics.init();
   PerformanceMetric.init();
   if (AuthService.instance.isLoggedIn()) {
-    unawaited(ChatService.init());
+    ChatService.init().ignore();
     Permission.contacts.status.then((status) {
       if (status.isGranted) {
-        unawaited(UserService.syncContacts(onInit: true));
+        UserService.syncContacts(onInit: true).ignore();
       }
     });
   }

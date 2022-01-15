@@ -28,14 +28,16 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   Chat _chat;
   late User _currentUser;
   late Future<List<ChatMessage>> _fMessages;
-  late ChatMessageController _messageController;
+  ChatMessageController _messageController =
+      new ChatMessageController(messages: []);
   final _selectedMessges = SetNotifier<String>(Set<String>());
-  late StreamSubscription _notificationSub;
-  late StreamSubscription _newMessageSub;
+  StreamSubscription? _notificationSub;
+  StreamSubscription? _newMessageSub;
   Timer? _readTimer;
   Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
 
   ChatState(this._chat);
+
   @override
   void initState() {
     super.initState();
@@ -48,7 +50,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                   msg.state == MessageState.DELIVERED)));
       _unreadMessages.addAll(unread);
     });
-    _notificationSub = ChatService.onNotificationMessagStream.where((msg) {
+
+    this._notificationSub = ChatService.onNotificationMessagStream.where((msg) {
       final msgInfo = msg.head;
       if (msgInfo.chatid != null && msgInfo.chatid == _chat.id) {
         return true;
@@ -62,11 +65,12 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       onDone: () {},
       cancelOnError: false,
     );
-    _notificationSub.resume();
-    _newMessageSub = ChatService.onNewMessageStream
+    this._newMessageSub = ChatService.onNewMessageStream
         .where((msg) => msg.head.chatid == this._chat.id)
         .listen(_onNewMessage, cancelOnError: false);
-    _newMessageSub.resume();
+
+    _notificationSub!.resume();
+    _newMessageSub!.resume();
   }
 
   @override
@@ -76,8 +80,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     // These are the callbacks
     switch (state) {
       case AppLifecycleState.resumed:
-        this._newMessageSub.resume();
-        this._notificationSub.resume();
+        this._newMessageSub?.resume();
+        this._notificationSub?.resume();
         break;
       default:
         break;
@@ -370,8 +374,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance!.removeObserver(this);
     if (_readTimer != null) _readTimer!.cancel();
-    _notificationSub.cancel();
-    _newMessageSub.cancel();
+    _notificationSub?.cancel();
+    _newMessageSub?.cancel();
     this._messageController.dispose();
     super.dispose();
   }
