@@ -31,8 +31,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   ChatMessageController _messageController =
       new ChatMessageController(messages: []);
   final _selectedMessges = SetNotifier<String>(Set<String>());
-  late StreamSubscription _notificationSub;
-  late StreamSubscription _newMessageSub;
+  StreamSubscription? _notificationSub;
+  StreamSubscription? _newMessageSub;
   Timer? _readTimer;
   Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
 
@@ -69,8 +69,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         .where((msg) => msg.head.chatid == this._chat.id)
         .listen(_onNewMessage, cancelOnError: false);
 
-    _notificationSub.resume();
-    _newMessageSub.resume();
+    _notificationSub!.resume();
+    _newMessageSub!.resume();
   }
 
   @override
@@ -80,8 +80,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     // These are the callbacks
     switch (state) {
       case AppLifecycleState.resumed:
-        this._newMessageSub.resume();
-        this._notificationSub.resume();
+        this._newMessageSub?.resume();
+        this._notificationSub?.resume();
         break;
       default:
         break;
@@ -374,8 +374,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance!.removeObserver(this);
     if (_readTimer != null) _readTimer!.cancel();
-    _notificationSub.cancel();
-    _newMessageSub.cancel();
+    _notificationSub?.cancel();
+    _newMessageSub?.cancel();
     this._messageController.dispose();
     super.dispose();
   }

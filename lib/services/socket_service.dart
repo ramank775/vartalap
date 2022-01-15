@@ -19,7 +19,7 @@ class SocketService {
   Future<void>? _processingPromise;
 
   int _retryCount = 0;
-  late String _url;
+  String? _url;
   bool _closed = false;
   bool _reconnecting = false;
   // ignore: cancel_subscriptions
@@ -30,9 +30,15 @@ class SocketService {
   WebSocket? _channel;
   Stream<RemoteMessage> get stream => _controller.stream.asBroadcastStream();
 
+  String get url {
+    if (_url == null) {
+      _url = ConfigStore().get("ws_url");
+    }
+    return _url!;
+  }
+
   Future<void> init() async {
     _url = ConfigStore().get("ws_url");
-
     await _connectWs();
   }
 
@@ -153,7 +159,7 @@ class SocketService {
     try {
       _reconnecting = true;
       Map<String, String> headers = await ApiService.getAuthHeader();
-      _channel = await WebSocket.connect(_url, headers: headers);
+      _channel = await WebSocket.connect(url, headers: headers);
       _channel!.pingInterval = Duration(seconds: 30);
       _retryCount = 0;
       _channel!.asBroadcastStream().listen(_onNewMessage,
