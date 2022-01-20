@@ -285,8 +285,8 @@ class ChatListViewState extends State<ChatListView>
             widget._selectOrRemove(chat);
             return;
           }
-          if (chat.users.length == 0) {
-            var _users = await ChatService.getChatUserByid(chat.id);
+          if (chat.users.length <= 1) {
+            final _users = await ChatService.getChatUserByid(chat.id);
             _users.forEach((u) {
               chat.addUser(u);
             });
