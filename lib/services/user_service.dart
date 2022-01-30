@@ -73,7 +73,7 @@ class UserService {
 
   static Future<void> addUser(User user) async {
     var db = await DB().getDb();
-    await db.insert("user", user.toMap());
+    await db.insert("user", user.toMap(persistent: true));
   }
 
   static Future<bool> addUnknowUser(List<User> users) async {
@@ -85,7 +85,7 @@ class UserService {
     final db = await DB().getDb();
     Batch batch = db.batch();
     result.forEach((user) {
-      batch.insert("user", user.toMap());
+      batch.insert("user", user.toMap(persistent: true));
     });
     await batch.commit();
     return true;
@@ -130,7 +130,7 @@ class UserService {
         pic,
         hasAccount,
         status
-      ) values(?,?,?,?,?);""", user.toMap().values.toList());
+      ) values(?,?,?,?,?);""", user.toMap(persistent: true).values.toList());
     });
     contactDiff[1].forEach((user) {
       batch.rawUpdate("""UPDATE user SET name=?, 

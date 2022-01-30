@@ -29,7 +29,7 @@ class User {
         ? intToEnum(map['status'], UserStatus.values)
         : UserStatus.ACTIVE;
   }
-  Map<String, dynamic> toMap() {
+  Map<String, dynamic> toMap({bool persistent = false}) {
     Map<String, dynamic> map = Map();
     map["username"] = this.username;
     map["name"] = this.name;

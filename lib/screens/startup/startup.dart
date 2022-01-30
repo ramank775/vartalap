@@ -2,13 +2,11 @@ import 'dart:async';
 
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
-import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
-import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
 class StartupScreen extends StatelessWidget {
@@ -16,17 +14,6 @@ class StartupScreen extends StatelessWidget {
 
   Future<void> _initializeApp(
       ConfigStore configStore, BuildContext context) async {
-    bool isLogin = CurrentUser.of(context).user != null;
-    if (!isLogin) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (ctx) => IntroductionScreen(),
-        ),
-      );
-      return;
-    }
-
     var value = await Permission.contacts.request();
     if (value.isGranted) {
       unawaited(UserService.syncContacts(onInit: true));

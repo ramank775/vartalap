@@ -159,6 +159,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
               child: TextField(
                 maxLines: 1,
                 autofocus: true,
+                textCapitalization: TextCapitalization.words,
                 style: TextStyle(
                   fontSize: 18,
                 ),
