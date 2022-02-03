@@ -4,7 +4,7 @@ import 'package:vartalap/utils/color_helper.dart';
 
 final Color _primaryLightColor = Colors.blue;
 final Color _primaryDarkColor = Color.fromRGBO(0, 153, 122, 1);
-
+final Color _darkBackgroundColor = hexToColor("#222831");
 final _defaultLightTheme = ThemeData.light();
 final ThemeData _lightTheme = _defaultLightTheme.copyWith(
   appBarTheme: AppBarTheme(
@@ -26,21 +26,21 @@ final ThemeData _lightTheme = _defaultLightTheme.copyWith(
 final _defaultDarkTheme = ThemeData.dark();
 final ThemeData _darkTheme = _defaultDarkTheme.copyWith(
   appBarTheme: AppBarTheme(
-    backgroundColor: Colors.grey[850],
+    backgroundColor: hexToColor("#2C394B"),
   ),
   colorScheme: ColorScheme.fromSwatch(
     primarySwatch: generateMaterialColor(_primaryDarkColor),
     brightness: Brightness.dark,
-    backgroundColor: Colors.grey[900],
+    backgroundColor: _darkBackgroundColor,
   ),
   visualDensity: VisualDensity.comfortable,
-  scaffoldBackgroundColor: Colors.grey[900],
-  selectedRowColor: Color.fromRGBO(27, 133, 133, 1),
-  primaryColorLight: Colors.grey[800],
+  scaffoldBackgroundColor: _darkBackgroundColor,
+  selectedRowColor: _primaryDarkColor,
+  primaryColorLight: hexToColor("#2C394B"),
   iconTheme: _defaultDarkTheme.iconTheme.copyWith(
     color: _primaryDarkColor,
   ),
-  cardColor: Colors.grey[850],
+  cardColor: _darkBackgroundColor,
 );
 
 final _appTitle = TextStyle(
@@ -86,7 +86,7 @@ class VartalapTheme {
       ),
       receiverColor: _darkTheme.primaryColorLight,
       senderColor: _primaryDarkColor,
-      readMessage: Colors.green[900]!,
+      readMessage: _darkBackgroundColor,
     );
   }
 

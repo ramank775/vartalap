@@ -3,13 +3,18 @@ import 'package:vartalap/theme/theme.dart';
 
 class AppLogo extends StatelessWidget {
   final double size;
-  const AppLogo({Key? key, required this.size}) : super(key: key);
+  final Color backgroundColor;
+  const AppLogo({
+    Key? key,
+    required this.size,
+    this.backgroundColor = Colors.white,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     final theme = VartalapTheme.theme;
     return CircleAvatar(
-      backgroundColor: Colors.white,
+      backgroundColor: this.backgroundColor,
       radius: this.size,
       child: Icon(
         Icons.chat_bubble_outline,

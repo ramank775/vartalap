@@ -120,7 +120,7 @@ class MessageWidget extends StatelessWidget {
                   ),
                 ),
                 SizedBox(
-                  width: 4.0,
+                  width: 8.0,
                 ),
                 _isYou ? _getIcon() : Container()
               ],

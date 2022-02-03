@@ -65,7 +65,7 @@ class ChatPreviewWidget extends StatelessWidget {
                   (this._chat.ts) != 0
                       ? formatMessageTimestamp(this._chat.ts)
                       : '',
-                  style: new TextStyle(fontSize: 14.0),
+                  style: new TextStyle(fontSize: 12.0),
                 ),
               ],
             ),

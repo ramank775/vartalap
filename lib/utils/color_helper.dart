@@ -48,14 +48,19 @@ Color getColor(
   }
   final _colorGenerator = RandomColor(hash);
   final colorBrightness = brightness == Brightness.dark
-      ? ColorBrightness.veryLight
+      ? ColorBrightness.light
       : ColorBrightness.primary;
   final colorSaturation = brightness == Brightness.dark
-      ? ColorSaturation.highSaturation
+      ? ColorSaturation.mediumSaturation
       : ColorSaturation.mediumSaturation;
   final color = _colorGenerator.randomColor(
     colorBrightness: colorBrightness,
     colorSaturation: colorSaturation,
   );
   return color.withOpacity(opacity);
+}
+
+/// Construct a color from a hex code string, of the format #RRGGBB.
+Color hexToColor(String code) {
+  return new Color(int.parse(code.substring(1, 7), radix: 16) + 0xFF000000);
 }
