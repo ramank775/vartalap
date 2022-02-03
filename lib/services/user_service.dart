@@ -73,20 +73,19 @@ class UserService {
 
   static Future<void> addUser(User user) async {
     var db = await DB().getDb();
-    await db.insert("user", user.toMap());
+    await db.insert("user", user.toMap(persistent: true));
   }
 
   static Future<bool> addUnknowUser(List<User> users) async {
-    List<String> usernames = users.map((u) => u.username).toList();
     List<User> result = [];
-    for (var username in usernames) {
-      var u = await getUserById(username);
-      if (u == null) result.add(u!);
+    for (final user in users) {
+      final u = await getUserById(user.username);
+      if (u == null) result.add(user);
     }
-    var db = await DB().getDb();
+    final db = await DB().getDb();
     Batch batch = db.batch();
     result.forEach((user) {
-      batch.insert("user", user.toMap());
+      batch.insert("user", user.toMap(persistent: true));
     });
     await batch.commit();
     return true;
@@ -131,7 +130,7 @@ class UserService {
         pic,
         hasAccount,
         status
-      ) values(?,?,?,?,?);""", user.toMap().values.toList());
+      ) values(?,?,?,?,?);""", user.toMap(persistent: true).values.toList());
     });
     contactDiff[1].forEach((user) {
       batch.rawUpdate("""UPDATE user SET name=?, 
@@ -162,7 +161,7 @@ class UserService {
         status=?
         WHERE username=?;
       """, [
-        user.name,
+        user.username, // Set name as username or phone number for deleted user
         user.pic,
         user.hasAccount ? 1 : 0,
         enumToInt(UserStatus.DELETED, UserStatus.values),
@@ -212,7 +211,6 @@ class UserService {
         .toList();
     users.forEach((u) {
       User? user = find(dbUsers, (e) => u == e);
-      // ignore: unnecessary_null_comparison
       if (user == null) {
         userToInsert.add(u);
       } else if (user.name != u.name ||

@@ -28,8 +28,9 @@ class ChatUser extends User {
 
   ChatUser.fromUser(User user) : super(user.name, user.username, user.pic);
 
-  Map<String, dynamic> toMap() {
-    Map<String, dynamic> map = new Map();
+  Map<String, dynamic> toMap({bool persistent = false}) {
+    Map<String, dynamic> map = super.toMap(persistent: persistent);
+    if (persistent) return map;
     map["name"] = this.name;
     map["username"] = this.username;
     map["pic"] = this.pic;

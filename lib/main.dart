@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/startup/startup.dart';
@@ -24,15 +25,15 @@ import 'package:vartalap/services/crashlystics.dart';
 final configStore = ConfigStore();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeApp();
+  final homescreen = await initializeApp();
   runZonedGuarded(() {
-    runApp(Home(configStore.packageInfo.appName));
+    runApp(Home(configStore.packageInfo.appName, homescreen));
   }, (error, stackTrace) {
     Crashlytics.recordError(error, stackTrace);
   });
 }
 
-Future initializeApp() async {
+Future<Widget> initializeApp() async {
   await Firebase.initializeApp();
   await configStore.loadConfig();
   await AuthService.init();
@@ -45,12 +46,15 @@ Future initializeApp() async {
         UserService.syncContacts(onInit: true).ignore();
       }
     });
+    return StartupScreen();
   }
+  return IntroductionScreen();
 }
 
 class Home extends StatefulWidget {
   final String appName;
-  Home(this.appName);
+  final Widget homeScreen;
+  Home(this.appName, this.homeScreen);
   @override
   HomeState createState() => HomeState();
 }
@@ -76,7 +80,7 @@ class HomeState extends State<Home> {
           theme: VartalapTheme.lightTheme.appTheme,
           darkTheme: VartalapTheme.darkTheme.appTheme,
           onGenerateRoute: _routes(),
-          home: StartupScreen(),
+          home: widget.homeScreen,
         ),
       ),
     );

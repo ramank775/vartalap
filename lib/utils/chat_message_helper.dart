@@ -75,8 +75,7 @@ List<Object> calculateChatMessages(
     chatMessages.insert(0, {
       'message': message,
       'nextMessageInGroup': nextMessageInGroup,
-      'showName':
-          notMyMessage && showUserNames && showName && message.sender != null,
+      'showName': notMyMessage && showUserNames && showName,
       'showStatus': true,
       'showNip': !nextMessageInGroup,
     });
