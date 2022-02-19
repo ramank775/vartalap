@@ -24,6 +24,9 @@ String formatMessageDate(int timestamp) {
       return "Yesterday";
     }
   }
+  if (date.year == today.year) {
+    return "${_months[date.month]} ${date.day}";
+  }
   return "${_months[date.month]} ${date.day}, ${format(date.year)}";
 }
 

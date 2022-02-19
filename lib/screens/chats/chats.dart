@@ -126,6 +126,7 @@ class ChatsState extends State<Chats> {
     List<Widget> actions = [];
     if (this._selectedChats.length > 0) {
       actions.add(IconButton(
+        iconSize: 22,
         icon: Icon(Icons.clear),
         onPressed: () {
           setState(() {
@@ -134,6 +135,7 @@ class ChatsState extends State<Chats> {
         },
       ));
       actions.add(IconButton(
+        iconSize: 22,
         icon: Icon(Icons.delete),
         onPressed: () async {
           await ChatService.deleteChats(this._selectedChats);
@@ -276,27 +278,61 @@ class ChatListViewState extends State<ChatListView>
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: _chats.length,
-      itemBuilder: (context, i) => new ChatPreviewWidget(
-        _chats[i],
-        (Chat chat) async {
-          if (widget._selectedChats.length > 0) {
-            widget._selectOrRemove(chat);
-            return;
-          }
-          if (chat.users.length <= 1) {
-            final _users = await ChatService.getChatUserByid(chat.id);
-            _users.forEach((u) {
-              chat.addUser(u);
-            });
-          }
-          widget._navigate('/chat', data: chat);
-        },
-        widget._selectOrRemove,
-        isSelected: widget._selectedChats.contains(widget._chats[i]),
-      ),
-    );
+    return _chats.length == 0
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.group_add,
+                  size: 50,
+                ),
+                SizedBox(
+                  height: 5,
+                ),
+                RichText(
+                  text: TextSpan(
+                      style: TextStyle(
+                        color: Colors.grey,
+                      ),
+                      children: [
+                        TextSpan(text: "Click"),
+                        TextSpan(
+                          text: " + ",
+                          style: TextStyle(
+                            color: Theme.of(context).iconTheme.color,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        TextSpan(text: "to create chat")
+                      ]),
+                )
+              ],
+            ),
+          )
+        : ListView.builder(
+            itemCount: _chats.length,
+            itemBuilder: (context, i) => new ChatPreviewWidget(
+              _chats[i],
+              (Chat chat) async {
+                if (widget._selectedChats.length > 0) {
+                  widget._selectOrRemove(chat);
+                  return;
+                }
+                if (chat.users.length <= 1) {
+                  final _users = await ChatService.getChatUserByid(chat.id);
+                  _users.forEach((u) {
+                    chat.addUser(u);
+                  });
+                }
+                widget._navigate('/chat', data: chat);
+              },
+              widget._selectOrRemove,
+              isSelected: widget._selectedChats.contains(widget._chats[i]),
+            ),
+          );
   }
 
   _onNewMessage(RemoteMessage msg) async {

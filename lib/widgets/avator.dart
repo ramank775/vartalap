@@ -31,6 +31,7 @@ class Avator extends StatelessWidget {
         upperCase: true,
         letterType: LetterType.Circular,
         textColor: Colors.white,
+        fontSize: 12,
       ),
     );
   }
