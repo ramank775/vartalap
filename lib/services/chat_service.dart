@@ -388,7 +388,8 @@ class ChatService {
     var db = await DB().getDb();
     var batch = db.batch();
     users.forEach((user) {
-      batch.delete("chat_user", where: "userid=?", whereArgs: [user.username]);
+      batch.delete("chat_user",
+          where: "userid=? and chatid=?", whereArgs: [user.username, chatid]);
     });
     await batch.commit();
     return true;
