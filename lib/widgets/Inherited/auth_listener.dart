@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/user_service.dart';
@@ -34,7 +35,8 @@ class _AuthListnerState extends State<AuthListner> {
       });
       this._navigatorKey.currentState!.pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (ctx) => StartupScreen(),
+            builder: (ctx) =>
+                this._isLogin ? StartupScreen() : IntroductionScreen(),
           ),
           (route) => false);
     });
