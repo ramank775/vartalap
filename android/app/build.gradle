@@ -32,7 +32,7 @@ if(keystorePropertiesFile.exists()) {
 }
 
 android {
-    compileSdkVersion 30
+    compileSdkVersion 31
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -73,6 +73,23 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
+        }
+    }
+    
+    flavorDimensions "app"
+
+    productFlavors {
+        
+        dev {
+            dimension "app"
+            resValue "string", "app_name", "Vartalap Dev"
+            versionNameSuffix "-dev"
+            applicationId "com.one9x.vartalap.dev"
+        }
+
+        prod {
+            dimension "app"
+            resValue "string", "app_name", "Vartalap"
         }
     }
 }

@@ -118,6 +118,7 @@ class HomeState extends State<Home> {
   @override
   void dispose() {
     ChatService.dispose();
+    AuthService.instance.dispose();
     super.dispose();
   }
 }

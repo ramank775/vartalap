@@ -5,10 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Flutter",
+            "name": "Vartalap-Dev",
             "program": "lib/main.dart",
             "request": "launch",
-            "type": "dart"
+            "type": "dart",
+            "args": [
+                "--flavor=dev"
+            ]
         }, {
             "name": "Flutter:profile",
             "program": "lib/main.dart",

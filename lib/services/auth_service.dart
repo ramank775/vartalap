@@ -20,12 +20,12 @@ class AuthService {
   User? _user;
   static FlutterSecureStorage _storage = new FlutterSecureStorage();
   static AuthService? _instance;
-  late Stream authStateChange;
 
+  StreamController<bool> authStateController =
+      StreamController<bool>.broadcast();
+  Stream<bool> get authStateChange => authStateController.stream;
   AuthService() {
-    final stream = _auth.authStateChanges();
-    authStateChange = stream.isBroadcast ? stream : stream.asBroadcastStream();
-    authStateChange.listen((event) {
+    _auth.authStateChanges().listen((event) {
       _user = event;
     });
   }
@@ -94,6 +94,7 @@ class AuthService {
     if (_resp.status) {
       try {
         await ApiService.login(_phoneNumber!);
+        this.authStateController.sink.add(true);
       } catch (e, stack) {
         Crashlytics.recordError(e, stack, reason: "Login api service failed");
         await _auth.signOut();
@@ -111,6 +112,7 @@ class AuthService {
 
   Future<void> signout() async {
     await this._auth.signOut();
+    authStateController.sink.add(false);
   }
 
   String? get phoneNumber {
@@ -125,6 +127,10 @@ class AuthService {
       return _user!.getIdToken();
     }
     return null;
+  }
+
+  dispose() {
+    this.authStateController.close();
   }
 
   static AuthService get instance {
