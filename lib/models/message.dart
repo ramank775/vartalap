@@ -45,12 +45,18 @@ abstract class ChatMessage {
   late MessageState _state;
   late MessageType _type;
   late int _ts = DateTime.now().millisecondsSinceEpoch;
+  late String _category = "message";
+  late bool _ephemeral = false;
+
   String get id => _id;
   String get chatId => _chatId;
   String get senderId => _senderId;
   String get action => _action;
   MessageState get state => _state;
   MessageType get type => _type;
+  String get category => _category;
+  bool get ephemeral => _ephemeral;
+
   int get timestamp => _ts;
   set timestamp(int ts) {
     this._ts = ts;
@@ -67,6 +73,8 @@ abstract class ChatMessage {
     this._state = MessageState.NEW,
     this._action = "message",
     this._type = MessageType.OTHER,
+    this._category = "message",
+    this._ephemeral = false,
   ]);
 
   ChatMessage.chatMessage(String chatId, String senderId, MessageType type) {
@@ -237,7 +245,8 @@ class StateMessge extends ChatMessage {
 
   StateMessge(String chatId, String senderId,
       [MessageState state = MessageState.OTHER])
-      : super('', chatId, senderId, state, "state", MessageType.NOTIFICATION) {
+      : super('', chatId, senderId, state, "state", MessageType.NOTIFICATION,
+            "system", false) {
     this._id = ChatMessage._getMsgId(senderId);
   }
 
