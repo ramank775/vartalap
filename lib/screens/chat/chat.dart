@@ -19,9 +19,7 @@ class ChatScreen extends StatefulWidget {
   ChatScreen(this.chat) : super(key: Key(chat.id));
 
   @override
-  ChatState createState() => ChatState(
-        chat,
-      );
+  ChatState createState() => ChatState(chat);
 }
 
 class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
@@ -34,6 +32,9 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   StreamSubscription? _notificationSub;
   StreamSubscription? _newMessageSub;
   Timer? _readTimer;
+  Timer? _myTypingTimer;
+  Timer? _remoteTypingTimer;
+  var _typing = ValueNotifier<bool>(false);
   Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
 
   ChatState(this._chat);
@@ -200,13 +201,49 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           ...this._hasSendPermission()
               ? [
-                  MessageInputWidget(sendMessage: (String text) async {
-                    final msg = TextMessage.chatMessage(this._chat.id,
-                        this._currentUser.username, text, MessageType.TEXT);
-                    msg.sender = this._currentUser;
-                    await ChatService.sendMessage(msg, this._chat);
-                    this._messageController.add(msg);
-                  })
+                  MessageInputWidget(
+                    sendMessage: (String text) async {
+                      final msg = TextMessage.chatMessage(this._chat.id,
+                          this._currentUser.username, text, MessageType.TEXT);
+                      msg.sender = this._currentUser;
+                      await ChatService.sendMessage(msg, this._chat);
+                      this._messageController.add(msg);
+                    },
+                    onTyping: (bool state) async {
+                      if (state) {
+                        if (!(_myTypingTimer?.isActive ?? false)) {
+                          ChatService.sendSystemMessage(
+                              TypingMessage(
+                                this._chat.id,
+                                this._currentUser.username,
+                                true,
+                              ),
+                              this._chat);
+                          _myTypingTimer = Timer.periodic(Duration(seconds: 2),
+                              (Timer timer) {
+                            ChatService.sendSystemMessage(
+                                TypingMessage(
+                                  this._chat.id,
+                                  this._currentUser.username,
+                                  true,
+                                ),
+                                this._chat);
+                          });
+                        }
+                      } else {
+                        await ChatService.sendSystemMessage(
+                            TypingMessage(
+                              this._chat.id,
+                              this._currentUser.username,
+                              false,
+                            ),
+                            this._chat);
+                        if (_myTypingTimer?.isActive ?? false)
+                          _myTypingTimer!.cancel();
+                        _myTypingTimer = null;
+                      }
+                    },
+                  )
                 ]
               : [],
         ],
@@ -219,8 +256,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       valueListenable: this._selectedMessges,
       builder: (BuildContext context, Iterable<String> selectedMessages,
           Widget? child) {
-        var subtitle = this._getSubTitle();
-        var titleWidgets = <Widget>[
+        final subtitle = this._getSubTitle();
+        final titleWidgets = <Widget>[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2.0),
             child: Text(
@@ -237,17 +274,25 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         if (this._selectedMessges.value.isEmpty && subtitle.isNotEmpty) {
           titleWidgets.add(
             SizedBox(
-              width: MediaQuery.of(context).size.width * 0.60,
-              child: Text(
-                subtitle,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-                style: TextStyle(
-                  fontSize: 12.0,
-                  color: Colors.white,
-                ),
-              ),
-            ),
+                width: MediaQuery.of(context).size.width * 0.60,
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: _typing,
+                  builder: (BuildContext context, bool state, Widget? child) {
+                    var _value = subtitle;
+                    if (state) {
+                      _value = "typing...";
+                    }
+                    return Text(
+                      _value,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: 12.0,
+                        color: Colors.white,
+                      ),
+                    );
+                  },
+                )),
           );
         }
         return Column(
@@ -342,6 +387,15 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         this._chat.resetUsers();
         users.forEach((u) => this._chat.addUser(u));
       });
+    } else if (msgInfo.action == "typing") {
+      TypingMessage typingMsg = toChatMessage(msg) as TypingMessage;
+      if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();
+      this._typing.value = typingMsg.isTyping;
+      if (typingMsg.isTyping) {
+        _remoteTypingTimer = Timer(Duration(seconds: 5), () {
+          this._typing.value = false;
+        });
+      }
     }
   }
 
@@ -373,7 +427,9 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance!.removeObserver(this);
-    if (_readTimer != null) _readTimer!.cancel();
+    if (_readTimer?.isActive ?? false) _readTimer!.cancel();
+    if (_myTypingTimer?.isActive ?? false) _myTypingTimer!.cancel();
+    if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();
     _notificationSub?.cancel();
     _newMessageSub?.cancel();
     this._messageController.dispose();

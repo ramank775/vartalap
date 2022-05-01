@@ -5,7 +5,12 @@ import 'package:flutter/material.dart';
 
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
-  MessageInputWidget({Key? key, required this.sendMessage}) : super(key: key);
+  final Function(bool state)? onTyping;
+  MessageInputWidget({
+    Key? key,
+    required this.sendMessage,
+    this.onTyping,
+  }) : super(key: key);
 
   @override
   MessageInputState createState() => MessageInputState();
@@ -15,6 +20,7 @@ class MessageInputState extends State<MessageInputWidget> {
   late Function _sendMessage;
   bool _isShowSticker = false;
   FocusNode _inputFocus = FocusNode();
+  Timer? _typingTimer;
   final TextEditingController _controller = TextEditingController();
   @override
   void initState() {
@@ -23,11 +29,30 @@ class MessageInputState extends State<MessageInputWidget> {
     _isShowSticker = false;
     _inputFocus = FocusNode();
     _inputFocus.addListener(onFocusListener);
+    _controller.addListener(onTypingListener);
   }
 
   void dispose() {
     super.dispose();
+    if (_typingTimer?.isActive ?? false) _typingTimer!.cancel();
     _inputFocus.removeListener(onFocusListener);
+    _controller.removeListener(onTypingListener);
+    _inputFocus.dispose();
+    _controller.dispose();
+  }
+
+  void onTypingListener() {
+    if (this._controller.text.isEmpty) return;
+    if (_typingTimer == null) {
+      this.widget.onTyping?.call(true);
+    }
+    if (_typingTimer?.isActive ?? false) _typingTimer!.cancel();
+    _typingTimer = Timer(Duration(seconds: 3), onTypingTimeout);
+  }
+
+  void onTypingTimeout() {
+    this.widget.onTyping?.call(false);
+    _typingTimer = null;
   }
 
   void onFocusListener() {

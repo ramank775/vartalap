@@ -302,3 +302,23 @@ class CustomMessage extends ChatMessage {
     return this._rawbody;
   }
 }
+
+class TypingMessage extends ChatMessage {
+  bool isTyping = false;
+
+  TypingMessage(String chatId, String senderId, this.isTyping)
+      : super('', chatId, senderId, MessageState.OTHER, "typing",
+            MessageType.NOTIFICATION, "system", true) {
+    this._id = ChatMessage._getMsgId(senderId);
+  }
+
+  @override
+  void fromRemoteBody(Map<String, dynamic> body) {
+    this.isTyping = body['typing'];
+  }
+
+  @override
+  Map<String, dynamic> toRemoteBody() {
+    return {"typing": this.isTyping};
+  }
+}

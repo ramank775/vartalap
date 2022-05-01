@@ -101,7 +101,7 @@ class ChatPreview extends Chat {
       : super(id, title, pic);
 
   ChatPreview.fromMap(Map<String, dynamic> map) : super.fromMap(map) {
-    this._content = map["text"];
+    this._content = map["text"] ?? '';
     this._ts = map["ts"] ?? 0;
     this._unread = map["unread"] == null ? 0 : map["unread"];
   }
