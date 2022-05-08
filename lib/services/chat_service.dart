@@ -280,6 +280,27 @@ class ChatService {
     await SocketService.instance.sendNotifications(rmsgs);
   }
 
+  static Future<void> sendSystemMessage(ChatMessage msg, Chat chat) async {
+    if (_isSelfChat(chat)) return;
+    String to = chat.id;
+    if (chat.type == ChatType.INDIVIDUAL) {
+      final users = chat.users;
+      var idx = users.indexWhere(
+        (u) => msg.senderId != u.username,
+      );
+      if (idx == -1) {
+        final chatUsers = await getChatUserByid(chat.id);
+        idx = chatUsers.indexWhere((u) => u.username != msg.senderId);
+        if (idx == -1) return;
+        to = chatUsers[idx].username;
+      } else {
+        to = users[idx].username;
+      }
+    }
+    RemoteMessage smsg = RemoteMessage.fromMessage(msg, to, chat.type);
+    await SocketService.instance.sendNotifications([smsg]);
+  }
+
   static Future updateMessageState(
     Iterable<String> msgIds,
     MessageState state,

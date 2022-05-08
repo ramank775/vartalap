@@ -10,6 +10,8 @@ class Head {
     required this.chatid,
     required this.contentType,
     required this.action,
+    this.category = 'message',
+    this.ephemeral = false,
   });
 
   late ChatType type;
@@ -18,6 +20,8 @@ class Head {
   late String? chatid;
   late MessageType contentType;
   late String action;
+  late String category;
+  late bool ephemeral;
 
   Head.fromMap(Map<String, dynamic> map) {
     this.type = stringToEnum(map["type"], ChatType.values);
@@ -26,6 +30,8 @@ class Head {
     this.action = map["action"];
     this.contentType = stringToEnum(map["contentType"], MessageType.values);
     this.chatid = map["chatid"];
+    this.category = map.containsKey("category") ? map["category"] : 'message';
+    this.ephemeral = map.containsKey("ephemeral") ? map["ephemeral"] : false;
   }
 
   Map<String, dynamic> toMap() {
@@ -35,7 +41,9 @@ class Head {
       "action": this.action,
       "chatid": this.chatid,
       "type": enumToString(this.type),
-      "contentType": enumToString(this.contentType)
+      "contentType": enumToString(this.contentType),
+      "category": this.category,
+      "ephemeral": this.ephemeral,
     };
   }
 }
@@ -69,40 +77,12 @@ class Meta {
 }
 
 class RemoteMessage {
-  double _v = 2.0;
+  double _v = 2.1;
   double get ver => _v;
   late String id;
   late Head head;
   late Meta meta;
   late Map<String, dynamic> body;
-
-  @deprecated
-  RemoteMessage.fromChatMessage(ChatMessage msg, Chat chat) {
-    this.id = msg.id;
-    String to;
-    if (chat.type == ChatType.GROUP) {
-      to = chat.id;
-    } else {
-      to = chat.users
-          .singleWhere((element) => element.username != msg.senderId)
-          .username;
-    }
-    this.head = Head(
-      type: chat.type,
-      to: to,
-      from: msg.senderId,
-      chatid: msg.chatId,
-      contentType: msg.type,
-      action: msg.action,
-    );
-
-    this.meta = Meta(
-      createdAt: msg.timestamp,
-      contentHash: msg.calcContentHash(),
-    );
-
-    this.body = msg.toRemoteBody();
-  }
 
   RemoteMessage.fromMessage(ChatMessage stateMsg, String to, ChatType type) {
     this.id = stateMsg.id;
@@ -113,6 +93,8 @@ class RemoteMessage {
       from: stateMsg.senderId,
       type: type,
       to: to,
+      category: stateMsg.category,
+      ephemeral: stateMsg.ephemeral,
     );
 
     this.meta = Meta(

@@ -116,6 +116,9 @@ ChatMessage toChatMessage(RemoteMessage msg) {
       msg.head.from,
       MessageState.OTHER,
     );
+  } else if (msg.head.contentType == MessageType.NOTIFICATION &&
+      msg.head.action == "typing") {
+    chatMsg = TypingMessage(msg.head.chatid!, msg.head.from, false);
   } else if (msg.head.contentType == MessageType.TEXT) {
     chatMsg = TextMessage(
       msg.id,
