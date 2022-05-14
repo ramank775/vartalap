@@ -42,7 +42,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance!.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);
     this._fMessages = ChatService.getChatMessages(this._chat.id);
     this._fMessages.then((messages) {
       final unread = messages.where((msg) =>
@@ -426,7 +426,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    WidgetsBinding.instance!.removeObserver(this);
+    WidgetsBinding.instance.removeObserver(this);
     if (_readTimer?.isActive ?? false) _readTimer!.cancel();
     if (_myTypingTimer?.isActive ?? false) _myTypingTimer!.cancel();
     if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();

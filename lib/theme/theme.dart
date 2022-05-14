@@ -116,7 +116,7 @@ class VartalapTheme {
         return VartalapTheme.lightTheme;
       case ThemeMode.system:
         final brightness =
-            MediaQueryData.fromWindow(WidgetsBinding.instance!.window)
+            MediaQueryData.fromWindow(WidgetsBinding.instance.window)
                 .platformBrightness;
         return brightness == Brightness.dark
             ? VartalapTheme.darkTheme

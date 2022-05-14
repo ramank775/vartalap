@@ -111,7 +111,7 @@ class PushNotificationService {
       showWhen: true,
       playSound: true,
       timeoutAfter:
-          WidgetsBinding.instance!.lifecycleState == AppLifecycleState.resumed
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed
               ? 500
               : null,
       groupKey: groupKey,
