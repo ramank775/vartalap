@@ -8,7 +8,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
 import 'package:vartalap/widgets/app_logo.dart';
-import 'package:vartalap/widgets/rich_message.dart';
 
 class StartupScreen extends StatelessWidget {
   const StartupScreen({Key? key}) : super(key: key);
@@ -18,42 +17,8 @@ class StartupScreen extends StatelessWidget {
     var value = await Permission.contacts.status;
     if (value.isGranted) {
       onContactPermissionGranted(context);
-      onNext(context);
-    } else {
-      final dialog = AlertDialog(
-        title: Icon(
-          Icons.contact_page_rounded,
-          size: 40,
-        ),
-        titleTextStyle: TextStyle(fontSize: 14),
-        content: RichMessage(
-          "To help you connect with friends and family, allow ${configStore.packageInfo.appName} access to your contacts.",
-          TextStyle(
-            fontSize: 16,
-          ),
-        ),
-        actions: [
-          TextButton(
-            child: Text("Not Now"),
-            onPressed: () {
-              Navigator.of(context).pop();
-              onNext(context);
-            },
-          ),
-          TextButton(
-              child: Text("Continue"),
-              onPressed: () async {
-                Navigator.of(context).pop();
-                final value = await Permission.contacts.request();
-                if (value.isGranted) {
-                  onContactPermissionGranted(context);
-                  onNext(context);
-                }
-              }),
-        ],
-      );
-      showDialog(context: context, builder: (BuildContext context) => dialog);
     }
+    onNext(context);
   }
 
   void onNext(BuildContext context) {
