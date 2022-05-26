@@ -14,19 +14,24 @@ class StartupScreen extends StatelessWidget {
 
   Future<void> _initializeApp(
       ConfigStore configStore, BuildContext context) async {
-    var value = await Permission.contacts.request();
+    var value = await Permission.contacts.status;
     if (value.isGranted) {
-      unawaited(UserService.syncContacts(onInit: true));
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (context) => Chats(),
-        ),
-        (route) => false,
-      );
+      onContactPermissionGranted(context);
     }
-    if (value.isPermanentlyDenied) {
-      openAppSettings();
-    }
+    onNext(context);
+  }
+
+  void onNext(BuildContext context) {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (context) => Chats(),
+      ),
+      (route) => false,
+    );
+  }
+
+  void onContactPermissionGranted(BuildContext context) {
+    unawaited(UserService.syncContacts(onInit: true));
   }
 
   @override

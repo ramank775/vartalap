@@ -252,7 +252,7 @@ class ChatListViewState extends State<ChatListView>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance!.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);
     _chats = widget._chats;
     _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
     _groupNotificationSub = ChatService.onNotificationMessagStream

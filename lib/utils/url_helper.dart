@@ -1,10 +1,10 @@
-import 'package:url_launcher/url_launcher.dart';
+import 'package:url_launcher/url_launcher.dart' as launcher;
 
 launchUrl(String link) async {
-  link = link.toLowerCase();
-  var uri = Uri.parse(link);
+  var uri = Uri.tryParse(link);
+  if (uri == null) return;
   if (!uri.hasScheme) {
-    link = "http://$link";
+    uri = Uri.http(link, '');
   }
-  if (await canLaunch(link)) await launch(link);
+  if (await launcher.canLaunchUrl(uri)) await launcher.launchUrl(uri);
 }

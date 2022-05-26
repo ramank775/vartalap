@@ -1,3 +1,4 @@
+import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/models/user.dart';
 import 'package:vartalap/dataAccessLayer/db.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -101,6 +102,12 @@ class UserService {
     var syncContactTrace = PerformanceMetric.newTrace('sync-contact');
     await syncContactTrace.start();
     var users = await _getContacts();
+    if (users.isEmpty) {
+      syncContactTrace.putAttribute("nocontacts", true);
+      syncContactTrace.stop();
+      _syncInProgress = false;
+      return;
+    }
     var currentUser = UserService.getLoggedInUser();
     if (!users.any((user) => user.username == currentUser.username)) {
       users.add(currentUser);
@@ -182,6 +189,8 @@ class UserService {
   }
 
   static Future<List<User>> _getContacts() async {
+    final permission = await Permission.contacts.status;
+    if (!permission.isGranted) return [];
     Iterable<Contact> contacts = await FlutterContacts.getContacts(
         withProperties: true, withThumbnail: false, withPhoto: false);
     List<User> users = [];

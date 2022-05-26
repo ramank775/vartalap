@@ -4,6 +4,7 @@ import 'package:vartalap/screens/login/verifyOtp.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
+import 'package:vartalap/widgets/loadingIndicator.dart';
 
 class LoginScreen extends StatelessWidget {
   final TextEditingController _phoneController =
@@ -106,8 +107,11 @@ class LoginScreen extends StatelessWidget {
                       onPressed: () async {
                         List<String> errors = [];
                         if (_phoneController.text.isNotEmpty) {
+                          showLoadingIndicator(
+                              context, "While we send you one time password");
                           bool status =
                               await UserService.sendOTP(_phoneController.text);
+                          Navigator.of(context).pop(); // close the loaded;
                           if (status) {
                             Navigator.of(context).push(
                               MaterialPageRoute(
@@ -166,6 +170,23 @@ class LoginScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void showLoadingIndicator(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: AlertDialog(
+            content: LoadingIndicator(
+              text: message,
+            ),
+          ),
+        );
+      },
     );
   }
 
