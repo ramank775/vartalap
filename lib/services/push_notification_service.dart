@@ -84,17 +84,29 @@ class PushNotificationService {
     FirebaseMessaging.onMessage.listen((event) {
       onMessage!({"data": event.data});
     });
-    _flutterLocalNotificationsPlugin.initialize(_initializationSettings,
-        onSelectNotification: (String? payload) async {
-      if (onMessage != null && payload != null) {
-        var decoded = json.decode(payload);
-        Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
-        return onMessage({
-          "data": {"message": data},
-          "source": "ON_NOTIFICATION_TAP"
-        });
-      }
-    });
+    _flutterLocalNotificationsPlugin.initialize(
+      _initializationSettings,
+      onDidReceiveNotificationResponse: (details) {
+        if (onMessage != null && details.payload != null) {
+          var decoded = json.decode(details.payload!);
+          Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
+          return onMessage({
+            "data": {"message": data},
+            "source": "ON_NOTIFICATION_TAP"
+          });
+        }
+      },
+      onDidReceiveBackgroundNotificationResponse: (details) {
+        if (onMessage != null && details.payload != null) {
+          var decoded = json.decode(details.payload!);
+          Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
+          return onMessage({
+            "data": {"message": data},
+            "source": "ON_NOTIFICATION_TAP"
+          });
+        }
+      },
+    );
   }
 
   Future<String?> get token => FirebaseMessaging.instance.getToken();

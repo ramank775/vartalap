@@ -87,7 +87,7 @@ class IntroductionScreen extends StatelessWidget {
                         ],
                         style: Theme.of(context)
                             .textTheme
-                            .caption
+                            .bodySmall
                             ?.copyWith(fontSize: 14),
                       ),
                     ),

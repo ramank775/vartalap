@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
@@ -11,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/performance_metric.dart';
-import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/auth_listener.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
@@ -26,11 +26,15 @@ final configStore = ConfigStore();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final homescreen = await initializeApp();
-  runZonedGuarded(() {
-    runApp(Home(configStore.packageInfo.appName, homescreen));
-  }, (error, stackTrace) {
-    Crashlytics.recordError(error, stackTrace);
-  });
+  FlutterError.onError = (errorDetails) {
+    FirebaseCrashlytics.instance.recordFlutterFatalError(errorDetails);
+  };
+  // Pass all uncaught asynchronous errors that aren't handled by the Flutter framework to Crashlytics
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+  runApp(Home(configStore.packageInfo.appName, homescreen));
 }
 
 Future<Widget> initializeApp() async {
@@ -40,12 +44,6 @@ Future<Widget> initializeApp() async {
   Crashlytics.init();
   PerformanceMetric.init();
   if (AuthService.instance.isLoggedIn()) {
-    ChatService.init().ignore();
-    Permission.contacts.status.then((status) {
-      if (status.isGranted) {
-        UserService.syncContacts(onInit: true).ignore();
-      }
-    });
     return StartupScreen();
   }
   return IntroductionScreen();

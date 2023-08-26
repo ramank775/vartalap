@@ -60,8 +60,9 @@ class CreateGroup extends StatelessWidget {
                 child: RichText(
                   text: TextSpan(
                     style: TextStyle(
-                        fontSize: 18,
-                        color: Theme.of(context).textTheme.bodyText1!.color),
+                      fontSize: 18,
+                      color: Theme.of(context).textTheme.bodyLarge!.color,
+                    ),
                     children: [
                       TextSpan(text: "Members:"),
                       TextSpan(

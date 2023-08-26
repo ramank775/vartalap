@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
@@ -163,6 +164,7 @@ class MessageInputState extends State<MessageInputWidget> {
 
   Widget buildSticker(BuildContext context) {
     var theme = Theme.of(context);
+    final vtheme = VartalapTheme.theme;
     return Offstage(
       offstage: !_isShowSticker,
       child: SizedBox(
@@ -179,13 +181,11 @@ class MessageInputState extends State<MessageInputWidget> {
             initCategory: Category.RECENT,
             bgColor: theme.scaffoldBackgroundColor,
             indicatorColor: theme.indicatorColor,
-            showRecentsTab: true,
             recentsLimit: 28,
             enableSkinTones: true,
             categoryIcons: CategoryIcons(),
             buttonMode: ButtonMode.MATERIAL,
-            iconColorSelected: theme.selectedRowColor,
-            progressIndicatorColor: theme.indicatorColor,
+            iconColorSelected: vtheme.selectedRowColor,
           ),
         ),
       ),

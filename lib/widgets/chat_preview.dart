@@ -10,16 +10,15 @@ class ChatPreviewWidget extends StatelessWidget {
   final Function _onLongPress;
   final bool isSelected;
   ChatPreviewWidget(this._chat, this._onTap, this._onLongPress,
-      {this.isSelected: false})
+      {this.isSelected = false})
       : super(key: Key(_chat.id));
   @override
   Widget build(BuildContext context) {
     final vtheme = VartalapTheme.theme;
-    final theme = vtheme.appTheme;
     return new Column(
       children: [
         ListTileTheme(
-          selectedColor: theme.selectedRowColor,
+          selectedColor: vtheme.selectedRowColor,
           child: ListTile(
             leading: Container(
               width: 42,
@@ -36,7 +35,7 @@ class ChatPreviewWidget extends StatelessWidget {
                           bottom: 0,
                           right: 0,
                           child: CircleAvatar(
-                            backgroundColor: theme.selectedRowColor,
+                            backgroundColor: vtheme.selectedRowColor,
                             radius: 10,
                             child: Icon(
                               Icons.check,
@@ -96,13 +95,14 @@ class ChatPreviewWidget extends StatelessWidget {
   }
 
   Widget getWidget(BuildContext context) {
+    final vtheme = VartalapTheme.theme;
     return this._chat.unread > 0
         ? Container(
             width: 24,
             height: 24,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Theme.of(context).selectedRowColor,
+              color: vtheme.selectedRowColor,
             ),
             child: Center(
                 child: Text(

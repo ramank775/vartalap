@@ -12,14 +12,13 @@ final ThemeData _lightTheme = _defaultLightTheme.copyWith(
   ),
   colorScheme: ColorScheme.fromSwatch(
     primarySwatch: Colors.blue,
+    backgroundColor: Colors.grey,
   ),
   scaffoldBackgroundColor: Colors.grey[100],
   primaryColor: Colors.blue,
   visualDensity: VisualDensity.comfortable,
-  backgroundColor: Colors.grey,
   iconTheme: _defaultLightTheme.iconTheme.copyWith(color: Colors.blue),
   highlightColor: Colors.blue,
-  selectedRowColor: Colors.blueAccent,
   primaryColorLight: Colors.white,
 );
 
@@ -35,7 +34,6 @@ final ThemeData _darkTheme = _defaultDarkTheme.copyWith(
   ),
   visualDensity: VisualDensity.comfortable,
   scaffoldBackgroundColor: _darkBackgroundColor,
-  selectedRowColor: _primaryDarkColor,
   primaryColorLight: hexToColor("#2C394B"),
   iconTheme: _defaultDarkTheme.iconTheme.copyWith(
     color: _primaryDarkColor,
@@ -58,6 +56,7 @@ class VartalapTheme {
     required this.receiverColor,
     required this.senderColor,
     this.readMessage = Colors.blueAccent,
+    this.selectedRowColor = Colors.blueAccent,
   });
 
   final TextStyle appTitleStyle;
@@ -67,6 +66,7 @@ class VartalapTheme {
   final Color senderColor;
   final Color receiverColor;
   final Color readMessage;
+  final Color selectedRowColor;
 
   static ThemeMode get themeMode {
     ThemeMode t = kReleaseMode ? ThemeMode.system : ThemeMode.dark;
@@ -87,6 +87,7 @@ class VartalapTheme {
       receiverColor: _darkTheme.primaryColorLight,
       senderColor: _primaryDarkColor,
       readMessage: _darkBackgroundColor,
+      selectedRowColor: _primaryDarkColor,
     );
   }
 
@@ -115,9 +116,9 @@ class VartalapTheme {
       case ThemeMode.light:
         return VartalapTheme.lightTheme;
       case ThemeMode.system:
-        final brightness =
-            MediaQueryData.fromWindow(WidgetsBinding.instance.window)
-                .platformBrightness;
+        final brightness = MediaQueryData.fromView(
+                WidgetsBinding.instance.platformDispatcher.views.single)
+            .platformBrightness;
         return brightness == Brightness.dark
             ? VartalapTheme.darkTheme
             : VartalapTheme.lightTheme;

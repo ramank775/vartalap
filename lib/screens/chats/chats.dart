@@ -165,7 +165,7 @@ class ChatsState extends State<Chats> {
                   config.get("description"),
                   TextStyle(
                     fontSize: 12,
-                    color: Theme.of(context).textTheme.bodyText1?.color,
+                    color: Theme.of(context).textTheme.bodyLarge?.color,
                   ),
                 ),
                 Text("------------------------------------------------"),
@@ -173,7 +173,7 @@ class ChatsState extends State<Chats> {
                     """Server Info:\n API URL: ${config.get("api_url")} \n WebSocket: ${config.get("ws_url")}""",
                     TextStyle(
                       fontSize: 12,
-                      color: Theme.of(context).textTheme.bodyText1?.color,
+                      color: Theme.of(context).textTheme.bodyLarge?.color,
                     ))
               ],
             );
