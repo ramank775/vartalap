@@ -32,7 +32,8 @@ if(keystorePropertiesFile.exists()) {
 }
 
 android {
-    compileSdkVersion 33
+    namespace "com.one9x.vartalap"
+    compileSdk 33
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -47,9 +48,6 @@ android {
         main.java.srcDirs += 'src/main/kotlin'
     }
 
-    lintOptions {
-        disable 'InvalidPackage'
-    }
 
     defaultConfig {
         applicationId "com.one9x.vartalap"
@@ -80,7 +78,7 @@ android {
         }
     }
     
-    flavorDimensions "app"
+    flavorDimensions += "app"
 
     productFlavors {
         
@@ -95,6 +93,9 @@ android {
             dimension "app"
             resValue "string", "app_name", "Vartalap"
         }
+    }
+    lint {
+        disable 'InvalidPackage'
     }
 }
 
