@@ -51,7 +51,7 @@ class UserService {
     return User.fromMap(userMap[0]);
   }
 
-  static Future<List<User>> getUsers({String? search, bool sync: false}) async {
+  static Future<List<User>> getUsers({String? search, bool sync = false}) async {
     if (sync) {
       await syncContacts();
     }

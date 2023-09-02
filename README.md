@@ -18,13 +18,13 @@
 - Download or clone the repo `https://github.com/ramank775/vartalap.git`
 - Get the required dependencies `flutter pub get`
 
-- Setup local chatsever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
+- Setup local chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
 - Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
 - Update `api_url` and `ws_url` of  [chat-server](https://www.github.com/ramank775/chat-server)
 
 
-### Setup with gitpod
-Click on the gitpod badge to start cloud IDE 
+### Setup with Gitpod
+Click on the Gitpod badge to start cloud IDE 
 
 [![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ramank775/vartalap) 
 
@@ -54,7 +54,7 @@ Gitpod command
     `flutter run`
 
 Chat Server
-- Start chatsever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
+- Start chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
 - Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
 - Update `api_url` and `ws_url` of  [chat-server](https://www.github.com/ramank775/chat-server)
 
@@ -65,7 +65,7 @@ Chat Server
 
 - Facing any issue? Raise an issue [here](https://github.com/ramank775/vartalap/issues/new?assignees=&labels=bug&template=bug_report.md&title=%5BBUG%5D) with the necessary details.
 
-- Looking for a new feture? Raise an feature request [here](https://github.com/ramank775/vartalap/issues/new?assignees=&labels=enhancement&template=feature_request.md&title=%5BFEAT%5D).
+- Looking for a new feature? Raise an feature request [here](https://github.com/ramank775/vartalap/issues/new?assignees=&labels=enhancement&template=feature_request.md&title=%5BFEAT%5D).
 
 - Found a security issue? Report it responsibility, view our security policy [here](https://github.com/ramank775/vartalap/security/policy).
 
@@ -73,13 +73,13 @@ Chat Server
 
 ## Code Of Conduct
 
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](code_of_conduct.md)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](./CODE_OF_CONDUCT.md)
 
-Vartalap has adopted [Contributor Covenant](code_of_conduct.md), we expect project participants to adhere to. Please read the [full text](code_of_conduct.md) to understand what action will and will not be tolerated.
+Vartalap has adopted [Contributor Covenant](./CODE_OF_CONDUCT.md), we expect project participants to adhere to. Please read the [full text](./CODE_OF_CONDUCT.md) to understand what action will and will not be tolerated.
 
 
 # LICENSE
-[GNU GENERAL PUBLIC LICENSE](./LICENSE)
+[GNU GENERAL PUBLIC LICENSE](./LICENCE)
 
 # Contact us
 - Twitter [@vartalap_app](https://twitter.com/vartalap_app).

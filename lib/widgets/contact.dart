@@ -1,5 +1,6 @@
 import 'package:vartalap/models/user.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 
 class ContactItem extends StatelessWidget {
@@ -18,8 +19,9 @@ class ContactItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final vtheme = VartalapTheme.theme;
     return ListTileTheme(
-      selectedColor: Theme.of(context).selectedRowColor,
+      selectedColor: vtheme.selectedRowColor,
       child: ListTile(
         contentPadding: EdgeInsets.symmetric(
           vertical: 2.0,

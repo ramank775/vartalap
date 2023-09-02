@@ -122,11 +122,11 @@ class AuthService {
     return null;
   }
 
-  Future<String>? get idToken {
+  Future<String?> get idToken {
     if (isLoggedIn()) {
       return _user!.getIdToken();
     }
-    return null;
+    return Future.value(null);
   }
 
   dispose() {

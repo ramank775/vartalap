@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,6 +15,8 @@ class StartupScreen extends StatelessWidget {
 
   Future<void> _initializeApp(
       ConfigStore configStore, BuildContext context) async {
+    unawaited(ChatService.init());
+    await Permission.notification.request();
     var value = await Permission.contacts.status;
     if (value.isGranted) {
       onContactPermissionGranted(context);

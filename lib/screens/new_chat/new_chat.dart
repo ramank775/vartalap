@@ -396,7 +396,7 @@ class ContactList extends StatelessWidget {
             padding: const EdgeInsets.all(8.0),
             child: Icon(
               Icons.share,
-              color: Theme.of(context).textTheme.bodyText1?.color,
+              color: Theme.of(context).textTheme.bodyLarge?.color,
             ),
           ),
           title: Text(

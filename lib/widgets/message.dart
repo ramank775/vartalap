@@ -19,7 +19,7 @@ class MessageWidget extends StatelessWidget {
     this._msg,
     this._isYou, {
     Key? key,
-    this.isSelected: false,
+    this.isSelected = false,
     this.onTab,
     this.onLongPress,
     this.showUserInfo = false,
@@ -28,10 +28,9 @@ class MessageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = VartalapTheme.theme.appTheme;
     final senderColor = VartalapTheme.theme.senderColor;
     final receiverColor = VartalapTheme.theme.receiverColor;
-    final selectedRowColor = theme.selectedRowColor;
+    final selectedRowColor = VartalapTheme.theme.selectedRowColor;
     return GestureDetector(
       onTap: () {
         this.onTab!(this._msg);
@@ -135,10 +134,10 @@ class MessageWidget extends StatelessWidget {
   Widget getMessageWidget(BuildContext context) {
     final theme = Theme.of(context);
     final TextStyle textStyle = TextStyle(
-      fontSize: theme.primaryTextTheme.subtitle1!.fontSize,
-      fontWeight: theme.primaryTextTheme.subtitle1!.fontWeight,
+      fontSize: theme.primaryTextTheme.titleMedium!.fontSize,
+      fontWeight: theme.primaryTextTheme.titleMedium!.fontWeight,
       letterSpacing: 0.25,
-      color: theme.textTheme.bodyText1?.color,
+      color: theme.textTheme.bodyLarge?.color,
     );
     switch (this._msg.type) {
       case MessageType.TEXT:

@@ -1,6 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:random_color/random_color.dart';
+import 'package:vartalap/utils/random_color.dart';
 
 MaterialColor generateMaterialColor(Color color) {
   return MaterialColor(color.value, {
@@ -34,6 +34,43 @@ Color shadeColor(Color color, double factor) => Color.fromRGBO(
     shadeValue(color.green, factor),
     shadeValue(color.blue, factor),
     1);
+
+class Range {
+  const Range(this.start, this.end);
+
+  const Range.staticValue(int value)
+      : start = value,
+        end = value;
+  const Range.zero()
+      : start = 0,
+        end = 0;
+
+  final int start;
+  final int end;
+
+  Range operator +(Range range) {
+    return Range((start + range.start) ~/ 2, end);
+  }
+
+  bool contain(int value) {
+    return value >= start && value <= end;
+  }
+
+  int randomWithin(Random random) {
+    return (start + random.nextDouble() * (end - start)).round();
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Range &&
+          runtimeType == other.runtimeType &&
+          start == other.start &&
+          end == other.end;
+
+  @override
+  int get hashCode => start.hashCode ^ end.hashCode;
+}
 
 Color getColor(
   String text, {
