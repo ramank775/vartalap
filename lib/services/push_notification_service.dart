@@ -80,14 +80,14 @@ class PushNotificationService {
     this.clearAllNotification();
   }
 
-  void config({Function? onMessage}) async {
+  void config({required Function onMessage}) async {
     FirebaseMessaging.onMessage.listen((event) {
-      onMessage!({"data": event.data});
+      onMessage({"data": event.data});
     });
     _flutterLocalNotificationsPlugin.initialize(
       _initializationSettings,
       onDidReceiveNotificationResponse: (details) {
-        if (onMessage != null && details.payload != null) {
+        if (details.payload != null) {
           var decoded = json.decode(details.payload!);
           Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
           return onMessage({
@@ -97,7 +97,7 @@ class PushNotificationService {
         }
       },
       onDidReceiveBackgroundNotificationResponse: (details) {
-        if (onMessage != null && details.payload != null) {
+        if (details.payload != null) {
           var decoded = json.decode(details.payload!);
           Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
           return onMessage({
