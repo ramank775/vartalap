@@ -42,6 +42,7 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
       .show(data.hashCode, title, body, _notificationDetails, payload: data);
 }
 
+@pragma('vm:entry-point')
 Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
   await Firebase.initializeApp();
   await ConfigStore().loadConfig();
