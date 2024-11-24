@@ -27,7 +27,7 @@ class NetworkError extends Error {
   }) : super(message);
 
   ///
-  factory NetworkError.fromDioError(DioError error) {
+  factory NetworkError.fromDioError(DioException error) {
     final response = error.response;
     ErrorResponse? errorResponse;
     final data = response?.data;
@@ -36,8 +36,10 @@ class NetworkError extends Error {
     }
     return NetworkError.raw(
       code: errorResponse?.code ?? -1,
-      message:
-          errorResponse?.message ?? response?.statusMessage ?? error.message,
+      message: errorResponse?.message ??
+          response?.statusMessage ??
+          error.message ??
+          'Something Went Wrong',
       statusCode: errorResponse?.statusCode ?? response?.statusCode,
       data: errorResponse,
     )..stackTrace = error.stackTrace;

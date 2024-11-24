@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:vartalap_messaging/core/error/error.dart';
 
-class HttpError extends DioError {
+class HttpError extends DioException {
   HttpError({
     required this.error,
     required super.requestOptions,

@@ -23,7 +23,7 @@ class SocketService {
   bool _closed = false;
   bool _reconnecting = false;
   // ignore: cancel_subscriptions
-  StreamSubscription<ConnectivityResult>? _connectivitySub;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   StreamController<RemoteMessage> _controller =
       StreamController<RemoteMessage>.broadcast();
   // ignore: close_sinks
@@ -184,7 +184,8 @@ class SocketService {
     if (_closed) return;
     var _connectivity = Connectivity();
     try {
-      ConnectivityResult result = await _connectivity.checkConnectivity();
+      ConnectivityResult result =
+          (await _connectivity.checkConnectivity()).last;
       if (result == ConnectivityResult.none) {
         if (_connectivitySub != null) return;
 

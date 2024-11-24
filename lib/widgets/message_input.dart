@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/theme/theme.dart';
 
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
@@ -64,7 +63,7 @@ class MessageInputState extends State<MessageInputWidget> {
     }
   }
 
-  Future<bool> onBackPress() {
+  Future<bool> onBackPress(bool pop) {
     if (_isShowSticker) {
       setState(() {
         _isShowSticker = false;
@@ -78,8 +77,9 @@ class MessageInputState extends State<MessageInputWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: onBackPress,
+    return PopScope(
+      canPop: false,
+      onPopInvoked: onBackPress,
       child: Stack(
         children: <Widget>[
           Column(
@@ -163,8 +163,6 @@ class MessageInputState extends State<MessageInputWidget> {
   }
 
   Widget buildSticker(BuildContext context) {
-    var theme = Theme.of(context);
-    final vtheme = VartalapTheme.theme;
     return Offstage(
       offstage: !_isShowSticker,
       child: SizedBox(
@@ -173,20 +171,7 @@ class MessageInputState extends State<MessageInputWidget> {
           onEmojiSelected: (category, emoji) {
             _controller..text += emoji.emoji;
           },
-          config: Config(
-            columns: 8,
-            emojiSizeMax: 25.0,
-            verticalSpacing: 0,
-            horizontalSpacing: 0,
-            initCategory: Category.RECENT,
-            bgColor: theme.scaffoldBackgroundColor,
-            indicatorColor: theme.indicatorColor,
-            recentsLimit: 28,
-            enableSkinTones: true,
-            categoryIcons: CategoryIcons(),
-            buttonMode: ButtonMode.MATERIAL,
-            iconColorSelected: vtheme.selectedRowColor,
-          ),
+          config: Config(),
         ),
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
-import 'package:vartalap_messaging/core/models/group.dart';
+import 'package:vartalap_messaging/core/models/channel.dart';
+import 'package:vartalap_messaging/core/models/event.dart';
 
 part 'response.g.dart';
 
@@ -46,6 +47,9 @@ class LoginResponse {
   @JsonKey()
   late String username;
 
+  @JsonKey(includeFromJson: false)
+  String get userId => username;
+
   @JsonKey(name: 'accesskey')
   late String accessKey;
 
@@ -64,17 +68,17 @@ class ProfileResponse {
   @JsonKey()
   late String username;
 
-  @JsonKey()
-  late String? userId;
+  @JsonKey(includeFromJson: false)
+  String get userId => username;
 
   static ProfileResponse fromJson(Map<String, dynamic> json) =>
       _$ProfileResponseFromJson(json);
 }
 
 @JsonSerializable(createToJson: false)
-class GroupResponse {
+class ChannelResponse {
   @JsonKey(includeIfNull: false)
-  late String? groupId;
+  late String? channelId;
 
   @JsonKey()
   late String name;
@@ -84,25 +88,25 @@ class GroupResponse {
 
   @JsonKey()
   late String profilePic;
-  static GroupResponse fromJson(Map<String, dynamic> json) =>
-      _$GroupResponseFromJson(json);
+  static ChannelResponse fromJson(Map<String, dynamic> json) =>
+      _$ChannelResponseFromJson(json);
 }
 
-class GroupsResponse {
-  @JsonKey(ignore: true)
-  late List<Group> items;
+class ChannelsResponse {
+  @JsonKey(includeFromJson: false)
+  late List<ChannelModel> items;
 
-  static GroupsResponse fromJson(List jsons) => GroupsResponse()
-    ..items = jsons.map((json) => Group.fromJson(json)).toList();
+  static ChannelsResponse fromJson(List jsons) => ChannelsResponse()
+    ..items = jsons.map((json) => ChannelModel.fromJson(json)).toList();
 }
 
 @JsonSerializable(createToJson: false)
-class CreateGroupResponse {
+class CreateChannelResponse {
   @JsonKey()
-  late String groupId;
+  late String channelId;
 
-  static CreateGroupResponse fromJson(Map<String, dynamic> json) =>
-      _$CreateGroupResponseFromJson(json);
+  static CreateChannelResponse fromJson(Map<String, dynamic> json) =>
+      _$CreateChannelResponseFromJson(json);
 }
 
 @JsonSerializable(createToJson: false)
@@ -118,9 +122,18 @@ class AssetPreSignedUrlResponse {
 }
 
 class ContactSyncResponse {
-  @JsonKey(ignore: true)
+  @JsonKey(includeFromJson: true, includeToJson: false)
   late Set<String> available;
 
   static ContactSyncResponse fromJson(Map<String, dynamic> json) =>
       ContactSyncResponse()..available = json.keys.toSet();
+}
+
+@JsonSerializable(createToJson: false)
+class RemoteMessagesResponse {
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  late List<RemoteMessage> items;
+
+  static RemoteMessagesResponse fromJson(List jsons) => RemoteMessagesResponse()
+    ..items = jsons.map((json) => RemoteMessage.fromJson(json)).toList();
 }

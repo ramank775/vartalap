@@ -15,7 +15,7 @@ class AuthInterceptor extends QueuedInterceptor {
     final token = await _tokenManager.fetchActiveToken();
     if (token == null) {
       final error = NetworkError(ErrorCode.undefinedToken);
-      final dioError = DioError(requestOptions: options, error: error);
+      final dioError = DioException(requestOptions: options, error: error);
       return handler.reject(dioError);
     }
     final headers = authHeader(token);

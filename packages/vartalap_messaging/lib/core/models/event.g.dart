@@ -15,7 +15,7 @@ Head _$HeadFromJson(Map<String, dynamic> json) => Head(
     );
 
 Map<String, dynamic> _$HeadToJson(Head instance) => <String, dynamic>{
-      'type': _$ChannelTypeEnumMap[instance.type],
+      'type': _$ChannelTypeEnumMap[instance.type]!,
       'to': instance.to,
       'from': instance.from,
       'category': instance.category,

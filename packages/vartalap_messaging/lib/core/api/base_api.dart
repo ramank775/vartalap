@@ -1,12 +1,16 @@
+import 'package:meta/meta.dart';
 import 'package:vartalap_messaging/core/http/http_client.dart';
 
-class BaseApi {
-  BaseApi(this.client);
+abstract class BaseApi {
+  BaseApi(this.client, this._baseUrl);
+  final String _baseUrl;
 
+  @protected
   String version = 'v1.0';
-  String baseUrl = '';
-  String endpoint({String? path}) =>
-      "$version/$baseUrl${path == null ? '' : '/$path'}";
 
+  @protected
+  String endpoint({String? path}) =>
+      "$version/$_baseUrl${path == null ? '' : '/$path'}";
+  @protected
   final HttpClient client;
 }

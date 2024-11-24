@@ -1,19 +1,20 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'group.dart';
+part of 'channel.dart';
 
 // **************************************************************************
 // JsonSerializableGenerator
 // **************************************************************************
 
-Group _$GroupFromJson(Map<String, dynamic> json) => Group()
-  ..groupId = json['groupId'] as String?
+ChannelModel _$ChannelFromJson(Map<String, dynamic> json) => ChannelModel()
+  ..channelId = json['channelId'] as String?
   ..name = json['name'] as String
+  ..type = json['type'] as String
   ..members =
       (json['members'] as List<dynamic>).map((e) => e as String).toList()
   ..profilePic = json['profilePic'] as String;
 
-Map<String, dynamic> _$GroupToJson(Group instance) {
+Map<String, dynamic> _$ChannelToJson(ChannelModel instance) {
   final val = <String, dynamic>{};
 
   void writeNotNull(String key, dynamic value) {
@@ -22,8 +23,9 @@ Map<String, dynamic> _$GroupToJson(Group instance) {
     }
   }
 
-  writeNotNull('groupId', instance.groupId);
+  writeNotNull('channelId', instance.channelId);
   val['name'] = instance.name;
+  val['type'] = instance.type;
   val['members'] = instance.members;
   val['profilePic'] = instance.profilePic;
   return val;

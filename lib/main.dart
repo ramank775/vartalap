@@ -41,7 +41,7 @@ void main() async {
 Future<Widget> initializeApp() async {
   await Firebase.initializeApp();
   await FirebaseAppCheck.instance.activate(
-    webRecaptchaSiteKey: 'recaptcha-v3-site-key',
+    // webRecaptchaSiteKey: 'recaptcha-v3-site-key',
     androidProvider: AndroidProvider.playIntegrity,
     appleProvider: AppleProvider.appAttestWithDeviceCheckFallback,
   );

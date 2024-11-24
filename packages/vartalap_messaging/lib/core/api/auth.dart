@@ -1,16 +1,15 @@
 import 'package:vartalap_messaging/core/api/base_api.dart';
 import 'package:vartalap_messaging/core/api/response.dart';
 import 'package:vartalap_messaging/core/http/http_client.dart';
+import 'package:vartalap_messaging/core/models/credentail.dart';
 
 class AuthApi extends BaseApi {
-  AuthApi(HttpClient client) : super(client);
+  AuthApi(HttpClient client) : super(client, 'login');
 
-  @override
-  // ignore: overridden_fields
-  final String baseUrl = 'login';
-  Future<LoginResponse> get() async {
+  Future<LoginResponse> login(Credential credentails) async {
     final path = endpoint();
-    final response = await client.get(path);
+
+    final response = await client.post(path, data: Credential);
     return LoginResponse.fromJson(response.data);
   }
 }

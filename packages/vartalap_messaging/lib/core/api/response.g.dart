@@ -8,9 +8,9 @@ part of 'response.dart';
 
 ErrorResponse _$ErrorResponseFromJson(Map<String, dynamic> json) =>
     ErrorResponse()
-      ..code = json['code'] as int?
+      ..code = (json['code'] as num?)?.toInt()
       ..message = json['message'] as String?
-      ..statusCode = json['StatusCode'] as int?
+      ..statusCode = (json['StatusCode'] as num?)?.toInt()
       ..moreInfo = json['moreInfo'] as String?;
 
 Map<String, dynamic> _$ErrorResponseToJson(ErrorResponse instance) =>
@@ -34,22 +34,26 @@ LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
 ProfileResponse _$ProfileResponseFromJson(Map<String, dynamic> json) =>
     ProfileResponse()
       ..name = json['name'] as String
-      ..username = json['username'] as String
-      ..userId = json['userId'] as String?;
+      ..username = json['username'] as String;
 
-GroupResponse _$GroupResponseFromJson(Map<String, dynamic> json) =>
-    GroupResponse()
-      ..groupId = json['groupId'] as String?
+ChannelResponse _$ChannelResponseFromJson(Map<String, dynamic> json) =>
+    ChannelResponse()
+      ..channelId = json['channelId'] as String?
       ..name = json['name'] as String
       ..members =
           (json['members'] as List<dynamic>).map((e) => e as String).toList()
       ..profilePic = json['profilePic'] as String;
 
-CreateGroupResponse _$CreateGroupResponseFromJson(Map<String, dynamic> json) =>
-    CreateGroupResponse()..groupId = json['groupId'] as String;
+CreateChannelResponse _$CreateChannelResponseFromJson(
+        Map<String, dynamic> json) =>
+    CreateChannelResponse()..channelId = json['channelId'] as String;
 
 AssetPreSignedUrlResponse _$AssetPreSignedUrlResponseFromJson(
         Map<String, dynamic> json) =>
     AssetPreSignedUrlResponse()
       ..url = json['url'] as String
       ..assetId = json['assetId'] as String?;
+
+RemoteMessagesResponse _$RemoteMessagesResponseFromJson(
+        Map<String, dynamic> json) =>
+    RemoteMessagesResponse();

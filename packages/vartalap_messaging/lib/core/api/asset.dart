@@ -3,11 +3,7 @@ import 'package:vartalap_messaging/core/api/response.dart';
 import 'package:vartalap_messaging/core/http/http_client.dart';
 
 class AssetApi extends BaseApi {
-  AssetApi(HttpClient client) : super(client);
-
-  @override
-  // ignore: overridden_fields
-  final String baseUrl = 'assets';
+  AssetApi(HttpClient client) : super(client, 'assets');
 
   Future<AssetPreSignedUrlResponse> uploadUrl(
       String extension, String category) async {

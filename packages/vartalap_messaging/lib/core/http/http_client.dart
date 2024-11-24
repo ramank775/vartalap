@@ -5,25 +5,24 @@ import 'package:vartalap_messaging/core/error/error.dart';
 import 'package:vartalap_messaging/core/http/http_error.dart';
 import 'package:vartalap_messaging/core/http/interceptors/auth_interceptor.dart';
 import 'package:vartalap_messaging/core/http/token_manager.dart';
-import 'package:vartalap_messaging/version.dart';
 
 part 'http_client_options.dart';
 
 class HttpClient {
   HttpClient({
+    required this.options,
     TokenManager? tokenManager,
     Dio? dio,
-    HttpClientOptions? options,
     this.apiKey = "<api-key>",
-  })  : _options = options ?? const HttpClientOptions(),
-        httpClient = dio ?? Dio() {
+  }) : httpClient = dio ?? Dio() {
     httpClient
-      ..options.baseUrl = _options.baseUrl
-      ..options.receiveTimeout = _options.receiveTimeout.inMilliseconds
-      ..options.connectTimeout = _options.connectTimeout.inMilliseconds
+      ..options.baseUrl = options.baseUrl
+      ..options.receiveTimeout = options.receiveTimeout
+      ..options.connectTimeout = options.connectTimeout
       ..options.headers = {
         'Content-Type': 'application/json',
-        'X-Client-AGENT': '${_options.userAgent}:$PACKAGE_VERSION',
+        'User-Agent': options.userAgent,
+        'X-Client-AGENT': options.userAgent,
       }
       ..interceptors.addAll([
         if (tokenManager != null) AuthInterceptor(tokenManager),
@@ -31,12 +30,12 @@ class HttpClient {
   }
 
   final String apiKey;
-  final HttpClientOptions _options;
+  final HttpClientOptions options;
   final Dio httpClient;
 
   void close({bool force = false}) => httpClient.close(force: force);
 
-  NetworkError _parseError(DioError err) {
+  NetworkError _parseError(DioException err) {
     NetworkError error;
     // locally thrown dio error
     if (err is HttpError) {
@@ -64,7 +63,7 @@ class HttpClient {
         cancelToken: cancelToken,
       );
       return response;
-    } on DioError catch (error) {
+    } on DioException catch (error) {
       throw _parseError(error);
     }
   }
@@ -87,7 +86,7 @@ class HttpClient {
         cancelToken: cancelToken,
       );
       return response;
-    } on DioError catch (error) {
+    } on DioException catch (error) {
       throw _parseError(error);
     }
   }
@@ -110,7 +109,7 @@ class HttpClient {
         cancelToken: cancelToken,
       );
       return response;
-    } on DioError catch (error) {
+    } on DioException catch (error) {
       throw _parseError(error);
     }
   }
@@ -131,7 +130,7 @@ class HttpClient {
         cancelToken: cancelToken,
       );
       return response;
-    } on DioError catch (error) {
+    } on DioException catch (error) {
       throw _parseError(error);
     }
   }
@@ -177,7 +176,7 @@ class HttpClient {
         cancelToken: cancelToken,
       );
       return response;
-    } on DioError catch (error) {
+    } on DioException catch (error) {
       throw _parseError(error);
     }
   }

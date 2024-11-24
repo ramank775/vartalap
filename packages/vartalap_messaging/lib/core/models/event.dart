@@ -46,13 +46,13 @@ class _MetaJsonConverter implements JsonConverter<Meta, Map<String, dynamic>> {
 
 @JsonSerializable()
 class Meta {
-  @JsonKey(ignore: true)
+  @JsonKey(includeFromJson: false, includeToJson: false)
   Map<String, dynamic> raw = {};
-  @JsonKey(ignore: true)
+  @JsonKey(includeFromJson: false, includeToJson: false)
   String get hash => raw['hash'];
-  @JsonKey(ignore: true)
+  @JsonKey(includeFromJson: false, includeToJson: false)
   String get contentHash => raw['contentHash'];
-  @JsonKey(ignore: true)
+  @JsonKey(includeFromJson: false, includeToJson: false)
   int get createdAt => raw.containsKey('createdAt')
       ? raw['createdAt']
       : DateTime.now().millisecondsSinceEpoch;
