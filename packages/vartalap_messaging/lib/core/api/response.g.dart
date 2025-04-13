@@ -53,7 +53,3 @@ AssetPreSignedUrlResponse _$AssetPreSignedUrlResponseFromJson(
     AssetPreSignedUrlResponse()
       ..url = json['url'] as String
       ..assetId = json['assetId'] as String?;
-
-RemoteMessagesResponse _$RemoteMessagesResponseFromJson(
-        Map<String, dynamic> json) =>
-    RemoteMessagesResponse();

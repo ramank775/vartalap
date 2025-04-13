@@ -1,13 +1,13 @@
 import 'package:flutter/widgets.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
-import 'package:vartalap_messaging_flutter/entity/entity.dart';
+import 'package:vartalap_messaging_flutter/models/member.dart';
 
 class Channel {
   final int? id;
   final String? name;
   final Image? image;
   final ChannelType type;
-  final List<Members> members;
+  final List<Member> members;
   final String? cid;
   Map<String, dynamic> config;
   Map<String, dynamic>? extraData;
@@ -21,5 +21,15 @@ class Channel {
     this.cid,
     this.config = const {},
     this.extraData,
+  });
+}
+
+class ChannelFilter {
+  final ChannelType? type;
+  final String? name;
+
+  ChannelFilter({
+    this.type,
+    this.name,
   });
 }

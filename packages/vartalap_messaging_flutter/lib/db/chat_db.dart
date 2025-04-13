@@ -4,13 +4,15 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart';
+import 'package:vartalap_messaging_flutter/models/models.dart';
 
 import '../converter/converter.dart';
 import '../entity/entity.dart';
 
 part 'chat_db.g.dart';
 
-@DriftDatabase(tables: [Channels, Contacts, Members, Messages])
+@DriftDatabase(tables: [Assests, Channels, Contacts, Members, Messages])
 class ChatDatabase extends _$ChatDatabase {
   String userId;
   ChatDatabase({

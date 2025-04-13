@@ -68,6 +68,12 @@ class ProfileResponse {
   @JsonKey()
   late String username;
 
+  @JsonKey()
+  late String? email;
+
+  @JsonKey()
+  late String? image;
+
   @JsonKey(includeFromJson: false)
   String get userId => username;
 
@@ -129,7 +135,7 @@ class ContactSyncResponse {
       ContactSyncResponse()..available = json.keys.toSet();
 }
 
-@JsonSerializable(createToJson: false)
+@JsonSerializable(createToJson: false, createFactory: false)
 class RemoteMessagesResponse {
   @JsonKey(includeFromJson: false, includeToJson: false)
   late List<RemoteMessage> items;

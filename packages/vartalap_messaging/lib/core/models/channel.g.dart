@@ -6,7 +6,7 @@ part of 'channel.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-ChannelModel _$ChannelFromJson(Map<String, dynamic> json) => ChannelModel()
+ChannelModel _$ChannelModelFromJson(Map<String, dynamic> json) => ChannelModel()
   ..channelId = json['channelId'] as String?
   ..name = json['name'] as String
   ..type = json['type'] as String
@@ -14,19 +14,11 @@ ChannelModel _$ChannelFromJson(Map<String, dynamic> json) => ChannelModel()
       (json['members'] as List<dynamic>).map((e) => e as String).toList()
   ..profilePic = json['profilePic'] as String;
 
-Map<String, dynamic> _$ChannelToJson(ChannelModel instance) {
-  final val = <String, dynamic>{};
-
-  void writeNotNull(String key, dynamic value) {
-    if (value != null) {
-      val[key] = value;
-    }
-  }
-
-  writeNotNull('channelId', instance.channelId);
-  val['name'] = instance.name;
-  val['type'] = instance.type;
-  val['members'] = instance.members;
-  val['profilePic'] = instance.profilePic;
-  return val;
-}
+Map<String, dynamic> _$ChannelModelToJson(ChannelModel instance) =>
+    <String, dynamic>{
+      if (instance.channelId case final value?) 'channelId': value,
+      'name': instance.name,
+      'type': instance.type,
+      'members': instance.members,
+      'profilePic': instance.profilePic,
+    };

@@ -4,6 +4,7 @@ import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/message_task.dart';
 
+import '../models/channel.dart';
 import 'channel_task.dart';
 
 class VartalapTaskFactory implements TaskFactory {
@@ -15,7 +16,7 @@ class VartalapTaskFactory implements TaskFactory {
     String taskType, {
     T? payload,
     int? id,
-    TaskState state = TaskState.pending,
+    TaskStatus state = TaskStatus.pending,
     List<Task> dependentOn = const [],
   }) {
     switch (taskType) {
@@ -23,7 +24,7 @@ class VartalapTaskFactory implements TaskFactory {
         return CreateChannelTask(
           client,
           db,
-          payload: payload as int?,
+          payload: payload as Channel?,
         );
       case SendMessageTask.name:
         return SendMessageTask(

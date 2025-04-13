@@ -20,9 +20,10 @@ class $ChannelsTable extends Channels
           GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
   static const VerificationMeta _typeMeta = const VerificationMeta('type');
   @override
-  late final GeneratedColumn<String> type = GeneratedColumn<String>(
-      'type', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
+  late final GeneratedColumnWithTypeConverter<ChannelType, String> type =
+      GeneratedColumn<String>('type', aliasedName, false,
+              type: DriftSqlType.string, requiredDuringInsert: true)
+          .withConverter<ChannelType>($ChannelsTable.$convertertype);
   static const VerificationMeta _cidMeta = const VerificationMeta('cid');
   @override
   late final GeneratedColumn<String> cid = GeneratedColumn<String>(
@@ -106,12 +107,7 @@ class $ChannelsTable extends Channels
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
-    if (data.containsKey('type')) {
-      context.handle(
-          _typeMeta, type.isAcceptableOrUnknown(data['type']!, _typeMeta));
-    } else if (isInserting) {
-      context.missing(_typeMeta);
-    }
+    context.handle(_typeMeta, const VerificationResult.success());
     if (data.containsKey('cid')) {
       context.handle(
           _cidMeta, cid.isAcceptableOrUnknown(data['cid']!, _cidMeta));
@@ -149,8 +145,8 @@ class $ChannelsTable extends Channels
     return ChannelEntity(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
-      type: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}type'])!,
+      type: $ChannelsTable.$convertertype.fromSql(attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}type'])!),
       cid: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}cid']),
       taskId: attachedDatabase.typeMapping
@@ -177,6 +173,8 @@ class $ChannelsTable extends Channels
     return $ChannelsTable(attachedDatabase, alias);
   }
 
+  static JsonTypeConverter2<ChannelType, String, String> $convertertype =
+      const EnumNameConverter<ChannelType>(ChannelType.values);
   static TypeConverter<Map<String, dynamic>?, String?> $converterextraData =
       NullableMapConverter();
   static TypeConverter<Map<String, dynamic>, String> $converterconfig =
@@ -185,7 +183,7 @@ class $ChannelsTable extends Channels
 
 class ChannelEntity extends DataClass implements Insertable<ChannelEntity> {
   final int id;
-  final String type;
+  final ChannelType type;
   final String? cid;
   final int? taskId;
   final Map<String, dynamic>? extraData;
@@ -209,7 +207,9 @@ class ChannelEntity extends DataClass implements Insertable<ChannelEntity> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
-    map['type'] = Variable<String>(type);
+    {
+      map['type'] = Variable<String>($ChannelsTable.$convertertype.toSql(type));
+    }
     if (!nullToAbsent || cid != null) {
       map['cid'] = Variable<String>(cid);
     }
@@ -258,7 +258,8 @@ class ChannelEntity extends DataClass implements Insertable<ChannelEntity> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return ChannelEntity(
       id: serializer.fromJson<int>(json['id']),
-      type: serializer.fromJson<String>(json['type']),
+      type: $ChannelsTable.$convertertype
+          .fromJson(serializer.fromJson<String>(json['type'])),
       cid: serializer.fromJson<String?>(json['cid']),
       taskId: serializer.fromJson<int?>(json['taskId']),
       extraData: serializer.fromJson<Map<String, dynamic>?>(json['extraData']),
@@ -274,7 +275,8 @@ class ChannelEntity extends DataClass implements Insertable<ChannelEntity> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
-      'type': serializer.toJson<String>(type),
+      'type':
+          serializer.toJson<String>($ChannelsTable.$convertertype.toJson(type)),
       'cid': serializer.toJson<String?>(cid),
       'taskId': serializer.toJson<int?>(taskId),
       'extraData': serializer.toJson<Map<String, dynamic>?>(extraData),
@@ -288,7 +290,7 @@ class ChannelEntity extends DataClass implements Insertable<ChannelEntity> {
 
   ChannelEntity copyWith(
           {int? id,
-          String? type,
+          ChannelType? type,
           Value<String?> cid = const Value.absent(),
           Value<int?> taskId = const Value.absent(),
           Value<Map<String, dynamic>?> extraData = const Value.absent(),
@@ -362,7 +364,7 @@ class ChannelEntity extends DataClass implements Insertable<ChannelEntity> {
 
 class ChannelsCompanion extends UpdateCompanion<ChannelEntity> {
   final Value<int> id;
-  final Value<String> type;
+  final Value<ChannelType> type;
   final Value<String?> cid;
   final Value<int?> taskId;
   final Value<Map<String, dynamic>?> extraData;
@@ -385,7 +387,7 @@ class ChannelsCompanion extends UpdateCompanion<ChannelEntity> {
   });
   ChannelsCompanion.insert({
     this.id = const Value.absent(),
-    required String type,
+    required ChannelType type,
     this.cid = const Value.absent(),
     this.taskId = const Value.absent(),
     this.extraData = const Value.absent(),
@@ -423,7 +425,7 @@ class ChannelsCompanion extends UpdateCompanion<ChannelEntity> {
 
   ChannelsCompanion copyWith(
       {Value<int>? id,
-      Value<String>? type,
+      Value<ChannelType>? type,
       Value<String?>? cid,
       Value<int?>? taskId,
       Value<Map<String, dynamic>?>? extraData,
@@ -453,7 +455,8 @@ class ChannelsCompanion extends UpdateCompanion<ChannelEntity> {
       map['id'] = Variable<int>(id.value);
     }
     if (type.present) {
-      map['type'] = Variable<String>(type.value);
+      map['type'] =
+          Variable<String>($ChannelsTable.$convertertype.toSql(type.value));
     }
     if (cid.present) {
       map['cid'] = Variable<String>(cid.value);
@@ -502,8 +505,7 @@ class ChannelsCompanion extends UpdateCompanion<ChannelEntity> {
   }
 }
 
-class $ContactsTable extends Contacts
-    with TableInfo<$ContactsTable, ContactEntity> {
+class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
@@ -521,8 +523,8 @@ class $ContactsTable extends Contacts
       const VerificationMeta('username');
   @override
   late final GeneratedColumn<String> username = GeneratedColumn<String>(
-      'username', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
+      'username', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _uidMeta = const VerificationMeta('uid');
   @override
   late final GeneratedColumn<String> uid = GeneratedColumn<String>(
@@ -559,11 +561,10 @@ class $ContactsTable extends Contacts
               $ContactsTable.$converterextraData);
   static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
-  late final GeneratedColumn<String> status = GeneratedColumn<String>(
-      'status', aliasedName, false,
-      type: DriftSqlType.string,
-      requiredDuringInsert: false,
-      defaultValue: const Constant('0'));
+  late final GeneratedColumnWithTypeConverter<ContactStatus, String> status =
+      GeneratedColumn<String>('status', aliasedName, false,
+              type: DriftSqlType.string, requiredDuringInsert: true)
+          .withConverter<ContactStatus>($ContactsTable.$converterstatus);
   @override
   List<GeneratedColumn> get $columns =>
       [id, username, uid, phone, name, thumbnail, photo, extraData, status];
@@ -573,7 +574,7 @@ class $ContactsTable extends Contacts
   String get actualTableName => $name;
   static const String $name = 'contacts';
   @override
-  VerificationContext validateIntegrity(Insertable<ContactEntity> instance,
+  VerificationContext validateIntegrity(Insertable<Contact> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
@@ -583,8 +584,6 @@ class $ContactsTable extends Contacts
     if (data.containsKey('username')) {
       context.handle(_usernameMeta,
           username.isAcceptableOrUnknown(data['username']!, _usernameMeta));
-    } else if (isInserting) {
-      context.missing(_usernameMeta);
     }
     if (data.containsKey('uid')) {
       context.handle(
@@ -609,23 +608,20 @@ class $ContactsTable extends Contacts
       context.missing(_photoMeta);
     }
     context.handle(_extraDataMeta, const VerificationResult.success());
-    if (data.containsKey('status')) {
-      context.handle(_statusMeta,
-          status.isAcceptableOrUnknown(data['status']!, _statusMeta));
-    }
+    context.handle(_statusMeta, const VerificationResult.success());
     return context;
   }
 
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  ContactEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+  Contact map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return ContactEntity(
+    return Contact(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       username: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}username'])!,
+          .read(DriftSqlType.string, data['${effectivePrefix}username']),
       uid: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}uid']),
       phone: attachedDatabase.typeMapping
@@ -639,8 +635,9 @@ class $ContactsTable extends Contacts
       extraData: $ContactsTable.$converterextraData.fromSql(attachedDatabase
           .typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}extra_data'])),
-      status: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}status'])!,
+      status: $ContactsTable.$converterstatus.fromSql(attachedDatabase
+          .typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}status'])!),
     );
   }
 
@@ -651,21 +648,23 @@ class $ContactsTable extends Contacts
 
   static TypeConverter<Map<String, dynamic>?, String?> $converterextraData =
       NullableMapConverter();
+  static JsonTypeConverter2<ContactStatus, String, String> $converterstatus =
+      const EnumNameConverter<ContactStatus>(ContactStatus.values);
 }
 
-class ContactEntity extends DataClass implements Insertable<ContactEntity> {
+class Contact extends DataClass implements Insertable<Contact> {
   final int id;
-  final String username;
+  final String? username;
   final String? uid;
   final String? phone;
   final String? name;
   final Uint8List? thumbnail;
   final String photo;
   final Map<String, dynamic>? extraData;
-  final String status;
-  const ContactEntity(
+  final ContactStatus status;
+  const Contact(
       {required this.id,
-      required this.username,
+      this.username,
       this.uid,
       this.phone,
       this.name,
@@ -677,7 +676,9 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
-    map['username'] = Variable<String>(username);
+    if (!nullToAbsent || username != null) {
+      map['username'] = Variable<String>(username);
+    }
     if (!nullToAbsent || uid != null) {
       map['uid'] = Variable<String>(uid);
     }
@@ -695,14 +696,19 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
       map['extra_data'] =
           Variable<String>($ContactsTable.$converterextraData.toSql(extraData));
     }
-    map['status'] = Variable<String>(status);
+    {
+      map['status'] =
+          Variable<String>($ContactsTable.$converterstatus.toSql(status));
+    }
     return map;
   }
 
   ContactsCompanion toCompanion(bool nullToAbsent) {
     return ContactsCompanion(
       id: Value(id),
-      username: Value(username),
+      username: username == null && nullToAbsent
+          ? const Value.absent()
+          : Value(username),
       uid: uid == null && nullToAbsent ? const Value.absent() : Value(uid),
       phone:
           phone == null && nullToAbsent ? const Value.absent() : Value(phone),
@@ -718,19 +724,20 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
     );
   }
 
-  factory ContactEntity.fromJson(Map<String, dynamic> json,
+  factory Contact.fromJson(Map<String, dynamic> json,
       {ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return ContactEntity(
+    return Contact(
       id: serializer.fromJson<int>(json['id']),
-      username: serializer.fromJson<String>(json['username']),
+      username: serializer.fromJson<String?>(json['username']),
       uid: serializer.fromJson<String?>(json['uid']),
       phone: serializer.fromJson<String?>(json['phone']),
       name: serializer.fromJson<String?>(json['name']),
       thumbnail: serializer.fromJson<Uint8List?>(json['thumbnail']),
       photo: serializer.fromJson<String>(json['photo']),
       extraData: serializer.fromJson<Map<String, dynamic>?>(json['extraData']),
-      status: serializer.fromJson<String>(json['status']),
+      status: $ContactsTable.$converterstatus
+          .fromJson(serializer.fromJson<String>(json['status'])),
     );
   }
   @override
@@ -738,30 +745,31 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
-      'username': serializer.toJson<String>(username),
+      'username': serializer.toJson<String?>(username),
       'uid': serializer.toJson<String?>(uid),
       'phone': serializer.toJson<String?>(phone),
       'name': serializer.toJson<String?>(name),
       'thumbnail': serializer.toJson<Uint8List?>(thumbnail),
       'photo': serializer.toJson<String>(photo),
       'extraData': serializer.toJson<Map<String, dynamic>?>(extraData),
-      'status': serializer.toJson<String>(status),
+      'status': serializer
+          .toJson<String>($ContactsTable.$converterstatus.toJson(status)),
     };
   }
 
-  ContactEntity copyWith(
+  Contact copyWith(
           {int? id,
-          String? username,
+          Value<String?> username = const Value.absent(),
           Value<String?> uid = const Value.absent(),
           Value<String?> phone = const Value.absent(),
           Value<String?> name = const Value.absent(),
           Value<Uint8List?> thumbnail = const Value.absent(),
           String? photo,
           Value<Map<String, dynamic>?> extraData = const Value.absent(),
-          String? status}) =>
-      ContactEntity(
+          ContactStatus? status}) =>
+      Contact(
         id: id ?? this.id,
-        username: username ?? this.username,
+        username: username.present ? username.value : this.username,
         uid: uid.present ? uid.value : this.uid,
         phone: phone.present ? phone.value : this.phone,
         name: name.present ? name.value : this.name,
@@ -770,8 +778,8 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
         extraData: extraData.present ? extraData.value : this.extraData,
         status: status ?? this.status,
       );
-  ContactEntity copyWithCompanion(ContactsCompanion data) {
-    return ContactEntity(
+  Contact copyWithCompanion(ContactsCompanion data) {
+    return Contact(
       id: data.id.present ? data.id.value : this.id,
       username: data.username.present ? data.username.value : this.username,
       uid: data.uid.present ? data.uid.value : this.uid,
@@ -786,7 +794,7 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
 
   @override
   String toString() {
-    return (StringBuffer('ContactEntity(')
+    return (StringBuffer('Contact(')
           ..write('id: $id, ')
           ..write('username: $username, ')
           ..write('uid: $uid, ')
@@ -806,7 +814,7 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is ContactEntity &&
+      (other is Contact &&
           other.id == this.id &&
           other.username == this.username &&
           other.uid == this.uid &&
@@ -818,16 +826,16 @@ class ContactEntity extends DataClass implements Insertable<ContactEntity> {
           other.status == this.status);
 }
 
-class ContactsCompanion extends UpdateCompanion<ContactEntity> {
+class ContactsCompanion extends UpdateCompanion<Contact> {
   final Value<int> id;
-  final Value<String> username;
+  final Value<String?> username;
   final Value<String?> uid;
   final Value<String?> phone;
   final Value<String?> name;
   final Value<Uint8List?> thumbnail;
   final Value<String> photo;
   final Value<Map<String, dynamic>?> extraData;
-  final Value<String> status;
+  final Value<ContactStatus> status;
   const ContactsCompanion({
     this.id = const Value.absent(),
     this.username = const Value.absent(),
@@ -841,17 +849,17 @@ class ContactsCompanion extends UpdateCompanion<ContactEntity> {
   });
   ContactsCompanion.insert({
     this.id = const Value.absent(),
-    required String username,
+    this.username = const Value.absent(),
     this.uid = const Value.absent(),
     this.phone = const Value.absent(),
     this.name = const Value.absent(),
     this.thumbnail = const Value.absent(),
     required String photo,
     this.extraData = const Value.absent(),
-    this.status = const Value.absent(),
-  })  : username = Value(username),
-        photo = Value(photo);
-  static Insertable<ContactEntity> custom({
+    required ContactStatus status,
+  })  : photo = Value(photo),
+        status = Value(status);
+  static Insertable<Contact> custom({
     Expression<int>? id,
     Expression<String>? username,
     Expression<String>? uid,
@@ -877,14 +885,14 @@ class ContactsCompanion extends UpdateCompanion<ContactEntity> {
 
   ContactsCompanion copyWith(
       {Value<int>? id,
-      Value<String>? username,
+      Value<String?>? username,
       Value<String?>? uid,
       Value<String?>? phone,
       Value<String?>? name,
       Value<Uint8List?>? thumbnail,
       Value<String>? photo,
       Value<Map<String, dynamic>?>? extraData,
-      Value<String>? status}) {
+      Value<ContactStatus>? status}) {
     return ContactsCompanion(
       id: id ?? this.id,
       username: username ?? this.username,
@@ -927,7 +935,8 @@ class ContactsCompanion extends UpdateCompanion<ContactEntity> {
           $ContactsTable.$converterextraData.toSql(extraData.value));
     }
     if (status.present) {
-      map['status'] = Variable<String>(status.value);
+      map['status'] =
+          Variable<String>($ContactsTable.$converterstatus.toSql(status.value));
     }
     return map;
   }
@@ -1791,7 +1800,7 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
 
 typedef $$ChannelsTableCreateCompanionBuilder = ChannelsCompanion Function({
   Value<int> id,
-  required String type,
+  required ChannelType type,
   Value<String?> cid,
   Value<int?> taskId,
   Value<Map<String, dynamic>?> extraData,
@@ -1803,7 +1812,7 @@ typedef $$ChannelsTableCreateCompanionBuilder = ChannelsCompanion Function({
 });
 typedef $$ChannelsTableUpdateCompanionBuilder = ChannelsCompanion Function({
   Value<int> id,
-  Value<String> type,
+  Value<ChannelType> type,
   Value<String?> cid,
   Value<int?> taskId,
   Value<Map<String, dynamic>?> extraData,
@@ -1826,7 +1835,7 @@ final class $$ChannelsTableReferences
 
   $$MembersTableProcessedTableManager get membersRefs {
     final manager = $$MembersTableTableManager($_db, $_db.members)
-        .filter((f) => f.channelId.id($_item.id));
+        .filter((f) => f.channelId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_membersRefsTable($_db));
     return ProcessedTableManager(
@@ -1841,7 +1850,7 @@ final class $$ChannelsTableReferences
 
   $$MessagesTableProcessedTableManager get messagesRefs {
     final manager = $$MessagesTableTableManager($_db, $_db.messages)
-        .filter((f) => f.channelId.id($_item.id));
+        .filter((f) => f.channelId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_messagesRefsTable($_db));
     return ProcessedTableManager(
@@ -1861,8 +1870,10 @@ class $$ChannelsTableFilterComposer
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<String> get type => $composableBuilder(
-      column: $table.type, builder: (column) => ColumnFilters(column));
+  ColumnWithTypeConverterFilters<ChannelType, ChannelType, String> get type =>
+      $composableBuilder(
+          column: $table.type,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
 
   ColumnFilters<String> get cid => $composableBuilder(
       column: $table.cid, builder: (column) => ColumnFilters(column));
@@ -1989,7 +2000,7 @@ class $$ChannelsTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
-  GeneratedColumn<String> get type =>
+  GeneratedColumnWithTypeConverter<ChannelType, String> get type =>
       $composableBuilder(column: $table.type, builder: (column) => column);
 
   GeneratedColumn<String> get cid =>
@@ -2084,7 +2095,7 @@ class $$ChannelsTableTableManager extends RootTableManager<
               $$ChannelsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
-            Value<String> type = const Value.absent(),
+            Value<ChannelType> type = const Value.absent(),
             Value<String?> cid = const Value.absent(),
             Value<int?> taskId = const Value.absent(),
             Value<Map<String, dynamic>?> extraData = const Value.absent(),
@@ -2108,7 +2119,7 @@ class $$ChannelsTableTableManager extends RootTableManager<
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
-            required String type,
+            required ChannelType type,
             Value<String?> cid = const Value.absent(),
             Value<int?> taskId = const Value.absent(),
             Value<Map<String, dynamic>?> extraData = const Value.absent(),
@@ -2145,7 +2156,8 @@ class $$ChannelsTableTableManager extends RootTableManager<
               getPrefetchedDataCallback: (items) async {
                 return [
                   if (membersRefs)
-                    await $_getPrefetchedData(
+                    await $_getPrefetchedData<ChannelEntity, $ChannelsTable,
+                            MemberEntity>(
                         currentTable: table,
                         referencedTable:
                             $$ChannelsTableReferences._membersRefsTable(db),
@@ -2157,7 +2169,8 @@ class $$ChannelsTableTableManager extends RootTableManager<
                                 .where((e) => e.channelId == item.id),
                         typedResults: items),
                   if (messagesRefs)
-                    await $_getPrefetchedData(
+                    await $_getPrefetchedData<ChannelEntity, $ChannelsTable,
+                            Message>(
                         currentTable: table,
                         referencedTable:
                             $$ChannelsTableReferences._messagesRefsTable(db),
@@ -2189,29 +2202,29 @@ typedef $$ChannelsTableProcessedTableManager = ProcessedTableManager<
     PrefetchHooks Function({bool membersRefs, bool messagesRefs})>;
 typedef $$ContactsTableCreateCompanionBuilder = ContactsCompanion Function({
   Value<int> id,
-  required String username,
+  Value<String?> username,
   Value<String?> uid,
   Value<String?> phone,
   Value<String?> name,
   Value<Uint8List?> thumbnail,
   required String photo,
   Value<Map<String, dynamic>?> extraData,
-  Value<String> status,
+  required ContactStatus status,
 });
 typedef $$ContactsTableUpdateCompanionBuilder = ContactsCompanion Function({
   Value<int> id,
-  Value<String> username,
+  Value<String?> username,
   Value<String?> uid,
   Value<String?> phone,
   Value<String?> name,
   Value<Uint8List?> thumbnail,
   Value<String> photo,
   Value<Map<String, dynamic>?> extraData,
-  Value<String> status,
+  Value<ContactStatus> status,
 });
 
 final class $$ContactsTableReferences
-    extends BaseReferences<_$ChatDatabase, $ContactsTable, ContactEntity> {
+    extends BaseReferences<_$ChatDatabase, $ContactsTable, Contact> {
   $$ContactsTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
   static MultiTypedResultKey<$MembersTable, List<MemberEntity>>
@@ -2221,8 +2234,8 @@ final class $$ContactsTableReferences
               $_aliasNameGenerator(db.contacts.username, db.members.memberId));
 
   $$MembersTableProcessedTableManager get membersRefs {
-    final manager = $$MembersTableTableManager($_db, $_db.members)
-        .filter((f) => f.memberId.username($_item.username));
+    final manager = $$MembersTableTableManager($_db, $_db.members).filter(
+        (f) => f.memberId.username.sqlEquals($_itemColumn<String>('username')));
 
     final cache = $_typedResult.readTableOrNull(_membersRefsTable($_db));
     return ProcessedTableManager(
@@ -2266,8 +2279,10 @@ class $$ContactsTableFilterComposer
           column: $table.extraData,
           builder: (column) => ColumnWithTypeConverterFilters(column));
 
-  ColumnFilters<String> get status => $composableBuilder(
-      column: $table.status, builder: (column) => ColumnFilters(column));
+  ColumnWithTypeConverterFilters<ContactStatus, ContactStatus, String>
+      get status => $composableBuilder(
+          column: $table.status,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
 
   Expression<bool> membersRefs(
       Expression<bool> Function($$MembersTableFilterComposer f) f) {
@@ -2362,7 +2377,7 @@ class $$ContactsTableAnnotationComposer
       get extraData => $composableBuilder(
           column: $table.extraData, builder: (column) => column);
 
-  GeneratedColumn<String> get status =>
+  GeneratedColumnWithTypeConverter<ContactStatus, String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
   Expression<T> membersRefs<T extends Object>(
@@ -2390,14 +2405,14 @@ class $$ContactsTableAnnotationComposer
 class $$ContactsTableTableManager extends RootTableManager<
     _$ChatDatabase,
     $ContactsTable,
-    ContactEntity,
+    Contact,
     $$ContactsTableFilterComposer,
     $$ContactsTableOrderingComposer,
     $$ContactsTableAnnotationComposer,
     $$ContactsTableCreateCompanionBuilder,
     $$ContactsTableUpdateCompanionBuilder,
-    (ContactEntity, $$ContactsTableReferences),
-    ContactEntity,
+    (Contact, $$ContactsTableReferences),
+    Contact,
     PrefetchHooks Function({bool membersRefs})> {
   $$ContactsTableTableManager(_$ChatDatabase db, $ContactsTable table)
       : super(TableManagerState(
@@ -2411,14 +2426,14 @@ class $$ContactsTableTableManager extends RootTableManager<
               $$ContactsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
-            Value<String> username = const Value.absent(),
+            Value<String?> username = const Value.absent(),
             Value<String?> uid = const Value.absent(),
             Value<String?> phone = const Value.absent(),
             Value<String?> name = const Value.absent(),
             Value<Uint8List?> thumbnail = const Value.absent(),
             Value<String> photo = const Value.absent(),
             Value<Map<String, dynamic>?> extraData = const Value.absent(),
-            Value<String> status = const Value.absent(),
+            Value<ContactStatus> status = const Value.absent(),
           }) =>
               ContactsCompanion(
             id: id,
@@ -2433,14 +2448,14 @@ class $$ContactsTableTableManager extends RootTableManager<
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
-            required String username,
+            Value<String?> username = const Value.absent(),
             Value<String?> uid = const Value.absent(),
             Value<String?> phone = const Value.absent(),
             Value<String?> name = const Value.absent(),
             Value<Uint8List?> thumbnail = const Value.absent(),
             required String photo,
             Value<Map<String, dynamic>?> extraData = const Value.absent(),
-            Value<String> status = const Value.absent(),
+            required ContactStatus status,
           }) =>
               ContactsCompanion.insert(
             id: id,
@@ -2465,7 +2480,8 @@ class $$ContactsTableTableManager extends RootTableManager<
               getPrefetchedDataCallback: (items) async {
                 return [
                   if (membersRefs)
-                    await $_getPrefetchedData(
+                    await $_getPrefetchedData<Contact, $ContactsTable,
+                            MemberEntity>(
                         currentTable: table,
                         referencedTable:
                             $$ContactsTableReferences._membersRefsTable(db),
@@ -2486,14 +2502,14 @@ class $$ContactsTableTableManager extends RootTableManager<
 typedef $$ContactsTableProcessedTableManager = ProcessedTableManager<
     _$ChatDatabase,
     $ContactsTable,
-    ContactEntity,
+    Contact,
     $$ContactsTableFilterComposer,
     $$ContactsTableOrderingComposer,
     $$ContactsTableAnnotationComposer,
     $$ContactsTableCreateCompanionBuilder,
     $$ContactsTableUpdateCompanionBuilder,
-    (ContactEntity, $$ContactsTableReferences),
-    ContactEntity,
+    (Contact, $$ContactsTableReferences),
+    Contact,
     PrefetchHooks Function({bool membersRefs})>;
 typedef $$MembersTableCreateCompanionBuilder = MembersCompanion Function({
   required String memberId,
@@ -2522,10 +2538,11 @@ final class $$MembersTableReferences
       db.contacts.createAlias(
           $_aliasNameGenerator(db.members.memberId, db.contacts.username));
 
-  $$ContactsTableProcessedTableManager? get memberId {
-    if ($_item.memberId == null) return null;
+  $$ContactsTableProcessedTableManager get memberId {
+    final $_column = $_itemColumn<String>('member_id')!;
+
     final manager = $$ContactsTableTableManager($_db, $_db.contacts)
-        .filter((f) => f.username($_item.memberId!));
+        .filter((f) => f.username.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_memberIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
@@ -2535,10 +2552,11 @@ final class $$MembersTableReferences
   static $ChannelsTable _channelIdTable(_$ChatDatabase db) => db.channels
       .createAlias($_aliasNameGenerator(db.members.channelId, db.channels.id));
 
-  $$ChannelsTableProcessedTableManager? get channelId {
-    if ($_item.channelId == null) return null;
+  $$ChannelsTableProcessedTableManager get channelId {
+    final $_column = $_itemColumn<int>('channel_id')!;
+
     final manager = $$ChannelsTableTableManager($_db, $_db.channels)
-        .filter((f) => f.id($_item.channelId!));
+        .filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_channelIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
@@ -2884,10 +2902,11 @@ final class $$MessagesTableReferences
   static $ChannelsTable _channelIdTable(_$ChatDatabase db) => db.channels
       .createAlias($_aliasNameGenerator(db.messages.channelId, db.channels.id));
 
-  $$ChannelsTableProcessedTableManager? get channelId {
-    if ($_item.channelId == null) return null;
+  $$ChannelsTableProcessedTableManager get channelId {
+    final $_column = $_itemColumn<int>('channel_id')!;
+
     final manager = $$ChannelsTableTableManager($_db, $_db.channels)
-        .filter((f) => f.id($_item.channelId!));
+        .filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_channelIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(

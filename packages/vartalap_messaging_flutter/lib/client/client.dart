@@ -7,7 +7,12 @@ import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/channel_task.dart';
 import 'package:vartalap_messaging_flutter/events/factory.dart';
 import 'package:vartalap_messaging_flutter/events/message_task.dart';
+import 'package:vartalap_messaging_flutter/events/remove_member_task.dart';
+import 'package:vartalap_messaging_flutter/events/sync_contact_task.dart';
+import 'package:vartalap_messaging_flutter/events/sync_message_task.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
+
+import '../events/add_member_task.dart';
 
 class VartalapChatClientFlutter {
   late VartalapChatClient client;
@@ -16,25 +21,83 @@ class VartalapChatClientFlutter {
   late ChatDatabase _db;
   VartalapChatClientFlutter({
     required String apiKey,
+    String? apiBaseUrl,
+    String? wsUrl,
     VartalapChatClient? client,
   }) {
     this.client = client ??
         VartalapChatClient(
           apiKey: apiKey,
+          apiBaseUrl: apiBaseUrl,
+          wsUrl: wsUrl,
           tokenManager: SecureStorageTokenManager(),
         );
-    _db = ChatDatabase(userId: '1');
-    factory = VartalapTaskFactory(this.client, _db);
-    final taskDb = TaskQDatabase.withQueryExectutor(_db.executor);
-    scheduler = TaskScheduler(factory, db: taskDb);
   }
 
-  void init() {
+  Future<void> init() async {
+    final userId = await client.getLoggedInUser();
+    if (userId == null) {
+      throw Exception("User not logged in");
+    }
+    _db = ChatDatabase(userId: userId);
+    factory = VartalapTaskFactory(client, _db);
+    final taskDb = TaskQDatabase.withQueryExectutor(_db.executor);
+    scheduler = TaskScheduler(factory, db: taskDb);
     client.eventStream.listen((msg) {});
   }
 
-  Future<ChannelModel> createChannel(Channel channel) async {
-    final channelId = await _db.transaction(() async {
+  Future<Profile?> getLoggedInUser() async {
+    final userId = await client.getLoggedInUser();
+    if (userId == null) return null;
+    final profile = await client.fetchProfile(userId);
+    return Profile(
+      userId: profile.userId,
+      name: profile.name,
+      email: profile.email ?? '',
+      image: profile.image ?? '',
+    );
+  }
+
+  Future<Selectable<Channel>> getChannels({
+    ChannelFilter? filter,
+    bool forceSync = false,
+  }) async {
+    if (forceSync) {
+      final channels = await client.queryChannels();
+      await _db.transaction(() async {
+        await _db.delete(_db.channels).go();
+        await _db.batch((batch) {
+          batch.insertAll(
+            _db.channels,
+            channels.items
+                .map((channel) => ChannelsCompanion.insert(
+                      type: ChannelType.values.byName(channel.type),
+                      config: Value(Map<String, dynamic>.from({})),
+                      extraData: Value({
+                        "name": channel.name,
+                        "image": channel.profilePic,
+                      }),
+                    ))
+                .toList(),
+          );
+        });
+      });
+    }
+
+    final query = _db.select(_db.channels);
+    if (filter != null) {
+      if (filter.type != null) {
+        query.where((tbl) => tbl.type.equals(filter.type!.toString()));
+      }
+      if (filter.name != null) {
+        query.where((tbl) => tbl.extraData.like('%${filter.name}%'));
+      }
+    }
+    return query.map<Channel>((row) => Channel.fromDb(row));
+  }
+
+  Future<void> createChannel(Channel channel) async {
+    await _db.transaction(() async {
       CreateChannelTask task = factory.create(
         CreateChannelTask.name,
         payload: channel,
@@ -54,7 +117,7 @@ class VartalapChatClientFlutter {
       await _db.batch((batch) {
         final rows = channel.members.map(
           (member) => MembersCompanion.insert(
-            memberId: member.memberId,
+            memberId: member.memberId.toString(),
             channelId: insertedChannel.id,
           ),
         );
@@ -62,8 +125,44 @@ class VartalapChatClientFlutter {
       });
       return insertedChannel.id;
     });
-    channel.channelId = channelId.toString();
-    return channel;
+    // channel.id = channelId;
+    // return channel;
+  }
+
+  Future<void> addMembers(List<Member> members, Channel channel) async {
+    await _db.transaction(() async {
+      AddMembersTask task = factory.create(
+        AddMembersTask.name,
+        payload: AddMembers(channel, members),
+      ) as AddMembersTask;
+      await scheduler.schedule(task);
+      await _db.batch((batch) {
+        final rows = members.map(
+          (member) => MembersCompanion.insert(
+            memberId: member.memberId.toString(),
+            channelId: channel.id!,
+          ),
+        );
+        batch.insertAll(_db.members, rows);
+      });
+    });
+  }
+
+  Future<void> removeMember(Member member, Channel channel) async {
+    await _db.transaction(() async {
+      RemoveMemberTask task = factory.create(
+        RemoveMemberTask.name,
+        payload: RemoveMember(channel, member),
+      ) as RemoveMemberTask;
+      await scheduler.schedule(task);
+      _db
+          .delete(
+            _db.members,
+          )
+          .where((tbl) =>
+              tbl.channelId.equals(channel.id!) &
+              tbl.memberId.equals(member.memberId));
+    });
   }
 
   Future<void> sendMessage(List<RemoteMessage> msg, Channel channel) async {
@@ -72,6 +171,22 @@ class VartalapChatClientFlutter {
         SendMessageTask.name,
         payload: SendMessage(channel.id!, msg),
       ) as SendMessageTask;
+      await scheduler.schedule(task);
+    });
+  }
+
+  Future<void> syncContacts() async {
+    await _db.transaction(() async {
+      SyncContactsTask task =
+          factory.create(SyncContactsTask.name) as SyncContactsTask;
+      await scheduler.schedule(task);
+    });
+  }
+
+  Future<void> syncMessages() async {
+    await _db.transaction(() async {
+      SyncMessageTask task =
+          factory.create(SyncMessageTask.name) as SyncMessageTask;
       await scheduler.schedule(task);
     });
   }

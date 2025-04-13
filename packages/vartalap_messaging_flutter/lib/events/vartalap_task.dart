@@ -11,11 +11,11 @@ abstract class VartalapTask<T> extends Task<T> {
     String type, {
     T? payload,
     int? id,
-    TaskState state = TaskState.pending,
+    TaskStatus state = TaskStatus.pending,
   }) : super(
           type,
           payload: payload,
           id: id,
-          state: state,
+          status: state,
         );
 }

@@ -20,7 +20,7 @@ class ChannelModel {
   late String profilePic;
 
   static ChannelModel fromJson(Map<String, dynamic> json) =>
-      _$ChannelFromJson(json);
+      _$ChannelModelFromJson(json);
 
-  Map<String, dynamic> toJson() => _$ChannelToJson(this);
+  Map<String, dynamic> toJson() => _$ChannelModelToJson(this);
 }

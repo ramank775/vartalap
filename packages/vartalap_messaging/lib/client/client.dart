@@ -73,8 +73,8 @@ class VartalapChatClient {
     return resp;
   }
 
-  Future<ProfileResponse> fetchProfile() async {
-    return await _apiClient.user.get();
+  Future<ProfileResponse> fetchProfile(String userId) async {
+    return await _apiClient.user.get(userId);
   }
 
   Future<CreateChannelResponse> createChannel(ChannelModel channel) async {
@@ -135,6 +135,21 @@ class VartalapChatClient {
   Future<List<String>> syncContactBook(List<String> contacts) async {
     final resp = await _apiClient.contactbook.sync(contacts);
     return resp.available.toList(growable: false);
+  }
+
+  Future<AssetPreSignedUrlResponse> getUploadUrl(
+    String ext,
+    String category,
+  ) async {
+    return await _apiClient.asset.uploadUrl(ext, category);
+  }
+
+  Future<AssetPreSignedUrlResponse> getDownloadUrl(String assetId) async {
+    return await _apiClient.asset.downloadUrl(assetId);
+  }
+
+  Future<void> markAssetAsUploaded(String assetId) async {
+    await _apiClient.asset.markAssetAsUploaded(assetId);
   }
 
   Future<void> close() async {

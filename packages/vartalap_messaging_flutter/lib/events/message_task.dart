@@ -34,7 +34,7 @@ class SendMessageTask extends VartalapTask<SendMessage> {
     ChatDatabase db, {
     SendMessage? payload,
     int? id,
-    TaskState state = TaskState.pending,
+    TaskStatus state = TaskStatus.pending,
   }) : super(
           client,
           db,

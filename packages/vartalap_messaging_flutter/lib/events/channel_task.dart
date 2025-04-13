@@ -1,15 +1,23 @@
 import 'package:drift/drift.dart';
+import 'package:taskq/task.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 
-class CreateChannelTask extends VartalapTask<int> {
+import '../models/models.dart';
+
+class CreateChannelTask extends VartalapTask<Channel> {
   static const name = 'create-channel';
   CreateChannelTask(
     VartalapChatClient client,
     ChatDatabase db, {
-    int? payload,
+    Channel? payload,
   }) : super(client, db, name, payload: payload);
+
+  @override
+  Future<List<Task>> getDependencies() async {
+    return [];
+  }
 
   @override
   Future<void> process() async {
