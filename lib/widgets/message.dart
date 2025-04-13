@@ -79,12 +79,12 @@ class MessageWidget extends StatelessWidget {
         Container(
           margin: EdgeInsets.only(bottom: 4),
           child: Text(
-            this._msg.sender == null ? '' : this._msg.sender!.name,
+            this._msg.sender == null ? '' : this._msg.sender!.displayName,
             textAlign: TextAlign.start,
             style: TextStyle(
               fontSize: 12,
               color: getColor(
-                this._msg.sender!.name,
+                this._msg.sender!.displayName,
                 opacity: 1,
                 brightness: brightness,
               ),

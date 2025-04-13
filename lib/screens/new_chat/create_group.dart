@@ -1,22 +1,39 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/models/user.dart';
-import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/contactPreviewItem.dart';
 import 'package:vartalap/widgets/loadingIndicator.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class CreateGroup extends StatelessWidget {
-  final List<User> _members;
+  final List<Contact> _members;
+  final ChannelType _channelType = ChannelType.group;
   CreateGroup(this._members);
   @override
   Widget build(BuildContext context) {
+    final client = VartalapClientProvider.of(context).client;
     onGroupNameConfirm(String name) async {
       if (name.isNotEmpty) {
         try {
           showLoadingIndicator(context);
-          var chat = await ChatService.newGroupChat(name, this._members);
+          final channelMembers = this
+              ._members
+              .map((contact) => Member(
+                    user: contact,
+                    role: 'member',
+                    since: DateTime.now(),
+                  ))
+              .toList();
+          Channel channel = Channel(
+            _channelType,
+            channelMembers,
+            name: name,
+          );
+          await client.createChannel(channel);
+
           Navigator.of(context).pop();
-          Navigator.of(context).pop(chat);
+          Navigator.of(context).pop();
+          // TODO: Navigate to the chat screen
         } on Exception catch (_) {
           showErrorDialog(context, [
             'Error while creating new group.',
@@ -78,8 +95,9 @@ class CreateGroup extends StatelessWidget {
                   padding: EdgeInsets.symmetric(vertical: 10),
                   crossAxisCount: 5,
                   childAspectRatio: 0.5,
-                  children:
-                      _members.map((e) => ContactPreviewItem(user: e)).toList(),
+                  children: _members
+                      .map((e) => ContactPreviewItem(contact: e))
+                      .toList(),
                 ),
               )
             ],

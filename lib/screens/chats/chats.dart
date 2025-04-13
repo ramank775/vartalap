@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/models/remoteMessage.dart';
-import 'package:vartalap/models/user.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
@@ -18,6 +17,7 @@ import 'package:vartalap/utils/find.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/rich_message.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class Chats extends StatefulWidget {
   @override
@@ -208,11 +208,12 @@ class ChatsState extends State<Chats> {
       if (result == null) {
         return;
       }
-      Chat chat;
-      if (result is Chat) {
+      Channel chat;
+      if (result is Channel) {
         chat = result;
       } else {
-        chat = await ChatService.newIndiviualChat(result as User);
+        return;
+        //chat = await ChatService.newIndiviualChat(result as User);
       }
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
@@ -256,7 +257,7 @@ class ChatListViewState extends State<ChatListView>
     _chats = widget._chats;
     _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
     _groupNotificationSub = ChatService.onNotificationMessagStream
-        .where((notification) => notification.head.type == ChatType.GROUP)
+        .where((notification) => notification.head.type == ChannelType.group)
         .listen(_onGroupNotification);
   }
 
@@ -316,18 +317,12 @@ class ChatListViewState extends State<ChatListView>
             itemCount: _chats.length,
             itemBuilder: (context, i) => new ChatPreviewWidget(
               _chats[i],
-              (Chat chat) async {
+              (Channel channel) async {
                 if (widget._selectedChats.length > 0) {
-                  widget._selectOrRemove(chat);
+                  widget._selectOrRemove(channel);
                   return;
                 }
-                if (chat.users.length <= 1) {
-                  final _users = await ChatService.getChatUserByid(chat.id);
-                  _users.forEach((u) {
-                    chat.addUser(u);
-                  });
-                }
-                widget._navigate('/chat', data: chat);
+                widget._navigate('/chat', data: channel);
               },
               widget._selectOrRemove,
               isSelected: widget._selectedChats.contains(widget._chats[i]),
@@ -337,7 +332,8 @@ class ChatListViewState extends State<ChatListView>
 
   _onNewMessage(RemoteMessage msg) async {
     final msgInfo = msg.head;
-    ChatPreview? chat = find(_chats, (_chat) => _chat.id == msgInfo.chatid);
+    ChatPreview? chat =
+        find(_chats, (_chat) => _chat.channel.id == msgInfo.chatid);
     if (chat == null) {
       chat = await ChatService.getChatById(msgInfo.chatid!);
       setState(() {
@@ -346,18 +342,23 @@ class ChatListViewState extends State<ChatListView>
       return;
     } else {
       var _msg = toChatMessage(msg);
-      chat = ChatPreview(chat.id, chat.title, chat.pic, _msg.previewContent,
-          _msg.timestamp, (chat.unread + 1));
+      chat = ChatPreview(
+        chat.channel,
+        _msg.previewContent,
+        _msg.timestamp,
+        (chat.unread + 1),
+      );
     }
     PushNotificationService.instance.showNotification(
-      chat.title,
+      chat.channel.displayName,
       chat.content,
       msg.toMap(),
-      groupKey: chat.id,
-      id: chat.id.hashCode,
+      groupKey: chat.channel.id.toString(),
+      id: chat.channel.id!,
     );
 
-    var chats = _chats.where((_chat) => _chat.id != msg.head.chatid).toList();
+    var chats =
+        _chats.where((_chat) => _chat.channel.id != msg.head.chatid).toList();
     chats.insert(0, chat);
     setState(() {
       _chats = chats;
@@ -365,16 +366,19 @@ class ChatListViewState extends State<ChatListView>
   }
 
   _onGroupNotification(RemoteMessage msg) async {
-    var chatIdx = _chats.indexWhere((_chat) => _chat.id == msg.head.chatid);
+    var chatIdx =
+        _chats.indexWhere((_chat) => _chat.channel.id == msg.head.chatid);
     if (chatIdx == -1) {
       return;
     }
-    var chat = _chats[chatIdx];
-    if (chat.users.isEmpty) return;
+    // TODO: Handle group member change notifications
 
-    chat.resetUsers();
-    var users = await ChatService.getChatUserByid(chat.id);
-    users.forEach((u) => chat.addUser(u));
+    // var chat = _chats[chatIdx];
+    // if (chat.users.isEmpty) return;
+
+    // chat.resetUsers();
+    // var users = await ChatService.getChatUserByid(chat.id);
+    // users.forEach((u) => chat.addUser(u));
   }
 
   @override

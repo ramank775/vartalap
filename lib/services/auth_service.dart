@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/crashlystics.dart';
+import 'package:vartalap/services/push_notification_service.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class AuthResponse {
   late String phoneNumber;
@@ -13,6 +14,7 @@ class AuthResponse {
 }
 
 class AuthService {
+  final VartalapChatClientFlutter chatClient;
   FirebaseAuth _auth = FirebaseAuth.instance;
   String? _phoneNumber;
   int? _resendToken;
@@ -24,7 +26,7 @@ class AuthService {
   StreamController<bool> authStateController =
       StreamController<bool>.broadcast();
   Stream<bool> get authStateChange => authStateController.stream;
-  AuthService() {
+  AuthService(this.chatClient) {
     _auth.authStateChanges().listen((event) {
       _user = event;
     });
@@ -93,7 +95,13 @@ class AuthService {
     }
     if (_resp.status) {
       try {
-        await ApiService.login(_phoneNumber!);
+        final notificationToken = await PushNotificationService.instance.token;
+        final cred = Credential(
+          username: _phoneNumber!,
+          externalAuthToken: _resp.token,
+          notificationToken: notificationToken,
+        );
+        await this.chatClient.client.login(cred);
         this.authStateController.sink.add(true);
       } catch (e, stack) {
         Crashlytics.recordError(e, stack, reason: "Login api service failed");
@@ -135,13 +143,16 @@ class AuthService {
 
   static AuthService get instance {
     if (_instance == null) {
-      _instance = AuthService();
+      throw Exception("AuthService not initialized");
     }
     return _instance!;
   }
 
-  static Future<void> init() async {
+  static Future<void> init(VartalapChatClientFlutter client) async {
     try {
+      if (_instance == null) {
+        _instance = AuthService(client);
+      }
       String? _phoneNumber = await _storage.read(key: 'phoneNumber');
       if (_phoneNumber != null) {
         instance._phoneNumber = _phoneNumber;

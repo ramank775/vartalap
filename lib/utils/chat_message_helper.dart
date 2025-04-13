@@ -1,15 +1,13 @@
 import 'package:vartalap/models/dateHeader.dart';
-import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/messageSpacer.dart';
 import 'package:vartalap/models/previewImage.dart';
-import 'package:vartalap/models/remoteMessage.dart';
-import 'package:vartalap/models/user.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/utils/enum_helper.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 List<Object> calculateChatMessages(
   List<ChatMessage> messages,
-  User user, {
+  Contact user, {
   String Function(DateTime)? customDateHeaderText,
   required bool showUserNames,
 }) {
@@ -41,14 +39,14 @@ List<Object> calculateChatMessages(
 
       if (isFirstInGroup) {
         shouldShowName = false;
-        if (message.type == MessageType.TEXT) {
+        if (message.type == MessageType.text) {
           showName = true;
         } else {
           shouldShowName = true;
         }
       }
 
-      if (message.type == MessageType.TEXT && shouldShowName) {
+      if (message.type == MessageType.text && shouldShowName) {
         showName = true;
         shouldShowName = false;
       }
@@ -109,17 +107,17 @@ List<Object> calculateChatMessages(
 
 ChatMessage toChatMessage(RemoteMessage msg) {
   ChatMessage chatMsg;
-  if (msg.head.contentType == MessageType.NOTIFICATION &&
+  if (msg.head.contentType == MessageType.notification &&
       msg.head.action == "state") {
     chatMsg = StateMessge(
       msg.head.chatid!,
       msg.head.from,
-      MessageState.OTHER,
+      MessageState.other,
     );
-  } else if (msg.head.contentType == MessageType.NOTIFICATION &&
+  } else if (msg.head.contentType == MessageType.notification &&
       msg.head.action == "typing") {
     chatMsg = TypingMessage(msg.head.chatid!, msg.head.from, false);
-  } else if (msg.head.contentType == MessageType.TEXT) {
+  } else if (msg.head.contentType == MessageType.text) {
     chatMsg = TextMessage(
       msg.id,
       msg.head.chatid!,
@@ -141,7 +139,7 @@ ChatMessage buildChatMessage(Map<String, dynamic> map,
     {bool persistent = false}) {
   final type = intToEnum(map["type"], MessageType.values);
   switch (type) {
-    case MessageType.TEXT:
+    case MessageType.text:
       return TextMessage.fromMap(map, persistent: persistent);
     default:
       return CustomMessage.fromMap(map, persistent: persistent);

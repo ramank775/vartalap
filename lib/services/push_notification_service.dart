@@ -12,6 +12,7 @@ import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/utils/remote_message_helper.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 Future<void> showNotificationService(String title, String body, dynamic payload,
     {String? groupKey, int id = 0}) {
@@ -45,7 +46,14 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
 Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
   await Firebase.initializeApp();
   await ConfigStore().loadConfig();
-  await AuthService.init();
+  final configStore = ConfigStore();
+  final client = VartalapChatClientFlutter(
+    apiKey: configStore.get('apiKey'),
+    apiBaseUrl: configStore.get('api_url'),
+    wsUrl: configStore.get('ws_url'),
+  );
+  await client.init();
+  await AuthService.init(client);
   final event = payload.data["message"];
   final messages = toRemoteMessage(event);
   final List<vRemoteMessage.RemoteMessage> deliveryAcks = [];

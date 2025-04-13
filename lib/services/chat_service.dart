@@ -88,16 +88,16 @@ class ChatService {
     return ChatPreview.fromMap(result[0]);
   }
 
-  static Future<Chat?> getChatInfo(String chatid) async {
+  static Future<Channel?> getChatInfo(String chatid) async {
     var db = await DB().getDb();
     var result = await db.query("chat", where: "id = ?", whereArgs: [chatid]);
     if (result.isNotEmpty) {
-      return Chat.fromMap(result.first);
+      return Channel.fromMap(result.first);
     }
     return null;
   }
 
-  static Future<List<Chat>> getGroups({String search = ""}) async {
+  static Future<List<Channel>> getGroups({String search = ""}) async {
     var db = await DB().getDb();
     var sql = """Select chat.* 
     from chat 
@@ -113,7 +113,7 @@ class ChatService {
       currentUser.username,
     ]);
 
-    return chats.map((c) => Chat.fromMap(c)).toList();
+    return chats.map((c) => Channel.fromMap(c)).toList();
   }
 
   static Future<List<ChatUser>> getChatUserByid(String chatid) async {
@@ -121,7 +121,7 @@ class ChatService {
     return users;
   }
 
-  static Future<bool> deleteChats(List<Chat> chats) async {
+  static Future<bool> deleteChats(List<Channel> chats) async {
     var db = await DB().getDb();
     var batch = db.batch();
     for (var chat in chats) {
@@ -133,11 +133,11 @@ class ChatService {
     return result.length > 0;
   }
 
-  static Future<Chat> newIndiviualChat(User user) async {
+  static Future<Channel> newIndiviualChat(User user) async {
     var chatid = _createIndiviualChatId(user);
-    Chat? chat = await _getChatById(chatid);
+    Channel? chat = await _getChatById(chatid);
     if (chat == null) {
-      chat = Chat(chatid, user.name, user.pic);
+      chat = Channel(chatid, user.name, user.pic);
       chat.addUser(ChatUser.fromUser(user));
       var currentUser = ChatUser.fromUser(UserService.getLoggedInUser());
       chat.addUser(currentUser);
@@ -150,10 +150,10 @@ class ChatService {
     return chat;
   }
 
-  static Future<Chat> newGroupChat(String title, List<User> members) async {
+  static Future<Channel> newGroupChat(String title, List<User> members) async {
     var memberIds = members.map((user) => user.username).toList();
     var groupId = await ApiService.createGroup(title, memberIds, null);
-    Chat newChat = Chat(groupId, title, null, type: ChatType.GROUP);
+    Channel newChat = Channel(groupId, title, null, type: ChatType.GROUP);
     members.forEach((member) {
       newChat.addUser(ChatUser.fromUser(member));
     });
@@ -163,7 +163,7 @@ class ChatService {
     return newChat;
   }
 
-  static Future<void> addGroupMembers(Chat chat, List<User> members) async {
+  static Future<void> addGroupMembers(Channel chat, List<User> members) async {
     if (chat.type != ChatType.GROUP) return;
     var db = await DB().getDb();
     var existingUsers = await getChatUserByid(chat.id);
@@ -183,12 +183,12 @@ class ChatService {
     });
   }
 
-  static Future<void> leaveGroup(Chat chat) async {
+  static Future<void> leaveGroup(Channel chat) async {
     var currentUser = UserService.getLoggedInUser();
     return removeGroupMembers(chat, currentUser);
   }
 
-  static Future<void> removeGroupMembers(Chat chat, User member) async {
+  static Future<void> removeGroupMembers(Channel chat, User member) async {
     if (chat.type != ChatType.GROUP) return;
     var db = await DB().getDb();
     await db.transaction((Transaction txn) async {
@@ -199,7 +199,7 @@ class ChatService {
     });
   }
 
-  static Future<void> sendMessage(ChatMessage msg, Chat chat) async {
+  static Future<void> sendMessage(ChatMessage msg, Channel chat) async {
     var _isNew = (await _getChatById(chat.id)) == null;
     if (_isNew) {
       await _saveChat(chat);
@@ -259,7 +259,7 @@ class ChatService {
     return result.length > 0;
   }
 
-  static Future markAsRead(List<ChatMessage> msgs, Chat chat) async {
+  static Future markAsRead(List<ChatMessage> msgs, Channel chat) async {
     if (msgs.length == 0) return;
     final msgIds = msgs.map((msg) => msg.id);
     await updateMessageState(msgIds, MessageState.READ);
@@ -280,7 +280,7 @@ class ChatService {
     await SocketService.instance.sendNotifications(rmsgs);
   }
 
-  static Future<void> sendSystemMessage(ChatMessage msg, Chat chat) async {
+  static Future<void> sendSystemMessage(ChatMessage msg, Channel chat) async {
     if (_isSelfChat(chat)) return;
     String to = chat.id;
     if (chat.type == ChatType.INDIVIDUAL) {
@@ -360,11 +360,11 @@ class ChatService {
     }
   }
 
-  static Future<Chat?> _getChatById(String chatid) async {
+  static Future<Channel?> _getChatById(String chatid) async {
     var db = await DB().getDb();
     var result = await db.query("chat", where: "id=?", whereArgs: [chatid]);
     if (result.length > 0) {
-      return Chat.fromMap(result[0]);
+      return Channel.fromMap(result[0]);
     }
     return null;
   }
@@ -381,7 +381,7 @@ class ChatService {
     return users;
   }
 
-  static Future<bool> _saveChat(Chat chat) async {
+  static Future<bool> _saveChat(Channel chat) async {
     var db = await DB().getDb();
     var map = chat.toMap();
     map["createdOn"] = DateTime.now().millisecondsSinceEpoch;
@@ -438,7 +438,7 @@ class ChatService {
     if (msg.head.chatid == null) {
       msg.head.chatid = _createChatIdFromMsg(msg);
     }
-    Chat? chat = await _getChatById(msg.head.chatid!);
+    Channel? chat = await _getChatById(msg.head.chatid!);
     if (chat == null) {
       if (msg.head.to == msg.head.chatid) {
         chat = await _createGroupChat(msg.head.to);
@@ -486,9 +486,9 @@ class ChatService {
     return msg;
   }
 
-  static Future<Chat> _fetchGroupInfo(String id) async {
+  static Future<Channel> _fetchGroupInfo(String id) async {
     var group = await ApiService.getGroupInfo(id);
-    Chat chat = Chat(
+    Channel chat = Channel(
       id,
       group["name"],
       group["profilePic"],
@@ -508,15 +508,15 @@ class ChatService {
     return chat;
   }
 
-  static Future<Chat> _createGroupChat(String id) async {
-    Chat chat = await _fetchGroupInfo(id);
+  static Future<Channel> _createGroupChat(String id) async {
+    Channel chat = await _fetchGroupInfo(id);
     await UserService.addUnknowUser(chat.users);
     await _saveChat(chat);
     return chat;
   }
 
   static Future _addGroupUsers(String id) async {
-    Chat chat = await _fetchGroupInfo(id);
+    Channel chat = await _fetchGroupInfo(id);
     List<ChatUser> users = await _getChatUser(id);
     List<ChatUser> usersToAdd = [];
     chat.users.forEach((user) {
@@ -528,7 +528,7 @@ class ChatService {
   }
 
   static Future _removeGroupUsers(String id) async {
-    Chat chat = await _fetchGroupInfo(id);
+    Channel chat = await _fetchGroupInfo(id);
     List<ChatUser> users = await _getChatUser(id);
     List<ChatUser> usersToRemove = [];
     users.forEach((user) {
@@ -539,8 +539,8 @@ class ChatService {
     if (usersToRemove.isNotEmpty) await _removeChatUser(id, usersToRemove);
   }
 
-  static Future<Chat> _createIndiviualChat(String id, String from) async {
-    Chat chat;
+  static Future<Channel> _createIndiviualChat(String id, String from) async {
+    Channel chat;
     User? user = await UserService.getUserById(from);
     if (user == null) {
       user = User(from, from, null, status: UserStatus.UNKNOWN);
@@ -552,7 +552,7 @@ class ChatService {
     if (currentUser == null) {
       await UserService.addUser(self);
     }
-    chat = Chat(id, user.name, user.pic);
+    chat = Channel(id, user.name, user.pic);
     chat.addUser(ChatUser.fromUser(user));
 
     chat.addUser(ChatUser.fromUser(self));
@@ -568,7 +568,7 @@ class ChatService {
     return users.join();
   }
 
-  static bool _isSelfChat(Chat chat) {
+  static bool _isSelfChat(Channel chat) {
     var currentUser = UserService.getLoggedInUser();
     return (chat.users.length == 1 && chat.users.first == currentUser);
   }

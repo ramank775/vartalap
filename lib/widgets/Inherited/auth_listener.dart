@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:vartalap/services/auth_service.dart';
-import 'package:vartalap/services/user_service.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 
 class AuthListner extends StatefulWidget {
   final MaterialApp app;
@@ -44,9 +44,25 @@ class _AuthListnerState extends State<AuthListner> {
 
   @override
   Widget build(BuildContext context) {
-    return CurrentUser(
-      user: this._isLogin ? UserService.getLoggedInUser() : null,
-      child: widget.app,
+    final client = VartalapClientProvider.of(context).client;
+    return FutureBuilder(
+      future: client.getLoggedInUser(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text("Error"),
+          );
+        }
+        return CurrentUser(
+          user: snapshot.data,
+          child: widget.app,
+        );
+      },
     );
   }
 

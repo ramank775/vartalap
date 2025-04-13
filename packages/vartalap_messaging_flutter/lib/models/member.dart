@@ -1,13 +1,15 @@
+import 'contact.dart';
+
 class Member {
-  final String memberId;
-  final String channelId;
+  final String? membershipId;
+  final Contact user;
   final String role;
   final DateTime since;
 
   Member({
-    required this.memberId,
-    required this.channelId,
+    required this.user,
     required this.role,
     required this.since,
+    this.membershipId,
   });
 }

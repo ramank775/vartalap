@@ -2,12 +2,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/user.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
-import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/contact.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class NewChatScreen extends StatefulWidget {
   @override
@@ -16,17 +15,25 @@ class NewChatScreen extends StatefulWidget {
 
 class NewChatState extends State<NewChatScreen>
     with SingleTickerProviderStateMixin {
-  late Future<List<User>> _contacts;
-  late Future<List<Chat>> _groups;
+  late VartalapChatClientFlutter client;
+  late Selectable<Contact> _contacts;
+  late Selectable<Channel> _channels;
   late TabController _tabController;
   late Future<PermissionStatus> _fPermission;
   bool _openSearch = false;
   @override
   void initState() {
     super.initState();
+    this.client = VartalapClientProvider.of(context).client;
     _tabController = TabController(length: 2, vsync: this);
-    _contacts = UserService.getUsers();
-    _groups = ChatService.getGroups();
+    _contacts = client.getContacts(
+      filter: ContactFilter(status: ContactStatus.active),
+    );
+    _channels = client.getChannels(
+      filter: ChannelFilter(
+        type: ChannelType.group,
+      ),
+    );
     _fPermission = Permission.contacts.status;
   }
 
@@ -44,9 +51,9 @@ class NewChatState extends State<NewChatScreen>
           controller: _tabController,
           children: [
             contacts(),
-            GroupList(
-              groups: _groups,
-              onTap: onGroupTap,
+            ChannelList(
+              channels: _channels,
+              onTap: onChannelTap,
             ),
           ],
         ));
@@ -85,7 +92,7 @@ class NewChatState extends State<NewChatScreen>
           }, onAllow: () {
             setState(() {
               _fPermission = Permission.contacts.status;
-              _contacts = UserService.getUsers(sync: true);
+              // TODO: As soon as permission is granted, we need to sync the contacts
             });
           });
         }
@@ -93,13 +100,7 @@ class NewChatState extends State<NewChatScreen>
     );
   }
 
-  Future onGroupTap(Chat ch) async {
-    if (ch.users.length == 0) {
-      var _users = await ChatService.getChatUserByid(ch.id);
-      _users.forEach((u) {
-        ch.addUser(u);
-      });
-    }
+  Future onChannelTap(Channel ch) async {
     Navigator.of(context).pop(ch);
   }
 
@@ -126,11 +127,11 @@ class NewChatState extends State<NewChatScreen>
           entries.add(PopupMenuItem(
             child: GestureDetector(
               child: Text("Refresh"),
-              onTap: () {
-                setState(() {
-                  _contacts = UserService.getUsers(sync: true);
-                  _groups = ChatService.getGroups();
-                });
+              onTap: () async {
+                await Future.wait([
+                  client.syncContacts(),
+                  client.syncChannels(),
+                ]);
               },
             ),
           ));
@@ -161,8 +162,16 @@ class NewChatState extends State<NewChatScreen>
         onPressed: () {
           setState(() {
             this._openSearch = false;
-            this._contacts = UserService.getUsers();
-            this._groups = ChatService.getGroups();
+            this._contacts = client.getContacts(
+              filter: ContactFilter(
+                status: ContactStatus.active,
+              ),
+            );
+            this._channels = client.getChannels(
+              filter: ChannelFilter(
+                type: ChannelType.group,
+              ),
+            );
           });
         },
         child: Icon(
@@ -188,9 +197,19 @@ class NewChatState extends State<NewChatScreen>
         onChanged: (value) {
           setState(() {
             if (_tabController.index == 0)
-              this._contacts = UserService.getUsers(search: value);
+              this._contacts = client.getContacts(
+                filter: ContactFilter(
+                  status: ContactStatus.active,
+                  name: value,
+                ),
+              );
             else
-              this._groups = ChatService.getGroups(search: value);
+              this._channels = client.getChannels(
+                filter: ChannelFilter(
+                  type: ChannelType.group,
+                  name: value,
+                ),
+              );
           });
         },
       ),
@@ -276,21 +295,21 @@ class ContactPermissionDisclosure extends StatelessWidget {
   }
 }
 
-class GroupList extends StatelessWidget {
-  const GroupList({
+class ChannelList extends StatelessWidget {
+  const ChannelList({
     Key? key,
-    required Future<List<Chat>> groups,
-    required Function(Chat ch) onTap,
-  })  : _groups = groups,
+    required Selectable<Channel> channels,
+    required Function(Channel ch) onTap,
+  })  : channels = channels,
         _onTap = onTap,
         super(key: key);
 
-  final Future<List<Chat>> _groups;
-  final Function(Chat) _onTap;
+  final Selectable<Channel> channels;
+  final Function(Channel) _onTap;
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Iterable<Chat>>(
-      future: _groups,
+    return StreamBuilder(
+      stream: channels.watch(),
       builder: (context, snapshot) {
         switch (snapshot.connectionState) {
           case ConnectionState.none:
@@ -343,10 +362,8 @@ class GroupList extends StatelessWidget {
               if (i < 1) {
                 return data[i];
               }
-              Chat chat = data.elementAt(i);
-              ChatPreview preview =
-                  ChatPreview(chat.id, chat.title, chat.pic, '', 0, 0);
-              preview.type = chat.type;
+              Channel channel = data.elementAt(i);
+              ChatPreview preview = ChatPreview(channel, '', 0, 0);
               return ChatPreviewWidget(
                 preview,
                 _onTap,
@@ -360,17 +377,16 @@ class GroupList extends StatelessWidget {
 
 class ContactList extends StatelessWidget {
   const ContactList({
-    Key? key,
-    required Future<List<User>> contacts,
-  })  : _contacts = contacts,
-        super(key: key);
+    super.key,
+    required this.contacts,
+  });
 
-  final Future<List<User>> _contacts;
+  final Selectable<Contact> contacts;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Iterable<User>>(
-      future: _contacts,
+    return StreamBuilder<List<Contact>>(
+      stream: contacts.watch(),
       builder: (context, snapshot) {
         switch (snapshot.connectionState) {
           case ConnectionState.none:
@@ -418,9 +434,9 @@ class ContactList extends StatelessWidget {
               return data[i];
             }
             return ContactItem(
-                user: data.elementAt(i),
+                contact: data.elementAt(i),
                 onProfileTap: () => {},
-                onTap: (User user) async {
+                onTap: (Contact user) async {
                   Navigator.of(context).pop(user);
                 });
           },

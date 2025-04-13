@@ -11,7 +11,7 @@ class ChatPreviewWidget extends StatelessWidget {
   final bool isSelected;
   ChatPreviewWidget(this._chat, this._onTap, this._onLongPress,
       {this.isSelected = false})
-      : super(key: Key(_chat.id));
+      : super(key: Key(_chat.channel.id!.toString()));
   @override
   Widget build(BuildContext context) {
     final vtheme = VartalapTheme.theme;
@@ -28,7 +28,7 @@ class ChatPreviewWidget extends StatelessWidget {
                   Avator(
                     width: 42.0,
                     height: 42.0,
-                    text: this._chat.title,
+                    text: this._chat.channel.displayName,
                   ),
                   this.isSelected
                       ? Positioned(
@@ -55,7 +55,7 @@ class ChatPreviewWidget extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
                 new Text(
-                  this._chat.title,
+                  this._chat.channel.displayName,
                   style: new TextStyle(
                     fontWeight: FontWeight.bold,
                   ),

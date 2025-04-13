@@ -22,6 +22,16 @@ class Channel {
     this.config = const {},
     this.extraData,
   });
+
+  get displayName {
+    if (name != null) {
+      return name!;
+    }
+    if (members.isNotEmpty) {
+      return members.map((m) => m.user.displayName).join(", ");
+    }
+    return "Unknown";
+  }
 }
 
 class ChannelFilter {

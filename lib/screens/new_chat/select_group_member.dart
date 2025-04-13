@@ -1,37 +1,41 @@
-import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/user.dart';
-import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/contactPreviewItem.dart';
 import 'package:vartalap/widgets/contact.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class SelectGroupMemberScreen extends StatefulWidget {
-  final Chat? chat;
-  SelectGroupMemberScreen({this.chat});
+  final Channel? channel;
+  SelectGroupMemberScreen({this.channel});
   @override
   State<StatefulWidget> createState() => SelectGroupMemberState();
 }
 
 class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
-  late Future<List<User>> _contacts;
+  late final client = VartalapClientProvider.of(context).client;
+  late Selectable<Contact> _contacts;
   late int _numContacts;
   bool _openSearch = false;
-  List<User> _selectedUsers = [];
-  Map<String, User> _existingUser = Map();
+  List<Contact> _selectedContacts = [];
+  Set<int> _existingUser = Set();
   bool _isUpdate = false;
   @override
   void initState() {
     super.initState();
-    if (this.widget.chat != null) {
+    if (this.widget.channel != null) {
       this._isUpdate = true;
       this
           .widget
-          .chat!
-          .users
-          .forEach((u) => this._existingUser[u.username] = u);
+          .channel!
+          .members
+          .forEach((member) => this._existingUser.add(member.user.id!));
     }
-    _contacts = UserService.getUsers();
-    _contacts.then((value) {
+    _contacts = client.getContacts(
+      filter: ContactFilter(
+        status: ContactStatus.active,
+      ),
+    );
+    _contacts.get().then((value) {
       setState(() {
         _numContacts = value.length;
       });
@@ -44,7 +48,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
       appBar: this._openSearch ? buildSearchAppBar() : buildAppBar(),
       body: Column(
         children: [
-          ...(this._selectedUsers.length > 0
+          ...(this._selectedContacts.length > 0
               ? [
                   SizedBox(
                     height: 90,
@@ -53,12 +57,13 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                       scrollDirection: Axis.horizontal,
                       shrinkWrap: true,
                       reverse: true,
-                      itemCount: this._selectedUsers.length,
+                      itemCount: this._selectedContacts.length,
                       separatorBuilder: (context, index) => SizedBox(
                         width: 10,
                       ),
                       itemBuilder: (context, index) {
-                        return ContactPreviewItem(user: _selectedUsers[index]);
+                        return ContactPreviewItem(
+                            contact: _selectedContacts[index]);
                       },
                     ),
                   ),
@@ -68,8 +73,8 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                 ]
               : []),
           Flexible(
-            child: FutureBuilder<Iterable<User>>(
-              future: _contacts,
+            child: StreamBuilder<List<Contact>>(
+              stream: _contacts.watch(),
               builder: (context, snapshot) {
                 switch (snapshot.connectionState) {
                   case ConnectionState.none:
@@ -98,18 +103,17 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                 return ListView.builder(
                   itemCount: data.length,
                   itemBuilder: (context, i) {
-                    User user = data.elementAt(i);
+                    Contact contact = data.elementAt(i);
                     return ContactItem(
-                      user: user,
-                      isSelected: this._selectedUsers.contains(user),
-                      enabled: !this._existingUser.containsKey(user.username),
+                      contact: contact,
+                      isSelected: this._selectedContacts.contains(contact),
+                      enabled: !this._existingUser.contains(contact.id!),
                       onProfileTap: () => {},
-                      onTap: (User user) async {
-                        if (this._existingUser.containsKey(user.username))
-                          return;
+                      onTap: (Contact contact) async {
+                        if (this._existingUser.contains(contact.id!)) return;
                         setState(() {
-                          if (!this._selectedUsers.remove(user)) {
-                            this._selectedUsers.add(user);
+                          if (!this._selectedContacts.remove(contact)) {
+                            this._selectedContacts.add(contact);
                           }
                         });
                       },
@@ -121,20 +125,14 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
           ),
         ],
       ),
-      floatingActionButton: this._selectedUsers.length > 0
+      floatingActionButton: this._selectedContacts.length > 0
           ? FloatingActionButton(
               onPressed: () async {
                 if (this._isUpdate) {
-                  return Navigator.of(context).pop(_selectedUsers);
+                  return Navigator.of(context).pop(_selectedContacts);
                 }
-                var chat = await Navigator.of(context)
-                    .pushNamed('/create-group', arguments: _selectedUsers);
-                if (chat is Chat) {
-                  Navigator.of(context).popAndPushNamed(
-                    '/chat',
-                    arguments: chat,
-                  );
-                }
+                await Navigator.of(context)
+                    .pushNamed('/create-group', arguments: _selectedContacts);
               },
               tooltip: 'Next',
               child: Icon(this._isUpdate ? Icons.check : Icons.arrow_forward),
@@ -159,11 +157,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
               ),
             ),
           ),
-          _selectedUsers.isEmpty
+          _selectedContacts.isEmpty
               ? Container()
               : Container(
                   child: Text(
-                    '${_selectedUsers.length} of $_numContacts',
+                    '${_selectedContacts.length} of $_numContacts',
                     style: TextStyle(
                       fontSize: 12.0,
                     ),
@@ -195,7 +193,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
         onPressed: () {
           setState(() {
             this._openSearch = false;
-            this._contacts = UserService.getUsers();
+            this._contacts = client.getContacts(
+              filter: ContactFilter(
+                status: ContactStatus.active,
+              ),
+            );
           });
         },
         child: Icon(
@@ -223,7 +225,12 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
         autofocus: true,
         onChanged: (value) {
           setState(() {
-            this._contacts = UserService.getUsers(search: value);
+            this._contacts = client.getContacts(
+              filter: ContactFilter(
+                status: ContactStatus.active,
+                name: value,
+              ),
+            );
           });
         },
       ),

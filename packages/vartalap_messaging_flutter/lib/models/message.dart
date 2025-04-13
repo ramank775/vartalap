@@ -1,38 +1,36 @@
-import 'dart:math';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
-import 'package:vartalap/models/user.dart';
-import 'package:vartalap/utils/enum_helper.dart';
+import 'contact.dart';
 
 enum MessageState {
-  NEW,
-  SENT,
-  DELIVERED,
-  READ,
-  OTHER,
+  pending,
+  sent,
+  delivered,
+  read,
+  other,
 }
 
 enum MessageType {
-  TEXT,
-  NOTIFICATION,
-  ATTACHMENT,
-  IMAGE,
-  VIDEO,
-  AUDIO,
-  OTHER,
+  text,
+  notification,
+  attachment,
+  image,
+  video,
+  audio,
+  other,
 }
 
 class NotificationContent {
   bool _showNotification = false;
   String? _text;
-  String? get content => this._text;
-  bool get show => this._showNotification;
+  String? get content => _text;
+  bool get show => _showNotification;
 
   NotificationContent({String? text, bool show = false}) {
-    this._text = text;
-    this._showNotification = show;
+    _text = text;
+    _showNotification = show;
   }
 }
 
@@ -49,7 +47,6 @@ abstract class ChatMessage {
   late bool _ephemeral = false;
 
   String get id => _id;
-  String get chatId => _chatId;
   String get senderId => _senderId;
   String get action => _action;
   MessageState get state => _state;
@@ -59,48 +56,48 @@ abstract class ChatMessage {
 
   int get timestamp => _ts;
   set timestamp(int ts) {
-    this._ts = ts;
+    _ts = ts;
   }
 
   bool isSelected = false;
 
   final int defaultTime = DateTime.now().millisecondsSinceEpoch;
-  User? sender;
+  Contact? sender;
   ChatMessage(
     this._id,
     this._chatId,
     this._senderId, [
-    this._state = MessageState.NEW,
+    this._state = MessageState.pending,
     this._action = "message",
-    this._type = MessageType.OTHER,
+    this._type = MessageType.other,
     this._category = "message",
     this._ephemeral = false,
   ]);
 
   ChatMessage.chatMessage(String chatId, String senderId, MessageType type) {
-    this._id = _getMsgId(senderId);
-    this._chatId = chatId;
-    this._senderId = senderId;
-    this._state = MessageState.NEW;
-    this._type = type;
+    _id = _getMsgId(senderId);
+    _chatId = chatId;
+    _senderId = senderId;
+    _state = MessageState.pending;
+    _type = type;
   }
   ChatMessage.fromMap(Map<String, dynamic> map, {bool persistent = false}) {
-    this._id = map["id"];
-    this._chatId = map["chatid"];
-    this._senderId = map["senderid"];
-    this._ts = map["ts"] ?? this._ts;
-    this._state = intToEnum(map["state"], MessageState.values);
-    this._type = intToEnum(map["type"], MessageType.values);
+    _id = map["id"];
+    _chatId = map["chatid"];
+    _senderId = map["senderid"];
+    _ts = map["ts"] ?? _ts;
+    _state = intToEnum(map["state"]);
+    _type = intToEnum(map["type"], MessageType.values);
   }
 
   Map<String, dynamic> toMap({bool persistent = false}) {
-    Map<String, dynamic> map = new Map<String, dynamic>();
-    map["id"] = this._id;
-    map["chatid"] = this._chatId;
-    map["senderid"] = this._senderId;
-    map["ts"] = this._ts;
-    map["state"] = enumToInt(this._state, MessageState.values);
-    map["type"] = enumToInt(this._type, MessageType.values);
+    Map<String, dynamic> map = {};
+    map["id"] = _id;
+    map["chatid"] = _chatId;
+    map["senderid"] = _senderId;
+    map["ts"] = _ts;
+    map["state"] = enumToInt(_state, MessageState.values);
+    map["type"] = enumToInt(_type, MessageType.values);
     return map;
   }
 
@@ -114,18 +111,18 @@ abstract class ChatMessage {
   String get previewContent => "";
 
   String calcContentHash() {
-    final map = this.toRemoteBody();
+    final map = toRemoteBody();
     final text = json.encode(map);
-    return this._hash(text);
+    return _hash(text);
   }
 
   bool updateState(MessageState state) {
-    if (this._state != MessageState.OTHER) {
-      int existingState = enumToInt(this._state, MessageState.values);
+    if (_state != MessageState.other) {
+      int existingState = enumToInt(_state, MessageState.values);
       int newState = enumToInt(state, MessageState.values);
       if (existingState > newState) return false;
     }
-    this._state = state;
+    _state = state;
     return true;
   }
 
@@ -143,18 +140,19 @@ abstract class ChatMessage {
     } else {
       sender = senderId.hashCode;
     }
-    int unixEpoch10 =
-        DateTime.now().millisecondsSinceEpoch % (pow(10, 13)) as int;
-    if ((++_number) >= 10000) {
-      _number %= 10000;
+    int timestamp = DateTime.now().millisecondsSinceEpoch;
+    if ((++_number) >= 4096) {
+      // 12 bits for sequence
+      _number %= 4096;
     }
-    int rawId = (sender * pow(10, 16) as int) +
-        (unixEpoch10 * pow(10, 3) as int) +
-        _number;
+    int rawId = ((timestamp & 0xFFFFFFFF) << 44) | // 44 bits for timestamp
+        ((sender & 0xFFFFFFFFFFFF) << 12) | // 48 bits for sender
+        (_number & 0xFFF); // 12 bits for sequence
 
     return rawId.toRadixString(16);
   }
 
+  @override
   int get hashCode => "message_$id".hashCode;
 
   @override
@@ -166,14 +164,14 @@ abstract class ChatMessage {
 class ChatMessageNotifier extends ValueNotifier<ChatMessage> {
   late ChatMessage _value;
   ChatMessageNotifier(ChatMessage value) : super(value) {
-    this._value = value;
+    _value = value;
   }
   @override
-  ChatMessage get value => this._value;
+  ChatMessage get value => _value;
 
   update(ChatMessage newValue) {
-    this._value = newValue;
-    this.notifyListeners();
+    _value = newValue;
+    notifyListeners();
   }
 }
 
@@ -182,61 +180,60 @@ class TextMessage extends ChatMessage {
   late String _text;
   String get text => _text;
 
-  final int defaultTime = DateTime.now().millisecondsSinceEpoch;
-
   TextMessage(String id, String chatId, String senderId,
       [this._text = '',
-      MessageState state = MessageState.NEW,
-      MessageType type = MessageType.TEXT,
+      MessageState state = MessageState.pending,
+      MessageType type = MessageType.text,
       String action = "message"])
       : super(id, chatId, senderId, state, action, type);
 
   TextMessage.chatMessage(
       String chatId, String senderId, String text, MessageType type)
       : super.chatMessage(chatId, senderId, type) {
-    this._text = text;
+    _text = text;
   }
 
   TextMessage.fromMap(Map<String, dynamic> map, {bool persistent = false})
       : super.fromMap(map, persistent: persistent) {
-    this._text = map["text"];
+    _text = map["text"];
   }
 
+  @override
   Map<String, dynamic> toMap({bool persistent = false}) {
     Map<String, dynamic> map = super.toMap(persistent: persistent);
-    map["text"] = this._text;
+    map["text"] = _text;
     return map;
   }
 
   @override
   Map<String, dynamic> toRemoteBody() {
     return {
-      "text": this.text,
-      "state": enumToString(this.state),
+      "text": text,
+      "state": enumToString(state),
     };
   }
 
   @override
   void fromRemoteBody(Map<String, dynamic> body) {
-    this._text = body["text"];
-    this._state = body.containsKey("state")
+    _text = body["text"];
+    _state = body.containsKey("state")
         ? stringToEnum(
             body["state"],
             MessageState.values,
           )
-        : MessageState.NEW;
+        : MessageState.pending;
   }
 
   @override
   NotificationContent get notificationContent =>
-      NotificationContent(text: this._text, show: true);
+      NotificationContent(text: _text, show: true);
 
   @override
-  String get previewContent => this._text;
+  String get previewContent => _text;
 
   @override
   String calcContentHash() {
-    return this._hash(this.text);
+    return _hash(text);
   }
 }
 
@@ -244,21 +241,21 @@ class StateMessge extends ChatMessage {
   List<String> msgIds = [];
 
   StateMessge(String chatId, String senderId,
-      [MessageState state = MessageState.OTHER])
-      : super('', chatId, senderId, state, "state", MessageType.NOTIFICATION,
+      [MessageState state = MessageState.other])
+      : super('', chatId, senderId, state, "state", MessageType.notification,
             "system", false) {
-    this._id = ChatMessage._getMsgId(senderId);
+    _id = ChatMessage._getMsgId(senderId);
   }
 
   @override
   void fromRemoteBody(Map<String, dynamic> body) {
-    this.msgIds = (body["ids"] as List).map((e) => e.toString()).toList();
-    this._state = stringToEnum(body["state"], MessageState.values);
+    msgIds = (body["ids"] as List).map((e) => e.toString()).toList();
+    _state = stringToEnum(body["state"], MessageState.values);
   }
 
   @override
   Map<String, dynamic> toRemoteBody() {
-    return {"ids": this.msgIds, "state": enumToString(this.state)};
+    return {"ids": msgIds, "state": enumToString(state)};
   }
 }
 
@@ -270,36 +267,34 @@ class CustomMessage extends ChatMessage {
     if (persistent) {
       final body = map["body"];
       if (body != null) {
-        this._rawbody = json.decode(body);
+        _rawbody = json.decode(body);
       }
     }
   }
 
-  CustomMessage.chatMessage(String chatId, String senderId, MessageType type)
-      : super.chatMessage(chatId, senderId, type);
+  CustomMessage.chatMessage(super.chatId, super.senderId, super.type);
 
-  CustomMessage(String id, String chatId, String senderId)
-      : super(id, chatId, senderId);
+  CustomMessage(super.id, super.chatId, super.senderId);
 
   @override
   Map<String, dynamic> toMap({bool persistent = false}) {
     final map = super.toMap(persistent: persistent);
     if (persistent) {
-      map["body"] = json.encode(this._rawbody);
+      map["body"] = json.encode(_rawbody);
     } else {
-      map["body"] = this._rawbody;
+      map["body"] = _rawbody;
     }
     return map;
   }
 
   @override
   void fromRemoteBody(Map<String, dynamic> body) {
-    this._rawbody = body;
+    _rawbody = body;
   }
 
   @override
   Map<String, dynamic> toRemoteBody() {
-    return this._rawbody;
+    return _rawbody;
   }
 }
 
@@ -307,18 +302,30 @@ class TypingMessage extends ChatMessage {
   bool isTyping = false;
 
   TypingMessage(String chatId, String senderId, this.isTyping)
-      : super('', chatId, senderId, MessageState.OTHER, "typing",
-            MessageType.NOTIFICATION, "system", true) {
-    this._id = ChatMessage._getMsgId(senderId);
+      : super('', chatId, senderId, MessageState.other, "typing",
+            MessageType.notification, "system", true) {
+    _id = ChatMessage._getMsgId(senderId);
   }
 
   @override
   void fromRemoteBody(Map<String, dynamic> body) {
-    this.isTyping = body['typing'];
+    isTyping = body['typing'];
   }
 
   @override
   Map<String, dynamic> toRemoteBody() {
-    return {"typing": this.isTyping};
+    return {"typing": isTyping};
   }
+}
+
+class MessageFilter {
+  final MessageType? type;
+  final MessageState? state;
+  final String? senderId;
+
+  const MessageFilter({
+    this.type,
+    this.state,
+    this.senderId,
+  });
 }

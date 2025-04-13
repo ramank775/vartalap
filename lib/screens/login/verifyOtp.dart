@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/keyboard.dart';
-import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/services/auth_service.dart';
 
 class VerifyOtpWidget extends StatefulWidget {
   @override
@@ -87,14 +87,7 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                     ),
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: ElevatedButton(
-                      onPressed: () async {
-                        bool result = await UserService.authenicate(this._otp);
-                        if (!result) {
-                          showErrorDialog(context,
-                              ['Incorrect one time password! Try again']);
-                          return;
-                        }
-                      },
+                      onPressed: _authenticate,
                       style: ElevatedButton.styleFrom(
                         shape: const RoundedRectangleBorder(
                             borderRadius:
@@ -179,5 +172,13 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
       context: context,
       builder: (context) => dialog,
     );
+  }
+
+  void _authenticate() async {
+    final result = await AuthService.instance.verify(this._otp);
+    if (!result.status) {
+      showErrorDialog(context, ['Incorrect one time password! Try again']);
+      return;
+    }
   }
 }

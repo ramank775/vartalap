@@ -42,3 +42,17 @@ class Contact {
 
   bool get hasAccount => username != null;
 }
+
+class ContactFilter {
+  final String? username;
+  final String? name;
+  final String? phone;
+  final ContactStatus? status;
+
+  const ContactFilter({
+    this.username,
+    this.name,
+    this.phone,
+    this.status,
+  });
+}

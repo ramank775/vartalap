@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/models/user.dart';
-
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ContactPreviewItem extends StatelessWidget {
   const ContactPreviewItem({
-    Key? key,
-    required User user,
-  })  : _user = user,
-        super(key: key);
+    super.key,
+    required this.contact,
+  });
 
-  final User _user;
+  final Contact contact;
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +18,7 @@ class ContactPreviewItem extends StatelessWidget {
           Avator(
             height: 45,
             width: 45,
-            text: _user.name,
+            text: contact.displayName,
           ),
           SizedBox(
             height: 2,
@@ -28,7 +26,7 @@ class ContactPreviewItem extends StatelessWidget {
           SizedBox(
             width: 60,
             child: Text(
-              _user.name,
+              contact.displayName,
               maxLines: 2,
               textAlign: TextAlign.center,
               softWrap: true,

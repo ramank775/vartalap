@@ -1,16 +1,16 @@
-import 'package:vartalap/models/user.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ContactItem extends StatelessWidget {
-  final User user;
+  final Contact contact;
   final Function? onProfileTap;
   final Function? onTap;
   final bool isSelected;
   final bool enabled;
   ContactItem({
-    required this.user,
+    required this.contact,
     this.isSelected = false,
     this.onProfileTap,
     this.onTap,
@@ -35,7 +35,7 @@ class ContactItem extends StatelessWidget {
               Avator(
                 width: 45.0,
                 height: 45.0,
-                text: user.name,
+                text: contact.displayName,
               ),
               this.isSelected
                   ? Positioned(
@@ -56,7 +56,7 @@ class ContactItem extends StatelessWidget {
           ),
         ),
         title: Text(
-          user.name,
+          contact.displayName,
           maxLines: 1,
           style: TextStyle(
             fontSize: 18.0,
@@ -64,12 +64,12 @@ class ContactItem extends StatelessWidget {
           ),
         ),
         subtitle: Text(
-          user.username,
+          contact.username ?? '',
           maxLines: 1,
         ),
         onTap: () {
           if (onTap != null) {
-            onTap!(user);
+            onTap!(contact);
           }
         },
         selected: isSelected,

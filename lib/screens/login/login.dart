@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/login/verifyOtp.dart';
-import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/loadingIndicator.dart';
@@ -109,8 +109,8 @@ class LoginScreen extends StatelessWidget {
                         if (_phoneController.text.isNotEmpty) {
                           showLoadingIndicator(
                               context, "While we send you one time password");
-                          bool status =
-                              await UserService.sendOTP(_phoneController.text);
+                          bool status = await AuthService.instance
+                              .sendOtp(_phoneController.text);
                           Navigator.of(context).pop(); // close the loaded;
                           if (status) {
                             Navigator.of(context).push(

@@ -16,8 +16,6 @@ import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/auth_listener.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
-import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/user.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
@@ -28,7 +26,13 @@ import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 final configStore = ConfigStore();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final homescreen = await initializeApp();
+  await configStore.loadConfig();
+  VartalapChatClientFlutter client = VartalapChatClientFlutter(
+    apiKey: configStore.get('apiKey'),
+    apiBaseUrl: configStore.get('api_url'),
+    wsUrl: configStore.get('ws_url'),
+  );
+  final homescreen = await initializeApp(client);
   FlutterError.onError = (errorDetails) {
     FirebaseCrashlytics.instance.recordFlutterFatalError(errorDetails);
   };
@@ -37,31 +41,22 @@ void main() async {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     return true;
   };
-  runApp(Home(configStore.packageInfo.appName, homescreen));
+  runApp(Home(configStore.packageInfo.appName, homescreen, client));
 }
 
-Future<Widget> initializeApp() async {
+Future<Widget> initializeApp(VartalapChatClientFlutter client) async {
   await Firebase.initializeApp();
   await FirebaseAppCheck.instance.activate(
     // webRecaptchaSiteKey: 'recaptcha-v3-site-key',
     androidProvider: AndroidProvider.playIntegrity,
     appleProvider: AppleProvider.appAttestWithDeviceCheckFallback,
   );
-  await configStore.loadConfig();
-  await AuthService.init();
+
+  await AuthService.init(client);
   Crashlytics.init();
   PerformanceMetric.init();
   if (AuthService.instance.isLoggedIn()) {
-    VartalapChatClientFlutter client = VartalapChatClientFlutter(
-      apiKey: configStore.get('apiKey'),
-      apiBaseUrl: configStore.get('api_url'),
-      wsUrl: configStore.get('ws_url'),
-    );
-
-    return VartalapClientProvider(
-      client: client,
-      child: StartupScreen(),
-    );
+    return StartupScreen();
   }
   return IntroductionScreen();
 }
@@ -69,7 +64,8 @@ Future<Widget> initializeApp() async {
 class Home extends StatefulWidget {
   final String appName;
   final Widget homeScreen;
-  Home(this.appName, this.homeScreen);
+  final VartalapChatClientFlutter client;
+  Home(this.appName, this.homeScreen, this.client);
   @override
   HomeState createState() => HomeState();
 }
@@ -86,16 +82,19 @@ class HomeState extends State<Home> {
   Widget build(BuildContext context) {
     return ConfigProvider(
       configStore: configStore,
-      child: AuthListner(
-        app: MaterialApp(
-          title: widget.appName,
-          debugShowCheckedModeBanner: false,
-          navigatorKey: _navigatorKey,
-          themeMode: VartalapTheme.themeMode,
-          theme: VartalapTheme.lightTheme.appTheme,
-          darkTheme: VartalapTheme.darkTheme.appTheme,
-          onGenerateRoute: _routes(),
-          home: widget.homeScreen,
+      child: VartalapClientProvider(
+        client: widget.client,
+        child: AuthListner(
+          app: MaterialApp(
+            title: widget.appName,
+            debugShowCheckedModeBanner: false,
+            navigatorKey: _navigatorKey,
+            themeMode: VartalapTheme.themeMode,
+            theme: VartalapTheme.lightTheme.appTheme,
+            darkTheme: VartalapTheme.darkTheme.appTheme,
+            onGenerateRoute: _routes(),
+            home: widget.homeScreen,
+          ),
         ),
       ),
     );
@@ -112,7 +111,7 @@ class HomeState extends State<Home> {
           widget = new Chats();
           break;
         case '/chat':
-          widget = new ChatScreen(settings.arguments as Chat);
+          widget = new ChatScreen(settings.arguments as Channel);
           break;
         case '/new-chat':
           widget = new NewChatScreen();
@@ -121,7 +120,7 @@ class HomeState extends State<Home> {
           widget = new SelectGroupMemberScreen();
           break;
         case '/create-group':
-          widget = new CreateGroup(settings.arguments as List<User>);
+          widget = new CreateGroup(settings.arguments as List<Contact>);
           break;
         default:
           widget = new Chats();

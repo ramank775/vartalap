@@ -1,5 +1,5 @@
 import 'package:flutter/widgets.dart';
-import 'package:vartalap/models/user.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class CurrentUser extends InheritedWidget {
   CurrentUser({
@@ -8,7 +8,7 @@ class CurrentUser extends InheritedWidget {
     required Widget child,
   }) : super(key: key, child: child);
 
-  final User? user;
+  final Contact? user;
 
   static CurrentUser of(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<CurrentUser>()!;
@@ -16,5 +16,5 @@ class CurrentUser extends InheritedWidget {
 
   @override
   bool updateShouldNotify(CurrentUser oldWidget) =>
-      user?.username != oldWidget.user?.username;
+      user?.id != oldWidget.user?.id;
 }
