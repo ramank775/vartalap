@@ -2,12 +2,11 @@ import 'dart:async';
 
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
-import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
 class StartupScreen extends StatelessWidget {
@@ -15,12 +14,14 @@ class StartupScreen extends StatelessWidget {
 
   Future<void> _initializeApp(
       ConfigStore configStore, BuildContext context) async {
-    unawaited(ChatService.init());
     await Permission.notification.request();
+    final client = VartalapClientProvider.of(context).client;
+    await client.init();
     var value = await Permission.contacts.status;
     if (value.isGranted) {
-      onContactPermissionGranted(context);
+      await client.syncContacts();
     }
+
     onNext(context);
   }
 
@@ -31,10 +32,6 @@ class StartupScreen extends StatelessWidget {
       ),
       (route) => false,
     );
-  }
-
-  void onContactPermissionGranted(BuildContext context) {
-    unawaited(UserService.syncContacts(onInit: true));
   }
 
   @override

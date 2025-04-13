@@ -63,7 +63,7 @@ class MessageInputState extends State<MessageInputWidget> {
     }
   }
 
-  Future<bool> onBackPress(bool pop) {
+  Future<bool> onBackPress(bool pop, bool? result) {
     if (_isShowSticker) {
       setState(() {
         _isShowSticker = false;
@@ -79,7 +79,7 @@ class MessageInputState extends State<MessageInputWidget> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvoked: onBackPress,
+      onPopInvokedWithResult: onBackPress,
       child: Stack(
         children: <Widget>[
           Column(

@@ -122,8 +122,6 @@ class VartalapTheme {
         return brightness == Brightness.dark
             ? VartalapTheme.darkTheme
             : VartalapTheme.lightTheme;
-      default:
-        return VartalapTheme.lightTheme;
     }
   }
 }

@@ -178,8 +178,8 @@ class LoginScreen extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return WillPopScope(
-          onWillPop: () async => false,
+        return PopScope(
+          canPop: false,
           child: AlertDialog(
             content: LoadingIndicator(
               text: message,

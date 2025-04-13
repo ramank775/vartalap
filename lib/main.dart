@@ -22,6 +22,8 @@ import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/services/crashlystics.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 final configStore = ConfigStore();
 void main() async {
@@ -50,7 +52,16 @@ Future<Widget> initializeApp() async {
   Crashlytics.init();
   PerformanceMetric.init();
   if (AuthService.instance.isLoggedIn()) {
-    return StartupScreen();
+    VartalapChatClientFlutter client = VartalapChatClientFlutter(
+      apiKey: configStore.get('apiKey'),
+      apiBaseUrl: configStore.get('api_url'),
+      wsUrl: configStore.get('ws_url'),
+    );
+
+    return VartalapClientProvider(
+      client: client,
+      child: StartupScreen(),
+    );
   }
   return IntroductionScreen();
 }
