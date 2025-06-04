@@ -32,6 +32,19 @@ class Contact {
     required this.status,
   });
 
+  // Constructor for creating Contact from database row
+  const Contact.fromDb({
+    required this.id,
+    this.username,
+    this.uid,
+    this.phone,
+    this.name,
+    this.thumbnail,
+    this.photo,
+    this.extraData,
+    required this.status,
+  });
+
   String get displayName => name ?? phone ?? username ?? '';
 
   Image get displayImage => photo != null

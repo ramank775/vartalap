@@ -4,9 +4,9 @@ import 'package:vartalap_messaging_flutter/entity/contacts.dart';
 
 @DataClassName("MemberEntity")
 class Members extends Table {
-  TextColumn get memberId => text().references(
+  IntColumn get memberId => integer().references(
         Contacts,
-        #username,
+        #id,
         onUpdate: KeyAction.cascade,
       )();
   Column<int> get channelId => integer().references(

@@ -1,6 +1,5 @@
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:vartalap_messaging_flutter/utils/utils.dart';
 
 import 'contact.dart';
 
@@ -35,18 +34,17 @@ class NotificationContent {
 }
 
 abstract class ChatMessage {
-  static int _number = 0;
   String _action = "message";
-  late String _id;
-  late String _chatId;
+  late int _id;
+  late int _channelId;
   late String _senderId;
   late MessageState _state;
   late MessageType _type;
-  late int _ts = DateTime.now().millisecondsSinceEpoch;
+  late DateTime _ts = DateTime.now();
   late String _category = "message";
   late bool _ephemeral = false;
 
-  String get id => _id;
+  int get id => _id;
   String get senderId => _senderId;
   String get action => _action;
   MessageState get state => _state;
@@ -54,10 +52,12 @@ abstract class ChatMessage {
   String get category => _category;
   bool get ephemeral => _ephemeral;
 
-  int get timestamp => _ts;
-  set timestamp(int ts) {
+  DateTime get timestamp => _ts;
+  set timestamp(DateTime ts) {
     _ts = ts;
   }
+
+  Map<String, dynamic> get payload;
 
   bool isSelected = false;
 
@@ -65,7 +65,7 @@ abstract class ChatMessage {
   Contact? sender;
   ChatMessage(
     this._id,
-    this._chatId,
+    this._channelId,
     this._senderId, [
     this._state = MessageState.pending,
     this._action = "message",
@@ -74,47 +74,38 @@ abstract class ChatMessage {
     this._ephemeral = false,
   ]);
 
-  ChatMessage.chatMessage(String chatId, String senderId, MessageType type) {
-    _id = _getMsgId(senderId);
-    _chatId = chatId;
+  ChatMessage.chatMessage(
+    int channelId,
+    String senderId,
+    MessageType type, {
+    int id = 0,
+  }) {
+    _id = id;
+    _channelId = channelId;
     _senderId = senderId;
     _state = MessageState.pending;
     _type = type;
   }
-  ChatMessage.fromMap(Map<String, dynamic> map, {bool persistent = false}) {
-    _id = map["id"];
-    _chatId = map["chatid"];
-    _senderId = map["senderid"];
-    _ts = map["ts"] ?? _ts;
-    _state = intToEnum(map["state"]);
-    _type = intToEnum(map["type"], MessageType.values);
+  ChatMessage.fromDb({
+    required int id,
+    required int channelId,
+    required String senderId,
+    required MessageState state,
+    required MessageType type,
+    required DateTime ts,
+  }) {
+    _id = id;
+    _channelId = channelId;
+    _senderId = senderId;
+    _state = state;
+    _type = type;
+    _ts = ts;
   }
-
-  Map<String, dynamic> toMap({bool persistent = false}) {
-    Map<String, dynamic> map = {};
-    map["id"] = _id;
-    map["chatid"] = _chatId;
-    map["senderid"] = _senderId;
-    map["ts"] = _ts;
-    map["state"] = enumToInt(_state, MessageState.values);
-    map["type"] = enumToInt(_type, MessageType.values);
-    return map;
-  }
-
-  Map<String, dynamic> toRemoteBody();
-
-  void fromRemoteBody(Map<String, dynamic> body);
 
   NotificationContent get notificationContent =>
       NotificationContent(show: false);
 
   String get previewContent => "";
-
-  String calcContentHash() {
-    final map = toRemoteBody();
-    final text = json.encode(map);
-    return _hash(text);
-  }
 
   bool updateState(MessageState state) {
     if (_state != MessageState.other) {
@@ -124,32 +115,6 @@ abstract class ChatMessage {
     }
     _state = state;
     return true;
-  }
-
-  String _hash(String s) {
-    final bytes = utf8.encode(s);
-    final digest = md5.convert(bytes);
-    return digest.toString();
-  }
-
-  static String _getMsgId(String senderId) {
-    var number = double.tryParse(senderId);
-    int sender;
-    if (number != null) {
-      sender = number.toInt();
-    } else {
-      sender = senderId.hashCode;
-    }
-    int timestamp = DateTime.now().millisecondsSinceEpoch;
-    if ((++_number) >= 4096) {
-      // 12 bits for sequence
-      _number %= 4096;
-    }
-    int rawId = ((timestamp & 0xFFFFFFFF) << 44) | // 44 bits for timestamp
-        ((sender & 0xFFFFFFFFFFFF) << 12) | // 48 bits for sender
-        (_number & 0xFFF); // 12 bits for sequence
-
-    return rawId.toRadixString(16);
   }
 
   @override
@@ -180,7 +145,7 @@ class TextMessage extends ChatMessage {
   late String _text;
   String get text => _text;
 
-  TextMessage(String id, String chatId, String senderId,
+  TextMessage(int id, int chatId, String senderId,
       [this._text = '',
       MessageState state = MessageState.pending,
       MessageType type = MessageType.text,
@@ -188,40 +153,21 @@ class TextMessage extends ChatMessage {
       : super(id, chatId, senderId, state, action, type);
 
   TextMessage.chatMessage(
-      String chatId, String senderId, String text, MessageType type)
+      int chatId, String senderId, String text, MessageType type)
       : super.chatMessage(chatId, senderId, type) {
     _text = text;
   }
 
-  TextMessage.fromMap(Map<String, dynamic> map, {bool persistent = false})
-      : super.fromMap(map, persistent: persistent) {
-    _text = map["text"];
-  }
-
-  @override
-  Map<String, dynamic> toMap({bool persistent = false}) {
-    Map<String, dynamic> map = super.toMap(persistent: persistent);
-    map["text"] = _text;
-    return map;
-  }
-
-  @override
-  Map<String, dynamic> toRemoteBody() {
-    return {
-      "text": text,
-      "state": enumToString(state),
-    };
-  }
-
-  @override
-  void fromRemoteBody(Map<String, dynamic> body) {
-    _text = body["text"];
-    _state = body.containsKey("state")
-        ? stringToEnum(
-            body["state"],
-            MessageState.values,
-          )
-        : MessageState.pending;
+  TextMessage.fromDb({
+    required super.id,
+    required super.channelId,
+    required super.senderId,
+    required super.state,
+    required super.type,
+    required super.ts,
+    required Map<String, dynamic> payload,
+  }) : super.fromDb() {
+    _text = payload["text"];
   }
 
   @override
@@ -232,90 +178,61 @@ class TextMessage extends ChatMessage {
   String get previewContent => _text;
 
   @override
-  String calcContentHash() {
-    return _hash(text);
-  }
+  Map<String, dynamic> get payload => {"text": _text};
 }
 
 class StateMessge extends ChatMessage {
   List<String> msgIds = [];
 
-  StateMessge(String chatId, String senderId,
-      [MessageState state = MessageState.other])
-      : super('', chatId, senderId, state, "state", MessageType.notification,
-            "system", false) {
-    _id = ChatMessage._getMsgId(senderId);
-  }
+  StateMessge(int chatId, String senderId,
+      [MessageState state = MessageState.other, int id = 0])
+      : super(
+          id,
+          chatId,
+          senderId,
+          state,
+          "state",
+          MessageType.notification,
+          "system",
+          false,
+        );
 
   @override
-  void fromRemoteBody(Map<String, dynamic> body) {
-    msgIds = (body["ids"] as List).map((e) => e.toString()).toList();
-    _state = stringToEnum(body["state"], MessageState.values);
-  }
-
-  @override
-  Map<String, dynamic> toRemoteBody() {
-    return {"ids": msgIds, "state": enumToString(state)};
-  }
+  Map<String, dynamic> get payload => {"msgIds": msgIds};
 }
 
 class CustomMessage extends ChatMessage {
   Map<String, dynamic> _rawbody = {};
 
-  CustomMessage.fromMap(Map<String, dynamic> map, {bool persistent = false})
-      : super.fromMap(map, persistent: persistent) {
-    if (persistent) {
-      final body = map["body"];
-      if (body != null) {
-        _rawbody = json.decode(body);
-      }
-    }
-  }
-
   CustomMessage.chatMessage(super.chatId, super.senderId, super.type);
 
   CustomMessage(super.id, super.chatId, super.senderId);
 
-  @override
-  Map<String, dynamic> toMap({bool persistent = false}) {
-    final map = super.toMap(persistent: persistent);
-    if (persistent) {
-      map["body"] = json.encode(_rawbody);
-    } else {
-      map["body"] = _rawbody;
-    }
-    return map;
+  CustomMessage.fromDb({
+    required super.id,
+    required super.channelId,
+    required super.senderId,
+    required super.state,
+    required super.type,
+    required super.ts,
+    required Map<String, dynamic> payload,
+  }) : super.fromDb() {
+    _rawbody = payload;
   }
 
   @override
-  void fromRemoteBody(Map<String, dynamic> body) {
-    _rawbody = body;
-  }
-
-  @override
-  Map<String, dynamic> toRemoteBody() {
-    return _rawbody;
-  }
+  Map<String, dynamic> get payload => _rawbody;
 }
 
 class TypingMessage extends ChatMessage {
   bool isTyping = false;
 
-  TypingMessage(String chatId, String senderId, this.isTyping)
-      : super('', chatId, senderId, MessageState.other, "typing",
-            MessageType.notification, "system", true) {
-    _id = ChatMessage._getMsgId(senderId);
-  }
+  TypingMessage(int chatId, String senderId, this.isTyping, {int id = 0})
+      : super(id, chatId, senderId, MessageState.other, "typing",
+            MessageType.notification, "system", true);
 
   @override
-  void fromRemoteBody(Map<String, dynamic> body) {
-    isTyping = body['typing'];
-  }
-
-  @override
-  Map<String, dynamic> toRemoteBody() {
-    return {"typing": isTyping};
-  }
+  Map<String, dynamic> get payload => {"isTyping": isTyping};
 }
 
 class MessageFilter {
@@ -328,4 +245,37 @@ class MessageFilter {
     this.state,
     this.senderId,
   });
+}
+
+ChatMessage buildChatMessage({
+  required int id,
+  required MessageType type,
+  required int channelId,
+  required String senderId,
+  required MessageState state,
+  required DateTime ts,
+  required Map<String, dynamic> payload,
+}) {
+  switch (type) {
+    case MessageType.text:
+      return TextMessage.fromDb(
+        id: id,
+        channelId: channelId,
+        senderId: senderId,
+        state: state,
+        type: type,
+        ts: ts,
+        payload: payload,
+      );
+    default:
+      return CustomMessage.fromDb(
+        id: id,
+        channelId: channelId,
+        senderId: senderId,
+        state: state,
+        type: type,
+        ts: ts,
+        payload: payload,
+      );
+  }
 }

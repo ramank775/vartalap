@@ -3,6 +3,449 @@
 part of 'chat_db.dart';
 
 // ignore_for_file: type=lint
+class $AssestsTable extends Assests with TableInfo<$AssestsTable, Assest> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AssestsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+      'type', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _pathMeta = const VerificationMeta('path');
+  @override
+  late final GeneratedColumn<String> path = GeneratedColumn<String>(
+      'path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+      'url', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _assetIdMeta =
+      const VerificationMeta('assetId');
+  @override
+  late final GeneratedColumn<String> assetId = GeneratedColumn<String>(
+      'asset_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _mimeTypeMeta =
+      const VerificationMeta('mimeType');
+  @override
+  late final GeneratedColumn<String> mimeType = GeneratedColumn<String>(
+      'mime_type', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  static const VerificationMeta _deletedAtMeta =
+      const VerificationMeta('deletedAt');
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+      'deleted_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, type, path, url, assetId, mimeType, createdAt, updatedAt, deletedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'assests';
+  @override
+  VerificationContext validateIntegrity(Insertable<Assest> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+          _typeMeta, type.isAcceptableOrUnknown(data['type']!, _typeMeta));
+    }
+    if (data.containsKey('path')) {
+      context.handle(
+          _pathMeta, path.isAcceptableOrUnknown(data['path']!, _pathMeta));
+    }
+    if (data.containsKey('url')) {
+      context.handle(
+          _urlMeta, url.isAcceptableOrUnknown(data['url']!, _urlMeta));
+    }
+    if (data.containsKey('asset_id')) {
+      context.handle(_assetIdMeta,
+          assetId.isAcceptableOrUnknown(data['asset_id']!, _assetIdMeta));
+    }
+    if (data.containsKey('mime_type')) {
+      context.handle(_mimeTypeMeta,
+          mimeType.isAcceptableOrUnknown(data['mime_type']!, _mimeTypeMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(_deletedAtMeta,
+          deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Assest map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Assest(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      type: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}type']),
+      path: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}path']),
+      url: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}url']),
+      assetId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}asset_id']),
+      mimeType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}mime_type']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+      deletedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}deleted_at']),
+    );
+  }
+
+  @override
+  $AssestsTable createAlias(String alias) {
+    return $AssestsTable(attachedDatabase, alias);
+  }
+}
+
+class Assest extends DataClass implements Insertable<Assest> {
+  final int id;
+  final String? type;
+  final String? path;
+  final String? url;
+  final String? assetId;
+  final String? mimeType;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? deletedAt;
+  const Assest(
+      {required this.id,
+      this.type,
+      this.path,
+      this.url,
+      this.assetId,
+      this.mimeType,
+      required this.createdAt,
+      required this.updatedAt,
+      this.deletedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || type != null) {
+      map['type'] = Variable<String>(type);
+    }
+    if (!nullToAbsent || path != null) {
+      map['path'] = Variable<String>(path);
+    }
+    if (!nullToAbsent || url != null) {
+      map['url'] = Variable<String>(url);
+    }
+    if (!nullToAbsent || assetId != null) {
+      map['asset_id'] = Variable<String>(assetId);
+    }
+    if (!nullToAbsent || mimeType != null) {
+      map['mime_type'] = Variable<String>(mimeType);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    return map;
+  }
+
+  AssestsCompanion toCompanion(bool nullToAbsent) {
+    return AssestsCompanion(
+      id: Value(id),
+      type: type == null && nullToAbsent ? const Value.absent() : Value(type),
+      path: path == null && nullToAbsent ? const Value.absent() : Value(path),
+      url: url == null && nullToAbsent ? const Value.absent() : Value(url),
+      assetId: assetId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(assetId),
+      mimeType: mimeType == null && nullToAbsent
+          ? const Value.absent()
+          : Value(mimeType),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+    );
+  }
+
+  factory Assest.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Assest(
+      id: serializer.fromJson<int>(json['id']),
+      type: serializer.fromJson<String?>(json['type']),
+      path: serializer.fromJson<String?>(json['path']),
+      url: serializer.fromJson<String?>(json['url']),
+      assetId: serializer.fromJson<String?>(json['assetId']),
+      mimeType: serializer.fromJson<String?>(json['mimeType']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'type': serializer.toJson<String?>(type),
+      'path': serializer.toJson<String?>(path),
+      'url': serializer.toJson<String?>(url),
+      'assetId': serializer.toJson<String?>(assetId),
+      'mimeType': serializer.toJson<String?>(mimeType),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+    };
+  }
+
+  Assest copyWith(
+          {int? id,
+          Value<String?> type = const Value.absent(),
+          Value<String?> path = const Value.absent(),
+          Value<String?> url = const Value.absent(),
+          Value<String?> assetId = const Value.absent(),
+          Value<String?> mimeType = const Value.absent(),
+          DateTime? createdAt,
+          DateTime? updatedAt,
+          Value<DateTime?> deletedAt = const Value.absent()}) =>
+      Assest(
+        id: id ?? this.id,
+        type: type.present ? type.value : this.type,
+        path: path.present ? path.value : this.path,
+        url: url.present ? url.value : this.url,
+        assetId: assetId.present ? assetId.value : this.assetId,
+        mimeType: mimeType.present ? mimeType.value : this.mimeType,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+      );
+  Assest copyWithCompanion(AssestsCompanion data) {
+    return Assest(
+      id: data.id.present ? data.id.value : this.id,
+      type: data.type.present ? data.type.value : this.type,
+      path: data.path.present ? data.path.value : this.path,
+      url: data.url.present ? data.url.value : this.url,
+      assetId: data.assetId.present ? data.assetId.value : this.assetId,
+      mimeType: data.mimeType.present ? data.mimeType.value : this.mimeType,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Assest(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('path: $path, ')
+          ..write('url: $url, ')
+          ..write('assetId: $assetId, ')
+          ..write('mimeType: $mimeType, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id, type, path, url, assetId, mimeType, createdAt, updatedAt, deletedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Assest &&
+          other.id == this.id &&
+          other.type == this.type &&
+          other.path == this.path &&
+          other.url == this.url &&
+          other.assetId == this.assetId &&
+          other.mimeType == this.mimeType &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.deletedAt == this.deletedAt);
+}
+
+class AssestsCompanion extends UpdateCompanion<Assest> {
+  final Value<int> id;
+  final Value<String?> type;
+  final Value<String?> path;
+  final Value<String?> url;
+  final Value<String?> assetId;
+  final Value<String?> mimeType;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<DateTime?> deletedAt;
+  const AssestsCompanion({
+    this.id = const Value.absent(),
+    this.type = const Value.absent(),
+    this.path = const Value.absent(),
+    this.url = const Value.absent(),
+    this.assetId = const Value.absent(),
+    this.mimeType = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+  });
+  AssestsCompanion.insert({
+    this.id = const Value.absent(),
+    this.type = const Value.absent(),
+    this.path = const Value.absent(),
+    this.url = const Value.absent(),
+    this.assetId = const Value.absent(),
+    this.mimeType = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+  });
+  static Insertable<Assest> custom({
+    Expression<int>? id,
+    Expression<String>? type,
+    Expression<String>? path,
+    Expression<String>? url,
+    Expression<String>? assetId,
+    Expression<String>? mimeType,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? deletedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (type != null) 'type': type,
+      if (path != null) 'path': path,
+      if (url != null) 'url': url,
+      if (assetId != null) 'asset_id': assetId,
+      if (mimeType != null) 'mime_type': mimeType,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+    });
+  }
+
+  AssestsCompanion copyWith(
+      {Value<int>? id,
+      Value<String?>? type,
+      Value<String?>? path,
+      Value<String?>? url,
+      Value<String?>? assetId,
+      Value<String?>? mimeType,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt,
+      Value<DateTime?>? deletedAt}) {
+    return AssestsCompanion(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      path: path ?? this.path,
+      url: url ?? this.url,
+      assetId: assetId ?? this.assetId,
+      mimeType: mimeType ?? this.mimeType,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: deletedAt ?? this.deletedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (path.present) {
+      map['path'] = Variable<String>(path.value);
+    }
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (assetId.present) {
+      map['asset_id'] = Variable<String>(assetId.value);
+    }
+    if (mimeType.present) {
+      map['mime_type'] = Variable<String>(mimeType.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AssestsCompanion(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('path: $path, ')
+          ..write('url: $url, ')
+          ..write('assetId: $assetId, ')
+          ..write('mimeType: $mimeType, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ChannelsTable extends Channels
     with TableInfo<$ChannelsTable, ChannelEntity> {
   @override
@@ -18,7 +461,6 @@ class $ChannelsTable extends Channels
       requiredDuringInsert: false,
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
-  static const VerificationMeta _typeMeta = const VerificationMeta('type');
   @override
   late final GeneratedColumnWithTypeConverter<ChannelType, String> type =
       GeneratedColumn<String>('type', aliasedName, false,
@@ -34,15 +476,12 @@ class $ChannelsTable extends Channels
   late final GeneratedColumn<int> taskId = GeneratedColumn<int>(
       'task_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
-  static const VerificationMeta _extraDataMeta =
-      const VerificationMeta('extraData');
   @override
   late final GeneratedColumnWithTypeConverter<Map<String, dynamic>?, String>
       extraData = GeneratedColumn<String>('extra_data', aliasedName, true,
               type: DriftSqlType.string, requiredDuringInsert: false)
           .withConverter<Map<String, dynamic>?>(
               $ChannelsTable.$converterextraData);
-  static const VerificationMeta _configMeta = const VerificationMeta('config');
   @override
   late final GeneratedColumnWithTypeConverter<Map<String, dynamic>, String>
       config = GeneratedColumn<String>('config', aliasedName, false,
@@ -107,7 +546,6 @@ class $ChannelsTable extends Channels
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
-    context.handle(_typeMeta, const VerificationResult.success());
     if (data.containsKey('cid')) {
       context.handle(
           _cidMeta, cid.isAcceptableOrUnknown(data['cid']!, _cidMeta));
@@ -116,8 +554,6 @@ class $ChannelsTable extends Channels
       context.handle(_taskIdMeta,
           taskId.isAcceptableOrUnknown(data['task_id']!, _taskIdMeta));
     }
-    context.handle(_extraDataMeta, const VerificationResult.success());
-    context.handle(_configMeta, const VerificationResult.success());
     if (data.containsKey('muted')) {
       context.handle(
           _mutedMeta, muted.isAcceptableOrUnknown(data['muted']!, _mutedMeta));
@@ -551,15 +987,12 @@ class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
   late final GeneratedColumn<String> photo = GeneratedColumn<String>(
       'photo', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _extraDataMeta =
-      const VerificationMeta('extraData');
   @override
   late final GeneratedColumnWithTypeConverter<Map<String, dynamic>?, String>
       extraData = GeneratedColumn<String>('extra_data', aliasedName, true,
               type: DriftSqlType.string, requiredDuringInsert: false)
           .withConverter<Map<String, dynamic>?>(
               $ContactsTable.$converterextraData);
-  static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
   late final GeneratedColumnWithTypeConverter<ContactStatus, String> status =
       GeneratedColumn<String>('status', aliasedName, false,
@@ -607,8 +1040,6 @@ class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
     } else if (isInserting) {
       context.missing(_photoMeta);
     }
-    context.handle(_extraDataMeta, const VerificationResult.success());
-    context.handle(_statusMeta, const VerificationResult.success());
     return context;
   }
 
@@ -617,7 +1048,7 @@ class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
   @override
   Contact map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Contact(
+    return Contact.fromDb(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       username: attachedDatabase.typeMapping
@@ -650,180 +1081,6 @@ class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
       NullableMapConverter();
   static JsonTypeConverter2<ContactStatus, String, String> $converterstatus =
       const EnumNameConverter<ContactStatus>(ContactStatus.values);
-}
-
-class Contact extends DataClass implements Insertable<Contact> {
-  final int id;
-  final String? username;
-  final String? uid;
-  final String? phone;
-  final String? name;
-  final Uint8List? thumbnail;
-  final String photo;
-  final Map<String, dynamic>? extraData;
-  final ContactStatus status;
-  const Contact(
-      {required this.id,
-      this.username,
-      this.uid,
-      this.phone,
-      this.name,
-      this.thumbnail,
-      required this.photo,
-      this.extraData,
-      required this.status});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    if (!nullToAbsent || username != null) {
-      map['username'] = Variable<String>(username);
-    }
-    if (!nullToAbsent || uid != null) {
-      map['uid'] = Variable<String>(uid);
-    }
-    if (!nullToAbsent || phone != null) {
-      map['phone'] = Variable<String>(phone);
-    }
-    if (!nullToAbsent || name != null) {
-      map['name'] = Variable<String>(name);
-    }
-    if (!nullToAbsent || thumbnail != null) {
-      map['thumbnail'] = Variable<Uint8List>(thumbnail);
-    }
-    map['photo'] = Variable<String>(photo);
-    if (!nullToAbsent || extraData != null) {
-      map['extra_data'] =
-          Variable<String>($ContactsTable.$converterextraData.toSql(extraData));
-    }
-    {
-      map['status'] =
-          Variable<String>($ContactsTable.$converterstatus.toSql(status));
-    }
-    return map;
-  }
-
-  ContactsCompanion toCompanion(bool nullToAbsent) {
-    return ContactsCompanion(
-      id: Value(id),
-      username: username == null && nullToAbsent
-          ? const Value.absent()
-          : Value(username),
-      uid: uid == null && nullToAbsent ? const Value.absent() : Value(uid),
-      phone:
-          phone == null && nullToAbsent ? const Value.absent() : Value(phone),
-      name: name == null && nullToAbsent ? const Value.absent() : Value(name),
-      thumbnail: thumbnail == null && nullToAbsent
-          ? const Value.absent()
-          : Value(thumbnail),
-      photo: Value(photo),
-      extraData: extraData == null && nullToAbsent
-          ? const Value.absent()
-          : Value(extraData),
-      status: Value(status),
-    );
-  }
-
-  factory Contact.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Contact(
-      id: serializer.fromJson<int>(json['id']),
-      username: serializer.fromJson<String?>(json['username']),
-      uid: serializer.fromJson<String?>(json['uid']),
-      phone: serializer.fromJson<String?>(json['phone']),
-      name: serializer.fromJson<String?>(json['name']),
-      thumbnail: serializer.fromJson<Uint8List?>(json['thumbnail']),
-      photo: serializer.fromJson<String>(json['photo']),
-      extraData: serializer.fromJson<Map<String, dynamic>?>(json['extraData']),
-      status: $ContactsTable.$converterstatus
-          .fromJson(serializer.fromJson<String>(json['status'])),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'username': serializer.toJson<String?>(username),
-      'uid': serializer.toJson<String?>(uid),
-      'phone': serializer.toJson<String?>(phone),
-      'name': serializer.toJson<String?>(name),
-      'thumbnail': serializer.toJson<Uint8List?>(thumbnail),
-      'photo': serializer.toJson<String>(photo),
-      'extraData': serializer.toJson<Map<String, dynamic>?>(extraData),
-      'status': serializer
-          .toJson<String>($ContactsTable.$converterstatus.toJson(status)),
-    };
-  }
-
-  Contact copyWith(
-          {int? id,
-          Value<String?> username = const Value.absent(),
-          Value<String?> uid = const Value.absent(),
-          Value<String?> phone = const Value.absent(),
-          Value<String?> name = const Value.absent(),
-          Value<Uint8List?> thumbnail = const Value.absent(),
-          String? photo,
-          Value<Map<String, dynamic>?> extraData = const Value.absent(),
-          ContactStatus? status}) =>
-      Contact(
-        id: id ?? this.id,
-        username: username.present ? username.value : this.username,
-        uid: uid.present ? uid.value : this.uid,
-        phone: phone.present ? phone.value : this.phone,
-        name: name.present ? name.value : this.name,
-        thumbnail: thumbnail.present ? thumbnail.value : this.thumbnail,
-        photo: photo ?? this.photo,
-        extraData: extraData.present ? extraData.value : this.extraData,
-        status: status ?? this.status,
-      );
-  Contact copyWithCompanion(ContactsCompanion data) {
-    return Contact(
-      id: data.id.present ? data.id.value : this.id,
-      username: data.username.present ? data.username.value : this.username,
-      uid: data.uid.present ? data.uid.value : this.uid,
-      phone: data.phone.present ? data.phone.value : this.phone,
-      name: data.name.present ? data.name.value : this.name,
-      thumbnail: data.thumbnail.present ? data.thumbnail.value : this.thumbnail,
-      photo: data.photo.present ? data.photo.value : this.photo,
-      extraData: data.extraData.present ? data.extraData.value : this.extraData,
-      status: data.status.present ? data.status.value : this.status,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('Contact(')
-          ..write('id: $id, ')
-          ..write('username: $username, ')
-          ..write('uid: $uid, ')
-          ..write('phone: $phone, ')
-          ..write('name: $name, ')
-          ..write('thumbnail: $thumbnail, ')
-          ..write('photo: $photo, ')
-          ..write('extraData: $extraData, ')
-          ..write('status: $status')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(id, username, uid, phone, name,
-      $driftBlobEquality.hash(thumbnail), photo, extraData, status);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is Contact &&
-          other.id == this.id &&
-          other.username == this.username &&
-          other.uid == this.uid &&
-          other.phone == this.phone &&
-          other.name == this.name &&
-          $driftBlobEquality.equals(other.thumbnail, this.thumbnail) &&
-          other.photo == this.photo &&
-          other.extraData == this.extraData &&
-          other.status == this.status);
 }
 
 class ContactsCompanion extends UpdateCompanion<Contact> {
@@ -967,12 +1224,12 @@ class $MembersTable extends Members
   static const VerificationMeta _memberIdMeta =
       const VerificationMeta('memberId');
   @override
-  late final GeneratedColumn<String> memberId = GeneratedColumn<String>(
+  late final GeneratedColumn<int> memberId = GeneratedColumn<int>(
       'member_id', aliasedName, false,
-      type: DriftSqlType.string,
+      type: DriftSqlType.int,
       requiredDuringInsert: true,
       defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'REFERENCES contacts (username) ON UPDATE CASCADE'));
+          'REFERENCES contacts (id) ON UPDATE CASCADE'));
   static const VerificationMeta _channelIdMeta =
       const VerificationMeta('channelId');
   @override
@@ -987,11 +1244,10 @@ class $MembersTable extends Members
   late final GeneratedColumn<String> role = GeneratedColumn<String>(
       'role', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
-  static const VerificationMeta _createdAtMeta =
-      const VerificationMeta('createdAt');
+  static const VerificationMeta _sinceMeta = const VerificationMeta('since');
   @override
-  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
-      'created_at', aliasedName, false,
+  late final GeneratedColumn<DateTime> since = GeneratedColumn<DateTime>(
+      'since', aliasedName, false,
       type: DriftSqlType.dateTime,
       requiredDuringInsert: false,
       defaultValue: currentDateAndTime);
@@ -1011,7 +1267,7 @@ class $MembersTable extends Members
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns =>
-      [memberId, channelId, role, createdAt, updatedAt, deletedAt];
+      [memberId, channelId, role, since, updatedAt, deletedAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1038,9 +1294,9 @@ class $MembersTable extends Members
       context.handle(
           _roleMeta, role.isAcceptableOrUnknown(data['role']!, _roleMeta));
     }
-    if (data.containsKey('created_at')) {
-      context.handle(_createdAtMeta,
-          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    if (data.containsKey('since')) {
+      context.handle(
+          _sinceMeta, since.isAcceptableOrUnknown(data['since']!, _sinceMeta));
     }
     if (data.containsKey('updated_at')) {
       context.handle(_updatedAtMeta,
@@ -1060,13 +1316,13 @@ class $MembersTable extends Members
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return MemberEntity(
       memberId: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}member_id'])!,
+          .read(DriftSqlType.int, data['${effectivePrefix}member_id'])!,
       channelId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}channel_id'])!,
       role: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}role']),
-      createdAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      since: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}since'])!,
       updatedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
       deletedAt: attachedDatabase.typeMapping
@@ -1081,28 +1337,28 @@ class $MembersTable extends Members
 }
 
 class MemberEntity extends DataClass implements Insertable<MemberEntity> {
-  final String memberId;
+  final int memberId;
   final int channelId;
   final String? role;
-  final DateTime createdAt;
+  final DateTime since;
   final DateTime updatedAt;
   final DateTime? deletedAt;
   const MemberEntity(
       {required this.memberId,
       required this.channelId,
       this.role,
-      required this.createdAt,
+      required this.since,
       required this.updatedAt,
       this.deletedAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    map['member_id'] = Variable<String>(memberId);
+    map['member_id'] = Variable<int>(memberId);
     map['channel_id'] = Variable<int>(channelId);
     if (!nullToAbsent || role != null) {
       map['role'] = Variable<String>(role);
     }
-    map['created_at'] = Variable<DateTime>(createdAt);
+    map['since'] = Variable<DateTime>(since);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
@@ -1115,7 +1371,7 @@ class MemberEntity extends DataClass implements Insertable<MemberEntity> {
       memberId: Value(memberId),
       channelId: Value(channelId),
       role: role == null && nullToAbsent ? const Value.absent() : Value(role),
-      createdAt: Value(createdAt),
+      since: Value(since),
       updatedAt: Value(updatedAt),
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
@@ -1127,10 +1383,10 @@ class MemberEntity extends DataClass implements Insertable<MemberEntity> {
       {ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return MemberEntity(
-      memberId: serializer.fromJson<String>(json['memberId']),
+      memberId: serializer.fromJson<int>(json['memberId']),
       channelId: serializer.fromJson<int>(json['channelId']),
       role: serializer.fromJson<String?>(json['role']),
-      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      since: serializer.fromJson<DateTime>(json['since']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
     );
@@ -1139,27 +1395,27 @@ class MemberEntity extends DataClass implements Insertable<MemberEntity> {
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
-      'memberId': serializer.toJson<String>(memberId),
+      'memberId': serializer.toJson<int>(memberId),
       'channelId': serializer.toJson<int>(channelId),
       'role': serializer.toJson<String?>(role),
-      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'since': serializer.toJson<DateTime>(since),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
     };
   }
 
   MemberEntity copyWith(
-          {String? memberId,
+          {int? memberId,
           int? channelId,
           Value<String?> role = const Value.absent(),
-          DateTime? createdAt,
+          DateTime? since,
           DateTime? updatedAt,
           Value<DateTime?> deletedAt = const Value.absent()}) =>
       MemberEntity(
         memberId: memberId ?? this.memberId,
         channelId: channelId ?? this.channelId,
         role: role.present ? role.value : this.role,
-        createdAt: createdAt ?? this.createdAt,
+        since: since ?? this.since,
         updatedAt: updatedAt ?? this.updatedAt,
         deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
       );
@@ -1168,7 +1424,7 @@ class MemberEntity extends DataClass implements Insertable<MemberEntity> {
       memberId: data.memberId.present ? data.memberId.value : this.memberId,
       channelId: data.channelId.present ? data.channelId.value : this.channelId,
       role: data.role.present ? data.role.value : this.role,
-      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      since: data.since.present ? data.since.value : this.since,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
@@ -1180,7 +1436,7 @@ class MemberEntity extends DataClass implements Insertable<MemberEntity> {
           ..write('memberId: $memberId, ')
           ..write('channelId: $channelId, ')
           ..write('role: $role, ')
-          ..write('createdAt: $createdAt, ')
+          ..write('since: $since, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt')
           ..write(')'))
@@ -1189,7 +1445,7 @@ class MemberEntity extends DataClass implements Insertable<MemberEntity> {
 
   @override
   int get hashCode =>
-      Object.hash(memberId, channelId, role, createdAt, updatedAt, deletedAt);
+      Object.hash(memberId, channelId, role, since, updatedAt, deletedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1197,16 +1453,16 @@ class MemberEntity extends DataClass implements Insertable<MemberEntity> {
           other.memberId == this.memberId &&
           other.channelId == this.channelId &&
           other.role == this.role &&
-          other.createdAt == this.createdAt &&
+          other.since == this.since &&
           other.updatedAt == this.updatedAt &&
           other.deletedAt == this.deletedAt);
 }
 
 class MembersCompanion extends UpdateCompanion<MemberEntity> {
-  final Value<String> memberId;
+  final Value<int> memberId;
   final Value<int> channelId;
   final Value<String?> role;
-  final Value<DateTime> createdAt;
+  final Value<DateTime> since;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
   final Value<int> rowid;
@@ -1214,26 +1470,26 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
     this.memberId = const Value.absent(),
     this.channelId = const Value.absent(),
     this.role = const Value.absent(),
-    this.createdAt = const Value.absent(),
+    this.since = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MembersCompanion.insert({
-    required String memberId,
+    required int memberId,
     required int channelId,
     this.role = const Value.absent(),
-    this.createdAt = const Value.absent(),
+    this.since = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : memberId = Value(memberId),
         channelId = Value(channelId);
   static Insertable<MemberEntity> custom({
-    Expression<String>? memberId,
+    Expression<int>? memberId,
     Expression<int>? channelId,
     Expression<String>? role,
-    Expression<DateTime>? createdAt,
+    Expression<DateTime>? since,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
     Expression<int>? rowid,
@@ -1242,7 +1498,7 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
       if (memberId != null) 'member_id': memberId,
       if (channelId != null) 'channel_id': channelId,
       if (role != null) 'role': role,
-      if (createdAt != null) 'created_at': createdAt,
+      if (since != null) 'since': since,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
       if (rowid != null) 'rowid': rowid,
@@ -1250,10 +1506,10 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
   }
 
   MembersCompanion copyWith(
-      {Value<String>? memberId,
+      {Value<int>? memberId,
       Value<int>? channelId,
       Value<String?>? role,
-      Value<DateTime>? createdAt,
+      Value<DateTime>? since,
       Value<DateTime>? updatedAt,
       Value<DateTime?>? deletedAt,
       Value<int>? rowid}) {
@@ -1261,7 +1517,7 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
       memberId: memberId ?? this.memberId,
       channelId: channelId ?? this.channelId,
       role: role ?? this.role,
-      createdAt: createdAt ?? this.createdAt,
+      since: since ?? this.since,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
       rowid: rowid ?? this.rowid,
@@ -1272,7 +1528,7 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     if (memberId.present) {
-      map['member_id'] = Variable<String>(memberId.value);
+      map['member_id'] = Variable<int>(memberId.value);
     }
     if (channelId.present) {
       map['channel_id'] = Variable<int>(channelId.value);
@@ -1280,8 +1536,8 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
     if (role.present) {
       map['role'] = Variable<String>(role.value);
     }
-    if (createdAt.present) {
-      map['created_at'] = Variable<DateTime>(createdAt.value);
+    if (since.present) {
+      map['since'] = Variable<DateTime>(since.value);
     }
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
@@ -1301,7 +1557,7 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
           ..write('memberId: $memberId, ')
           ..write('channelId: $channelId, ')
           ..write('role: $role, ')
-          ..write('createdAt: $createdAt, ')
+          ..write('since: $since, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('rowid: $rowid')
@@ -1317,21 +1573,24 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   $MessagesTable(this.attachedDatabase, [this._alias]);
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
-  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
       'id', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _ridMeta = const VerificationMeta('rid');
   @override
-  late final GeneratedColumn<String> type = GeneratedColumn<String>(
-      'type', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  late final GeneratedColumn<String> rid = GeneratedColumn<String>(
+      'rid', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
-  late final GeneratedColumn<String> state = GeneratedColumn<String>(
-      'state', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _payloadMeta =
-      const VerificationMeta('payload');
+  late final GeneratedColumnWithTypeConverter<MessageType, String> type =
+      GeneratedColumn<String>('type', aliasedName, false,
+              type: DriftSqlType.string, requiredDuringInsert: true)
+          .withConverter<MessageType>($MessagesTable.$convertertype);
+  @override
+  late final GeneratedColumnWithTypeConverter<MessageState, String> state =
+      GeneratedColumn<String>('state', aliasedName, false,
+              type: DriftSqlType.string, requiredDuringInsert: true)
+          .withConverter<MessageState>($MessagesTable.$converterstate);
   @override
   late final GeneratedColumnWithTypeConverter<Map<String, dynamic>, String>
       payload = GeneratedColumn<String>('payload', aliasedName, false,
@@ -1368,6 +1627,7 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   @override
   List<GeneratedColumn> get $columns => [
         id,
+        rid,
         type,
         state,
         payload,
@@ -1388,22 +1648,11 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
     final data = instance.toColumns(true);
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
-    } else if (isInserting) {
-      context.missing(_idMeta);
     }
-    if (data.containsKey('type')) {
+    if (data.containsKey('rid')) {
       context.handle(
-          _typeMeta, type.isAcceptableOrUnknown(data['type']!, _typeMeta));
-    } else if (isInserting) {
-      context.missing(_typeMeta);
+          _ridMeta, rid.isAcceptableOrUnknown(data['rid']!, _ridMeta));
     }
-    if (data.containsKey('state')) {
-      context.handle(
-          _stateMeta, state.isAcceptableOrUnknown(data['state']!, _stateMeta));
-    } else if (isInserting) {
-      context.missing(_stateMeta);
-    }
-    context.handle(_payloadMeta, const VerificationResult.success());
     if (data.containsKey('channel_id')) {
       context.handle(_channelIdMeta,
           channelId.isAcceptableOrUnknown(data['channel_id']!, _channelIdMeta));
@@ -1438,11 +1687,13 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return Message(
       id: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
-      type: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}type'])!,
-      state: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}state'])!,
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      rid: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}rid']),
+      type: $MessagesTable.$convertertype.fromSql(attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}type'])!),
+      state: $MessagesTable.$converterstate.fromSql(attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}state'])!),
       payload: $MessagesTable.$converterpayload.fromSql(attachedDatabase
           .typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}payload'])!),
@@ -1462,14 +1713,19 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
     return $MessagesTable(attachedDatabase, alias);
   }
 
+  static JsonTypeConverter2<MessageType, String, String> $convertertype =
+      const EnumNameConverter<MessageType>(MessageType.values);
+  static JsonTypeConverter2<MessageState, String, String> $converterstate =
+      const EnumNameConverter<MessageState>(MessageState.values);
   static TypeConverter<Map<String, dynamic>, String> $converterpayload =
       MapConverter();
 }
 
 class Message extends DataClass implements Insertable<Message> {
-  final String id;
-  final String type;
-  final String state;
+  final int id;
+  final String? rid;
+  final MessageType type;
+  final MessageState state;
   final Map<String, dynamic> payload;
   final int channelId;
   final String senderId;
@@ -1477,6 +1733,7 @@ class Message extends DataClass implements Insertable<Message> {
   final DateTime? remoteCreatedAt;
   const Message(
       {required this.id,
+      this.rid,
       required this.type,
       required this.state,
       required this.payload,
@@ -1487,9 +1744,17 @@ class Message extends DataClass implements Insertable<Message> {
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    map['id'] = Variable<String>(id);
-    map['type'] = Variable<String>(type);
-    map['state'] = Variable<String>(state);
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || rid != null) {
+      map['rid'] = Variable<String>(rid);
+    }
+    {
+      map['type'] = Variable<String>($MessagesTable.$convertertype.toSql(type));
+    }
+    {
+      map['state'] =
+          Variable<String>($MessagesTable.$converterstate.toSql(state));
+    }
     {
       map['payload'] =
           Variable<String>($MessagesTable.$converterpayload.toSql(payload));
@@ -1508,6 +1773,7 @@ class Message extends DataClass implements Insertable<Message> {
   MessagesCompanion toCompanion(bool nullToAbsent) {
     return MessagesCompanion(
       id: Value(id),
+      rid: rid == null && nullToAbsent ? const Value.absent() : Value(rid),
       type: Value(type),
       state: Value(state),
       payload: Value(payload),
@@ -1526,9 +1792,12 @@ class Message extends DataClass implements Insertable<Message> {
       {ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return Message(
-      id: serializer.fromJson<String>(json['id']),
-      type: serializer.fromJson<String>(json['type']),
-      state: serializer.fromJson<String>(json['state']),
+      id: serializer.fromJson<int>(json['id']),
+      rid: serializer.fromJson<String?>(json['rid']),
+      type: $MessagesTable.$convertertype
+          .fromJson(serializer.fromJson<String>(json['type'])),
+      state: $MessagesTable.$converterstate
+          .fromJson(serializer.fromJson<String>(json['state'])),
       payload: serializer.fromJson<Map<String, dynamic>>(json['payload']),
       channelId: serializer.fromJson<int>(json['channelId']),
       senderId: serializer.fromJson<String>(json['senderId']),
@@ -1540,9 +1809,12 @@ class Message extends DataClass implements Insertable<Message> {
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
-      'id': serializer.toJson<String>(id),
-      'type': serializer.toJson<String>(type),
-      'state': serializer.toJson<String>(state),
+      'id': serializer.toJson<int>(id),
+      'rid': serializer.toJson<String?>(rid),
+      'type':
+          serializer.toJson<String>($MessagesTable.$convertertype.toJson(type)),
+      'state': serializer
+          .toJson<String>($MessagesTable.$converterstate.toJson(state)),
       'payload': serializer.toJson<Map<String, dynamic>>(payload),
       'channelId': serializer.toJson<int>(channelId),
       'senderId': serializer.toJson<String>(senderId),
@@ -1552,9 +1824,10 @@ class Message extends DataClass implements Insertable<Message> {
   }
 
   Message copyWith(
-          {String? id,
-          String? type,
-          String? state,
+          {int? id,
+          Value<String?> rid = const Value.absent(),
+          MessageType? type,
+          MessageState? state,
           Map<String, dynamic>? payload,
           int? channelId,
           String? senderId,
@@ -1562,6 +1835,7 @@ class Message extends DataClass implements Insertable<Message> {
           Value<DateTime?> remoteCreatedAt = const Value.absent()}) =>
       Message(
         id: id ?? this.id,
+        rid: rid.present ? rid.value : this.rid,
         type: type ?? this.type,
         state: state ?? this.state,
         payload: payload ?? this.payload,
@@ -1576,6 +1850,7 @@ class Message extends DataClass implements Insertable<Message> {
   Message copyWithCompanion(MessagesCompanion data) {
     return Message(
       id: data.id.present ? data.id.value : this.id,
+      rid: data.rid.present ? data.rid.value : this.rid,
       type: data.type.present ? data.type.value : this.type,
       state: data.state.present ? data.state.value : this.state,
       payload: data.payload.present ? data.payload.value : this.payload,
@@ -1594,6 +1869,7 @@ class Message extends DataClass implements Insertable<Message> {
   String toString() {
     return (StringBuffer('Message(')
           ..write('id: $id, ')
+          ..write('rid: $rid, ')
           ..write('type: $type, ')
           ..write('state: $state, ')
           ..write('payload: $payload, ')
@@ -1606,13 +1882,14 @@ class Message extends DataClass implements Insertable<Message> {
   }
 
   @override
-  int get hashCode => Object.hash(id, type, state, payload, channelId, senderId,
-      localCreatedAt, remoteCreatedAt);
+  int get hashCode => Object.hash(id, rid, type, state, payload, channelId,
+      senderId, localCreatedAt, remoteCreatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Message &&
           other.id == this.id &&
+          other.rid == this.rid &&
           other.type == this.type &&
           other.state == this.state &&
           other.payload == this.payload &&
@@ -1623,17 +1900,18 @@ class Message extends DataClass implements Insertable<Message> {
 }
 
 class MessagesCompanion extends UpdateCompanion<Message> {
-  final Value<String> id;
-  final Value<String> type;
-  final Value<String> state;
+  final Value<int> id;
+  final Value<String?> rid;
+  final Value<MessageType> type;
+  final Value<MessageState> state;
   final Value<Map<String, dynamic>> payload;
   final Value<int> channelId;
   final Value<String> senderId;
   final Value<DateTime?> localCreatedAt;
   final Value<DateTime?> remoteCreatedAt;
-  final Value<int> rowid;
   const MessagesCompanion({
     this.id = const Value.absent(),
+    this.rid = const Value.absent(),
     this.type = const Value.absent(),
     this.state = const Value.absent(),
     this.payload = const Value.absent(),
@@ -1641,26 +1919,25 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.senderId = const Value.absent(),
     this.localCreatedAt = const Value.absent(),
     this.remoteCreatedAt = const Value.absent(),
-    this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
-    required String id,
-    required String type,
-    required String state,
+    this.id = const Value.absent(),
+    this.rid = const Value.absent(),
+    required MessageType type,
+    required MessageState state,
     required Map<String, dynamic> payload,
     required int channelId,
     required String senderId,
     this.localCreatedAt = const Value.absent(),
     this.remoteCreatedAt = const Value.absent(),
-    this.rowid = const Value.absent(),
-  })  : id = Value(id),
-        type = Value(type),
+  })  : type = Value(type),
         state = Value(state),
         payload = Value(payload),
         channelId = Value(channelId),
         senderId = Value(senderId);
   static Insertable<Message> custom({
-    Expression<String>? id,
+    Expression<int>? id,
+    Expression<String>? rid,
     Expression<String>? type,
     Expression<String>? state,
     Expression<String>? payload,
@@ -1668,10 +1945,10 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     Expression<String>? senderId,
     Expression<DateTime>? localCreatedAt,
     Expression<DateTime>? remoteCreatedAt,
-    Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (rid != null) 'rid': rid,
       if (type != null) 'type': type,
       if (state != null) 'state': state,
       if (payload != null) 'payload': payload,
@@ -1679,22 +1956,22 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       if (senderId != null) 'sender_id': senderId,
       if (localCreatedAt != null) 'local_created_at': localCreatedAt,
       if (remoteCreatedAt != null) 'remote_created_at': remoteCreatedAt,
-      if (rowid != null) 'rowid': rowid,
     });
   }
 
   MessagesCompanion copyWith(
-      {Value<String>? id,
-      Value<String>? type,
-      Value<String>? state,
+      {Value<int>? id,
+      Value<String?>? rid,
+      Value<MessageType>? type,
+      Value<MessageState>? state,
       Value<Map<String, dynamic>>? payload,
       Value<int>? channelId,
       Value<String>? senderId,
       Value<DateTime?>? localCreatedAt,
-      Value<DateTime?>? remoteCreatedAt,
-      Value<int>? rowid}) {
+      Value<DateTime?>? remoteCreatedAt}) {
     return MessagesCompanion(
       id: id ?? this.id,
+      rid: rid ?? this.rid,
       type: type ?? this.type,
       state: state ?? this.state,
       payload: payload ?? this.payload,
@@ -1702,7 +1979,6 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       senderId: senderId ?? this.senderId,
       localCreatedAt: localCreatedAt ?? this.localCreatedAt,
       remoteCreatedAt: remoteCreatedAt ?? this.remoteCreatedAt,
-      rowid: rowid ?? this.rowid,
     );
   }
 
@@ -1710,13 +1986,18 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     if (id.present) {
-      map['id'] = Variable<String>(id.value);
+      map['id'] = Variable<int>(id.value);
+    }
+    if (rid.present) {
+      map['rid'] = Variable<String>(rid.value);
     }
     if (type.present) {
-      map['type'] = Variable<String>(type.value);
+      map['type'] =
+          Variable<String>($MessagesTable.$convertertype.toSql(type.value));
     }
     if (state.present) {
-      map['state'] = Variable<String>(state.value);
+      map['state'] =
+          Variable<String>($MessagesTable.$converterstate.toSql(state.value));
     }
     if (payload.present) {
       map['payload'] = Variable<String>(
@@ -1734,9 +2015,6 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     if (remoteCreatedAt.present) {
       map['remote_created_at'] = Variable<DateTime>(remoteCreatedAt.value);
     }
-    if (rowid.present) {
-      map['rowid'] = Variable<int>(rowid.value);
-    }
     return map;
   }
 
@@ -1744,14 +2022,14 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   String toString() {
     return (StringBuffer('MessagesCompanion(')
           ..write('id: $id, ')
+          ..write('rid: $rid, ')
           ..write('type: $type, ')
           ..write('state: $state, ')
           ..write('payload: $payload, ')
           ..write('channelId: $channelId, ')
           ..write('senderId: $senderId, ')
           ..write('localCreatedAt: $localCreatedAt, ')
-          ..write('remoteCreatedAt: $remoteCreatedAt, ')
-          ..write('rowid: $rowid')
+          ..write('remoteCreatedAt: $remoteCreatedAt')
           ..write(')'))
         .toString();
   }
@@ -1760,6 +2038,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
 abstract class _$ChatDatabase extends GeneratedDatabase {
   _$ChatDatabase(QueryExecutor e) : super(e);
   $ChatDatabaseManager get managers => $ChatDatabaseManager(this);
+  late final $AssestsTable assests = $AssestsTable(this);
   late final $ChannelsTable channels = $ChannelsTable(this);
   late final $ContactsTable contacts = $ContactsTable(this);
   late final $MembersTable members = $MembersTable(this);
@@ -1769,7 +2048,7 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [channels, contacts, members, messages];
+      [assests, channels, contacts, members, messages];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
         [
@@ -1798,6 +2077,225 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
       );
 }
 
+typedef $$AssestsTableCreateCompanionBuilder = AssestsCompanion Function({
+  Value<int> id,
+  Value<String?> type,
+  Value<String?> path,
+  Value<String?> url,
+  Value<String?> assetId,
+  Value<String?> mimeType,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<DateTime?> deletedAt,
+});
+typedef $$AssestsTableUpdateCompanionBuilder = AssestsCompanion Function({
+  Value<int> id,
+  Value<String?> type,
+  Value<String?> path,
+  Value<String?> url,
+  Value<String?> assetId,
+  Value<String?> mimeType,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<DateTime?> deletedAt,
+});
+
+class $$AssestsTableFilterComposer
+    extends Composer<_$ChatDatabase, $AssestsTable> {
+  $$AssestsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get path => $composableBuilder(
+      column: $table.path, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get url => $composableBuilder(
+      column: $table.url, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get assetId => $composableBuilder(
+      column: $table.assetId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get mimeType => $composableBuilder(
+      column: $table.mimeType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+      column: $table.deletedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$AssestsTableOrderingComposer
+    extends Composer<_$ChatDatabase, $AssestsTable> {
+  $$AssestsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get path => $composableBuilder(
+      column: $table.path, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get url => $composableBuilder(
+      column: $table.url, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get assetId => $composableBuilder(
+      column: $table.assetId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get mimeType => $composableBuilder(
+      column: $table.mimeType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+      column: $table.deletedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$AssestsTableAnnotationComposer
+    extends Composer<_$ChatDatabase, $AssestsTable> {
+  $$AssestsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get path =>
+      $composableBuilder(column: $table.path, builder: (column) => column);
+
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<String> get assetId =>
+      $composableBuilder(column: $table.assetId, builder: (column) => column);
+
+  GeneratedColumn<String> get mimeType =>
+      $composableBuilder(column: $table.mimeType, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$AssestsTableTableManager extends RootTableManager<
+    _$ChatDatabase,
+    $AssestsTable,
+    Assest,
+    $$AssestsTableFilterComposer,
+    $$AssestsTableOrderingComposer,
+    $$AssestsTableAnnotationComposer,
+    $$AssestsTableCreateCompanionBuilder,
+    $$AssestsTableUpdateCompanionBuilder,
+    (Assest, BaseReferences<_$ChatDatabase, $AssestsTable, Assest>),
+    Assest,
+    PrefetchHooks Function()> {
+  $$AssestsTableTableManager(_$ChatDatabase db, $AssestsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AssestsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AssestsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AssestsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String?> type = const Value.absent(),
+            Value<String?> path = const Value.absent(),
+            Value<String?> url = const Value.absent(),
+            Value<String?> assetId = const Value.absent(),
+            Value<String?> mimeType = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<DateTime?> deletedAt = const Value.absent(),
+          }) =>
+              AssestsCompanion(
+            id: id,
+            type: type,
+            path: path,
+            url: url,
+            assetId: assetId,
+            mimeType: mimeType,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            deletedAt: deletedAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String?> type = const Value.absent(),
+            Value<String?> path = const Value.absent(),
+            Value<String?> url = const Value.absent(),
+            Value<String?> assetId = const Value.absent(),
+            Value<String?> mimeType = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<DateTime?> deletedAt = const Value.absent(),
+          }) =>
+              AssestsCompanion.insert(
+            id: id,
+            type: type,
+            path: path,
+            url: url,
+            assetId: assetId,
+            mimeType: mimeType,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            deletedAt: deletedAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$AssestsTableProcessedTableManager = ProcessedTableManager<
+    _$ChatDatabase,
+    $AssestsTable,
+    Assest,
+    $$AssestsTableFilterComposer,
+    $$AssestsTableOrderingComposer,
+    $$AssestsTableAnnotationComposer,
+    $$AssestsTableCreateCompanionBuilder,
+    $$AssestsTableUpdateCompanionBuilder,
+    (Assest, BaseReferences<_$ChatDatabase, $AssestsTable, Assest>),
+    Assest,
+    PrefetchHooks Function()>;
 typedef $$ChannelsTableCreateCompanionBuilder = ChannelsCompanion Function({
   Value<int> id,
   required ChannelType type,
@@ -2230,12 +2728,11 @@ final class $$ContactsTableReferences
   static MultiTypedResultKey<$MembersTable, List<MemberEntity>>
       _membersRefsTable(_$ChatDatabase db) => MultiTypedResultKey.fromTable(
           db.members,
-          aliasName:
-              $_aliasNameGenerator(db.contacts.username, db.members.memberId));
+          aliasName: $_aliasNameGenerator(db.contacts.id, db.members.memberId));
 
   $$MembersTableProcessedTableManager get membersRefs {
-    final manager = $$MembersTableTableManager($_db, $_db.members).filter(
-        (f) => f.memberId.username.sqlEquals($_itemColumn<String>('username')));
+    final manager = $$MembersTableTableManager($_db, $_db.members)
+        .filter((f) => f.memberId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_membersRefsTable($_db));
     return ProcessedTableManager(
@@ -2288,7 +2785,7 @@ class $$ContactsTableFilterComposer
       Expression<bool> Function($$MembersTableFilterComposer f) f) {
     final $$MembersTableFilterComposer composer = $composerBuilder(
         composer: this,
-        getCurrentColumn: (t) => t.username,
+        getCurrentColumn: (t) => t.id,
         referencedTable: $db.members,
         getReferencedColumn: (t) => t.memberId,
         builder: (joinBuilder,
@@ -2384,7 +2881,7 @@ class $$ContactsTableAnnotationComposer
       Expression<T> Function($$MembersTableAnnotationComposer a) f) {
     final $$MembersTableAnnotationComposer composer = $composerBuilder(
         composer: this,
-        getCurrentColumn: (t) => t.username,
+        getCurrentColumn: (t) => t.id,
         referencedTable: $db.members,
         getReferencedColumn: (t) => t.memberId,
         builder: (joinBuilder,
@@ -2488,9 +2985,9 @@ class $$ContactsTableTableManager extends RootTableManager<
                         managerFromTypedResult: (p0) =>
                             $$ContactsTableReferences(db, table, p0)
                                 .membersRefs,
-                        referencedItemsForCurrentItem:
-                            (item, referencedItems) => referencedItems
-                                .where((e) => e.memberId == item.username),
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.memberId == item.id),
                         typedResults: items)
                 ];
               },
@@ -2512,19 +3009,19 @@ typedef $$ContactsTableProcessedTableManager = ProcessedTableManager<
     Contact,
     PrefetchHooks Function({bool membersRefs})>;
 typedef $$MembersTableCreateCompanionBuilder = MembersCompanion Function({
-  required String memberId,
+  required int memberId,
   required int channelId,
   Value<String?> role,
-  Value<DateTime> createdAt,
+  Value<DateTime> since,
   Value<DateTime> updatedAt,
   Value<DateTime?> deletedAt,
   Value<int> rowid,
 });
 typedef $$MembersTableUpdateCompanionBuilder = MembersCompanion Function({
-  Value<String> memberId,
+  Value<int> memberId,
   Value<int> channelId,
   Value<String?> role,
-  Value<DateTime> createdAt,
+  Value<DateTime> since,
   Value<DateTime> updatedAt,
   Value<DateTime?> deletedAt,
   Value<int> rowid,
@@ -2534,15 +3031,14 @@ final class $$MembersTableReferences
     extends BaseReferences<_$ChatDatabase, $MembersTable, MemberEntity> {
   $$MembersTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
-  static $ContactsTable _memberIdTable(_$ChatDatabase db) =>
-      db.contacts.createAlias(
-          $_aliasNameGenerator(db.members.memberId, db.contacts.username));
+  static $ContactsTable _memberIdTable(_$ChatDatabase db) => db.contacts
+      .createAlias($_aliasNameGenerator(db.members.memberId, db.contacts.id));
 
   $$ContactsTableProcessedTableManager get memberId {
-    final $_column = $_itemColumn<String>('member_id')!;
+    final $_column = $_itemColumn<int>('member_id')!;
 
     final manager = $$ContactsTableTableManager($_db, $_db.contacts)
-        .filter((f) => f.username.sqlEquals($_column));
+        .filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_memberIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
@@ -2576,8 +3072,8 @@ class $$MembersTableFilterComposer
   ColumnFilters<String> get role => $composableBuilder(
       column: $table.role, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+  ColumnFilters<DateTime> get since => $composableBuilder(
+      column: $table.since, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
       column: $table.updatedAt, builder: (column) => ColumnFilters(column));
@@ -2590,7 +3086,7 @@ class $$MembersTableFilterComposer
         composer: this,
         getCurrentColumn: (t) => t.memberId,
         referencedTable: $db.contacts,
-        getReferencedColumn: (t) => t.username,
+        getReferencedColumn: (t) => t.id,
         builder: (joinBuilder,
                 {$addJoinBuilderToRootComposer,
                 $removeJoinBuilderFromRootComposer}) =>
@@ -2638,8 +3134,8 @@ class $$MembersTableOrderingComposer
   ColumnOrderings<String> get role => $composableBuilder(
       column: $table.role, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+  ColumnOrderings<DateTime> get since => $composableBuilder(
+      column: $table.since, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
       column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
@@ -2652,7 +3148,7 @@ class $$MembersTableOrderingComposer
         composer: this,
         getCurrentColumn: (t) => t.memberId,
         referencedTable: $db.contacts,
-        getReferencedColumn: (t) => t.username,
+        getReferencedColumn: (t) => t.id,
         builder: (joinBuilder,
                 {$addJoinBuilderToRootComposer,
                 $removeJoinBuilderFromRootComposer}) =>
@@ -2700,8 +3196,8 @@ class $$MembersTableAnnotationComposer
   GeneratedColumn<String> get role =>
       $composableBuilder(column: $table.role, builder: (column) => column);
 
-  GeneratedColumn<DateTime> get createdAt =>
-      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+  GeneratedColumn<DateTime> get since =>
+      $composableBuilder(column: $table.since, builder: (column) => column);
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
@@ -2714,7 +3210,7 @@ class $$MembersTableAnnotationComposer
         composer: this,
         getCurrentColumn: (t) => t.memberId,
         referencedTable: $db.contacts,
-        getReferencedColumn: (t) => t.username,
+        getReferencedColumn: (t) => t.id,
         builder: (joinBuilder,
                 {$addJoinBuilderToRootComposer,
                 $removeJoinBuilderFromRootComposer}) =>
@@ -2773,10 +3269,10 @@ class $$MembersTableTableManager extends RootTableManager<
           createComputedFieldComposer: () =>
               $$MembersTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback: ({
-            Value<String> memberId = const Value.absent(),
+            Value<int> memberId = const Value.absent(),
             Value<int> channelId = const Value.absent(),
             Value<String?> role = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> since = const Value.absent(),
             Value<DateTime> updatedAt = const Value.absent(),
             Value<DateTime?> deletedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -2785,16 +3281,16 @@ class $$MembersTableTableManager extends RootTableManager<
             memberId: memberId,
             channelId: channelId,
             role: role,
-            createdAt: createdAt,
+            since: since,
             updatedAt: updatedAt,
             deletedAt: deletedAt,
             rowid: rowid,
           ),
           createCompanionCallback: ({
-            required String memberId,
+            required int memberId,
             required int channelId,
             Value<String?> role = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> since = const Value.absent(),
             Value<DateTime> updatedAt = const Value.absent(),
             Value<DateTime?> deletedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -2803,7 +3299,7 @@ class $$MembersTableTableManager extends RootTableManager<
             memberId: memberId,
             channelId: channelId,
             role: role,
-            createdAt: createdAt,
+            since: since,
             updatedAt: updatedAt,
             deletedAt: deletedAt,
             rowid: rowid,
@@ -2836,7 +3332,7 @@ class $$MembersTableTableManager extends RootTableManager<
                     referencedTable:
                         $$MembersTableReferences._memberIdTable(db),
                     referencedColumn:
-                        $$MembersTableReferences._memberIdTable(db).username,
+                        $$MembersTableReferences._memberIdTable(db).id,
                   ) as T;
                 }
                 if (channelId) {
@@ -2873,26 +3369,26 @@ typedef $$MembersTableProcessedTableManager = ProcessedTableManager<
     MemberEntity,
     PrefetchHooks Function({bool memberId, bool channelId})>;
 typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
-  required String id,
-  required String type,
-  required String state,
+  Value<int> id,
+  Value<String?> rid,
+  required MessageType type,
+  required MessageState state,
   required Map<String, dynamic> payload,
   required int channelId,
   required String senderId,
   Value<DateTime?> localCreatedAt,
   Value<DateTime?> remoteCreatedAt,
-  Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
-  Value<String> id,
-  Value<String> type,
-  Value<String> state,
+  Value<int> id,
+  Value<String?> rid,
+  Value<MessageType> type,
+  Value<MessageState> state,
   Value<Map<String, dynamic>> payload,
   Value<int> channelId,
   Value<String> senderId,
   Value<DateTime?> localCreatedAt,
   Value<DateTime?> remoteCreatedAt,
-  Value<int> rowid,
 });
 
 final class $$MessagesTableReferences
@@ -2923,14 +3419,21 @@ class $$MessagesTableFilterComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnFilters<String> get id => $composableBuilder(
+  ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<String> get type => $composableBuilder(
-      column: $table.type, builder: (column) => ColumnFilters(column));
+  ColumnFilters<String> get rid => $composableBuilder(
+      column: $table.rid, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<String> get state => $composableBuilder(
-      column: $table.state, builder: (column) => ColumnFilters(column));
+  ColumnWithTypeConverterFilters<MessageType, MessageType, String> get type =>
+      $composableBuilder(
+          column: $table.type,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
+
+  ColumnWithTypeConverterFilters<MessageState, MessageState, String>
+      get state => $composableBuilder(
+          column: $table.state,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
 
   ColumnWithTypeConverterFilters<Map<String, dynamic>, Map<String, dynamic>,
           String>
@@ -2979,8 +3482,11 @@ class $$MessagesTableOrderingComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnOrderings<String> get id => $composableBuilder(
+  ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get rid => $composableBuilder(
+      column: $table.rid, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<String> get type => $composableBuilder(
       column: $table.type, builder: (column) => ColumnOrderings(column));
@@ -3032,13 +3538,16 @@ class $$MessagesTableAnnotationComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  GeneratedColumn<String> get id =>
+  GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
-  GeneratedColumn<String> get type =>
+  GeneratedColumn<String> get rid =>
+      $composableBuilder(column: $table.rid, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<MessageType, String> get type =>
       $composableBuilder(column: $table.type, builder: (column) => column);
 
-  GeneratedColumn<String> get state =>
+  GeneratedColumnWithTypeConverter<MessageState, String> get state =>
       $composableBuilder(column: $table.state, builder: (column) => column);
 
   GeneratedColumnWithTypeConverter<Map<String, dynamic>, String> get payload =>
@@ -3097,18 +3606,19 @@ class $$MessagesTableTableManager extends RootTableManager<
           createComputedFieldComposer: () =>
               $$MessagesTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback: ({
-            Value<String> id = const Value.absent(),
-            Value<String> type = const Value.absent(),
-            Value<String> state = const Value.absent(),
+            Value<int> id = const Value.absent(),
+            Value<String?> rid = const Value.absent(),
+            Value<MessageType> type = const Value.absent(),
+            Value<MessageState> state = const Value.absent(),
             Value<Map<String, dynamic>> payload = const Value.absent(),
             Value<int> channelId = const Value.absent(),
             Value<String> senderId = const Value.absent(),
             Value<DateTime?> localCreatedAt = const Value.absent(),
             Value<DateTime?> remoteCreatedAt = const Value.absent(),
-            Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
             id: id,
+            rid: rid,
             type: type,
             state: state,
             payload: payload,
@@ -3116,21 +3626,21 @@ class $$MessagesTableTableManager extends RootTableManager<
             senderId: senderId,
             localCreatedAt: localCreatedAt,
             remoteCreatedAt: remoteCreatedAt,
-            rowid: rowid,
           ),
           createCompanionCallback: ({
-            required String id,
-            required String type,
-            required String state,
+            Value<int> id = const Value.absent(),
+            Value<String?> rid = const Value.absent(),
+            required MessageType type,
+            required MessageState state,
             required Map<String, dynamic> payload,
             required int channelId,
             required String senderId,
             Value<DateTime?> localCreatedAt = const Value.absent(),
             Value<DateTime?> remoteCreatedAt = const Value.absent(),
-            Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
             id: id,
+            rid: rid,
             type: type,
             state: state,
             payload: payload,
@@ -3138,7 +3648,6 @@ class $$MessagesTableTableManager extends RootTableManager<
             senderId: senderId,
             localCreatedAt: localCreatedAt,
             remoteCreatedAt: remoteCreatedAt,
-            rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
@@ -3198,6 +3707,8 @@ typedef $$MessagesTableProcessedTableManager = ProcessedTableManager<
 class $ChatDatabaseManager {
   final _$ChatDatabase _db;
   $ChatDatabaseManager(this._db);
+  $$AssestsTableTableManager get assests =>
+      $$AssestsTableTableManager(_db, _db.assests);
   $$ChannelsTableTableManager get channels =>
       $$ChannelsTableTableManager(_db, _db.channels);
   $$ContactsTableTableManager get contacts =>

@@ -5,10 +5,11 @@ import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/placeholder_task.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
+import 'package:vartalap_messaging_flutter/models/models.dart';
 
 class SendMessage {
   int channelId;
-  List<RemoteMessage> messages;
+  List<ChatMessage> messages;
 
   SendMessage(this.channelId, this.messages);
 
@@ -67,12 +68,11 @@ class SendMessageTask extends VartalapTask<SendMessage> {
     await db.batch((batch) {
       final rows = payload.messages.map(
         (m) => MessagesCompanion.insert(
-          id: m.id,
-          type: m.head.type.toString(),
-          state: '',
-          payload: m.body,
+          type: m.type,
+          state: m.state,
+          payload: m.payload,
           channelId: payload.channelId,
-          senderId: m.head.from,
+          senderId: m.senderId,
         ),
       );
       batch.insertAll(db.messages, rows);
@@ -82,7 +82,7 @@ class SendMessageTask extends VartalapTask<SendMessage> {
 
   @override
   Future<void> process() async {
-    await client.sendMessage(payload.messages);
+    // await client.sendMessage(payload.messages);
   }
 
   @override

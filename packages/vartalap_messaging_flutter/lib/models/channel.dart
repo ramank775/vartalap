@@ -4,8 +4,8 @@ import 'package:vartalap_messaging_flutter/models/member.dart';
 
 class Channel {
   final int? id;
-  final String? name;
-  final Image? image;
+  String? name;
+  Image? image;
   final ChannelType type;
   final List<Member> members;
   final String? cid;
@@ -22,6 +22,18 @@ class Channel {
     this.config = const {},
     this.extraData,
   });
+
+  Channel.fromDb({
+    required this.id,
+    required this.type,
+    this.cid,
+    this.config = const {},
+    this.extraData,
+    this.members = const [],
+  }) {
+    name = extraData?['name'];
+    image = extraData?['image'];
+  }
 
   get displayName {
     if (name != null) {

@@ -2,10 +2,13 @@ import 'package:drift/drift.dart';
 import 'package:vartalap_messaging_flutter/converter/map_converter.dart';
 import 'package:vartalap_messaging_flutter/entity/channel.dart';
 
+import '../models/models.dart';
+
 class Messages extends Table {
-  TextColumn get id => text()();
-  TextColumn get type => text()();
-  TextColumn get state => text()();
+  IntColumn get id => integer()();
+  TextColumn get rid => text().nullable()();
+  TextColumn get type => textEnum<MessageType>()();
+  TextColumn get state => textEnum<MessageState>()();
   TextColumn get payload => text().map(MapConverter())();
 
   IntColumn get channelId => integer().references(
