@@ -6,15 +6,16 @@ part of 'channel.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-ChannelModel _$ChannelModelFromJson(Map<String, dynamic> json) => ChannelModel()
-  ..channelId = json['channelId'] as String?
-  ..name = json['name'] as String
-  ..type = json['type'] as String
-  ..members =
-      (json['members'] as List<dynamic>).map((e) => e as String).toList()
-  ..profilePic = json['profilePic'] as String;
+ChannelPayload _$ChannelPayloadFromJson(Map<String, dynamic> json) =>
+    ChannelPayload()
+      ..channelId = json['channelId'] as String?
+      ..name = json['name'] as String
+      ..type = json['type'] as String
+      ..members =
+          (json['members'] as List<dynamic>).map((e) => e as String).toList()
+      ..profilePic = json['profilePic'] as String;
 
-Map<String, dynamic> _$ChannelModelToJson(ChannelModel instance) =>
+Map<String, dynamic> _$ChannelPayloadToJson(ChannelPayload instance) =>
     <String, dynamic>{
       if (instance.channelId case final value?) 'channelId': value,
       'name': instance.name,

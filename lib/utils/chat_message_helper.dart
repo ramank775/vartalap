@@ -2,7 +2,6 @@ import 'package:vartalap/models/dateHeader.dart';
 import 'package:vartalap/models/messageSpacer.dart';
 import 'package:vartalap/models/previewImage.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
-import 'package:vartalap/utils/enum_helper.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 List<Object> calculateChatMessages(
@@ -35,7 +34,10 @@ List<Object> calculateChatMessages(
 
       final isFirstInGroup = notMyMessage &&
           ((message.senderId != previousMessage?.senderId) ||
-              (message.timestamp - previousMessage!.timestamp > 60000));
+              (message.timestamp
+                      .difference(previousMessage!.timestamp)
+                      .inMinutes >
+                  1));
 
       if (isFirstInGroup) {
         shouldShowName = false;
@@ -54,11 +56,10 @@ List<Object> calculateChatMessages(
 
     if (nextMessageHasCreatedAt) {
       nextMessageDifferentDay =
-          DateTime.fromMillisecondsSinceEpoch(message.timestamp).day !=
-              DateTime.fromMillisecondsSinceEpoch(nextMessage!.timestamp).day;
+          message.timestamp.day != nextMessage!.timestamp.day;
 
       nextMessageInGroup = nextMessageSameAuthor &&
-          nextMessage.timestamp - message.timestamp <= 60000;
+          nextMessage.timestamp.difference(message.timestamp).inMinutes <= 1;
     }
 
     if (isFirst) {
@@ -103,45 +104,4 @@ List<Object> calculateChatMessages(
   }
 
   return [chatMessages, gallery];
-}
-
-ChatMessage toChatMessage(RemoteMessage msg) {
-  ChatMessage chatMsg;
-  if (msg.head.contentType == MessageType.notification &&
-      msg.head.action == "state") {
-    chatMsg = StateMessge(
-      msg.head.chatid!,
-      msg.head.from,
-      MessageState.other,
-    );
-  } else if (msg.head.contentType == MessageType.notification &&
-      msg.head.action == "typing") {
-    chatMsg = TypingMessage(msg.head.chatid!, msg.head.from, false);
-  } else if (msg.head.contentType == MessageType.text) {
-    chatMsg = TextMessage(
-      msg.id,
-      msg.head.chatid!,
-      msg.head.from,
-    );
-  } else {
-    chatMsg = CustomMessage(
-      msg.id,
-      msg.head.chatid!,
-      msg.head.from,
-    );
-  }
-
-  chatMsg.fromRemoteBody(msg.body);
-  return chatMsg;
-}
-
-ChatMessage buildChatMessage(Map<String, dynamic> map,
-    {bool persistent = false}) {
-  final type = intToEnum(map["type"], MessageType.values);
-  switch (type) {
-    case MessageType.text:
-      return TextMessage.fromMap(map, persistent: persistent);
-    default:
-      return CustomMessage.fromMap(map, persistent: persistent);
-  }
 }

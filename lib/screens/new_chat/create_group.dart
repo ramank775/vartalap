@@ -7,7 +7,6 @@ import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class CreateGroup extends StatelessWidget {
   final List<Contact> _members;
-  final ChannelType _channelType = ChannelType.group;
   CreateGroup(this._members);
   @override
   Widget build(BuildContext context) {
@@ -24,16 +23,16 @@ class CreateGroup extends StatelessWidget {
                     since: DateTime.now(),
                   ))
               .toList();
-          Channel channel = Channel(
-            _channelType,
-            channelMembers,
-            name: name,
+          ChannelModel channel = ChannelModel(
+            type: ChannelType.group,
+            id: 0, // ID will be assigned by the server
+            config: null,
+            members: channelMembers,
           );
           await client.createChannel(channel);
 
           Navigator.of(context).pop();
           Navigator.of(context).pop();
-          // TODO: Navigate to the chat screen
         } on Exception catch (_) {
           showErrorDialog(context, [
             'Error while creating new group.',

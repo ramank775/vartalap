@@ -2,18 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
-import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
-import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/services/push_notification_service.dart';
-import 'package:vartalap/services/socket_service.dart';
-import 'package:vartalap/utils/find.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/rich_message.dart';
@@ -25,40 +19,19 @@ class Chats extends StatefulWidget {
 }
 
 class ChatsState extends State<Chats> {
-  late Future<List<ChatPreview>> _fChats;
   List<ChatPreview> _selectedChats = [];
   late ConfigStore config;
 
   @override
   void initState() {
     super.initState();
-
-    this._fChats = ChatService.getChats();
     this._selectedChats = [];
-    PushNotificationService.instance.config(
-      onMessage: (Map<String, dynamic> payload) {
-        if (payload["data"] == null) return;
-        var msg = payload["data"]["message"];
-        if (msg == null) return;
-        var source = payload["source"];
-        if (source != null &&
-            source is String &&
-            source == "ON_NOTIFICATION_TAP") {
-          return;
-        }
-        try {
-          var smsg = RemoteMessage.fromMap(msg);
-          SocketService.instance.externalNewMessage(smsg);
-        } catch (e) {
-          throw e;
-        }
-      },
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     config = ConfigProvider.of(context).configStore;
+    final client = VartalapClientProvider.of(context).client;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -72,8 +45,8 @@ class ChatsState extends State<Chats> {
       ),
       body: new Container(
         padding: EdgeInsets.fromLTRB(5, 5, 5, 0),
-        child: FutureBuilder<List<ChatPreview>>(
-          future: this._fChats,
+        child: StreamBuilder<List<ChatPreview>>(
+          stream: client.getChatPreviews().watch(),
           builder: (context, snapshot) {
             switch (snapshot.connectionState) {
               case ConnectionState.none:
@@ -138,10 +111,8 @@ class ChatsState extends State<Chats> {
         iconSize: 22,
         icon: Icon(Icons.delete),
         onPressed: () async {
-          await ChatService.deleteChats(this._selectedChats);
           setState(() {
             this._selectedChats = [];
-            this._fChats = ChatService.getChats();
           });
         },
       ));
@@ -208,18 +179,14 @@ class ChatsState extends State<Chats> {
       if (result == null) {
         return;
       }
-      Channel chat;
-      if (result is Channel) {
+      ChannelModel chat;
+      if (result is ChannelModel) {
         chat = result;
       } else {
         return;
-        //chat = await ChatService.newIndiviualChat(result as User);
       }
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
-    setState(() {
-      _fChats = ChatService.getChats();
-    });
   }
 }
 
@@ -247,18 +214,12 @@ class ChatListView extends StatefulWidget {
 
 class ChatListViewState extends State<ChatListView>
     with WidgetsBindingObserver {
-  late StreamSubscription _newMessageSub;
-  late StreamSubscription _groupNotificationSub;
   late List<ChatPreview> _chats;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _chats = widget._chats;
-    _newMessageSub = ChatService.onNewMessageStream.listen(_onNewMessage);
-    _groupNotificationSub = ChatService.onNotificationMessagStream
-        .where((notification) => notification.head.type == ChannelType.group)
-        .listen(_onGroupNotification);
   }
 
   @override
@@ -268,9 +229,6 @@ class ChatListViewState extends State<ChatListView>
     // These are the callbacks
     switch (state) {
       case AppLifecycleState.resumed:
-        this._newMessageSub.resume();
-        this._groupNotificationSub.resume();
-        PushNotificationService.instance.clearAllNotification();
         break;
       default:
         break;
@@ -317,7 +275,7 @@ class ChatListViewState extends State<ChatListView>
             itemCount: _chats.length,
             itemBuilder: (context, i) => new ChatPreviewWidget(
               _chats[i],
-              (Channel channel) async {
+              (ChannelModel channel) async {
                 if (widget._selectedChats.length > 0) {
                   widget._selectOrRemove(channel);
                   return;
@@ -330,61 +288,9 @@ class ChatListViewState extends State<ChatListView>
           );
   }
 
-  _onNewMessage(RemoteMessage msg) async {
-    final msgInfo = msg.head;
-    ChatPreview? chat =
-        find(_chats, (_chat) => _chat.channel.id == msgInfo.chatid);
-    if (chat == null) {
-      chat = await ChatService.getChatById(msgInfo.chatid!);
-      setState(() {
-        widget._chats.insert(0, chat!);
-      });
-      return;
-    } else {
-      var _msg = toChatMessage(msg);
-      chat = ChatPreview(
-        chat.channel,
-        _msg.previewContent,
-        _msg.timestamp,
-        (chat.unread + 1),
-      );
-    }
-    PushNotificationService.instance.showNotification(
-      chat.channel.displayName,
-      chat.content,
-      msg.toMap(),
-      groupKey: chat.channel.id.toString(),
-      id: chat.channel.id!,
-    );
-
-    var chats =
-        _chats.where((_chat) => _chat.channel.id != msg.head.chatid).toList();
-    chats.insert(0, chat);
-    setState(() {
-      _chats = chats;
-    });
-  }
-
-  _onGroupNotification(RemoteMessage msg) async {
-    var chatIdx =
-        _chats.indexWhere((_chat) => _chat.channel.id == msg.head.chatid);
-    if (chatIdx == -1) {
-      return;
-    }
-    // TODO: Handle group member change notifications
-
-    // var chat = _chats[chatIdx];
-    // if (chat.users.isEmpty) return;
-
-    // chat.resetUsers();
-    // var users = await ChatService.getChatUserByid(chat.id);
-    // users.forEach((u) => chat.addUser(u));
-  }
-
   @override
   void dispose() {
-    _newMessageSub.cancel();
-    _groupNotificationSub.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }

@@ -77,7 +77,9 @@ class AuthService {
 
   Future<AuthResponse> verify(String otp) async {
     PhoneAuthCredential credential = PhoneAuthProvider.credential(
-        verificationId: _verificationId, smsCode: otp);
+      verificationId: _verificationId,
+      smsCode: otp,
+    );
     AuthResponse _resp = AuthResponse();
     try {
       var result = await _auth.signInWithCredential(credential);

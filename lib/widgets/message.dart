@@ -1,10 +1,10 @@
 import 'package:bubble/bubble.dart';
-import 'package:vartalap/models/message.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/color_helper.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/rich_message.dart';
+import 'package:vartalap_messaging_flutter/models/models.dart';
 
 class MessageWidget extends StatelessWidget {
   final ChatMessage _msg;
@@ -24,7 +24,7 @@ class MessageWidget extends StatelessWidget {
     this.onLongPress,
     this.showUserInfo = false,
     this.showNip = true,
-  }) : super(key: Key(_msg.id));
+  }) : super(key: Key(_msg.id.toString()));
 
   @override
   Widget build(BuildContext context) {
@@ -140,7 +140,7 @@ class MessageWidget extends StatelessWidget {
       color: theme.textTheme.bodyLarge?.color,
     );
     switch (this._msg.type) {
-      case MessageType.TEXT:
+      case MessageType.text:
         {
           final msg = this._msg as TextMessage;
           return RichMessage(
@@ -157,18 +157,18 @@ class MessageWidget extends StatelessWidget {
     IconData icon = Icons.access_time;
     Color color = Colors.white;
     switch (this._msg.state) {
-      case MessageState.NEW:
+      case MessageState.pending:
         icon = Icons.access_time;
         break;
-      case MessageState.SENT:
+      case MessageState.sent:
         icon = Icons.check;
         break;
-      case MessageState.DELIVERED:
+      case MessageState.delivered:
         icon = Icons.done_all;
         break;
-      case MessageState.OTHER:
+      case MessageState.other:
         return Container();
-      case MessageState.READ:
+      case MessageState.read:
         icon = Icons.done_all_sharp;
         color = VartalapTheme.theme.readMessage;
         break;

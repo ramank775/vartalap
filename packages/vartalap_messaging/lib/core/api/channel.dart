@@ -12,7 +12,7 @@ class ChannelApi extends BaseApi {
     return ChannelsResponse.fromJson(response.data);
   }
 
-  Future<CreateChannelResponse> create(ChannelModel channel) async {
+  Future<CreateChannelResponse> create(ChannelPayload channel) async {
     final path = endpoint(path: '');
     final response = await client.post(path, data: channel);
     return CreateChannelResponse.fromJson(response.data);
@@ -27,7 +27,7 @@ class ChannelApi extends BaseApi {
   Future<EmptyResponse> addMembers(
       String channelId, List<String> members) async {
     final path = endpoint(path: '$channelId/members');
-    final group = ChannelModel()..members = members;
+    final group = ChannelPayload()..members = members;
     final response = await client.post(path, data: group);
     return EmptyResponse.fromJson(response.data);
   }

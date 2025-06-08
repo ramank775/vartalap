@@ -3,7 +3,7 @@ import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 import '../models/models.dart';
 
 class RemoveMember {
-  Channel channel;
+  ChannelModel channel;
   Member members;
   RemoveMember(this.channel, this.members);
 }

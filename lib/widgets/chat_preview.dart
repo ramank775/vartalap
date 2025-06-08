@@ -1,17 +1,22 @@
-import 'package:vartalap/models/chat.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/dateTimeFormat.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ChatPreviewWidget extends StatelessWidget {
   final ChatPreview _chat;
   final Function _onTap;
   final Function _onLongPress;
   final bool isSelected;
-  ChatPreviewWidget(this._chat, this._onTap, this._onLongPress,
-      {this.isSelected = false})
-      : super(key: Key(_chat.channel.id!.toString()));
+  ChatPreviewWidget(
+    this._chat,
+    this._onTap,
+    this._onLongPress, {
+    this.isSelected = false,
+  }) : super(
+          key: Key(_chat.channel.id.toString()),
+        );
   @override
   Widget build(BuildContext context) {
     final vtheme = VartalapTheme.theme;
@@ -61,9 +66,7 @@ class ChatPreviewWidget extends StatelessWidget {
                   ),
                 ),
                 new Text(
-                  (this._chat.ts) != 0
-                      ? formatMessageTimestamp(this._chat.ts)
-                      : '',
+                  formatMessageTimestamp(this._chat.lastMessageTimestamp),
                   style: new TextStyle(fontSize: 12.0),
                 ),
               ],
@@ -73,7 +76,7 @@ class ChatPreviewWidget extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    this._chat.content,
+                    this._chat.previewContent,
                     softWrap: false,
                     overflow: TextOverflow.ellipsis,
                     style: new TextStyle(fontSize: 15.0),
@@ -96,7 +99,7 @@ class ChatPreviewWidget extends StatelessWidget {
 
   Widget getWidget(BuildContext context) {
     final vtheme = VartalapTheme.theme;
-    return this._chat.unread > 0
+    return this._chat.unreadCount > 0
         ? Container(
             width: 24,
             height: 24,
@@ -119,9 +122,9 @@ class ChatPreviewWidget extends StatelessWidget {
   }
 
   String _getUnreadCountText() {
-    if (this._chat.unread > 9) {
+    if (this._chat.unreadCount > 9) {
       return "9+";
     }
-    return this._chat.unread.toString();
+    return this._chat.unreadCount.toString();
   }
 }

@@ -1,6 +1,6 @@
 class MessageSpacer {
   final double height;
-  final String id;
+  final int id;
   const MessageSpacer({
     required this.height,
     required this.id,

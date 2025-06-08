@@ -77,7 +77,7 @@ class VartalapChatClient {
     return await _apiClient.user.get(userId);
   }
 
-  Future<CreateChannelResponse> createChannel(ChannelModel channel) async {
+  Future<CreateChannelResponse> createChannel(ChannelPayload channel) async {
     return await _apiClient.channel.create(channel);
   }
 

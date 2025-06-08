@@ -1,15 +1,15 @@
 import 'contact.dart';
 
 class Member {
-  final String? membershipId;
   final Contact user;
-  final String role;
+  final String? role;
   final DateTime since;
+  DateTime updatedAt;
 
   Member({
     required this.user,
-    required this.role,
+    this.role,
     required this.since,
-    this.membershipId,
-  });
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? DateTime.now();
 }

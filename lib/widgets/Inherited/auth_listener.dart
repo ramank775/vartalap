@@ -59,7 +59,7 @@ class _AuthListnerState extends State<AuthListner> {
           );
         }
         return CurrentUser(
-          user: snapshot.data,
+          user: null,
           child: widget.app,
         );
       },

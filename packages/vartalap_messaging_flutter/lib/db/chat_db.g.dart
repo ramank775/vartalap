@@ -1566,7 +1566,8 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
   }
 }
 
-class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
+class $MessagesTable extends Messages
+    with TableInfo<$MessagesTable, MessageEntity> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
@@ -1609,21 +1610,34 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   static const VerificationMeta _senderIdMeta =
       const VerificationMeta('senderId');
   @override
-  late final GeneratedColumn<String> senderId = GeneratedColumn<String>(
+  late final GeneratedColumn<int> senderId = GeneratedColumn<int>(
       'sender_id', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES contacts (id) ON DELETE CASCADE'));
   static const VerificationMeta _localCreatedAtMeta =
       const VerificationMeta('localCreatedAt');
   @override
   late final GeneratedColumn<DateTime> localCreatedAt =
-      GeneratedColumn<DateTime>('local_created_at', aliasedName, true,
-          type: DriftSqlType.dateTime, requiredDuringInsert: false);
+      GeneratedColumn<DateTime>('local_created_at', aliasedName, false,
+          type: DriftSqlType.dateTime,
+          requiredDuringInsert: false,
+          defaultValue: currentDateAndTime);
   static const VerificationMeta _remoteCreatedAtMeta =
       const VerificationMeta('remoteCreatedAt');
   @override
   late final GeneratedColumn<DateTime> remoteCreatedAt =
       GeneratedColumn<DateTime>('remote_created_at', aliasedName, true,
           type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -1634,7 +1648,8 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
         channelId,
         senderId,
         localCreatedAt,
-        remoteCreatedAt
+        remoteCreatedAt,
+        updatedAt
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1642,7 +1657,7 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   String get actualTableName => $name;
   static const String $name = 'messages';
   @override
-  VerificationContext validateIntegrity(Insertable<Message> instance,
+  VerificationContext validateIntegrity(Insertable<MessageEntity> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
@@ -1677,15 +1692,19 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
           remoteCreatedAt.isAcceptableOrUnknown(
               data['remote_created_at']!, _remoteCreatedAtMeta));
     }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    }
     return context;
   }
 
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  Message map(Map<String, dynamic> data, {String? tablePrefix}) {
+  MessageEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Message(
+    return MessageEntity(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       rid: attachedDatabase.typeMapping
@@ -1700,11 +1719,13 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
       channelId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}channel_id'])!,
       senderId: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}sender_id'])!,
+          .read(DriftSqlType.int, data['${effectivePrefix}sender_id'])!,
       localCreatedAt: attachedDatabase.typeMapping.read(
-          DriftSqlType.dateTime, data['${effectivePrefix}local_created_at']),
+          DriftSqlType.dateTime, data['${effectivePrefix}local_created_at'])!,
       remoteCreatedAt: attachedDatabase.typeMapping.read(
           DriftSqlType.dateTime, data['${effectivePrefix}remote_created_at']),
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
     );
   }
 
@@ -1721,17 +1742,18 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
       MapConverter();
 }
 
-class Message extends DataClass implements Insertable<Message> {
+class MessageEntity extends DataClass implements Insertable<MessageEntity> {
   final int id;
   final String? rid;
   final MessageType type;
   final MessageState state;
   final Map<String, dynamic> payload;
   final int channelId;
-  final String senderId;
-  final DateTime? localCreatedAt;
+  final int senderId;
+  final DateTime localCreatedAt;
   final DateTime? remoteCreatedAt;
-  const Message(
+  final DateTime updatedAt;
+  const MessageEntity(
       {required this.id,
       this.rid,
       required this.type,
@@ -1739,8 +1761,9 @@ class Message extends DataClass implements Insertable<Message> {
       required this.payload,
       required this.channelId,
       required this.senderId,
-      this.localCreatedAt,
-      this.remoteCreatedAt});
+      required this.localCreatedAt,
+      this.remoteCreatedAt,
+      required this.updatedAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1760,13 +1783,12 @@ class Message extends DataClass implements Insertable<Message> {
           Variable<String>($MessagesTable.$converterpayload.toSql(payload));
     }
     map['channel_id'] = Variable<int>(channelId);
-    map['sender_id'] = Variable<String>(senderId);
-    if (!nullToAbsent || localCreatedAt != null) {
-      map['local_created_at'] = Variable<DateTime>(localCreatedAt);
-    }
+    map['sender_id'] = Variable<int>(senderId);
+    map['local_created_at'] = Variable<DateTime>(localCreatedAt);
     if (!nullToAbsent || remoteCreatedAt != null) {
       map['remote_created_at'] = Variable<DateTime>(remoteCreatedAt);
     }
+    map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
   }
 
@@ -1779,19 +1801,18 @@ class Message extends DataClass implements Insertable<Message> {
       payload: Value(payload),
       channelId: Value(channelId),
       senderId: Value(senderId),
-      localCreatedAt: localCreatedAt == null && nullToAbsent
-          ? const Value.absent()
-          : Value(localCreatedAt),
+      localCreatedAt: Value(localCreatedAt),
       remoteCreatedAt: remoteCreatedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(remoteCreatedAt),
+      updatedAt: Value(updatedAt),
     );
   }
 
-  factory Message.fromJson(Map<String, dynamic> json,
+  factory MessageEntity.fromJson(Map<String, dynamic> json,
       {ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Message(
+    return MessageEntity(
       id: serializer.fromJson<int>(json['id']),
       rid: serializer.fromJson<String?>(json['rid']),
       type: $MessagesTable.$convertertype
@@ -1800,9 +1821,10 @@ class Message extends DataClass implements Insertable<Message> {
           .fromJson(serializer.fromJson<String>(json['state'])),
       payload: serializer.fromJson<Map<String, dynamic>>(json['payload']),
       channelId: serializer.fromJson<int>(json['channelId']),
-      senderId: serializer.fromJson<String>(json['senderId']),
-      localCreatedAt: serializer.fromJson<DateTime?>(json['localCreatedAt']),
+      senderId: serializer.fromJson<int>(json['senderId']),
+      localCreatedAt: serializer.fromJson<DateTime>(json['localCreatedAt']),
       remoteCreatedAt: serializer.fromJson<DateTime?>(json['remoteCreatedAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
   }
   @override
@@ -1817,23 +1839,25 @@ class Message extends DataClass implements Insertable<Message> {
           .toJson<String>($MessagesTable.$converterstate.toJson(state)),
       'payload': serializer.toJson<Map<String, dynamic>>(payload),
       'channelId': serializer.toJson<int>(channelId),
-      'senderId': serializer.toJson<String>(senderId),
-      'localCreatedAt': serializer.toJson<DateTime?>(localCreatedAt),
+      'senderId': serializer.toJson<int>(senderId),
+      'localCreatedAt': serializer.toJson<DateTime>(localCreatedAt),
       'remoteCreatedAt': serializer.toJson<DateTime?>(remoteCreatedAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
   }
 
-  Message copyWith(
+  MessageEntity copyWith(
           {int? id,
           Value<String?> rid = const Value.absent(),
           MessageType? type,
           MessageState? state,
           Map<String, dynamic>? payload,
           int? channelId,
-          String? senderId,
-          Value<DateTime?> localCreatedAt = const Value.absent(),
-          Value<DateTime?> remoteCreatedAt = const Value.absent()}) =>
-      Message(
+          int? senderId,
+          DateTime? localCreatedAt,
+          Value<DateTime?> remoteCreatedAt = const Value.absent(),
+          DateTime? updatedAt}) =>
+      MessageEntity(
         id: id ?? this.id,
         rid: rid.present ? rid.value : this.rid,
         type: type ?? this.type,
@@ -1841,14 +1865,14 @@ class Message extends DataClass implements Insertable<Message> {
         payload: payload ?? this.payload,
         channelId: channelId ?? this.channelId,
         senderId: senderId ?? this.senderId,
-        localCreatedAt:
-            localCreatedAt.present ? localCreatedAt.value : this.localCreatedAt,
+        localCreatedAt: localCreatedAt ?? this.localCreatedAt,
         remoteCreatedAt: remoteCreatedAt.present
             ? remoteCreatedAt.value
             : this.remoteCreatedAt,
+        updatedAt: updatedAt ?? this.updatedAt,
       );
-  Message copyWithCompanion(MessagesCompanion data) {
-    return Message(
+  MessageEntity copyWithCompanion(MessagesCompanion data) {
+    return MessageEntity(
       id: data.id.present ? data.id.value : this.id,
       rid: data.rid.present ? data.rid.value : this.rid,
       type: data.type.present ? data.type.value : this.type,
@@ -1862,12 +1886,13 @@ class Message extends DataClass implements Insertable<Message> {
       remoteCreatedAt: data.remoteCreatedAt.present
           ? data.remoteCreatedAt.value
           : this.remoteCreatedAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
 
   @override
   String toString() {
-    return (StringBuffer('Message(')
+    return (StringBuffer('MessageEntity(')
           ..write('id: $id, ')
           ..write('rid: $rid, ')
           ..write('type: $type, ')
@@ -1876,18 +1901,19 @@ class Message extends DataClass implements Insertable<Message> {
           ..write('channelId: $channelId, ')
           ..write('senderId: $senderId, ')
           ..write('localCreatedAt: $localCreatedAt, ')
-          ..write('remoteCreatedAt: $remoteCreatedAt')
+          ..write('remoteCreatedAt: $remoteCreatedAt, ')
+          ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
 
   @override
   int get hashCode => Object.hash(id, rid, type, state, payload, channelId,
-      senderId, localCreatedAt, remoteCreatedAt);
+      senderId, localCreatedAt, remoteCreatedAt, updatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is Message &&
+      (other is MessageEntity &&
           other.id == this.id &&
           other.rid == this.rid &&
           other.type == this.type &&
@@ -1896,19 +1922,21 @@ class Message extends DataClass implements Insertable<Message> {
           other.channelId == this.channelId &&
           other.senderId == this.senderId &&
           other.localCreatedAt == this.localCreatedAt &&
-          other.remoteCreatedAt == this.remoteCreatedAt);
+          other.remoteCreatedAt == this.remoteCreatedAt &&
+          other.updatedAt == this.updatedAt);
 }
 
-class MessagesCompanion extends UpdateCompanion<Message> {
+class MessagesCompanion extends UpdateCompanion<MessageEntity> {
   final Value<int> id;
   final Value<String?> rid;
   final Value<MessageType> type;
   final Value<MessageState> state;
   final Value<Map<String, dynamic>> payload;
   final Value<int> channelId;
-  final Value<String> senderId;
-  final Value<DateTime?> localCreatedAt;
+  final Value<int> senderId;
+  final Value<DateTime> localCreatedAt;
   final Value<DateTime?> remoteCreatedAt;
+  final Value<DateTime> updatedAt;
   const MessagesCompanion({
     this.id = const Value.absent(),
     this.rid = const Value.absent(),
@@ -1919,6 +1947,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.senderId = const Value.absent(),
     this.localCreatedAt = const Value.absent(),
     this.remoteCreatedAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
   });
   MessagesCompanion.insert({
     this.id = const Value.absent(),
@@ -1927,24 +1956,26 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     required MessageState state,
     required Map<String, dynamic> payload,
     required int channelId,
-    required String senderId,
+    required int senderId,
     this.localCreatedAt = const Value.absent(),
     this.remoteCreatedAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
   })  : type = Value(type),
         state = Value(state),
         payload = Value(payload),
         channelId = Value(channelId),
         senderId = Value(senderId);
-  static Insertable<Message> custom({
+  static Insertable<MessageEntity> custom({
     Expression<int>? id,
     Expression<String>? rid,
     Expression<String>? type,
     Expression<String>? state,
     Expression<String>? payload,
     Expression<int>? channelId,
-    Expression<String>? senderId,
+    Expression<int>? senderId,
     Expression<DateTime>? localCreatedAt,
     Expression<DateTime>? remoteCreatedAt,
+    Expression<DateTime>? updatedAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1956,6 +1987,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       if (senderId != null) 'sender_id': senderId,
       if (localCreatedAt != null) 'local_created_at': localCreatedAt,
       if (remoteCreatedAt != null) 'remote_created_at': remoteCreatedAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
     });
   }
 
@@ -1966,9 +1998,10 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       Value<MessageState>? state,
       Value<Map<String, dynamic>>? payload,
       Value<int>? channelId,
-      Value<String>? senderId,
-      Value<DateTime?>? localCreatedAt,
-      Value<DateTime?>? remoteCreatedAt}) {
+      Value<int>? senderId,
+      Value<DateTime>? localCreatedAt,
+      Value<DateTime?>? remoteCreatedAt,
+      Value<DateTime>? updatedAt}) {
     return MessagesCompanion(
       id: id ?? this.id,
       rid: rid ?? this.rid,
@@ -1979,6 +2012,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       senderId: senderId ?? this.senderId,
       localCreatedAt: localCreatedAt ?? this.localCreatedAt,
       remoteCreatedAt: remoteCreatedAt ?? this.remoteCreatedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -2007,13 +2041,16 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       map['channel_id'] = Variable<int>(channelId.value);
     }
     if (senderId.present) {
-      map['sender_id'] = Variable<String>(senderId.value);
+      map['sender_id'] = Variable<int>(senderId.value);
     }
     if (localCreatedAt.present) {
       map['local_created_at'] = Variable<DateTime>(localCreatedAt.value);
     }
     if (remoteCreatedAt.present) {
       map['remote_created_at'] = Variable<DateTime>(remoteCreatedAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
     return map;
   }
@@ -2029,7 +2066,8 @@ class MessagesCompanion extends UpdateCompanion<Message> {
           ..write('channelId: $channelId, ')
           ..write('senderId: $senderId, ')
           ..write('localCreatedAt: $localCreatedAt, ')
-          ..write('remoteCreatedAt: $remoteCreatedAt')
+          ..write('remoteCreatedAt: $remoteCreatedAt, ')
+          ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
@@ -2043,6 +2081,8 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
   late final $ContactsTable contacts = $ContactsTable(this);
   late final $MembersTable members = $MembersTable(this);
   late final $MessagesTable messages = $MessagesTable(this);
+  late final ChatDao chatDao = ChatDao(this as ChatDatabase);
+  late final ChannelDao channelDao = ChannelDao(this as ChatDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2068,6 +2108,13 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
           ),
           WritePropagation(
             on: TableUpdateQuery.onTableName('channels',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('messages', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('contacts',
                 limitUpdateKind: UpdateKind.delete),
             result: [
               TableUpdate('messages', kind: UpdateKind.delete),
@@ -2340,11 +2387,11 @@ final class $$ChannelsTableReferences
         manager.$state.copyWith(prefetchedData: cache));
   }
 
-  static MultiTypedResultKey<$MessagesTable, List<Message>> _messagesRefsTable(
-          _$ChatDatabase db) =>
-      MultiTypedResultKey.fromTable(db.messages,
-          aliasName:
-              $_aliasNameGenerator(db.channels.id, db.messages.channelId));
+  static MultiTypedResultKey<$MessagesTable, List<MessageEntity>>
+      _messagesRefsTable(_$ChatDatabase db) =>
+          MultiTypedResultKey.fromTable(db.messages,
+              aliasName:
+                  $_aliasNameGenerator(db.channels.id, db.messages.channelId));
 
   $$MessagesTableProcessedTableManager get messagesRefs {
     final manager = $$MessagesTableTableManager($_db, $_db.messages)
@@ -2668,7 +2715,7 @@ class $$ChannelsTableTableManager extends RootTableManager<
                         typedResults: items),
                   if (messagesRefs)
                     await $_getPrefetchedData<ChannelEntity, $ChannelsTable,
-                            Message>(
+                            MessageEntity>(
                         currentTable: table,
                         referencedTable:
                             $$ChannelsTableReferences._messagesRefsTable(db),
@@ -2738,6 +2785,21 @@ final class $$ContactsTableReferences
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: cache));
   }
+
+  static MultiTypedResultKey<$MessagesTable, List<MessageEntity>>
+      _messagesRefsTable(_$ChatDatabase db) =>
+          MultiTypedResultKey.fromTable(db.messages,
+              aliasName:
+                  $_aliasNameGenerator(db.contacts.id, db.messages.senderId));
+
+  $$MessagesTableProcessedTableManager get messagesRefs {
+    final manager = $$MessagesTableTableManager($_db, $_db.messages)
+        .filter((f) => f.senderId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_messagesRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
 }
 
 class $$ContactsTableFilterComposer
@@ -2794,6 +2856,27 @@ class $$ContactsTableFilterComposer
             $$MembersTableFilterComposer(
               $db: $db,
               $table: $db.members,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> messagesRefs(
+      Expression<bool> Function($$MessagesTableFilterComposer f) f) {
+    final $$MessagesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.messages,
+        getReferencedColumn: (t) => t.senderId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessagesTableFilterComposer(
+              $db: $db,
+              $table: $db.messages,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -2897,6 +2980,27 @@ class $$ContactsTableAnnotationComposer
             ));
     return f(composer);
   }
+
+  Expression<T> messagesRefs<T extends Object>(
+      Expression<T> Function($$MessagesTableAnnotationComposer a) f) {
+    final $$MessagesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.messages,
+        getReferencedColumn: (t) => t.senderId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessagesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.messages,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$ContactsTableTableManager extends RootTableManager<
@@ -2910,7 +3014,7 @@ class $$ContactsTableTableManager extends RootTableManager<
     $$ContactsTableUpdateCompanionBuilder,
     (Contact, $$ContactsTableReferences),
     Contact,
-    PrefetchHooks Function({bool membersRefs})> {
+    PrefetchHooks Function({bool membersRefs, bool messagesRefs})> {
   $$ContactsTableTableManager(_$ChatDatabase db, $ContactsTable table)
       : super(TableManagerState(
           db: db,
@@ -2969,10 +3073,13 @@ class $$ContactsTableTableManager extends RootTableManager<
               .map((e) =>
                   (e.readTable(table), $$ContactsTableReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({membersRefs = false}) {
+          prefetchHooksCallback: ({membersRefs = false, messagesRefs = false}) {
             return PrefetchHooks(
               db: db,
-              explicitlyWatchedTables: [if (membersRefs) db.members],
+              explicitlyWatchedTables: [
+                if (membersRefs) db.members,
+                if (messagesRefs) db.messages
+              ],
               addJoins: null,
               getPrefetchedDataCallback: (items) async {
                 return [
@@ -2988,6 +3095,19 @@ class $$ContactsTableTableManager extends RootTableManager<
                         referencedItemsForCurrentItem: (item,
                                 referencedItems) =>
                             referencedItems.where((e) => e.memberId == item.id),
+                        typedResults: items),
+                  if (messagesRefs)
+                    await $_getPrefetchedData<Contact, $ContactsTable,
+                            MessageEntity>(
+                        currentTable: table,
+                        referencedTable:
+                            $$ContactsTableReferences._messagesRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$ContactsTableReferences(db, table, p0)
+                                .messagesRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.senderId == item.id),
                         typedResults: items)
                 ];
               },
@@ -3007,7 +3127,7 @@ typedef $$ContactsTableProcessedTableManager = ProcessedTableManager<
     $$ContactsTableUpdateCompanionBuilder,
     (Contact, $$ContactsTableReferences),
     Contact,
-    PrefetchHooks Function({bool membersRefs})>;
+    PrefetchHooks Function({bool membersRefs, bool messagesRefs})>;
 typedef $$MembersTableCreateCompanionBuilder = MembersCompanion Function({
   required int memberId,
   required int channelId,
@@ -3375,9 +3495,10 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   required MessageState state,
   required Map<String, dynamic> payload,
   required int channelId,
-  required String senderId,
-  Value<DateTime?> localCreatedAt,
+  required int senderId,
+  Value<DateTime> localCreatedAt,
   Value<DateTime?> remoteCreatedAt,
+  Value<DateTime> updatedAt,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<int> id,
@@ -3386,13 +3507,14 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<MessageState> state,
   Value<Map<String, dynamic>> payload,
   Value<int> channelId,
-  Value<String> senderId,
-  Value<DateTime?> localCreatedAt,
+  Value<int> senderId,
+  Value<DateTime> localCreatedAt,
   Value<DateTime?> remoteCreatedAt,
+  Value<DateTime> updatedAt,
 });
 
 final class $$MessagesTableReferences
-    extends BaseReferences<_$ChatDatabase, $MessagesTable, Message> {
+    extends BaseReferences<_$ChatDatabase, $MessagesTable, MessageEntity> {
   $$MessagesTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
   static $ChannelsTable _channelIdTable(_$ChatDatabase db) => db.channels
@@ -3404,6 +3526,20 @@ final class $$MessagesTableReferences
     final manager = $$ChannelsTableTableManager($_db, $_db.channels)
         .filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_channelIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static $ContactsTable _senderIdTable(_$ChatDatabase db) => db.contacts
+      .createAlias($_aliasNameGenerator(db.messages.senderId, db.contacts.id));
+
+  $$ContactsTableProcessedTableManager get senderId {
+    final $_column = $_itemColumn<int>('sender_id')!;
+
+    final manager = $$ContactsTableTableManager($_db, $_db.contacts)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_senderIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: [item]));
@@ -3441,9 +3577,6 @@ class $$MessagesTableFilterComposer
           column: $table.payload,
           builder: (column) => ColumnWithTypeConverterFilters(column));
 
-  ColumnFilters<String> get senderId => $composableBuilder(
-      column: $table.senderId, builder: (column) => ColumnFilters(column));
-
   ColumnFilters<DateTime> get localCreatedAt => $composableBuilder(
       column: $table.localCreatedAt,
       builder: (column) => ColumnFilters(column));
@@ -3451,6 +3584,9 @@ class $$MessagesTableFilterComposer
   ColumnFilters<DateTime> get remoteCreatedAt => $composableBuilder(
       column: $table.remoteCreatedAt,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
 
   $$ChannelsTableFilterComposer get channelId {
     final $$ChannelsTableFilterComposer composer = $composerBuilder(
@@ -3464,6 +3600,26 @@ class $$MessagesTableFilterComposer
             $$ChannelsTableFilterComposer(
               $db: $db,
               $table: $db.channels,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$ContactsTableFilterComposer get senderId {
+    final $$ContactsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.senderId,
+        referencedTable: $db.contacts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ContactsTableFilterComposer(
+              $db: $db,
+              $table: $db.contacts,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -3497,9 +3653,6 @@ class $$MessagesTableOrderingComposer
   ColumnOrderings<String> get payload => $composableBuilder(
       column: $table.payload, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<String> get senderId => $composableBuilder(
-      column: $table.senderId, builder: (column) => ColumnOrderings(column));
-
   ColumnOrderings<DateTime> get localCreatedAt => $composableBuilder(
       column: $table.localCreatedAt,
       builder: (column) => ColumnOrderings(column));
@@ -3507,6 +3660,9 @@ class $$MessagesTableOrderingComposer
   ColumnOrderings<DateTime> get remoteCreatedAt => $composableBuilder(
       column: $table.remoteCreatedAt,
       builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
 
   $$ChannelsTableOrderingComposer get channelId {
     final $$ChannelsTableOrderingComposer composer = $composerBuilder(
@@ -3520,6 +3676,26 @@ class $$MessagesTableOrderingComposer
             $$ChannelsTableOrderingComposer(
               $db: $db,
               $table: $db.channels,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$ContactsTableOrderingComposer get senderId {
+    final $$ContactsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.senderId,
+        referencedTable: $db.contacts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ContactsTableOrderingComposer(
+              $db: $db,
+              $table: $db.contacts,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -3553,14 +3729,14 @@ class $$MessagesTableAnnotationComposer
   GeneratedColumnWithTypeConverter<Map<String, dynamic>, String> get payload =>
       $composableBuilder(column: $table.payload, builder: (column) => column);
 
-  GeneratedColumn<String> get senderId =>
-      $composableBuilder(column: $table.senderId, builder: (column) => column);
-
   GeneratedColumn<DateTime> get localCreatedAt => $composableBuilder(
       column: $table.localCreatedAt, builder: (column) => column);
 
   GeneratedColumn<DateTime> get remoteCreatedAt => $composableBuilder(
       column: $table.remoteCreatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 
   $$ChannelsTableAnnotationComposer get channelId {
     final $$ChannelsTableAnnotationComposer composer = $composerBuilder(
@@ -3581,20 +3757,40 @@ class $$MessagesTableAnnotationComposer
             ));
     return composer;
   }
+
+  $$ContactsTableAnnotationComposer get senderId {
+    final $$ContactsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.senderId,
+        referencedTable: $db.contacts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ContactsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.contacts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
     _$ChatDatabase,
     $MessagesTable,
-    Message,
+    MessageEntity,
     $$MessagesTableFilterComposer,
     $$MessagesTableOrderingComposer,
     $$MessagesTableAnnotationComposer,
     $$MessagesTableCreateCompanionBuilder,
     $$MessagesTableUpdateCompanionBuilder,
-    (Message, $$MessagesTableReferences),
-    Message,
-    PrefetchHooks Function({bool channelId})> {
+    (MessageEntity, $$MessagesTableReferences),
+    MessageEntity,
+    PrefetchHooks Function({bool channelId, bool senderId})> {
   $$MessagesTableTableManager(_$ChatDatabase db, $MessagesTable table)
       : super(TableManagerState(
           db: db,
@@ -3612,9 +3808,10 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<MessageState> state = const Value.absent(),
             Value<Map<String, dynamic>> payload = const Value.absent(),
             Value<int> channelId = const Value.absent(),
-            Value<String> senderId = const Value.absent(),
-            Value<DateTime?> localCreatedAt = const Value.absent(),
+            Value<int> senderId = const Value.absent(),
+            Value<DateTime> localCreatedAt = const Value.absent(),
             Value<DateTime?> remoteCreatedAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
           }) =>
               MessagesCompanion(
             id: id,
@@ -3626,6 +3823,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             senderId: senderId,
             localCreatedAt: localCreatedAt,
             remoteCreatedAt: remoteCreatedAt,
+            updatedAt: updatedAt,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -3634,9 +3832,10 @@ class $$MessagesTableTableManager extends RootTableManager<
             required MessageState state,
             required Map<String, dynamic> payload,
             required int channelId,
-            required String senderId,
-            Value<DateTime?> localCreatedAt = const Value.absent(),
+            required int senderId,
+            Value<DateTime> localCreatedAt = const Value.absent(),
             Value<DateTime?> remoteCreatedAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
             id: id,
@@ -3648,12 +3847,13 @@ class $$MessagesTableTableManager extends RootTableManager<
             senderId: senderId,
             localCreatedAt: localCreatedAt,
             remoteCreatedAt: remoteCreatedAt,
+            updatedAt: updatedAt,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
                   (e.readTable(table), $$MessagesTableReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({channelId = false}) {
+          prefetchHooksCallback: ({channelId = false, senderId = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [],
@@ -3680,6 +3880,16 @@ class $$MessagesTableTableManager extends RootTableManager<
                         $$MessagesTableReferences._channelIdTable(db).id,
                   ) as T;
                 }
+                if (senderId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.senderId,
+                    referencedTable:
+                        $$MessagesTableReferences._senderIdTable(db),
+                    referencedColumn:
+                        $$MessagesTableReferences._senderIdTable(db).id,
+                  ) as T;
+                }
 
                 return state;
               },
@@ -3694,15 +3904,15 @@ class $$MessagesTableTableManager extends RootTableManager<
 typedef $$MessagesTableProcessedTableManager = ProcessedTableManager<
     _$ChatDatabase,
     $MessagesTable,
-    Message,
+    MessageEntity,
     $$MessagesTableFilterComposer,
     $$MessagesTableOrderingComposer,
     $$MessagesTableAnnotationComposer,
     $$MessagesTableCreateCompanionBuilder,
     $$MessagesTableUpdateCompanionBuilder,
-    (Message, $$MessagesTableReferences),
-    Message,
-    PrefetchHooks Function({bool channelId})>;
+    (MessageEntity, $$MessagesTableReferences),
+    MessageEntity,
+    PrefetchHooks Function({bool channelId, bool senderId})>;
 
 class $ChatDatabaseManager {
   final _$ChatDatabase _db;

@@ -11,7 +11,6 @@ import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/auth_service.dart';
-import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/auth_listener.dart';
@@ -111,7 +110,7 @@ class HomeState extends State<Home> {
           widget = new Chats();
           break;
         case '/chat':
-          widget = new ChatScreen(settings.arguments as Channel);
+          widget = new ChatScreen(settings.arguments as ChannelModel);
           break;
         case '/new-chat':
           widget = new NewChatScreen();
@@ -131,7 +130,6 @@ class HomeState extends State<Home> {
 
   @override
   void dispose() {
-    ChatService.dispose();
     AuthService.instance.dispose();
     super.dispose();
   }

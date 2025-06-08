@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/models/remoteMessage.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/push_notification_service.dart';
 
@@ -170,11 +169,5 @@ class ApiService {
     http.Response response = await _get("group/get");
     var resp = _handleListResponse(response);
     return resp;
-  }
-
-  static Future sendMessages(Iterable<RemoteMessage> messages) async {
-    final body = messages.map((msg) => json.encode(msg.toMap())).toList();
-    final resp = await _post("messages", body);
-    _handleResponse(resp);
   }
 }

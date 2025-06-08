@@ -34,73 +34,43 @@ class NotificationContent {
 }
 
 abstract class ChatMessage {
-  String _action = "message";
-  late int _id;
-  late int _channelId;
-  late String _senderId;
-  late MessageState _state;
-  late MessageType _type;
-  late DateTime _ts = DateTime.now();
-  late String _category = "message";
-  late bool _ephemeral = false;
+  final int _id;
+  final int _senderId;
+  Contact? _sender;
+  MessageState _state;
+  final MessageType _type;
+  final DateTime _ts;
+  final DateTime _updatedAt;
 
   int get id => _id;
-  String get senderId => _senderId;
-  String get action => _action;
+  int get senderId => _senderId;
+  Contact? get sender => _sender;
+
   MessageState get state => _state;
   MessageType get type => _type;
-  String get category => _category;
-  bool get ephemeral => _ephemeral;
 
   DateTime get timestamp => _ts;
-  set timestamp(DateTime ts) {
-    _ts = ts;
-  }
+
+  DateTime get updatedAt => _updatedAt;
 
   Map<String, dynamic> get payload;
 
   bool isSelected = false;
 
-  final int defaultTime = DateTime.now().millisecondsSinceEpoch;
-  Contact? sender;
-  ChatMessage(
-    this._id,
-    this._channelId,
-    this._senderId, [
-    this._state = MessageState.pending,
-    this._action = "message",
-    this._type = MessageType.other,
-    this._category = "message",
-    this._ephemeral = false,
-  ]);
-
-  ChatMessage.chatMessage(
-    int channelId,
-    String senderId,
-    MessageType type, {
-    int id = 0,
-  }) {
-    _id = id;
-    _channelId = channelId;
-    _senderId = senderId;
-    _state = MessageState.pending;
-    _type = type;
-  }
-  ChatMessage.fromDb({
-    required int id,
-    required int channelId,
-    required String senderId,
-    required MessageState state,
+  ChatMessage({
+    required int senderId,
     required MessageType type,
-    required DateTime ts,
-  }) {
-    _id = id;
-    _channelId = channelId;
-    _senderId = senderId;
-    _state = state;
-    _type = type;
-    _ts = ts;
-  }
+    MessageState state = MessageState.pending,
+    int id = 0,
+    DateTime? ts,
+    DateTime? updatedAt,
+    Contact? sender,
+  })  : _id = id,
+        _senderId = senderId,
+        _state = state,
+        _type = type,
+        _updatedAt = updatedAt ?? DateTime.now(),
+        _ts = ts ?? DateTime.now();
 
   NotificationContent get notificationContent =>
       NotificationContent(show: false);
@@ -141,34 +111,21 @@ class ChatMessageNotifier extends ValueNotifier<ChatMessage> {
 }
 
 class TextMessage extends ChatMessage {
-  String _action = "message";
-  late String _text;
+  final String _text;
   String get text => _text;
 
-  TextMessage(int id, int chatId, String senderId,
-      [this._text = '',
-      MessageState state = MessageState.pending,
-      MessageType type = MessageType.text,
-      String action = "message"])
-      : super(id, chatId, senderId, state, action, type);
-
-  TextMessage.chatMessage(
-      int chatId, String senderId, String text, MessageType type)
-      : super.chatMessage(chatId, senderId, type) {
-    _text = text;
-  }
-
-  TextMessage.fromDb({
-    required super.id,
-    required super.channelId,
+  TextMessage({
     required super.senderId,
-    required super.state,
-    required super.type,
-    required super.ts,
     required Map<String, dynamic> payload,
-  }) : super.fromDb() {
-    _text = payload["text"];
-  }
+    super.id,
+    super.state,
+    super.ts,
+    super.updatedAt,
+    super.sender,
+  })  : _text = payload["text"] ?? "",
+        super(
+          type: MessageType.text,
+        );
 
   @override
   NotificationContent get notificationContent =>
@@ -181,101 +138,32 @@ class TextMessage extends ChatMessage {
   Map<String, dynamic> get payload => {"text": _text};
 }
 
-class StateMessge extends ChatMessage {
-  List<String> msgIds = [];
-
-  StateMessge(int chatId, String senderId,
-      [MessageState state = MessageState.other, int id = 0])
-      : super(
-          id,
-          chatId,
-          senderId,
-          state,
-          "state",
-          MessageType.notification,
-          "system",
-          false,
-        );
-
-  @override
-  Map<String, dynamic> get payload => {"msgIds": msgIds};
-}
-
 class CustomMessage extends ChatMessage {
-  Map<String, dynamic> _rawbody = {};
+  final Map<String, dynamic> _rawbody;
 
-  CustomMessage.chatMessage(super.chatId, super.senderId, super.type);
-
-  CustomMessage(super.id, super.chatId, super.senderId);
-
-  CustomMessage.fromDb({
-    required super.id,
-    required super.channelId,
+  CustomMessage({
     required super.senderId,
+    required super.id,
     required super.state,
     required super.type,
     required super.ts,
-    required Map<String, dynamic> payload,
-  }) : super.fromDb() {
-    _rawbody = payload;
-  }
+    required super.updatedAt,
+    super.sender,
+    Map<String, dynamic> payload = const {},
+  }) : _rawbody = payload;
 
   @override
   Map<String, dynamic> get payload => _rawbody;
 }
 
-class TypingMessage extends ChatMessage {
-  bool isTyping = false;
-
-  TypingMessage(int chatId, String senderId, this.isTyping, {int id = 0})
-      : super(id, chatId, senderId, MessageState.other, "typing",
-            MessageType.notification, "system", true);
-
-  @override
-  Map<String, dynamic> get payload => {"isTyping": isTyping};
-}
-
 class MessageFilter {
   final MessageType? type;
   final MessageState? state;
-  final String? senderId;
+  final int? senderId;
 
   const MessageFilter({
     this.type,
     this.state,
     this.senderId,
   });
-}
-
-ChatMessage buildChatMessage({
-  required int id,
-  required MessageType type,
-  required int channelId,
-  required String senderId,
-  required MessageState state,
-  required DateTime ts,
-  required Map<String, dynamic> payload,
-}) {
-  switch (type) {
-    case MessageType.text:
-      return TextMessage.fromDb(
-        id: id,
-        channelId: channelId,
-        senderId: senderId,
-        state: state,
-        type: type,
-        ts: ts,
-        payload: payload,
-      );
-    default:
-      return CustomMessage.fromDb(
-        id: id,
-        channelId: channelId,
-        senderId: senderId,
-        state: state,
-        type: type,
-        ts: ts,
-        payload: payload,
-      );
-  }
 }

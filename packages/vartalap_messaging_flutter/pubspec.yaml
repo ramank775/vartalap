@@ -18,12 +18,14 @@ dependencies:
     path: /home/raman/git/taskq
   path: ^1.9.0
   path_provider: ^2.1.5
+  json_annotation: ^4.9.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
   drift_dev: ^2.20.3
   build_runner: ^2.4.12
+  json_serializable: ^6.8.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

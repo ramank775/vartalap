@@ -1,17 +1,19 @@
 import 'package:drift/drift.dart';
 import 'package:taskq/task.dart';
-import 'package:vartalap_messaging/vartalap_messaging.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart'
+    show VartalapChatClient;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
+import 'package:vartalap_messaging_flutter/mapper/mapper.dart';
 
 import '../models/models.dart';
 
-class CreateChannelTask extends VartalapTask<Channel> {
+class CreateChannelTask extends VartalapTask<ChannelModel> {
   static const name = 'create-channel';
   CreateChannelTask(
     VartalapChatClient client,
     ChatDatabase db, {
-    Channel? payload,
+    ChannelModel? payload,
   }) : super(client, db, name, payload: payload);
 
   @override
@@ -22,7 +24,7 @@ class CreateChannelTask extends VartalapTask<Channel> {
   @override
   Future<void> process() async {
     ChannelEntity channel = await (db.select(db.channels)
-          ..whereSamePrimaryKey(ChannelsCompanion(id: Value(payload.id!))))
+          ..whereSamePrimaryKey(ChannelsCompanion(id: Value(payload.id))))
         .getSingle();
     final result = await (db.selectOnly(db.members)
           ..join([
@@ -34,15 +36,19 @@ class CreateChannelTask extends VartalapTask<Channel> {
         .get();
     final members =
         result.map((row) => row.read<String>(db.contacts.username)!).toList();
-    ChannelModel model = ChannelModel()
-      ..name = channel.extraData?['name']
-      ..profilePic = channel.extraData?['image']
-      ..type = channel.type.toString()
-      ..members = members;
-    final resp = await client.createChannel(model);
+
+    // final resp = await client.createChannel(
+    //   ChannelModel(
+    //     id: payload.id,
+    //     type: payload.type,
+    //     displayName: payload.displayName,
+    //     members: members.map((m) => Member(user: m, role: 'member')).toList(),
+    //   ),
+    // );
+    final cid = '';
     await (db.update(db.channels)
-          ..where((channel) => channel.id.equals(payload.id!)))
-        .write(ChannelsCompanion(cid: Value(resp.channelId)));
+          ..where((channel) => channel.id.equals(payload.id)))
+        .write(ChannelsCompanion(cid: Value(cid)));
   }
 
   @override
@@ -51,7 +57,7 @@ class CreateChannelTask extends VartalapTask<Channel> {
     final channel = await (db.select(db.channels)
           ..whereSamePrimaryKey(ChannelsCompanion(id: Value(channelId))))
         .getSingle();
-    payload = Channel(channel.type, []);
+    payload = channel.toModel();
   }
 
   @override

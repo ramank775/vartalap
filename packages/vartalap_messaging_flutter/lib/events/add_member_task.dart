@@ -3,7 +3,7 @@ import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 import '../models/models.dart';
 
 class AddMembers {
-  Channel channel;
+  ChannelModel channel;
   List<Member> members;
   AddMembers(this.channel, this.members);
 }

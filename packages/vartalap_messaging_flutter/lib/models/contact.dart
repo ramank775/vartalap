@@ -10,7 +10,7 @@ enum ContactStatus {
 }
 
 class Contact {
-  final int? id;
+  final int id;
   final String? username;
   final String? uid;
   final String? phone;
@@ -21,7 +21,7 @@ class Contact {
   final ContactStatus status;
 
   const Contact({
-    this.id,
+    required this.id,
     required this.username,
     this.uid,
     this.phone,

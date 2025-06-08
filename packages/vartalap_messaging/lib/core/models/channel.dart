@@ -3,7 +3,7 @@ import 'package:json_annotation/json_annotation.dart';
 part 'channel.g.dart';
 
 @JsonSerializable()
-class ChannelModel {
+class ChannelPayload {
   @JsonKey(includeIfNull: false)
   late String? channelId;
 
@@ -19,8 +19,8 @@ class ChannelModel {
   @JsonKey(includeIfNull: false)
   late String profilePic;
 
-  static ChannelModel fromJson(Map<String, dynamic> json) =>
-      _$ChannelModelFromJson(json);
+  static ChannelPayload fromJson(Map<String, dynamic> json) =>
+      _$ChannelPayloadFromJson(json);
 
-  Map<String, dynamic> toJson() => _$ChannelModelToJson(this);
+  Map<String, dynamic> toJson() => _$ChannelPayloadToJson(this);
 }

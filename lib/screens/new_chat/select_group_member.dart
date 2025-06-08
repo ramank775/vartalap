@@ -5,7 +5,7 @@ import 'package:vartalap/widgets/contact.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class SelectGroupMemberScreen extends StatefulWidget {
-  final Channel? channel;
+  final ChannelModel? channel;
   SelectGroupMemberScreen({this.channel});
   @override
   State<StatefulWidget> createState() => SelectGroupMemberState();
@@ -22,14 +22,14 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
   @override
   void initState() {
     super.initState();
-    if (this.widget.channel != null) {
-      this._isUpdate = true;
-      this
-          .widget
-          .channel!
-          .members
-          .forEach((member) => this._existingUser.add(member.user.id!));
-    }
+    // if (this.widget.channel != null) {
+    //   this._isUpdate = true;
+    //   this
+    //       .widget
+    //       .channel!
+    //       .members
+    //       .forEach((member) => this._existingUser.add(member.user.id));
+    // }
     _contacts = client.getContacts(
       filter: ContactFilter(
         status: ContactStatus.active,
@@ -107,10 +107,10 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                     return ContactItem(
                       contact: contact,
                       isSelected: this._selectedContacts.contains(contact),
-                      enabled: !this._existingUser.contains(contact.id!),
+                      enabled: !this._existingUser.contains(contact.id),
                       onProfileTap: () => {},
                       onTap: (Contact contact) async {
-                        if (this._existingUser.contains(contact.id!)) return;
+                        if (this._existingUser.contains(contact.id)) return;
                         setState(() {
                           if (!this._selectedContacts.remove(contact)) {
                             this._selectedContacts.add(contact);

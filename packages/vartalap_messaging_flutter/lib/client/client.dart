@@ -1,10 +1,12 @@
 import 'package:drift/drift.dart';
 import 'package:taskq/storage/database.dart';
 import 'package:taskq/taskq.dart';
-import 'package:vartalap_messaging/vartalap_messaging.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart'
+    show VartalapChatClient, ChannelType;
 import 'package:vartalap_messaging_flutter/client/secure_token_manager.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/events.dart';
+import 'package:vartalap_messaging_flutter/mapper/mapper.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
 class VartalapChatClientFlutter {
@@ -51,28 +53,19 @@ class VartalapChatClientFlutter {
     );
   }
 
-  Selectable<Channel> getChannels({
+  Selectable<ChatPreview> getChatPreviews({
     ChannelFilter? filter,
   }) {
-    final query = _db.select(_db.channels);
-    if (filter != null) {
-      if (filter.type != null) {
-        query.where((tbl) => tbl.type.equals(filter.type!.toString()));
-      }
-      if (filter.name != null) {
-        query.where((tbl) => tbl.extraData.like('%${filter.name}%'));
-      }
-    }
-    return query.map<Channel>((row) => Channel.fromDb(
-          id: row.id,
-          type: row.type,
-          cid: row.cid,
-          config: row.config,
-          extraData: row.extraData,
-        ));
+    return _db.chatDao.getChatPreviews(filter: filter);
   }
 
-  Future<void> createChannel(Channel channel) async {
+  Selectable<ChannelModel> getChannels({
+    ChannelFilter? filter,
+  }) {
+    return _db.channelDao.getChannels(filter: filter);
+  }
+
+  Future<void> createChannel(ChannelModel channel) async {
     await _db.transaction(() async {
       CreateChannelTask task = factory.create(
         CreateChannelTask.name,
@@ -83,20 +76,18 @@ class VartalapChatClientFlutter {
         type: channel.type,
         taskId: Value(taskId),
         config: Value(Map<String, dynamic>.from({})),
-        extraData: Value({
-          "name": channel.name,
-          "image": channel.image,
-        }),
+        extraData: Value(channel.extraData),
       );
       final insertedChannel =
           await _db.into(_db.channels).insertReturning(channelComp);
       await _db.batch((batch) {
-        final rows = channel.members.map(
+        final rows = channel.members?.map(
           (member) => MembersCompanion.insert(
-            memberId: member.user.id!,
+            memberId: member.user.id,
             channelId: insertedChannel.id,
           ),
         );
+        if (rows == null) return;
         batch.insertAll(_db.members, rows);
       });
       return insertedChannel.id;
@@ -105,7 +96,7 @@ class VartalapChatClientFlutter {
     // return channel;
   }
 
-  Future<void> addMembers(List<Member> members, Channel channel) async {
+  Future<void> addMembers(List<Member> members, ChannelModel channel) async {
     await _db.transaction(() async {
       AddMembersTask task = factory.create(
         AddMembersTask.name,
@@ -115,8 +106,8 @@ class VartalapChatClientFlutter {
       await _db.batch((batch) {
         final rows = members.map(
           (member) => MembersCompanion.insert(
-            memberId: member.user.id!,
-            channelId: channel.id!,
+            memberId: member.user.id,
+            channelId: channel.id,
           ),
         );
         batch.insertAll(_db.members, rows);
@@ -124,7 +115,7 @@ class VartalapChatClientFlutter {
     });
   }
 
-  Future<void> removeMember(Member member, Channel channel) async {
+  Future<void> removeMember(Member member, ChannelModel channel) async {
     await _db.transaction(() async {
       RemoveMemberTask task = factory.create(
         RemoveMemberTask.name,
@@ -136,28 +127,28 @@ class VartalapChatClientFlutter {
             _db.members,
           )
           .where((tbl) =>
-              tbl.channelId.equals(channel.id!) &
-              tbl.memberId.equals(member.user.id!));
+              tbl.channelId.equals(channel.id) &
+              tbl.memberId.equals(member.user.id));
     });
   }
 
-  Future<void> sendMessage(List<ChatMessage> msg, Channel channel) async {
+  Future<void> sendMessage(List<ChatMessage> msg, ChannelModel channel) async {
     await _db.transaction(() async {
       SendMessageTask task = factory.create<SendMessage>(
         SendMessageTask.name,
-        payload: SendMessage(channel.id!, msg),
+        payload: SendMessage(channel.id, msg),
       ) as SendMessageTask;
       await scheduler.schedule(task);
     });
   }
 
   Selectable<ChatMessage> getMessages({
-    Channel? channel,
+    ChannelModel? channel,
     MessageFilter? filter,
   }) {
     final query = _db.select(_db.messages);
     if (channel != null) {
-      query.where((tbl) => tbl.channelId.equals(channel.id!));
+      query.where((tbl) => tbl.channelId.equals(channel.id));
     }
     if (filter != null) {
       if (filter.type != null) {
@@ -170,19 +161,7 @@ class VartalapChatClientFlutter {
         query.where((tbl) => tbl.senderId.equals(filter.senderId!));
       }
     }
-    return query.map(
-      (message) => buildChatMessage(
-        id: message.id,
-        type: message.type,
-        channelId: message.channelId,
-        senderId: message.senderId,
-        state: message.state,
-        ts: (message.localCreatedAt ??
-            message.remoteCreatedAt ??
-            DateTime.now()),
-        payload: message.payload,
-      ),
-    );
+    return query.map((message) => message.toModel());
   }
 
   Selectable<Contact> getContacts({

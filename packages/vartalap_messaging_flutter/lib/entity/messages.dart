@@ -1,9 +1,10 @@
 import 'package:drift/drift.dart';
 import 'package:vartalap_messaging_flutter/converter/map_converter.dart';
-import 'package:vartalap_messaging_flutter/entity/channel.dart';
+import 'package:vartalap_messaging_flutter/entity/entity.dart';
 
 import '../models/models.dart';
 
+@DataClassName("MessageEntity")
 class Messages extends Table {
   IntColumn get id => integer()();
   TextColumn get rid => text().nullable()();
@@ -16,10 +17,16 @@ class Messages extends Table {
         #id,
         onDelete: KeyAction.cascade,
       )();
-  TextColumn get senderId => text()();
+  IntColumn get senderId => integer().references(
+        Contacts,
+        #id,
+        onDelete: KeyAction.cascade,
+      )();
 
-  DateTimeColumn get localCreatedAt => dateTime().nullable()();
+  DateTimeColumn get localCreatedAt =>
+      dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get remoteCreatedAt => dateTime().nullable()();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 
   Expression<DateTime> get createdAt => coalesce([
         localCreatedAt,

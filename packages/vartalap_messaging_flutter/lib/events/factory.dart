@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:taskq/taskq.dart';
-import 'package:vartalap_messaging/vartalap_messaging.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart'
+    show VartalapChatClient;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/message_task.dart';
 
@@ -24,7 +25,7 @@ class VartalapTaskFactory implements TaskFactory {
         return CreateChannelTask(
           client,
           db,
-          payload: payload as Channel?,
+          payload: payload as ChannelModel?,
         );
       case SendMessageTask.name:
         return SendMessageTask(

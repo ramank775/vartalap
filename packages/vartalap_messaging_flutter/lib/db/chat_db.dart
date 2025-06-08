@@ -9,10 +9,20 @@ import 'package:vartalap_messaging_flutter/models/models.dart';
 
 import '../converter/converter.dart';
 import '../entity/entity.dart';
+import '../dao/dao.dart';
 
 part 'chat_db.g.dart';
 
-@DriftDatabase(tables: [Assests, Channels, Contacts, Members, Messages])
+@DriftDatabase(tables: [
+  Assests,
+  Channels,
+  Contacts,
+  Members,
+  Messages,
+], daos: [
+  ChatDao,
+  ChannelDao,
+])
 class ChatDatabase extends _$ChatDatabase {
   String userId;
   ChatDatabase({

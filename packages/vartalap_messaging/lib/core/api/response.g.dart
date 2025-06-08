@@ -34,7 +34,9 @@ LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
 ProfileResponse _$ProfileResponseFromJson(Map<String, dynamic> json) =>
     ProfileResponse()
       ..name = json['name'] as String
-      ..username = json['username'] as String;
+      ..username = json['username'] as String
+      ..email = json['email'] as String?
+      ..image = json['image'] as String?;
 
 ChannelResponse _$ChannelResponseFromJson(Map<String, dynamic> json) =>
     ChannelResponse()

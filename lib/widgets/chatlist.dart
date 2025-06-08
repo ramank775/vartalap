@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/models/dateHeader.dart';
-import 'package:vartalap/models/message.dart';
 import 'package:vartalap/models/messageSpacer.dart';
-import 'package:vartalap/models/user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/message.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
@@ -11,7 +8,7 @@ import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ChatMessageController extends ValueNotifier<List<ChatMessage>> {
-  final Map<String, ChatMessageNotifier> messageChangeNotifier = {};
+  final Map<int, ChatMessageNotifier> messageChangeNotifier = {};
 
   ChatMessageController({required List<ChatMessage> messages})
       : super(messages);
@@ -40,13 +37,13 @@ class ChatMessageController extends ValueNotifier<List<ChatMessage>> {
     this.notifyListeners();
   }
 
-  delete(String id) {
+  delete(int id) {
     this.value.removeWhere((msg) => msg.id == id);
     this.messageChangeNotifier.remove(id);
     this.notifyListeners();
   }
 
-  deleteAll(Iterable<String> ids) {
+  deleteAll(Iterable<int> ids) {
     this.value.removeWhere((ChatMessage msg) => ids.contains(msg.id));
     ids.forEach((id) {
       this.messageChangeNotifier.remove(id);
@@ -86,8 +83,7 @@ class ChatList extends StatelessWidget {
   final MessageTapCallback? onTab;
   final MessageLongPressCallback? onLongPress;
   final Map<String, Member> members;
-  final Map<String, UserNotifier> _userChangeNotifier = {};
-  late VartalapChatClientFlutter _client;
+
   ChatList({
     super.key,
     required this.controller,
@@ -100,7 +96,6 @@ class ChatList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currentUser = CurrentUser.of(context).user!;
-    this._client = VartalapClientProvider.of(context).client;
     return ValueListenableBuilder(
       valueListenable: this.controller,
       builder: (BuildContext context, List<ChatMessage> value, Widget? child) {
@@ -151,29 +146,10 @@ class ChatList extends StatelessWidget {
       bool showNip = object["showNip"];
       bool isYou = msg.sender == currentUser;
       bool showUserInfo = !isYou && this.showName && showName;
-      if (msg.sender == null) {
-        msg.sender = this._getSender(msg.senderId);
-      }
+
       final notifier = this.controller.getNewNotifier(msg);
       Widget child = ValueListenableBuilder<ChatMessage>(
         builder: (context, key, child) {
-          if (this._userChangeNotifier.containsKey(msg.senderId)) {
-            return ValueListenableBuilder<Contact>(
-              valueListenable: this._userChangeNotifier[msg.senderId]!,
-              builder: (BuildContext context, Contact sender, Widget? child) {
-                msg.sender = sender;
-                return MessageWidget(
-                  msg,
-                  isYou,
-                  showUserInfo: showUserInfo,
-                  isSelected: msg.isSelected,
-                  showNip: showNip,
-                  onTab: this.onTab,
-                  onLongPress: this.onLongPress,
-                );
-              },
-            );
-          }
           return MessageWidget(
             msg,
             isYou,
@@ -190,35 +166,5 @@ class ChatList extends StatelessWidget {
       return child;
     }
     return const SizedBox();
-  }
-
-  Contact _getSender(String senderId) {
-    if (this.members.containsKey(senderId)) {
-      return this.members[senderId]!.user;
-    } else if (this._userChangeNotifier.containsKey(senderId)) {
-      return this._userChangeNotifier[senderId]!.value;
-    } else {
-      final sender = Contact(
-        id: null,
-        username: senderId,
-        status: ContactStatus.other,
-      );
-      this._userChangeNotifier[senderId] = UserNotifier(sender);
-      this
-          ._client
-          .getContacts(filter: ContactFilter(username: senderId))
-          .getSingleOrNull()
-          .then((contact) {
-        if (contact == null) {
-          return null;
-        }
-        this.members[contact.username!] =
-            Member(user: contact, role: 'member', since: DateTime.now());
-        this._userChangeNotifier[senderId]!.update(contact);
-      }, onError: (error) {
-        return null;
-      });
-      return sender;
-    }
   }
 }

@@ -6,12 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/models/message.dart';
-import 'package:vartalap/models/remoteMessage.dart' as vRemoteMessage;
 import 'package:vartalap/services/auth_service.dart';
-import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/utils/chat_message_helper.dart';
-import 'package:vartalap/utils/remote_message_helper.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 Future<void> showNotificationService(String title, String body, dynamic payload,
@@ -54,23 +49,7 @@ Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
   );
   await client.init();
   await AuthService.init(client);
-  final event = payload.data["message"];
-  final messages = toRemoteMessage(event);
-  final List<vRemoteMessage.RemoteMessage> deliveryAcks = [];
-  for (var msg in messages) {
-    var result = await ChatService.newMessage(msg);
-    if (result != null && msg.head.contentType != MessageType.NOTIFICATION) {
-      var chat = await ChatService.getChatInfo(msg.head.chatid!);
-      if (chat == null) return;
-      deliveryAcks.add(result);
-      final notify = toChatMessage(msg).notificationContent;
-      if (notify.show && notify.content != null) {
-        showNotificationService(chat.title, notify.content!, msg.toMap(),
-            groupKey: chat.id, id: chat.id.hashCode);
-      }
-    }
-  }
-  return await ChatService.ackMessageDelivery(deliveryAcks, socket: false);
+  // final event = payload.data["message"];
 }
 
 class PushNotificationService {

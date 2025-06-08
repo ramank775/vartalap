@@ -1,7 +1,6 @@
 import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:flutter/material.dart';
@@ -17,7 +16,7 @@ class NewChatState extends State<NewChatScreen>
     with SingleTickerProviderStateMixin {
   late VartalapChatClientFlutter client;
   late Selectable<Contact> _contacts;
-  late Selectable<Channel> _channels;
+  late Selectable<ChannelModel> _channels;
   late TabController _tabController;
   late Future<PermissionStatus> _fPermission;
   bool _openSearch = false;
@@ -100,7 +99,7 @@ class NewChatState extends State<NewChatScreen>
     );
   }
 
-  Future onChannelTap(Channel ch) async {
+  Future onChannelTap(ChannelModel ch) async {
     Navigator.of(context).pop(ch);
   }
 
@@ -298,14 +297,14 @@ class ContactPermissionDisclosure extends StatelessWidget {
 class ChannelList extends StatelessWidget {
   const ChannelList({
     Key? key,
-    required Selectable<Channel> channels,
-    required Function(Channel ch) onTap,
+    required Selectable<ChannelModel> channels,
+    required Function(ChannelModel ch) onTap,
   })  : channels = channels,
         _onTap = onTap,
         super(key: key);
 
-  final Selectable<Channel> channels;
-  final Function(Channel) _onTap;
+  final Selectable<ChannelModel> channels;
+  final Function(ChannelModel) _onTap;
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -362,8 +361,11 @@ class ChannelList extends StatelessWidget {
               if (i < 1) {
                 return data[i];
               }
-              Channel channel = data.elementAt(i);
-              ChatPreview preview = ChatPreview(channel, '', 0, 0);
+              ChannelModel channel = data.elementAt(i);
+              ChatPreview preview = ChatPreview(
+                channel: channel,
+                unreadCount: 0,
+              );
               return ChatPreviewWidget(
                 preview,
                 _onTap,

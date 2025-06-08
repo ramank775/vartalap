@@ -100,10 +100,10 @@ class ChannelResponse {
 
 class ChannelsResponse {
   @JsonKey(includeFromJson: false)
-  late List<ChannelModel> items;
+  late List<ChannelPayload> items;
 
   static ChannelsResponse fromJson(List jsons) => ChannelsResponse()
-    ..items = jsons.map((json) => ChannelModel.fromJson(json)).toList();
+    ..items = jsons.map((json) => ChannelPayload.fromJson(json)).toList();
 }
 
 @JsonSerializable(createToJson: false)

@@ -51,7 +51,7 @@ android {
 
     defaultConfig {
         applicationId "com.one9x.vartalap"
-        minSdkVersion 19
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion 33
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName

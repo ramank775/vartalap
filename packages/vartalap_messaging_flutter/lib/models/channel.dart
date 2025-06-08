@@ -1,46 +1,58 @@
-import 'package:flutter/widgets.dart';
+import 'package:json_annotation/json_annotation.dart';
+
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/models/member.dart';
 
-class Channel {
-  final int? id;
-  String? name;
-  Image? image;
-  final ChannelType type;
-  final List<Member> members;
-  final String? cid;
-  Map<String, dynamic> config;
-  Map<String, dynamic>? extraData;
+part 'channel.g.dart';
 
-  Channel(
-    this.type,
-    this.members, {
-    this.id,
-    this.name,
-    this.image,
-    this.cid,
-    this.config = const {},
-    this.extraData,
+@JsonSerializable()
+class ChannelConfig {
+  final bool isPublic;
+  final bool isMuted;
+  final bool isArchived;
+  final bool isPinned;
+
+  ChannelConfig({
+    this.isPublic = false,
+    this.isMuted = false,
+    this.isArchived = false,
+    this.isPinned = false,
   });
 
-  Channel.fromDb({
-    required this.id,
+  factory ChannelConfig.fromJson(Map<String, dynamic> json) =>
+      _$ChannelConfigFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ChannelConfigToJson(this);
+}
+
+class ChannelModel {
+  final int id;
+  final ChannelType type;
+  bool isMuted = false;
+  DateTime createdAt;
+  DateTime updatedAt;
+  List<Member>? members;
+  ChannelConfig? config;
+  Map<String, Object?> extraData;
+
+  ChannelModel({
     required this.type,
-    this.cid,
-    this.config = const {},
-    this.extraData,
-    this.members = const [],
-  }) {
-    name = extraData?['name'];
-    image = extraData?['image'];
-  }
+    required this.id,
+    required this.config,
+    this.isMuted = false,
+    this.extraData = const {},
+    this.members,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  })  : createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? DateTime.now();
 
   get displayName {
-    if (name != null) {
-      return name!;
+    if (extraData['name'] != null) {
+      return extraData['name']!;
     }
-    if (members.isNotEmpty) {
-      return members.map((m) => m.user.displayName).join(", ");
+    if (members != null && members!.isNotEmpty) {
+      return members?.map((m) => m.user.displayName).join(", ");
     }
     return "Unknown";
   }

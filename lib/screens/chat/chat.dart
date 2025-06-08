@@ -1,10 +1,7 @@
 import 'dart:async';
 
-import 'package:vartalap/models/chat.dart';
 import 'package:vartalap/screens/chat/chat_info.dart';
-import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/utils/chat_message_helper.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -14,7 +11,7 @@ import 'package:vartalap/widgets/message_input.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ChatScreen extends StatefulWidget {
-  final Channel channel;
+  final ChannelModel channel;
   ChatScreen(this.channel) : super(key: Key(channel.id.toString()));
 
   @override
@@ -22,14 +19,14 @@ class ChatScreen extends StatefulWidget {
 }
 
 class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
-  Channel _channel;
+  ChannelModel _channel;
   late Contact _currentUser;
   late VartalapChatClientFlutter client =
       VartalapClientProvider.of(context).client;
   late Stream<List<ChatMessage>> _fMessages;
   ChatMessageController _messageController =
       new ChatMessageController(messages: []);
-  final _selectedMessges = SetNotifier<String>(Set<String>());
+  final _selectedMessges = SetNotifier<int>(Set<int>());
   StreamSubscription? _notificationSub;
   StreamSubscription? _newMessageSub;
   Timer? _readTimer;
@@ -44,7 +41,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    this._fMessages = this.client.getMessages(this._channel.id).watch();
+    this._fMessages = this.client.getMessages(channel: this._channel).watch();
     this._fMessages.listen((messages) {
       final unread = messages.where((msg) =>
           (msg.senderId != this._currentUser.username &&
@@ -105,7 +102,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
             onTap: () async {
               if (this._channel.type == ChannelType.group &&
                   this._hasSendPermission()) {
-                Channel? result = await Navigator.of(context).push(
+                ChannelModel? result = await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => ChatInfo(this._channel),
                   ),
@@ -182,41 +179,46 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
               ? [
                   MessageInputWidget(
                     sendMessage: (String text) async {
-                      final msg = TextMessage.chatMessage(this._channel.id,
-                          this._currentUser.username, text, MessageType.TEXT);
-                      msg.sender = this._currentUser;
-                      await ChatService.sendMessage(msg, this._channel);
+                      final msg = TextMessage(
+                        senderId: this._currentUser.id,
+                        payload: {
+                          "text": text,
+                        },
+                        sender: this._currentUser,
+                      );
+
+                      await client.sendMessage([msg], this._channel);
                       this._messageController.add(msg);
                     },
                     onTyping: (bool state) async {
                       if (state) {
                         if (!(_myTypingTimer?.isActive ?? false)) {
-                          ChatService.sendSystemMessage(
-                              TypingMessage(
-                                this._channel.id,
-                                this._currentUser.username,
-                                true,
-                              ),
-                              this._channel);
+                          // ChatService.sendSystemMessage(
+                          //     TypingMessage(
+                          //       this._channel.id,
+                          //       this._currentUser.username,
+                          //       true,
+                          //     ),
+                          //     this._channel);
                           _myTypingTimer = Timer.periodic(Duration(seconds: 2),
                               (Timer timer) {
-                            ChatService.sendSystemMessage(
-                                TypingMessage(
-                                  this._channel.id,
-                                  this._currentUser.username,
-                                  true,
-                                ),
-                                this._channel);
+                            // ChatService.sendSystemMessage(
+                            //     TypingMessage(
+                            //       this._channel.id,
+                            //       this._currentUser.username,
+                            //       true,
+                            //     ),
+                            //     this._channel);
                           });
                         }
                       } else {
-                        await ChatService.sendSystemMessage(
-                            TypingMessage(
-                              this._channel.id,
-                              this._currentUser.username,
-                              false,
-                            ),
-                            this._channel);
+                        // await ChatService.sendSystemMessage(
+                        //     TypingMessage(
+                        //       this._channel.id,
+                        //       this._currentUser.username,
+                        //       false,
+                        //     ),
+                        //     this._channel);
                         if (_myTypingTimer?.isActive ?? false)
                           _myTypingTimer!.cancel();
                         _myTypingTimer = null;
@@ -231,9 +233,9 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _getTitle(BuildContext context) {
-    return ValueListenableBuilder<Iterable<String>>(
+    return ValueListenableBuilder<Iterable<int>>(
       valueListenable: this._selectedMessges,
-      builder: (BuildContext context, Iterable<String> selectedMessages,
+      builder: (BuildContext context, Iterable<int> selectedMessages,
           Widget? child) {
         final subtitle = this._getSubTitle();
         final titleWidgets = <Widget>[
@@ -285,22 +287,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String _getSubTitle() {
-    if (this._channel.type == ChannelType.group) {
-      return this._channel.members.map((u) => u.user.displayName).join(", ");
-    }
-    return this
-        ._channel
-        .members
-        .firstWhere(
-          (u) => this._currentUser != u,
-          orElse: () => Member(
-            user: Contact(username: '', status: ContactStatus.other),
-            role: 'member',
-            since: DateTime.now(),
-          ),
-        )
-        .user
-        .displayName;
+    return this._channel.displayName;
   }
 
   void _selectOrRemove(ChatMessage msg) {
@@ -338,8 +325,6 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
           actions.add(IconButton(
             icon: Icon(Icons.delete),
             onPressed: () async {
-              await ChatService.deleteMessages(
-                  this._selectedMessges.value.toList());
               this._messageController.deleteAll(this._selectedMessges.value);
               this._selectedMessges.value.clear();
               this._selectedMessges.update();
@@ -353,47 +338,12 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     return [child];
   }
 
-  void _onNotification(RemoteMessage msg) async {
-    final msgInfo = msg.head;
-    if (msgInfo.action == "state") {
-      StateMessge state = toChatMessage(msg) as StateMessge;
-      state.msgIds.forEach((id) {
-        final notifier = this._messageController.messageChangeNotifier[id];
-        if (notifier != null) {
-          final message = notifier.value;
-          if (message.updateState(state.state))
-            this._messageController.update(message);
-        }
-      });
-    } else if (msgInfo.type == ChannelType.group) {
-      // Handle group member change notification
-    } else if (msgInfo.action == "typing") {
-      TypingMessage typingMsg = toChatMessage(msg) as TypingMessage;
-      if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();
-      this._typing.value = typingMsg.isTyping;
-      if (typingMsg.isTyping) {
-        _remoteTypingTimer = Timer(Duration(seconds: 5), () {
-          this._typing.value = false;
-        });
-      }
-    }
-  }
-
-  void _onNewMessage(RemoteMessage msg) {
-    final message = toChatMessage(msg);
-    this._unreadMessages.add(message);
-    this._messageController.add(message);
-    if (_readTimer == null || !_readTimer!.isActive) {
-      _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
-    }
-  }
-
   _onReadTimerTimeout() {
     if (_unreadMessages.isEmpty) return;
-    final unreadMessages = _unreadMessages.toList();
+    // final unreadMessages = _unreadMessages.toList();
     _unreadMessages = Set<ChatMessage>();
-    final future = ChatService.markAsRead(unreadMessages, this._channel);
-    unawaited(future);
+    // final future = client.markAsRead(unreadMessages, this._channel);
+    // unawaited(future);
     if (_unreadMessages.isNotEmpty && _readTimer == null ||
         !_readTimer!.isActive) {
       _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
@@ -401,9 +351,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   bool _hasSendPermission() {
-    return this
-        ._channel
-        .members
+    return (this._channel.members ?? [])
         .any((u) => u.user.username == this._currentUser.username);
   }
 
