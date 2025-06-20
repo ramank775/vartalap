@@ -23,17 +23,22 @@ class NewChatState extends State<NewChatScreen>
   @override
   void initState() {
     super.initState();
-    this.client = VartalapClientProvider.of(context).client;
     _tabController = TabController(length: 2, vsync: this);
+    _fPermission = Permission.contacts.status;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    client = VartalapClientProvider.of(context).client;
     _contacts = client.getContacts(
-      filter: ContactFilter(status: ContactStatus.active),
+      filter: ContactFilter(),
     );
     _channels = client.getChannels(
       filter: ChannelFilter(
         type: ChannelType.group,
       ),
     );
-    _fPermission = Permission.contacts.status;
   }
 
   @override
@@ -317,13 +322,13 @@ class ChannelList extends StatelessWidget {
                 valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
               ),
             );
-          case ConnectionState.active:
           case ConnectionState.waiting:
             return Center(
               child: CircularProgressIndicator(
                 valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
               ),
             );
+          case ConnectionState.active:
           case ConnectionState.done:
             if (snapshot.hasError) {
               return Center(
@@ -395,11 +400,12 @@ class ContactList extends StatelessWidget {
             return Center(
               child: CircularProgressIndicator(),
             );
-          case ConnectionState.active:
+
           case ConnectionState.waiting:
             return Center(
               child: CircularProgressIndicator(),
             );
+          case ConnectionState.active:
           case ConnectionState.done:
             if (snapshot.hasError) {
               return Center(
@@ -439,6 +445,29 @@ class ContactList extends StatelessWidget {
                 contact: data.elementAt(i),
                 onProfileTap: () => {},
                 onTap: (Contact user) async {
+                  final client = VartalapClientProvider.of(context).client;
+                  client
+                      .getChannels(
+                          filter: ChannelFilter(
+                        type: ChannelType.individual,
+                        name: user.displayName,
+                      ))
+                      .get()
+                      .then((channels) {
+                    if (channels.isNotEmpty) {
+                      Navigator.of(context).pop(channels.first);
+                      return;
+                    }
+                    final channel = ChannelModel(
+                      type: ChannelType.individual,
+                      id: 0,
+                      config: ChannelConfig(isPublic: false),
+                      extraData: {},
+                    );
+                    client.createChannel(channel).then((value) {
+                      Navigator.of(context).pop(value);
+                    });
+                  });
                   Navigator.of(context).pop(user);
                 });
           },

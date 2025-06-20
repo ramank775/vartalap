@@ -1,4 +1,6 @@
-import 'package:vartalap_messaging/core/platform_detector/platform_detector_sub.dart';
+import 'package:vartalap_messaging/core/platform_detector/platform_detector_sub.dart'
+    if (dart.library.html) 'platform_detector_web.dart'
+    if (dart.library.io) 'platform_detector_io.dart';
 
 enum PlatformType {
   /// Android: <https://www.android.com/>

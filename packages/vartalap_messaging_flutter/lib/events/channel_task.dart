@@ -45,7 +45,7 @@ class CreateChannelTask extends VartalapTask<ChannelModel> {
     //     members: members.map((m) => Member(user: m, role: 'member')).toList(),
     //   ),
     // );
-    final cid = '';
+    const cid = '';
     await (db.update(db.channels)
           ..where((channel) => channel.id.equals(payload.id)))
         .write(ChannelsCompanion(cid: Value(cid)));

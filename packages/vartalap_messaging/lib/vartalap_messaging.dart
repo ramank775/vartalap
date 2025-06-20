@@ -1,4 +1,4 @@
-library vartalap_messaging;
+library;
 
 export 'package:dio/dio.dart' show CancelToken, ProgressCallback;
 export 'client/client.dart';

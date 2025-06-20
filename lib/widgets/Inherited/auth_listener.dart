@@ -6,6 +6,7 @@ import 'package:vartalap/screens/startup/startup.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:vartalap_messaging_flutter/models/contact.dart';
 
 class AuthListner extends StatefulWidget {
   final MaterialApp app;
@@ -58,8 +59,17 @@ class _AuthListnerState extends State<AuthListner> {
             child: Text("Error"),
           );
         }
+        var user = null;
+        if (snapshot.data != null) {
+          user = Contact(
+            id: 1,
+            username: 'sampleUser',
+            status: ContactStatus.active,
+            phone: snapshot.data!.userId,
+          );
+        }
         return CurrentUser(
-          user: null,
+          user: user,
           child: widget.app,
         );
       },

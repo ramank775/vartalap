@@ -12,7 +12,7 @@ class SelectGroupMemberScreen extends StatefulWidget {
 }
 
 class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
-  late final client = VartalapClientProvider.of(context).client;
+  late final client;
   late Selectable<Contact> _contacts;
   late int _numContacts;
   bool _openSearch = false;
@@ -30,6 +30,12 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
     //       .members
     //       .forEach((member) => this._existingUser.add(member.user.id));
     // }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    client = VartalapClientProvider.of(context).client;
     _contacts = client.getContacts(
       filter: ContactFilter(
         status: ContactStatus.active,

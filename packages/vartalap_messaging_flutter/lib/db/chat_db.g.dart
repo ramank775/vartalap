@@ -985,8 +985,8 @@ class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
   static const VerificationMeta _photoMeta = const VerificationMeta('photo');
   @override
   late final GeneratedColumn<String> photo = GeneratedColumn<String>(
-      'photo', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
+      'photo', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   late final GeneratedColumnWithTypeConverter<Map<String, dynamic>?, String>
       extraData = GeneratedColumn<String>('extra_data', aliasedName, true,
@@ -1037,8 +1037,6 @@ class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
     if (data.containsKey('photo')) {
       context.handle(
           _photoMeta, photo.isAcceptableOrUnknown(data['photo']!, _photoMeta));
-    } else if (isInserting) {
-      context.missing(_photoMeta);
     }
     return context;
   }
@@ -1062,7 +1060,7 @@ class $ContactsTable extends Contacts with TableInfo<$ContactsTable, Contact> {
       thumbnail: attachedDatabase.typeMapping
           .read(DriftSqlType.blob, data['${effectivePrefix}thumbnail']),
       photo: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}photo'])!,
+          .read(DriftSqlType.string, data['${effectivePrefix}photo']),
       extraData: $ContactsTable.$converterextraData.fromSql(attachedDatabase
           .typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}extra_data'])),
@@ -1090,7 +1088,7 @@ class ContactsCompanion extends UpdateCompanion<Contact> {
   final Value<String?> phone;
   final Value<String?> name;
   final Value<Uint8List?> thumbnail;
-  final Value<String> photo;
+  final Value<String?> photo;
   final Value<Map<String, dynamic>?> extraData;
   final Value<ContactStatus> status;
   const ContactsCompanion({
@@ -1111,11 +1109,10 @@ class ContactsCompanion extends UpdateCompanion<Contact> {
     this.phone = const Value.absent(),
     this.name = const Value.absent(),
     this.thumbnail = const Value.absent(),
-    required String photo,
+    this.photo = const Value.absent(),
     this.extraData = const Value.absent(),
     required ContactStatus status,
-  })  : photo = Value(photo),
-        status = Value(status);
+  }) : status = Value(status);
   static Insertable<Contact> custom({
     Expression<int>? id,
     Expression<String>? username,
@@ -1147,7 +1144,7 @@ class ContactsCompanion extends UpdateCompanion<Contact> {
       Value<String?>? phone,
       Value<String?>? name,
       Value<Uint8List?>? thumbnail,
-      Value<String>? photo,
+      Value<String?>? photo,
       Value<Map<String, dynamic>?>? extraData,
       Value<ContactStatus>? status}) {
     return ContactsCompanion(
@@ -2752,7 +2749,7 @@ typedef $$ContactsTableCreateCompanionBuilder = ContactsCompanion Function({
   Value<String?> phone,
   Value<String?> name,
   Value<Uint8List?> thumbnail,
-  required String photo,
+  Value<String?> photo,
   Value<Map<String, dynamic>?> extraData,
   required ContactStatus status,
 });
@@ -2763,7 +2760,7 @@ typedef $$ContactsTableUpdateCompanionBuilder = ContactsCompanion Function({
   Value<String?> phone,
   Value<String?> name,
   Value<Uint8List?> thumbnail,
-  Value<String> photo,
+  Value<String?> photo,
   Value<Map<String, dynamic>?> extraData,
   Value<ContactStatus> status,
 });
@@ -3032,7 +3029,7 @@ class $$ContactsTableTableManager extends RootTableManager<
             Value<String?> phone = const Value.absent(),
             Value<String?> name = const Value.absent(),
             Value<Uint8List?> thumbnail = const Value.absent(),
-            Value<String> photo = const Value.absent(),
+            Value<String?> photo = const Value.absent(),
             Value<Map<String, dynamic>?> extraData = const Value.absent(),
             Value<ContactStatus> status = const Value.absent(),
           }) =>
@@ -3054,7 +3051,7 @@ class $$ContactsTableTableManager extends RootTableManager<
             Value<String?> phone = const Value.absent(),
             Value<String?> name = const Value.absent(),
             Value<Uint8List?> thumbnail = const Value.absent(),
-            required String photo,
+            Value<String?> photo = const Value.absent(),
             Value<Map<String, dynamic>?> extraData = const Value.absent(),
             required ContactStatus status,
           }) =>

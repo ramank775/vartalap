@@ -11,7 +11,7 @@ class Contacts extends Table {
   TextColumn get phone => text().nullable()();
   TextColumn get name => text().nullable()();
   BlobColumn get thumbnail => blob().nullable()();
-  TextColumn get photo => text()();
+  TextColumn get photo => text().nullable()();
   TextColumn get extraData => text().nullable().map(NullableMapConverter())();
   TextColumn get status => textEnum<ContactStatus>()();
 

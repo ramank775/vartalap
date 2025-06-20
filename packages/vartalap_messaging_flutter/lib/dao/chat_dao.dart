@@ -17,9 +17,12 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     final query = select(channels).join([
       innerJoin(
         messages,
-        messages.id.isInQuery(select(messages)
-          ..where((tbl) => tbl.channelId.equalsExp(channels.id))
-          ..orderBy([(tbl) => OrderingTerm.desc(tbl.localCreatedAt)])
+        messages.id.isInQuery(selectOnly(messages)
+          ..addColumns([messages.id])
+          ..where(messages.channelId.equalsExp(channels.id))
+          ..orderBy([
+            OrderingTerm.desc(messages.createdAt),
+          ])
           ..limit(1)),
       ),
       leftOuterJoin(

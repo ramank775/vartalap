@@ -42,14 +42,20 @@ class VartalapChatClientFlutter {
   }
 
   Future<Profile?> getLoggedInUser() async {
-    final userId = await client.getLoggedInUser();
-    if (userId == null) return null;
-    final profile = await client.fetchProfile(userId);
+    // final userId = await client.getLoggedInUser();
+    // if (userId == null) return null;
+    // final profile = await client.fetchProfile(userId);
+    // return Profile(
+    //   userId: profile.userId,
+    //   name: profile.name,
+    //   email: profile.email ?? '',
+    //   image: profile.image ?? '',
+    // );
     return Profile(
-      userId: profile.userId,
-      name: profile.name,
-      email: profile.email ?? '',
-      image: profile.image ?? '',
+      userId: '123',
+      name: 'Raman',
+      email: '',
+      image: '',
     );
   }
 
@@ -65,8 +71,8 @@ class VartalapChatClientFlutter {
     return _db.channelDao.getChannels(filter: filter);
   }
 
-  Future<void> createChannel(ChannelModel channel) async {
-    await _db.transaction(() async {
+  Future<ChannelModel> createChannel(ChannelModel channel) async {
+    final channelId = await _db.transaction(() async {
       CreateChannelTask task = factory.create(
         CreateChannelTask.name,
         payload: channel,
@@ -93,7 +99,7 @@ class VartalapChatClientFlutter {
       return insertedChannel.id;
     });
     // channel.id = channelId;
-    // return channel;
+    return channel;
   }
 
   Future<void> addMembers(List<Member> members, ChannelModel channel) async {
@@ -186,6 +192,7 @@ class VartalapChatClientFlutter {
   }
 
   Future<void> syncChannels() async {
+    return;
     final channels = await client.queryChannels();
     await _db.transaction(() async {
       await _db.delete(_db.channels).go();
@@ -209,9 +216,30 @@ class VartalapChatClientFlutter {
 
   Future<void> syncContacts() async {
     await _db.transaction(() async {
-      SyncContactsTask task =
-          factory.create(SyncContactsTask.name) as SyncContactsTask;
-      await scheduler.schedule(task);
+      final contacts = [
+        const Contact(
+          id: 2,
+          name: 'Raman',
+          phone: '1234567890',
+          username: 'raman123',
+          status: ContactStatus.active,
+        ),
+      ];
+      _db.contacts.insertAll(
+        contacts.map(
+          (contact) => ContactsCompanion.insert(
+            name: Value(contact.name),
+            phone: Value(contact.phone),
+            username: Value(contact.username),
+            status: contact.status,
+            extraData: Value(contact.extraData),
+            photo: Value(contact.photo),
+          ),
+        ),
+      );
+      // SyncContactsTask task =
+      //     factory.create(SyncContactsTask.name) as SyncContactsTask;
+      // await scheduler.schedule(task);
     });
   }
 

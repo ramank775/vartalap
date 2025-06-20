@@ -55,13 +55,13 @@ class ChatsState extends State<Chats> {
                     valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
                   ),
                 );
-              case ConnectionState.active:
               case ConnectionState.waiting:
                 return Center(
                   child: CircularProgressIndicator(
                     valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
                   ),
                 );
+              case ConnectionState.active:
               case ConnectionState.done:
                 if (snapshot.hasError) {
                   return Center(
