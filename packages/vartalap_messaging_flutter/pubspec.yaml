@@ -15,7 +15,7 @@ dependencies:
   vartalap_messaging:
     path: ../vartalap_messaging
   taskq:
-    path: /home/raman/git/taskq
+    path: ../taskq
   path: ^1.9.1
   path_provider: ^2.1.5
   json_annotation: ^4.9.0

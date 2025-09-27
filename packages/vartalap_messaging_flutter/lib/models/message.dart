@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:vartalap_messaging_flutter/models/attachment.dart';
 import 'package:vartalap_messaging_flutter/utils/utils.dart';
 
 import 'contact.dart';
@@ -41,6 +42,7 @@ abstract class ChatMessage {
   final MessageType _type;
   final DateTime _ts;
   final DateTime _updatedAt;
+  final List<Attachment> _attachments;
 
   int get id => _id;
   int get senderId => _senderId;
@@ -52,6 +54,8 @@ abstract class ChatMessage {
   DateTime get timestamp => _ts;
 
   DateTime get updatedAt => _updatedAt;
+
+  List<Attachment> get attachments => _attachments;
 
   Map<String, dynamic> get payload;
 
@@ -65,10 +69,12 @@ abstract class ChatMessage {
     DateTime? ts,
     DateTime? updatedAt,
     Contact? sender,
+    List<Attachment> attachments = const [],
   })  : _id = id,
         _senderId = senderId,
         _state = state,
         _type = type,
+        _attachments = attachments,
         _updatedAt = updatedAt ?? DateTime.now(),
         _ts = ts ?? DateTime.now();
 
@@ -149,6 +155,7 @@ class CustomMessage extends ChatMessage {
     required super.ts,
     required super.updatedAt,
     super.sender,
+    super.attachments = const [],
     Map<String, dynamic> payload = const {},
   }) : _rawbody = payload;
 

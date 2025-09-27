@@ -1,7 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import 'package:vartalap_messaging/vartalap_messaging.dart';
-import 'package:vartalap_messaging_flutter/models/member.dart';
 
 part 'channel.g.dart';
 
@@ -31,7 +30,6 @@ class ChannelModel {
   bool isMuted = false;
   DateTime createdAt;
   DateTime updatedAt;
-  List<Member>? members;
   ChannelConfig? config;
   Map<String, Object?> extraData;
 
@@ -41,7 +39,6 @@ class ChannelModel {
     required this.config,
     this.isMuted = false,
     this.extraData = const {},
-    this.members,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : createdAt = createdAt ?? DateTime.now(),
@@ -51,9 +48,6 @@ class ChannelModel {
     if (extraData['name'] != null) {
       return extraData['name']!;
     }
-    if (members != null && members!.isNotEmpty) {
-      return members?.map((m) => m.user.displayName).join(", ");
-    }
     return "Unknown";
   }
 }
@@ -61,9 +55,11 @@ class ChannelModel {
 class ChannelFilter {
   final ChannelType? type;
   final String? name;
+  final List<int>? memberIds;
 
   ChannelFilter({
     this.type,
     this.name,
+    this.memberIds,
   });
 }

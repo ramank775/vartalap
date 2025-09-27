@@ -13,15 +13,24 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
   Selectable<ChannelModel> getChannels({
     ChannelFilter? filter,
   }) {
-    final query = select(channels);
+    var query = select(channels).join([]);
     if (filter != null) {
       if (filter.type != null) {
-        query.where((tbl) => tbl.type.equals(filter.type!.toString()));
+        query.where(channels.type.equals(filter.type!.toString()));
       }
       if (filter.name != null) {
-        query.where((tbl) => tbl.extraData.like('%${filter.name}%'));
+        query.where(channels.extraData.like('%${filter.name}%'));
+      }
+      if (filter.memberIds != null && filter.memberIds!.isNotEmpty) {
+        query = query.join([
+          innerJoin(
+            members,
+            members.channelId.equalsExp(channels.id),
+          ),
+        ])
+          ..where(members.memberId.isIn(filter.memberIds!));
       }
     }
-    return query.map((row) => row.toModel());
+    return query.map((row) => row.readTable(channels).toModel());
   }
 }

@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+@DataClassName('AssestEntity')
 class Assests extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get type => text().nullable()();

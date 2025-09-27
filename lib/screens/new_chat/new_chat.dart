@@ -1,6 +1,7 @@
 import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:flutter/material.dart';
@@ -450,7 +451,7 @@ class ContactList extends StatelessWidget {
                       .getChannels(
                           filter: ChannelFilter(
                         type: ChannelType.individual,
-                        name: user.displayName,
+                        memberIds: [user.id],
                       ))
                       .get()
                       .then((channels) {
@@ -458,17 +459,29 @@ class ContactList extends StatelessWidget {
                       Navigator.of(context).pop(channels.first);
                       return;
                     }
+                    final loggedInUser = CurrentUser.of(context).user;
                     final channel = ChannelModel(
                       type: ChannelType.individual,
                       id: 0,
                       config: ChannelConfig(isPublic: false),
                       extraData: {},
                     );
-                    client.createChannel(channel).then((value) {
+                    final members = [
+                      Member(
+                        user: user,
+                        role: null,
+                        since: DateTime.now(),
+                      ),
+                      Member(
+                        user: loggedInUser!,
+                        role: null,
+                        since: DateTime.now(),
+                      ),
+                    ];
+                    client.createChannel(channel, members).then((value) {
                       Navigator.of(context).pop(value);
                     });
                   });
-                  Navigator.of(context).pop(user);
                 });
           },
         );

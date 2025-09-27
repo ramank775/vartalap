@@ -117,6 +117,7 @@ class AuthService {
   }
 
   bool isLoggedIn() {
+    return true;
     return _user != null;
   }
 

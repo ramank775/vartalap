@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/contact.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -7,12 +6,11 @@ import 'package:vartalap/widgets/loadingIndicator.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ChatInfo extends StatelessWidget {
-  final ChannelModel _channel;
+  final ChatClient chat;
 
-  const ChatInfo(this._channel, {Key? key}) : super(key: key);
+  const ChatInfo(this.chat, {Key? key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
-    final users = this._channel.members ?? [];
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
@@ -32,25 +30,25 @@ class ChatInfo extends StatelessWidget {
                   child: Avator(
                     height: 50,
                     width: 50,
-                    text: this._channel.displayName,
+                    text: chat.displayName,
                   ),
                 ),
                 title: Text(
-                  this._channel.displayName,
+                  chat.displayName,
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 24,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                subtitle: Text(
-                  "${users.length} members",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                // subtitle: Text(
+                //   "${users.length} members",
+                //   style: TextStyle(
+                //     color: Colors.white,
+                //     fontSize: 14,
+                //     fontWeight: FontWeight.w500,
+                //   ),
+                // ),
               ),
             ),
             Expanded(
@@ -75,7 +73,7 @@ class ChatInfo extends StatelessWidget {
                         await Navigator.of(context).push(
                           MaterialPageRoute(builder: (context) {
                             return SelectGroupMemberScreen(
-                              channel: this._channel,
+                              channel: chat.channel,
                             );
                           }),
                         );
@@ -103,9 +101,26 @@ class ChatInfo extends StatelessWidget {
                         Divider(
                           thickness: 2,
                         ),
-                        ...users
-                            .map((u) => ContactItem(contact: u.user))
-                            .toList(),
+                        StreamBuilder(
+                            stream: chat.membersStream,
+                            builder: (context, snapshot) {
+                              if (snapshot.hasData) {
+                                final users = snapshot.data!;
+                                return Column(
+                                  children: users
+                                      .map((u) => ContactItem(contact: u.user))
+                                      .toList(),
+                                );
+                              } else if (snapshot.hasError) {
+                                return Center(
+                                  child: Text("Error loading members"),
+                                );
+                              } else {
+                                return Center(
+                                  child: CircularProgressIndicator(),
+                                );
+                              }
+                            }),
                       ],
                     ),
                   ),
@@ -130,14 +145,11 @@ class ChatInfo extends StatelessWidget {
                           try {
                             showLoadingIndicator(context,
                                 "While we inform other members about your farewell!!");
-                            final member = users[
-                                0]; // Assuming the first member is the current user
-                            await VartalapClientProvider.of(context)
-                                .client
-                                .removeMember(member, _channel);
+                            await chat.removeMember(self: true);
+
                             Navigator.of(context)
                                 .pop(); // Close the loading indicator
-                            Navigator.of(context).pop(this._channel);
+                            Navigator.of(context).pop();
                           } catch (err) {
                             Navigator.of(context).pop();
                             showErrorDialog(context, [

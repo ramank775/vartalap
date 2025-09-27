@@ -21,7 +21,7 @@ class AssetUploadTask extends VartalapTask<int> {
         .write(AssestsCompanion(assetId: Value(resp)));
   }
 
-  Future<String> uploadAsset(Assest asset) async {
+  Future<String> uploadAsset(AssestEntity asset) async {
     // Generate a upload url to the server
     final data = await client.getUploadUrl(asset.mimeType!, 'default');
     // Upload the asset to the server. via put request to the upload url

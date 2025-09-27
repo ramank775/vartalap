@@ -34,6 +34,7 @@ class _AuthListnerState extends State<AuthListner> {
       setState(() {
         this._isLogin = authService.isLoggedIn();
       });
+      this._isLogin = authService.isLoggedIn();
       this._navigatorKey.currentState!.pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (ctx) =>

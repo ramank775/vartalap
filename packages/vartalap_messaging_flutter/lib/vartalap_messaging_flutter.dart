@@ -9,6 +9,7 @@ export 'package:vartalap_messaging/vartalap_messaging.dart'
         LoginResponse,
         TokenManager;
 export 'client/client.dart';
+export 'client/chat.dart';
 export 'client/secure_token_manager.dart';
 export 'models/models.dart';
 export 'version.dart';

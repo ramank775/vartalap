@@ -23,19 +23,19 @@ class CreateChannelTask extends VartalapTask<ChannelModel> {
 
   @override
   Future<void> process() async {
-    ChannelEntity channel = await (db.select(db.channels)
-          ..whereSamePrimaryKey(ChannelsCompanion(id: Value(payload.id))))
-        .getSingle();
-    final result = await (db.selectOnly(db.members)
-          ..join([
-            innerJoin(
-                db.contacts, db.members.memberId.equalsExp(db.contacts.id)),
-          ])
-          ..where(db.members.channelId.equals(channel.id))
-          ..addColumns([db.contacts.username, db.members.role]))
-        .get();
-    final members =
-        result.map((row) => row.read<String>(db.contacts.username)!).toList();
+    // ChannelEntity channel = await (db.select(db.channels)
+    //       ..whereSamePrimaryKey(ChannelsCompanion(id: Value(payload.id))))
+    //     .getSingle();
+    // final result = await (db.selectOnly(db.members)
+    //       ..join([
+    //         innerJoin(
+    //             db.contacts, db.members.memberId.equalsExp(db.contacts.id)),
+    //       ])
+    //       ..where(db.members.channelId.equals(channel.id))
+    //       ..addColumns([db.contacts.username, db.members.role]))
+    //     .get();
+    // final members =
+    //     result.map((row) => row.read<String>(db.contacts.username)!).toList();
 
     // final resp = await client.createChannel(
     //   ChannelModel(
@@ -48,7 +48,7 @@ class CreateChannelTask extends VartalapTask<ChannelModel> {
     const cid = '';
     await (db.update(db.channels)
           ..where((channel) => channel.id.equals(payload.id)))
-        .write(ChannelsCompanion(cid: Value(cid)));
+        .write(const ChannelsCompanion(cid: Value(cid)));
   }
 
   @override

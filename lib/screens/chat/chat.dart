@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:vartalap/screens/chat/chat_info.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/chatlist.dart';
 import 'package:vartalap/widgets/notifier/iterable_notifier.dart';
@@ -11,19 +9,15 @@ import 'package:vartalap/widgets/message_input.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ChatScreen extends StatefulWidget {
-  final ChannelModel channel;
-  ChatScreen(this.channel) : super(key: Key(channel.id.toString()));
+  final ChatClient chat;
+  ChatScreen(this.chat) : super(key: Key(chat.channel.id.toString()));
 
   @override
-  ChatState createState() => ChatState(channel);
+  ChatState createState() => ChatState(chat);
 }
 
 class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
-  ChannelModel _channel;
-  late Contact _currentUser;
-  late VartalapChatClientFlutter client =
-      VartalapClientProvider.of(context).client;
-  late Stream<List<ChatMessage>> _fMessages;
+  final ChatClient chat;
   ChatMessageController _messageController =
       new ChatMessageController(messages: []);
   final _selectedMessges = SetNotifier<int>(Set<int>());
@@ -35,20 +29,13 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   var _typing = ValueNotifier<bool>(false);
   Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
 
-  ChatState(this._channel);
+  ChatState(this.chat);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    this._fMessages = this.client.getMessages(channel: this._channel).watch();
-    this._fMessages.listen((messages) {
-      final unread = messages.where((msg) =>
-          (msg.senderId != this._currentUser.username &&
-              (msg.state == MessageState.pending ||
-                  msg.state == MessageState.delivered)));
-      _unreadMessages.addAll(unread);
-    });
+    chat.watch();
   }
 
   @override
@@ -68,7 +55,6 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    this._currentUser = CurrentUser.of(context).user!;
     return Scaffold(
       appBar: AppBar(
         leading: TextButton(
@@ -87,7 +73,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                 color: Colors.white,
               ),
               Avator(
-                text: this._channel.displayName,
+                text: chat.displayName,
                 width: 30.0,
                 height: 30.0,
               )
@@ -100,19 +86,11 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
           color: Colors.transparent,
           child: InkWell(
             onTap: () async {
-              if (this._channel.type == ChannelType.group &&
-                  this._hasSendPermission()) {
-                ChannelModel? result = await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => ChatInfo(this._channel),
-                  ),
-                );
-                if (result != null) {
-                  setState(() {
-                    this._channel = result;
-                  });
-                }
-              }
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => ChatInfo(this.chat),
+                ),
+              );
             },
             child: Row(
               mainAxisSize: MainAxisSize.max,
@@ -128,7 +106,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
           Flexible(
             flex: 1,
             child: StreamBuilder<List<ChatMessage>>(
-                stream: _fMessages,
+                stream: chat.messagesStream,
                 builder: (context, snapshot) {
                   switch (snapshot.connectionState) {
                     case ConnectionState.none:
@@ -138,7 +116,6 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                               new AlwaysStoppedAnimation<Color>(Colors.grey),
                         ),
                       );
-                    case ConnectionState.active:
                     case ConnectionState.waiting:
                       return Center(
                         child: CircularProgressIndicator(
@@ -146,6 +123,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                               new AlwaysStoppedAnimation<Color>(Colors.grey),
                         ),
                       );
+                    case ConnectionState.active:
                     case ConnectionState.done:
                       if (snapshot.hasError) {
                         return Center(
@@ -164,7 +142,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                       return ChatList(
                         controller: this._messageController,
                         members: members,
-                        showName: this._channel.type == ChannelType.group,
+                        showName: this.chat.channel.type == ChannelType.group,
                         onTab: (ChatMessage msg) {
                           if (this._selectedMessges.value.length > 0) {
                             this._selectOrRemove(msg);
@@ -175,19 +153,19 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                   }
                 }),
           ),
-          ...this._hasSendPermission()
+          ...this.chat.hasSendMessagePermission()
               ? [
                   MessageInputWidget(
                     sendMessage: (String text) async {
                       final msg = TextMessage(
-                        senderId: this._currentUser.id,
+                        senderId: chat.currentUser.id,
                         payload: {
                           "text": text,
                         },
-                        sender: this._currentUser,
+                        sender: chat.currentUser,
                       );
 
-                      await client.sendMessage([msg], this._channel);
+                      await chat.sendMessage([msg]);
                       this._messageController.add(msg);
                     },
                     onTyping: (bool state) async {
@@ -244,7 +222,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
             child: Text(
               this._selectedMessges.value.isNotEmpty
                   ? _selectedMessges.value.length.toString() + " selected"
-                  : _channel.displayName,
+                  : chat.displayName,
               style: TextStyle(
                 fontSize: 18.0,
                 color: Colors.white,
@@ -287,7 +265,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String _getSubTitle() {
-    return this._channel.displayName;
+    return this.chat.displayName;
   }
 
   void _selectOrRemove(ChatMessage msg) {
@@ -348,11 +326,6 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         !_readTimer!.isActive) {
       _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
     }
-  }
-
-  bool _hasSendPermission() {
-    return (this._channel.members ?? [])
-        .any((u) => u.user.username == this._currentUser.username);
   }
 
   @override

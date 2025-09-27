@@ -5,6 +5,7 @@ import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:flutter/material.dart';
@@ -179,12 +180,18 @@ class ChatsState extends State<Chats> {
       if (result == null) {
         return;
       }
-      ChannelModel chat;
+      ChannelModel channel;
       if (result is ChannelModel) {
-        chat = result;
+        channel = result;
       } else {
         return;
       }
+      final currentUser = CurrentUser.of(context).user!;
+      final client = VartalapClientProvider.of(context).client;
+      final chat = await client.chat(
+        channel: channel,
+        currentUser: currentUser,
+      );
       await Navigator.of(context).pushNamed('/chat', arguments: chat);
     }
   }
@@ -280,7 +287,13 @@ class ChatListViewState extends State<ChatListView>
                   widget._selectOrRemove(channel);
                   return;
                 }
-                widget._navigate('/chat', data: channel);
+                final currentUser = CurrentUser.of(context).user!;
+                final client = VartalapClientProvider.of(context).client;
+                final chatClient = await client.chat(
+                  channel: channel,
+                  currentUser: currentUser,
+                );
+                widget._navigate('/chat', data: chatClient);
               },
               widget._selectOrRemove,
               isSelected: widget._selectedChats.contains(widget._chats[i]),

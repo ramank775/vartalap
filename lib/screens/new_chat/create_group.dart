@@ -24,12 +24,11 @@ class CreateGroup extends StatelessWidget {
                   ))
               .toList();
           ChannelModel channel = ChannelModel(
-            type: ChannelType.group,
             id: 0, // ID will be assigned by the server
+            type: ChannelType.group,
             config: null,
-            members: channelMembers,
           );
-          await client.createChannel(channel);
+          await client.createChannel(channel, channelMembers);
 
           Navigator.of(context).pop();
           Navigator.of(context).pop();

@@ -110,7 +110,7 @@ class HomeState extends State<Home> {
           widget = new Chats();
           break;
         case '/chat':
-          widget = new ChatScreen(settings.arguments as ChannelModel);
+          widget = new ChatScreen(settings.arguments as ChatClient);
           break;
         case '/new-chat':
           widget = new NewChatScreen();

@@ -1,3 +1,4 @@
+export 'attachment.dart';
 export 'contact.dart';
 export 'chat.dart';
 export 'channel.dart';

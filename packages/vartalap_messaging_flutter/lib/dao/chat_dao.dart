@@ -52,4 +52,71 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
       );
     });
   }
+
+  Selectable<Member> getMembers({
+    required int channelId,
+  }) {
+    final query = select(members).join([
+      innerJoin(
+        contacts,
+        contacts.id.equalsExp(members.memberId),
+      ),
+    ])
+      ..where(members.channelId.equals(channelId))
+      ..orderBy([
+        OrderingTerm.asc(members.since),
+      ]);
+    return query.map((row) => Member(
+          user: row.readTable(contacts),
+          role: row.readTable(members).role,
+          since: row.readTable(members).since,
+          updatedAt: row.readTable(members).updatedAt,
+        ));
+  }
+
+  Future<void> addMembers(List<Member> members, ChannelModel channel) async {
+    await transaction(() async {
+      await batch((batch) {
+        final rows = members.map(
+          (member) => MembersCompanion.insert(
+            memberId: member.user.id,
+            channelId: channel.id,
+          ),
+        );
+        batch.insertAll(this.members, rows);
+      });
+    });
+  }
+
+  Future<void> removeMember(Member member, ChannelModel channel) async {
+    await transaction(() async {
+      delete(
+        members,
+      ).where((tbl) =>
+          tbl.channelId.equals(channel.id) &
+          tbl.memberId.equals(member.user.id));
+    });
+  }
+
+  Selectable<ChatMessage> getMessages({
+    ChannelModel? channel,
+    MessageFilter? filter,
+  }) {
+    final query = select(messages);
+    if (channel != null) {
+      query.where((tbl) => tbl.channelId.equals(channel.id));
+    }
+    if (filter != null) {
+      if (filter.type != null) {
+        query.where((tbl) => tbl.type.equals(filter.type.toString()));
+      }
+      if (filter.state != null) {
+        query.where((tbl) => tbl.state.equals(filter.state.toString()));
+      }
+      if (filter.senderId != null) {
+        query.where((tbl) => tbl.senderId.equals(filter.senderId!));
+      }
+    }
+    return query.map((message) => message.toModel());
+  }
 }

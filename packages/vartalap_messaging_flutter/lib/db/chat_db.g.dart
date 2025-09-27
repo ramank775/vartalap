@@ -3,7 +3,8 @@
 part of 'chat_db.dart';
 
 // ignore_for_file: type=lint
-class $AssestsTable extends Assests with TableInfo<$AssestsTable, Assest> {
+class $AssestsTable extends Assests
+    with TableInfo<$AssestsTable, AssestEntity> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
@@ -75,7 +76,7 @@ class $AssestsTable extends Assests with TableInfo<$AssestsTable, Assest> {
   String get actualTableName => $name;
   static const String $name = 'assests';
   @override
-  VerificationContext validateIntegrity(Insertable<Assest> instance,
+  VerificationContext validateIntegrity(Insertable<AssestEntity> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
@@ -120,9 +121,9 @@ class $AssestsTable extends Assests with TableInfo<$AssestsTable, Assest> {
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  Assest map(Map<String, dynamic> data, {String? tablePrefix}) {
+  AssestEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Assest(
+    return AssestEntity(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       type: attachedDatabase.typeMapping
@@ -150,7 +151,7 @@ class $AssestsTable extends Assests with TableInfo<$AssestsTable, Assest> {
   }
 }
 
-class Assest extends DataClass implements Insertable<Assest> {
+class AssestEntity extends DataClass implements Insertable<AssestEntity> {
   final int id;
   final String? type;
   final String? path;
@@ -160,7 +161,7 @@ class Assest extends DataClass implements Insertable<Assest> {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
-  const Assest(
+  const AssestEntity(
       {required this.id,
       this.type,
       this.path,
@@ -217,10 +218,10 @@ class Assest extends DataClass implements Insertable<Assest> {
     );
   }
 
-  factory Assest.fromJson(Map<String, dynamic> json,
+  factory AssestEntity.fromJson(Map<String, dynamic> json,
       {ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Assest(
+    return AssestEntity(
       id: serializer.fromJson<int>(json['id']),
       type: serializer.fromJson<String?>(json['type']),
       path: serializer.fromJson<String?>(json['path']),
@@ -248,7 +249,7 @@ class Assest extends DataClass implements Insertable<Assest> {
     };
   }
 
-  Assest copyWith(
+  AssestEntity copyWith(
           {int? id,
           Value<String?> type = const Value.absent(),
           Value<String?> path = const Value.absent(),
@@ -258,7 +259,7 @@ class Assest extends DataClass implements Insertable<Assest> {
           DateTime? createdAt,
           DateTime? updatedAt,
           Value<DateTime?> deletedAt = const Value.absent()}) =>
-      Assest(
+      AssestEntity(
         id: id ?? this.id,
         type: type.present ? type.value : this.type,
         path: path.present ? path.value : this.path,
@@ -269,8 +270,8 @@ class Assest extends DataClass implements Insertable<Assest> {
         updatedAt: updatedAt ?? this.updatedAt,
         deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
       );
-  Assest copyWithCompanion(AssestsCompanion data) {
-    return Assest(
+  AssestEntity copyWithCompanion(AssestsCompanion data) {
+    return AssestEntity(
       id: data.id.present ? data.id.value : this.id,
       type: data.type.present ? data.type.value : this.type,
       path: data.path.present ? data.path.value : this.path,
@@ -285,7 +286,7 @@ class Assest extends DataClass implements Insertable<Assest> {
 
   @override
   String toString() {
-    return (StringBuffer('Assest(')
+    return (StringBuffer('AssestEntity(')
           ..write('id: $id, ')
           ..write('type: $type, ')
           ..write('path: $path, ')
@@ -305,7 +306,7 @@ class Assest extends DataClass implements Insertable<Assest> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is Assest &&
+      (other is AssestEntity &&
           other.id == this.id &&
           other.type == this.type &&
           other.path == this.path &&
@@ -317,7 +318,7 @@ class Assest extends DataClass implements Insertable<Assest> {
           other.deletedAt == this.deletedAt);
 }
 
-class AssestsCompanion extends UpdateCompanion<Assest> {
+class AssestsCompanion extends UpdateCompanion<AssestEntity> {
   final Value<int> id;
   final Value<String?> type;
   final Value<String?> path;
@@ -349,7 +350,7 @@ class AssestsCompanion extends UpdateCompanion<Assest> {
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
   });
-  static Insertable<Assest> custom({
+  static Insertable<AssestEntity> custom({
     Expression<int>? id,
     Expression<String>? type,
     Expression<String>? path,
@@ -2258,14 +2259,14 @@ class $$AssestsTableAnnotationComposer
 class $$AssestsTableTableManager extends RootTableManager<
     _$ChatDatabase,
     $AssestsTable,
-    Assest,
+    AssestEntity,
     $$AssestsTableFilterComposer,
     $$AssestsTableOrderingComposer,
     $$AssestsTableAnnotationComposer,
     $$AssestsTableCreateCompanionBuilder,
     $$AssestsTableUpdateCompanionBuilder,
-    (Assest, BaseReferences<_$ChatDatabase, $AssestsTable, Assest>),
-    Assest,
+    (AssestEntity, BaseReferences<_$ChatDatabase, $AssestsTable, AssestEntity>),
+    AssestEntity,
     PrefetchHooks Function()> {
   $$AssestsTableTableManager(_$ChatDatabase db, $AssestsTable table)
       : super(TableManagerState(
@@ -2331,14 +2332,14 @@ class $$AssestsTableTableManager extends RootTableManager<
 typedef $$AssestsTableProcessedTableManager = ProcessedTableManager<
     _$ChatDatabase,
     $AssestsTable,
-    Assest,
+    AssestEntity,
     $$AssestsTableFilterComposer,
     $$AssestsTableOrderingComposer,
     $$AssestsTableAnnotationComposer,
     $$AssestsTableCreateCompanionBuilder,
     $$AssestsTableUpdateCompanionBuilder,
-    (Assest, BaseReferences<_$ChatDatabase, $AssestsTable, Assest>),
-    Assest,
+    (AssestEntity, BaseReferences<_$ChatDatabase, $AssestsTable, AssestEntity>),
+    AssestEntity,
     PrefetchHooks Function()>;
 typedef $$ChannelsTableCreateCompanionBuilder = ChannelsCompanion Function({
   Value<int> id,

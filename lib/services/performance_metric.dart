@@ -1,4 +1,5 @@
 import 'package:firebase_performance/firebase_performance.dart';
+import 'package:flutter/foundation.dart';
 import 'package:vartalap/utils/enum_helper.dart';
 
 class PerformanceTrace {
@@ -69,7 +70,7 @@ class PerformanceMetric {
       FirebasePerformance.instance;
 
   static init() {
-    _firebasePerformance.setPerformanceCollectionEnabled(true);
+    _firebasePerformance.setPerformanceCollectionEnabled(kReleaseMode);
   }
 
   static PerformanceTrace newTrace(String name) {
