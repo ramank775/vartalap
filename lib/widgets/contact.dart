@@ -9,7 +9,8 @@ class ContactItem extends StatelessWidget {
   final Function? onTap;
   final bool isSelected;
   final bool enabled;
-  ContactItem({
+  const ContactItem({
+    super.key,
     required this.contact,
     this.isSelected = false,
     this.onProfileTap,
@@ -27,7 +28,7 @@ class ContactItem extends StatelessWidget {
           vertical: 2.0,
           horizontal: 16.0,
         ),
-        leading: Container(
+        leading: SizedBox(
           width: 45,
           height: 45,
           child: Stack(
@@ -37,7 +38,7 @@ class ContactItem extends StatelessWidget {
                 height: 45.0,
                 text: contact.displayName,
               ),
-              this.isSelected
+              isSelected
                   ? Positioned(
                       bottom: 0,
                       right: 0,

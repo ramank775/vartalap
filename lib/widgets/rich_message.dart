@@ -20,13 +20,14 @@ class RichMessage extends StatelessWidget {
   final TextStyle style;
   final String text;
   final bool selectable;
-  RichMessage(this.text, this.style, {this.selectable = false});
+  const RichMessage(this.text, this.style,
+      {super.key, this.selectable = false});
 
   @override
   Widget build(BuildContext context) {
     final txtSpan = TextSpan(
       children: generateMessageTextSpans(text),
-      style: this.style,
+      style: style,
     );
     if (selectable) {
       return SelectableText.rich(txtSpan);
@@ -46,7 +47,7 @@ class RichMessage extends StatelessWidget {
     );
 
     final TextStyle hyperLinkStyle =
-        this.style.merge(VartalapTheme.theme.linkTitleStyle);
+        style.merge(VartalapTheme.theme.linkTitleStyle);
     String emojiString = "";
 
     text.splitMapJoin(

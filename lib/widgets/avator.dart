@@ -7,29 +7,29 @@ class Avator extends StatelessWidget {
   final double _opacity = 0.65;
   final double width;
   final double height;
-  Avator({
-    Key? key,
+  const Avator({
+    super.key,
     required this.text,
     required this.width,
     required this.height,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
     return SizedBox(
-      width: this.width,
-      height: this.height,
+      width: width,
+      height: height,
       child: AvatarLetter(
         backgroundColor: getColor(
-          this.text,
-          opacity: this._opacity,
+          text,
+          opacity: _opacity,
           brightness: brightness,
         ),
-        text: this.text,
+        text: text,
         numberLetters: 2,
         upperCase: true,
-        letterType: LetterType.Circular,
+        letterType: LetterType.circular,
         textColor: Colors.white,
         fontSize: 12,
       ),

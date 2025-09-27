@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
-import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/utils/date_time_format.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
@@ -20,12 +20,12 @@ class ChatPreviewWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final vtheme = VartalapTheme.theme;
-    return new Column(
+    return Column(
       children: [
         ListTileTheme(
           selectedColor: vtheme.selectedRowColor,
           child: ListTile(
-            leading: Container(
+            leading: SizedBox(
               width: 42,
               height: 42,
               child: Stack(
@@ -33,9 +33,9 @@ class ChatPreviewWidget extends StatelessWidget {
                   Avator(
                     width: 42.0,
                     height: 42.0,
-                    text: this._chat.channel.displayName,
+                    text: _chat.channel.displayName,
                   ),
-                  this.isSelected
+                  isSelected
                       ? Positioned(
                           bottom: 0,
                           right: 0,
@@ -56,41 +56,41 @@ class ChatPreviewWidget extends StatelessWidget {
             // leading: new ProfileImg(
             //     this._chat.pic ?? 'assets/images/default-user.png',
             //     ProfileImgSize.MD),
-            title: new Row(
+            title: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                new Text(
-                  this._chat.channel.displayName,
-                  style: new TextStyle(
+                Text(
+                  _chat.channel.displayName,
+                  style: TextStyle(
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                new Text(
-                  formatMessageTimestamp(this._chat.lastMessageTimestamp),
-                  style: new TextStyle(fontSize: 12.0),
+                Text(
+                  formatMessageTimestamp(_chat.lastMessageTimestamp),
+                  style: TextStyle(fontSize: 12.0),
                 ),
               ],
             ),
-            subtitle: new Row(
+            subtitle: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: Text(
-                    this._chat.previewContent,
+                    _chat.previewContent,
                     softWrap: false,
                     overflow: TextOverflow.ellipsis,
-                    style: new TextStyle(fontSize: 15.0),
+                    style: TextStyle(fontSize: 15.0),
                   ),
                 ),
                 getWidget(context)
               ],
             ),
-            onTap: () => this._onTap(this._chat),
-            onLongPress: () => this._onLongPress(this._chat),
-            selected: this.isSelected,
+            onTap: () => _onTap(_chat),
+            onLongPress: () => _onLongPress(_chat),
+            selected: isSelected,
           ),
         ),
-        new Divider(
+        Divider(
           height: 5.0,
         ),
       ],
@@ -99,7 +99,7 @@ class ChatPreviewWidget extends StatelessWidget {
 
   Widget getWidget(BuildContext context) {
     final vtheme = VartalapTheme.theme;
-    return this._chat.unreadCount > 0
+    return _chat.unreadCount > 0
         ? Container(
             width: 24,
             height: 24,
@@ -122,9 +122,9 @@ class ChatPreviewWidget extends StatelessWidget {
   }
 
   String _getUnreadCountText() {
-    if (this._chat.unreadCount > 9) {
+    if (_chat.unreadCount > 9) {
       return "9+";
     }
-    return this._chat.unreadCount.toString();
+    return _chat.unreadCount.toString();
   }
 }

@@ -5,21 +5,21 @@ class AppLogo extends StatelessWidget {
   final double size;
   final Color backgroundColor;
   const AppLogo({
-    Key? key,
+    super.key,
     required this.size,
     this.backgroundColor = Colors.white,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = VartalapTheme.theme;
     return CircleAvatar(
-      backgroundColor: this.backgroundColor,
-      radius: this.size,
+      backgroundColor: backgroundColor,
+      radius: size,
       child: Icon(
         Icons.chat_bubble_outline,
         color: theme.appLogoColor,
-        size: this.size,
+        size: size,
       ),
     );
   }

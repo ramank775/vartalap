@@ -6,11 +6,11 @@ import 'package:flutter/material.dart';
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
   final Function(bool state)? onTyping;
-  MessageInputWidget({
-    Key? key,
+  const MessageInputWidget({
+    super.key,
     required this.sendMessage,
     this.onTyping,
-  }) : super(key: key);
+  });
 
   @override
   MessageInputState createState() => MessageInputState();
@@ -32,6 +32,7 @@ class MessageInputState extends State<MessageInputWidget> {
     _controller.addListener(onTypingListener);
   }
 
+  @override
   void dispose() {
     super.dispose();
     if (_typingTimer?.isActive ?? false) _typingTimer!.cancel();
@@ -42,16 +43,16 @@ class MessageInputState extends State<MessageInputWidget> {
   }
 
   void onTypingListener() {
-    if (this._controller.text.isEmpty) return;
+    if (_controller.text.isEmpty) return;
     if (_typingTimer == null) {
-      this.widget.onTyping?.call(true);
+      widget.onTyping?.call(true);
     }
     if (_typingTimer?.isActive ?? false) _typingTimer!.cancel();
     _typingTimer = Timer(Duration(seconds: 3), onTypingTimeout);
   }
 
   void onTypingTimeout() {
-    this.widget.onTyping?.call(false);
+    widget.onTyping?.call(false);
     _typingTimer = null;
   }
 
@@ -92,73 +93,71 @@ class MessageInputState extends State<MessageInputWidget> {
 
   Widget buildInput(BuildContext context) {
     var theme = Theme.of(context);
-    return Container(
-      child: Row(
-        mainAxisSize: MainAxisSize.max,
-        children: <Widget>[
-          Flexible(
-            flex: 1,
-            child: Container(
-              decoration: BoxDecoration(
-                color: theme.primaryColorLight,
-                //borderRadius: BorderRadius.all(const Radius.circular(30.0)),
-              ),
-              child: Row(
-                children: <Widget>[
-                  IconButton(
-                    padding: const EdgeInsets.all(0.0),
-                    icon: Icon(_isShowSticker
-                        ? Icons.keyboard
-                        : Icons.insert_emoticon_sharp),
-                    onPressed: () {
-                      _isShowSticker
-                          ? _inputFocus.requestFocus()
-                          : _inputFocus.unfocus();
-                      setState(() {
-                        _isShowSticker = !_isShowSticker;
-                      });
-                    },
-                  ),
-                  Flexible(
-                    child: TextField(
-                      controller: _controller,
-                      textCapitalization: TextCapitalization.sentences,
-                      textInputAction: TextInputAction.send,
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.all(0.0),
-                        hintText: 'Type a message',
-                        hintStyle: TextStyle(
-                          fontSize: 16.0,
-                        ),
-                        counterText: '',
+    return Row(
+      mainAxisSize: MainAxisSize.max,
+      children: <Widget>[
+        Flexible(
+          flex: 1,
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.primaryColorLight,
+              //borderRadius: BorderRadius.all(const Radius.circular(30.0)),
+            ),
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  padding: const EdgeInsets.all(0.0),
+                  icon: Icon(_isShowSticker
+                      ? Icons.keyboard
+                      : Icons.insert_emoticon_sharp),
+                  onPressed: () {
+                    _isShowSticker
+                        ? _inputFocus.requestFocus()
+                        : _inputFocus.unfocus();
+                    setState(() {
+                      _isShowSticker = !_isShowSticker;
+                    });
+                  },
+                ),
+                Flexible(
+                  child: TextField(
+                    controller: _controller,
+                    textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.send,
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.all(0.0),
+                      hintText: 'Type a message',
+                      hintStyle: TextStyle(
+                        fontSize: 16.0,
                       ),
-                      onSubmitted: (String text) {
-                        sendMessage();
-                      },
-                      keyboardType: TextInputType.multiline,
-                      style: TextStyle(
-                        fontSize: 19,
-                      ),
-                      maxLines: null,
-                      maxLength: TextField.noMaxLength,
-                      focusNode: _inputFocus,
+                      counterText: '',
                     ),
+                    onSubmitted: (String text) {
+                      sendMessage();
+                    },
+                    keyboardType: TextInputType.multiline,
+                    style: TextStyle(
+                      fontSize: 19,
+                    ),
+                    maxLines: null,
+                    maxLength: TextField.noMaxLength,
+                    focusNode: _inputFocus,
                   ),
-                  // IconButton(
-                  //   icon: Icon(Icons.attach_file),
-                  //   onPressed: () {},
-                  // ),
-                  IconButton(
-                    onPressed: sendMessage,
-                    icon: Icon(Icons.send_rounded),
-                  ),
-                ],
-              ),
+                ),
+                // IconButton(
+                //   icon: Icon(Icons.attach_file),
+                //   onPressed: () {},
+                // ),
+                IconButton(
+                  onPressed: sendMessage,
+                  icon: Icon(Icons.send_rounded),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -169,7 +168,7 @@ class MessageInputState extends State<MessageInputWidget> {
         height: 250,
         child: EmojiPicker(
           onEmojiSelected: (category, emoji) {
-            _controller..text += emoji.emoji;
+            _controller.text += emoji.emoji;
           },
           config: Config(),
         ),
@@ -178,12 +177,12 @@ class MessageInputState extends State<MessageInputWidget> {
   }
 
   void sendMessage() {
-    var text = this._controller.text;
-    if (text.length == 0) {
+    var text = _controller.text;
+    if (text.isEmpty) {
       return;
     }
     _sendMessage(text);
-    this._controller.text = "";
+    _controller.text = "";
     if (_isShowSticker) {
       setState(() {
         _isShowSticker = false;

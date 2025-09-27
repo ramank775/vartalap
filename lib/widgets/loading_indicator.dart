@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class LoadingIndicator extends StatelessWidget {
-  LoadingIndicator({this.text = ''});
+  const LoadingIndicator({super.key, this.text = ''});
 
   final String text;
 
@@ -23,21 +23,21 @@ class LoadingIndicator extends StatelessWidget {
 
   Padding _getLoadingIndicator() {
     return Padding(
-        child: Container(
-            child: CircularProgressIndicator(strokeWidth: 3),
+        padding: EdgeInsets.only(bottom: 16),
+        child: SizedBox(
             width: 32,
-            height: 32),
-        padding: EdgeInsets.only(bottom: 16));
+            height: 32,
+            child: CircularProgressIndicator(strokeWidth: 3)));
   }
 
-  Widget _getHeading(context) {
+  Widget _getHeading(BuildContext context) {
     return Padding(
+        padding: EdgeInsets.only(bottom: 4),
         child: Text(
           'Please wait …',
           style: TextStyle(fontSize: 16),
           textAlign: TextAlign.center,
-        ),
-        padding: EdgeInsets.only(bottom: 4));
+        ));
   }
 
   Text _getText(String displayedText) {

@@ -11,8 +11,8 @@ class NumericKeyboard extends StatefulWidget {
   final KeyboardTapCallback onKeyboardTap;
   final MainAxisAlignment mainAxisAlignment;
 
-  NumericKeyboard({
-    Key? key,
+  const NumericKeyboard({
+    super.key,
     required this.onKeyboardTap,
     this.textColor = Colors.black,
     this.rightButtonFn,
@@ -20,7 +20,7 @@ class NumericKeyboard extends StatefulWidget {
     this.leftButtonFn,
     this.leftIcon,
     this.mainAxisAlignment = MainAxisAlignment.spaceEvenly,
-  }) : super(key: key);
+  });
 
   @override
   State<StatefulWidget> createState() {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/models/dateHeader.dart';
-import 'package:vartalap/models/messageSpacer.dart';
+import 'package:vartalap/models/date_header.dart';
+import 'package:vartalap/models/message_spacer.dart';
 import 'package:vartalap/widgets/message.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/chat_message_helper.dart';
@@ -13,64 +13,64 @@ class ChatMessageController extends ValueNotifier<List<ChatMessage>> {
   ChatMessageController({required List<ChatMessage> messages})
       : super(messages);
 
-  getNewNotifier(ChatMessage msg) {
-    var notifier = this.messageChangeNotifier[msg.id];
+  ChatMessageNotifier getNewNotifier(ChatMessage msg) {
+    var notifier = messageChangeNotifier[msg.id];
     if (notifier == null) {
       notifier = ChatMessageNotifier(msg);
-      this.messageChangeNotifier[msg.id] = notifier;
+      messageChangeNotifier[msg.id] = notifier;
     }
 
     return notifier;
   }
 
-  add(ChatMessage msg) {
-    this.messageChangeNotifier[msg.id] = ChatMessageNotifier(msg);
-    this.value.insert(0, msg);
-    this.notifyListeners();
+  void add(ChatMessage msg) {
+    messageChangeNotifier[msg.id] = ChatMessageNotifier(msg);
+    value.insert(0, msg);
+    notifyListeners();
   }
 
-  addAll(Iterable<ChatMessage> msgs) {
-    msgs.forEach((msg) {
-      this.messageChangeNotifier[msg.id] = ChatMessageNotifier(msg);
-    });
-    this.value.insertAll(0, msgs);
-    this.notifyListeners();
+  void addAll(Iterable<ChatMessage> msgs) {
+    for (var msg in msgs) {
+      messageChangeNotifier[msg.id] = ChatMessageNotifier(msg);
+    }
+    value.insertAll(0, msgs);
+    notifyListeners();
   }
 
-  delete(int id) {
-    this.value.removeWhere((msg) => msg.id == id);
-    this.messageChangeNotifier.remove(id);
-    this.notifyListeners();
+  void delete(int id) {
+    value.removeWhere((msg) => msg.id == id);
+    messageChangeNotifier.remove(id);
+    notifyListeners();
   }
 
-  deleteAll(Iterable<int> ids) {
-    this.value.removeWhere((ChatMessage msg) => ids.contains(msg.id));
-    ids.forEach((id) {
-      this.messageChangeNotifier.remove(id);
-    });
-    this.notifyListeners();
+  void deleteAll(Iterable<int> ids) {
+    value.removeWhere((ChatMessage msg) => ids.contains(msg.id));
+    for (var id in ids) {
+      messageChangeNotifier.remove(id);
+    }
+    notifyListeners();
   }
 
-  update(ChatMessage msg) {
-    int idx = this.value.indexWhere((message) => message.id == msg.id);
+  void update(ChatMessage msg) {
+    int idx = value.indexWhere((message) => message.id == msg.id);
     if (idx == -1) return;
-    this.value[idx] = msg;
-    final notifier = this.messageChangeNotifier[msg.id];
+    value[idx] = msg;
+    final notifier = messageChangeNotifier[msg.id];
     if (notifier != null) {
       notifier.update(msg);
     }
   }
 
-  updateAll(Iterable<ChatMessage> msgs) {
-    msgs.forEach(this.update);
+  void updateAll(Iterable<ChatMessage> msgs) {
+    msgs.forEach(update);
   }
 
   @override
   void dispose() {
     super.dispose();
-    this.messageChangeNotifier.values.forEach((msgNotifier) {
+    for (var msgNotifier in messageChangeNotifier.values) {
       msgNotifier.dispose();
-    });
+    }
   }
 }
 
@@ -83,26 +83,30 @@ class ChatList extends StatelessWidget {
   final MessageTapCallback? onTab;
   final MessageLongPressCallback? onLongPress;
   final Map<String, Member> members;
+  final Set<int>? loadingMessages;
+  final Contact? currentUser;
 
-  ChatList({
+  const ChatList({
     super.key,
     required this.controller,
     required this.members,
     this.showName = false,
     this.onLongPress,
     this.onTab,
+    this.loadingMessages,
+    this.currentUser,
   });
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = CurrentUser.of(context).user!;
+    final currentUser = this.currentUser ?? CurrentUser.of(context).user!;
     return ValueListenableBuilder(
-      valueListenable: this.controller,
+      valueListenable: controller,
       builder: (BuildContext context, List<ChatMessage> value, Widget? child) {
         final displayMessages = calculateChatMessages(
           value,
           currentUser,
-          showUserNames: this.showName,
+          showUserNames: showName,
         )[0] as List<Object>;
         return ListView.builder(
           itemCount: displayMessages.length,
@@ -147,7 +151,8 @@ class ChatList extends StatelessWidget {
       bool isYou = msg.sender == currentUser;
       bool showUserInfo = !isYou && this.showName && showName;
 
-      final notifier = this.controller.getNewNotifier(msg);
+      final notifier = controller.getNewNotifier(msg);
+      final isLoading = loadingMessages?.contains(msg.id) ?? false;
       Widget child = ValueListenableBuilder<ChatMessage>(
         builder: (context, key, child) {
           return MessageWidget(
@@ -156,8 +161,9 @@ class ChatList extends StatelessWidget {
             showUserInfo: showUserInfo,
             isSelected: msg.isSelected,
             showNip: showNip,
-            onTab: this.onTab,
-            onLongPress: this.onLongPress,
+            isLoading: isLoading,
+            onTab: onTab,
+            onLongPress: onLongPress,
           );
         },
         valueListenable: notifier,

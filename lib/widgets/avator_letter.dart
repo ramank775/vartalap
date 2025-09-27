@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum LetterType { Rectangle, Circular, None }
+enum LetterType { rectangle, circular, none }
 
 Color parseColor({required String hexCode}) {
   String hex = hexCode.replaceAll("#", "");
@@ -27,8 +27,8 @@ class AvatarLetter extends StatelessWidget {
   final bool upperCase;
 
   AvatarLetter(
-      {Key? key,
-      this.letterType = LetterType.Rectangle,
+      {super.key,
+      this.letterType = LetterType.rectangle,
       required this.text,
       required this.textColor,
       required this.backgroundColor,
@@ -57,7 +57,7 @@ class AvatarLetter extends StatelessWidget {
     if (arrayLeeters.length > 1 && arrayLeeters.length == numberLetters) {
       return '${arrayLeeters[0][0].trim()}${arrayLeeters[1][0].trim()}';
     }
-    return '${newText[0]}';
+    return newText[0];
   }
 
   Widget _buildText() {
@@ -72,17 +72,17 @@ class AvatarLetter extends StatelessWidget {
     );
   }
 
-  _buildTypeLeeter() {
+  RoundedRectangleBorder _buildTypeLeeter() {
     switch (letterType) {
-      case LetterType.Rectangle:
+      case LetterType.rectangle:
         return RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(5.0),
         );
-      case LetterType.Circular:
+      case LetterType.circular:
         return RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(size! / 2),
         );
-      case LetterType.None:
+      case LetterType.none:
         return RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(0.0),
         );
@@ -90,16 +90,14 @@ class AvatarLetter extends StatelessWidget {
   }
 
   Widget _leeterView() {
-    return Container(
-      child: Material(
-        shape: _buildTypeLeeter(),
-        color: backgroundColor,
-        child: Container(
-          height: size,
-          width: size,
-          child: Center(
-            child: _buildText(),
-          ),
+    return Material(
+      shape: _buildTypeLeeter(),
+      color: backgroundColor,
+      child: SizedBox(
+        height: size,
+        width: size,
+        child: Center(
+          child: _buildText(),
         ),
       ),
     );

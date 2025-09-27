@@ -2,7 +2,7 @@ import 'package:bubble/bubble.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/color_helper.dart';
-import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/utils/date_time_format.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
@@ -11,6 +11,7 @@ class MessageWidget extends StatelessWidget {
   final bool _isYou;
 
   final bool isSelected;
+  final bool isLoading;
   final Function? onTab;
   final Function? onLongPress;
   final bool showUserInfo;
@@ -20,6 +21,7 @@ class MessageWidget extends StatelessWidget {
     this._isYou, {
     Key? key,
     this.isSelected = false,
+    this.isLoading = false,
     this.onTab,
     this.onLongPress,
     this.showUserInfo = false,
@@ -33,58 +35,81 @@ class MessageWidget extends StatelessWidget {
     final selectedRowColor = VartalapTheme.theme.selectedRowColor;
     return GestureDetector(
       onTap: () {
-        this.onTab!(this._msg);
+        onTab!(_msg);
       },
       onLongPress: () {
-        this.onLongPress!(this._msg);
+        onLongPress!(_msg);
       },
       child: Container(
         padding: const EdgeInsets.only(bottom: 2),
         decoration: BoxDecoration(
-          color: this.isSelected ? selectedRowColor : Colors.transparent,
+          color: isSelected ? selectedRowColor : Colors.transparent,
         ),
         constraints: BoxConstraints(
           minWidth: double.infinity,
         ),
-        child: Bubble(
-          alignment: this._isYou ? Alignment.topRight : Alignment.topLeft,
-          color: this.isSelected
-              ? selectedRowColor
-              : this._isYou
-                  ? senderColor
-                  : receiverColor,
-          showNip: this.showNip,
-          nip: this._isYou ? BubbleNip.rightBottom : BubbleNip.leftBottom,
-          child: Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.75,
+        child: Stack(
+          children: [
+            Bubble(
+              alignment: _isYou ? Alignment.topRight : Alignment.topLeft,
+              color: isSelected
+                  ? selectedRowColor
+                  : _isYou
+                      ? senderColor
+                      : receiverColor,
+              showNip: showNip,
+              nip: _isYou ? BubbleNip.rightBottom : BubbleNip.leftBottom,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  textBaseline: TextBaseline.ideographic,
+                  children: getMessageComponents(context),
+                ),
+              ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              textBaseline: TextBaseline.ideographic,
-              children: getMessageComponents(context),
-            ),
-          ),
+            if (isLoading)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
 
   List<Widget> getMessageComponents(BuildContext context) {
-    List<Widget> _widgets = [];
-    if (this.showUserInfo) {
+    List<Widget> widgets = [];
+    if (showUserInfo) {
       final brightness = Theme.of(context).brightness;
-      _widgets.add(
+      widgets.add(
         Container(
           margin: EdgeInsets.only(bottom: 4),
           child: Text(
-            this._msg.sender == null ? '' : this._msg.sender!.displayName,
+            _msg.sender == null ? '' : _msg.sender!.displayName,
             textAlign: TextAlign.start,
             style: TextStyle(
               fontSize: 12,
               color: getColor(
-                this._msg.sender!.displayName,
+                _msg.sender!.displayName,
                 opacity: 1,
                 brightness: brightness,
               ),
@@ -93,7 +118,7 @@ class MessageWidget extends StatelessWidget {
         ),
       );
     }
-    _widgets.add(
+    widgets.add(
       Wrap(
         alignment: WrapAlignment.end,
         crossAxisAlignment: WrapCrossAlignment.end,
@@ -112,8 +137,20 @@ class MessageWidget extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.ideographic,
               children: <Widget>[
+                if (_msg.updatedAt != _msg.timestamp)
+                  Container(
+                    margin: EdgeInsets.only(right: 4),
+                    child: Text(
+                      'edited',
+                      style: TextStyle(
+                        fontSize: 10.0,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
                 Text(
-                  formatMessageTime(this._msg.timestamp),
+                  formatMessageTime(_msg.timestamp),
                   style: TextStyle(
                     fontSize: 11.0,
                   ),
@@ -128,7 +165,7 @@ class MessageWidget extends StatelessWidget {
         ],
       ),
     );
-    return _widgets;
+    return widgets;
   }
 
   Widget getMessageWidget(BuildContext context) {
@@ -139,10 +176,10 @@ class MessageWidget extends StatelessWidget {
       letterSpacing: 0.25,
       color: theme.textTheme.bodyLarge?.color,
     );
-    switch (this._msg.type) {
+    switch (_msg.type) {
       case MessageType.text:
         {
-          final msg = this._msg as TextMessage;
+          final msg = _msg as TextMessage;
           return RichMessage(
             msg.text,
             textStyle,
@@ -156,7 +193,7 @@ class MessageWidget extends StatelessWidget {
   Widget _getIcon() {
     IconData icon = Icons.access_time;
     Color color = Colors.white;
-    switch (this._msg.state) {
+    switch (_msg.state) {
       case MessageState.pending:
         icon = Icons.access_time;
         break;
