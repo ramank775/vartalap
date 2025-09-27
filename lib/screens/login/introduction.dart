@@ -9,6 +9,8 @@ import 'package:vartalap/screens/login/login.dart';
 
 class IntroductionScreen extends StatelessWidget {
   final config = ConfigStore();
+
+  IntroductionScreen({super.key});
   @override
   Widget build(BuildContext context) {
     final theme = VartalapTheme.theme;
@@ -26,14 +28,12 @@ class IntroductionScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
-                  Container(
-                    child: Center(
-                      child: Container(
-                        constraints: const BoxConstraints(maxHeight: 340),
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        child: AppLogo(
-                          size: 45,
-                        ),
+                  Center(
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 340),
+                      margin: const EdgeInsets.symmetric(horizontal: 8),
+                      child: AppLogo(
+                        size: 45,
                       ),
                     ),
                   ),

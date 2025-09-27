@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
-import 'package:vartalap/widgets/contactPreviewItem.dart';
+import 'package:vartalap/widgets/contact_preview_item.dart';
 import 'package:vartalap/widgets/contact.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class SelectGroupMemberScreen extends StatefulWidget {
   final ChannelModel? channel;
-  SelectGroupMemberScreen({this.channel});
+  const SelectGroupMemberScreen({super.key, this.channel});
   @override
   State<StatefulWidget> createState() => SelectGroupMemberState();
 }
 
 class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
-  late final client;
+  late final VartalapChatClientFlutter client;
   late Selectable<Contact> _contacts;
   late int _numContacts;
   bool _openSearch = false;
-  List<Contact> _selectedContacts = [];
-  Set<int> _existingUser = Set();
-  bool _isUpdate = false;
+  final List<Contact> _selectedContacts = [];
+  final Set<int> _existingUser = {};
+  final bool _isUpdate = false;
   @override
   void initState() {
     super.initState();
@@ -50,11 +50,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
-      appBar: this._openSearch ? buildSearchAppBar() : buildAppBar(),
+    return Scaffold(
+      appBar: _openSearch ? buildSearchAppBar() : buildAppBar(),
       body: Column(
         children: [
-          ...(this._selectedContacts.length > 0
+          ...(_selectedContacts.isNotEmpty
               ? [
                   SizedBox(
                     height: 90,
@@ -63,7 +63,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                       scrollDirection: Axis.horizontal,
                       shrinkWrap: true,
                       reverse: true,
-                      itemCount: this._selectedContacts.length,
+                      itemCount: _selectedContacts.length,
                       separatorBuilder: (context, index) => SizedBox(
                         width: 10,
                       ),
@@ -86,16 +86,14 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                   case ConnectionState.none:
                     return Center(
                       child: CircularProgressIndicator(
-                        valueColor:
-                            new AlwaysStoppedAnimation<Color>(Colors.grey),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
                       ),
                     );
                   case ConnectionState.active:
                   case ConnectionState.waiting:
                     return Center(
                       child: CircularProgressIndicator(
-                        valueColor:
-                            new AlwaysStoppedAnimation<Color>(Colors.grey),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
                       ),
                     );
                   case ConnectionState.done:
@@ -112,14 +110,14 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                     Contact contact = data.elementAt(i);
                     return ContactItem(
                       contact: contact,
-                      isSelected: this._selectedContacts.contains(contact),
-                      enabled: !this._existingUser.contains(contact.id),
+                      isSelected: _selectedContacts.contains(contact),
+                      enabled: !_existingUser.contains(contact.id),
                       onProfileTap: () => {},
                       onTap: (Contact contact) async {
-                        if (this._existingUser.contains(contact.id)) return;
+                        if (_existingUser.contains(contact.id)) return;
                         setState(() {
-                          if (!this._selectedContacts.remove(contact)) {
-                            this._selectedContacts.add(contact);
+                          if (!_selectedContacts.remove(contact)) {
+                            _selectedContacts.add(contact);
                           }
                         });
                       },
@@ -131,17 +129,17 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
           ),
         ],
       ),
-      floatingActionButton: this._selectedContacts.length > 0
+      floatingActionButton: _selectedContacts.isNotEmpty
           ? FloatingActionButton(
               onPressed: () async {
-                if (this._isUpdate) {
+                if (_isUpdate) {
                   return Navigator.of(context).pop(_selectedContacts);
                 }
                 await Navigator.of(context)
                     .pushNamed('/create-group', arguments: _selectedContacts);
               },
               tooltip: 'Next',
-              child: Icon(this._isUpdate ? Icons.check : Icons.arrow_forward),
+              child: Icon(_isUpdate ? Icons.check : Icons.arrow_forward),
             )
           : null,
     );
@@ -165,12 +163,10 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
           ),
           _selectedContacts.isEmpty
               ? Container()
-              : Container(
-                  child: Text(
-                    '${_selectedContacts.length} of $_numContacts',
-                    style: TextStyle(
-                      fontSize: 12.0,
-                    ),
+              : Text(
+                  '${_selectedContacts.length} of $_numContacts',
+                  style: TextStyle(
+                    fontSize: 12.0,
                   ),
                 )
         ],
@@ -181,7 +177,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
           icon: Icon(Icons.search),
           onPressed: () {
             setState(() {
-              this._openSearch = true;
+              _openSearch = true;
             });
           },
         ),
@@ -198,8 +194,8 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
         ),
         onPressed: () {
           setState(() {
-            this._openSearch = false;
-            this._contacts = client.getContacts(
+            _openSearch = false;
+            _contacts = client.getContacts(
               filter: ContactFilter(
                 status: ContactStatus.active,
               ),
@@ -231,7 +227,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
         autofocus: true,
         onChanged: (value) {
           setState(() {
-            this._contacts = client.getContacts(
+            _contacts = client.getContacts(
               filter: ContactFilter(
                 status: ContactStatus.active,
                 name: value,

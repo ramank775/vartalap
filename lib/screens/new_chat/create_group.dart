@@ -1,46 +1,113 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/avator.dart';
-import 'package:vartalap/widgets/contactPreviewItem.dart';
-import 'package:vartalap/widgets/loadingIndicator.dart';
+import 'package:vartalap/widgets/contact_preview_item.dart';
+import 'package:vartalap/widgets/loading_indicator.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
+import 'package:vartalap/services/connectivity_service.dart';
+import 'package:vartalap/utils/error_types.dart';
+import 'package:vartalap/widgets/error_widgets.dart';
 
-class CreateGroup extends StatelessWidget {
+class CreateGroup extends StatefulWidget {
   final List<Contact> _members;
-  CreateGroup(this._members);
-  @override
-  Widget build(BuildContext context) {
-    final client = VartalapClientProvider.of(context).client;
-    onGroupNameConfirm(String name) async {
-      if (name.isNotEmpty) {
-        try {
-          showLoadingIndicator(context);
-          final channelMembers = this
-              ._members
-              .map((contact) => Member(
-                    user: contact,
-                    role: 'member',
-                    since: DateTime.now(),
-                  ))
-              .toList();
-          ChannelModel channel = ChannelModel(
-            id: 0, // ID will be assigned by the server
-            type: ChannelType.group,
-            config: null,
-          );
-          await client.createChannel(channel, channelMembers);
+  const CreateGroup(this._members, {super.key});
 
-          Navigator.of(context).pop();
-          Navigator.of(context).pop();
-        } on Exception catch (_) {
-          showErrorDialog(context, [
-            'Error while creating new group.',
-            'Make sure you are connected to internet.'
-          ]);
-        }
-      }
+  @override
+  State<CreateGroup> createState() => _CreateGroupState();
+}
+
+class _CreateGroupState extends State<CreateGroup> with ErrorHandlingMixin {
+  bool _isCreatingGroup = false;
+
+  Future<void> _onGroupNameConfirm(String name) async {
+    final client = VartalapClientProvider.of(context).client;
+
+    if (name.trim().isEmpty) {
+      showErrorSnackBar(
+        const ValidationError('Group name cannot be empty'),
+      );
+      return;
     }
 
+    if (name.trim().length > 50) {
+      showErrorSnackBar(
+        const ValidationError('Group name cannot exceed 50 characters'),
+      );
+      return;
+    }
+
+    // Check connectivity before proceeding
+    if (!ConnectivityService().isConnected) {
+      showErrorSnackBar(
+        const NetworkError(
+            'No internet connection. Please connect and try again.'),
+        onRetry: () => _onGroupNameConfirm(name),
+      );
+      return;
+    }
+
+    setState(() {
+      _isCreatingGroup = true;
+    });
+
+    await executeWithErrorHandling(
+      () async {
+        await RetryMechanism.withRetry(
+          () async {
+            final channelMembers = widget._members
+                .map((contact) => Member(
+                      user: contact,
+                      role: 'member',
+                      since: DateTime.now(),
+                    ))
+                .toList();
+
+            ChannelModel channel = ChannelModel(
+              id: 0, // ID will be assigned by the server
+              type: ChannelType.group,
+              config: null,
+            );
+
+            await client.createChannel(channel, channelMembers).timeout(
+                  const Duration(seconds: 30),
+                  onTimeout: () => throw TimeoutError(
+                    'Group creation timed out. Please try again.',
+                  ),
+                );
+          },
+          maxRetries: 2,
+        );
+      },
+      loadingMessage: "Creating your group...",
+      showLoadingDialog: true,
+      onSuccess: () {
+        if (mounted) {
+          Navigator.of(context).pop();
+          Navigator.of(context).pop();
+        }
+      },
+      onError: (error) {
+        setState(() {
+          _isCreatingGroup = false;
+        });
+        showErrorDialog(error, onRetry: () => _onGroupNameConfirm(name));
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          const OfflineIndicator(),
+          Expanded(child: _buildContent(context)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -66,25 +133,22 @@ class CreateGroup extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Container(
-                child: _CreateGroupForm(
-                  onConfirm: onGroupNameConfirm,
-                ),
+              _CreateGroupForm(
+                onConfirm: _onGroupNameConfirm,
+                isLoading: _isCreatingGroup,
               ),
-              Container(
-                child: RichText(
-                  text: TextSpan(
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Theme.of(context).textTheme.bodyLarge!.color,
-                    ),
-                    children: [
-                      TextSpan(text: "Members:"),
-                      TextSpan(
-                        text: _members.length.toString(),
-                      )
-                    ],
+              RichText(
+                text: TextSpan(
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Theme.of(context).textTheme.bodyLarge!.color,
                   ),
+                  children: [
+                    TextSpan(text: "Members:"),
+                    TextSpan(
+                      text: widget._members.length.toString(),
+                    )
+                  ],
                 ),
               ),
               Expanded(
@@ -93,7 +157,7 @@ class CreateGroup extends StatelessWidget {
                   padding: EdgeInsets.symmetric(vertical: 10),
                   crossAxisCount: 5,
                   childAspectRatio: 0.5,
-                  children: _members
+                  children: widget._members
                       .map((e) => ContactPreviewItem(contact: e))
                       .toList(),
                 ),
@@ -122,7 +186,7 @@ class CreateGroup extends StatelessWidget {
     );
   }
 
-  void showErrorDialog(BuildContext context, List<String> error) {
+  void showOldErrorDialog(BuildContext context, List<String> error) {
     var dialog = AlertDialog(
       title: Text('Error'),
       content: SingleChildScrollView(
@@ -148,7 +212,12 @@ class CreateGroup extends StatelessWidget {
 
 class _CreateGroupForm extends StatefulWidget {
   final Function(String) onConfirm;
-  _CreateGroupForm({Key? key, required this.onConfirm}) : super(key: key);
+  final bool isLoading;
+
+  const _CreateGroupForm({
+    required this.onConfirm,
+    this.isLoading = false,
+  });
 
   @override
   __CreateGroupFormState createState() => __CreateGroupFormState();
@@ -182,7 +251,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
                 ),
                 onChanged: (val) {
                   setState(() {
-                    this.value = val;
+                    value = val;
                   });
                 },
               ),
@@ -195,15 +264,18 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
-                  onPressed: () async {
-                    if (value.isNotEmpty) {
-                      this.widget.onConfirm(value);
-                    } else {
-                      final snackBar = SnackBar(
-                          content: Text('Group name can\'t be empty!'));
-                      ScaffoldMessenger.of(context).showSnackBar(snackBar);
-                    }
-                  },
+                  onPressed: widget.isLoading
+                      ? null
+                      : () async {
+                          if (value.isNotEmpty) {
+                            widget.onConfirm(value);
+                          } else {
+                            final snackBar = SnackBar(
+                                content: Text('Group name can\'t be empty!'));
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(snackBar);
+                          }
+                        },
                   style: TextButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     shape: const CircleBorder(side: BorderSide.none),
@@ -211,11 +283,20 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                    child: Icon(
-                      Icons.done,
-                      //color: Colors.white,
-                      size: 30,
-                    ),
+                    child: widget.isLoading
+                        ? const SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.done,
+                            size: 30,
+                          ),
                   ),
                 ),
               ],
