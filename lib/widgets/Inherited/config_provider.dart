@@ -2,11 +2,11 @@ import 'package:flutter/widgets.dart';
 import 'package:vartalap/config/config_store.dart';
 
 class ConfigProvider extends InheritedWidget {
-  ConfigProvider({
-    Key? key,
+  const ConfigProvider({
+    super.key,
     required this.configStore,
-    required Widget child,
-  }) : super(key: key, child: child);
+    required super.child,
+  });
 
   final ConfigStore configStore;
 

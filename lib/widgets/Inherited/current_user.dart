@@ -2,11 +2,11 @@ import 'package:flutter/widgets.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class CurrentUser extends InheritedWidget {
-  CurrentUser({
-    Key? key,
+  const CurrentUser({
+    super.key,
     required this.user,
-    required Widget child,
-  }) : super(key: key, child: child);
+    required super.child,
+  });
 
   final Contact? user;
 
