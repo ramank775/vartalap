@@ -5,7 +5,8 @@ class DateHeader {
     required this.date,
   });
 
-  int get hashCode => this.date.hashCode;
+  @override
+  int get hashCode => date.hashCode;
 
   @override
   bool operator ==(Object other) {

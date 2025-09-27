@@ -6,7 +6,8 @@ class MessageSpacer {
     required this.id,
   });
 
-  int get hashCode => this.id.hashCode;
+  @override
+  int get hashCode => id.hashCode;
 
   @override
   bool operator ==(Object other) {

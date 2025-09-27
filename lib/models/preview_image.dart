@@ -3,7 +3,8 @@ class PreviewImage {
   final String uri;
   const PreviewImage({required this.id, required this.uri});
 
-  int get hashCode => this.id.hashCode;
+  @override
+  int get hashCode => id.hashCode;
 
   @override
   bool operator ==(Object other) {
