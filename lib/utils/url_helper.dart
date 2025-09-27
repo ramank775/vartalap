@@ -1,6 +1,6 @@
 import 'package:url_launcher/url_launcher.dart' as launcher;
 
-launchUrl(String link) async {
+Future<void> launchUrl(String link) async {
   var uri = Uri.tryParse(link);
   if (uri == null) return;
   if (!uri.hasScheme) {

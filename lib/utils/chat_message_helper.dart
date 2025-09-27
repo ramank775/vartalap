@@ -1,7 +1,7 @@
-import 'package:vartalap/models/dateHeader.dart';
-import 'package:vartalap/models/messageSpacer.dart';
-import 'package:vartalap/models/previewImage.dart';
-import 'package:vartalap/utils/dateTimeFormat.dart';
+import 'package:vartalap/models/date_header.dart';
+import 'package:vartalap/models/message_spacer.dart';
+import 'package:vartalap/models/preview_image.dart';
+import 'package:vartalap/utils/date_time_format.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 List<Object> calculateChatMessages(
@@ -22,7 +22,7 @@ List<Object> calculateChatMessages(
     final nextMessage = isLast ? null : messages[i - 1];
     final nextMessageHasCreatedAt = nextMessage?.timestamp != null;
     final nextMessageSameAuthor = message.senderId == nextMessage?.senderId;
-    final notMyMessage = message.senderId != user.username;
+    final notMyMessage = message.senderId != user.id;
 
     var nextMessageDateThreshold = false;
     var nextMessageDifferentDay = false;

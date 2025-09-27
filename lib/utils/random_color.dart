@@ -115,13 +115,13 @@ class ColorHue {
   final int type;
 
   int returnHue(Random random) {
-    var _h = _hue.randomWithin(random);
+    var h = _hue.randomWithin(random);
 
-    if (_h < 0) {
-      _h = 360 + _h;
+    if (h < 0) {
+      h = 360 + h;
     }
 
-    return _h;
+    return h;
   }
 
   @override
@@ -322,8 +322,8 @@ class RandomColor {
     final s = saturation / 100;
     final v = brightness / 100;
 
-    final _color = HSLColor.fromAHSL(1.0, hue.toDouble(), s, v).toColor();
+    final color = HSLColor.fromAHSL(1.0, hue.toDouble(), s, v).toColor();
 
-    return _color;
+    return color;
   }
 }

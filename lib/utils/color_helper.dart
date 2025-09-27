@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/utils/random_color.dart';
 
 MaterialColor generateMaterialColor(Color color) {
-  return MaterialColor(color.value, {
+  return MaterialColor(color.toARGB32(), {
     50: tintColor(color, 0.9),
     100: tintColor(color, 0.8),
     200: tintColor(color, 0.6),
@@ -21,18 +21,18 @@ int tintValue(int value, double factor) =>
     max(0, min((value + ((255 - value) * factor)).round(), 255));
 
 Color tintColor(Color color, double factor) => Color.fromRGBO(
-    tintValue(color.red, factor),
-    tintValue(color.green, factor),
-    tintValue(color.blue, factor),
+    tintValue((color.r * 255.0).round(), factor),
+    tintValue((color.g * 255.0).round(), factor),
+    tintValue((color.b * 255.0).round(), factor),
     1);
 
 int shadeValue(int value, double factor) =>
     max(0, min(value - (value * factor).round(), 255));
 
 Color shadeColor(Color color, double factor) => Color.fromRGBO(
-    shadeValue(color.red, factor),
-    shadeValue(color.green, factor),
-    shadeValue(color.blue, factor),
+    shadeValue((color.r * 255.0).round(), factor),
+    shadeValue((color.g * 255.0).round(), factor),
+    shadeValue((color.b * 255.0).round(), factor),
     1);
 
 class Range {
@@ -78,26 +78,26 @@ Color getColor(
   Brightness brightness = Brightness.light,
 }) {
   var hash = 0;
-  if (text.length == 0) return Colors.amber;
+  if (text.isEmpty) return Colors.amber;
   for (var i = 0; i < text.length; i++) {
     hash = text.codeUnitAt(i) + ((hash << 5) - hash);
     hash = hash & hash;
   }
-  final _colorGenerator = RandomColor(hash);
+  final colorGenerator = RandomColor(hash);
   final colorBrightness = brightness == Brightness.dark
       ? ColorBrightness.light
       : ColorBrightness.primary;
   final colorSaturation = brightness == Brightness.dark
       ? ColorSaturation.mediumSaturation
       : ColorSaturation.mediumSaturation;
-  final color = _colorGenerator.randomColor(
+  final color = colorGenerator.randomColor(
     colorBrightness: colorBrightness,
     colorSaturation: colorSaturation,
   );
-  return color.withOpacity(opacity);
+  return color.withValues(alpha: opacity);
 }
 
 /// Construct a color from a hex code string, of the format #RRGGBB.
 Color hexToColor(String code) {
-  return new Color(int.parse(code.substring(1, 7), radix: 16) + 0xFF000000);
+  return Color(int.parse(code.substring(1, 7), radix: 16) + 0xFF000000);
 }

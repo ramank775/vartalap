@@ -15,7 +15,7 @@ final List<String> _months = [
 ];
 
 String formatMessageDate(DateTime date) {
-  final format = (int n) => n < 10 ? "0$n" : n;
+  Object format(int n) => n < 10 ? "0$n" : n;
   final today = DateTime.now();
   if (date.year == today.year && date.month == today.month) {
     if (date.day == today.day) {
@@ -31,7 +31,7 @@ String formatMessageDate(DateTime date) {
 }
 
 String formatMessageTime(DateTime date) {
-  var format = (int n) => n < 10 ? "0$n" : n;
+  Object format(int n) => n < 10 ? "0$n" : n;
   return "${date.hour}:${format(date.minute)}";
 }
 
