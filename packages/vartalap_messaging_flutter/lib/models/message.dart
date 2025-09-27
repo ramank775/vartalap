@@ -110,7 +110,7 @@ class ChatMessageNotifier extends ValueNotifier<ChatMessage> {
   @override
   ChatMessage get value => _value;
 
-  update(ChatMessage newValue) {
+  void update(ChatMessage newValue) {
     _value = newValue;
     notifyListeners();
   }
@@ -167,10 +167,12 @@ class MessageFilter {
   final MessageType? type;
   final MessageState? state;
   final int? senderId;
+  final int? messageId;
 
   const MessageFilter({
     this.type,
     this.state,
     this.senderId,
+    this.messageId,
   });
 }

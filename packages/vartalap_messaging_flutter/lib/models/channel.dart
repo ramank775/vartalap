@@ -44,9 +44,9 @@ class ChannelModel {
   })  : createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
-  get displayName {
+  String get displayName {
     if (extraData['name'] != null) {
-      return extraData['name']!;
+      return extraData['name']! as String;
     }
     return "Unknown";
   }

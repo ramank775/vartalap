@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_secure_storage: ^9.2.4
-  drift: ^2.27.0
+  drift: ^2.28.2
   vartalap_messaging:
     path: ../vartalap_messaging
   taskq:
@@ -19,12 +19,12 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   json_annotation: ^4.9.0
-  drift_flutter: ^0.2.4
+  drift_flutter: ^0.2.7
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^6.0.0
   drift_dev: ^2.20.3
   build_runner: ^2.4.12
   json_serializable: ^6.8.0

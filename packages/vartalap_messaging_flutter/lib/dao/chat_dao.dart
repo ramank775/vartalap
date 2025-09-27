@@ -7,6 +7,33 @@ import 'package:vartalap_messaging_flutter/models/models.dart';
 
 part 'chat_dao.g.dart';
 
+/// ChatDao - Message and Member Operations
+/// 
+/// RESPONSIBILITIES:
+/// - All message CRUD operations (create, read, update, delete)
+/// - Member management within channels
+/// - Message state transitions (pending -> sent -> delivered -> read)
+/// - Chat preview generation with last message and unread counts
+/// 
+/// DESIGN PRINCIPLES:
+/// - Pure database operations - no business logic
+/// - All methods are atomic (use transactions when needed)
+/// - Return Drift Selectable for reactive queries
+/// - Handle optimistic updates with proper state management
+/// 
+/// MESSAGE STATE FLOW:
+/// pending -> sent -> delivered -> read
+/// 
+/// USAGE PATTERN:
+/// ```dart
+/// // Send message
+/// final messageId = await chatDao.sendMessage(message, channel);
+/// 
+/// // Watch messages reactively
+/// chatDao.getMessages(channel: channel).watch().listen((messages) {
+///   // UI updates automatically
+/// });
+/// ```
 @DriftAccessor(tables: [Channels, Contacts, Members, Messages])
 class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
   ChatDao(super.db);
@@ -38,7 +65,8 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
       final unReadCountExp = messages.id.count().cast<int>();
       final unreadQuery = selectOnly(messages)
         ..addColumns([unReadCountExp])
-        ..where(messages.channelId.equals(channel.id))
+        ..where(messages.channelId.equals(channel.id) & 
+                messages.state.isNotValue(MessageState.read.toString()))
         ..limit(10);
       final unreadCount = await unreadQuery
               .map((row) => row.read(unReadCountExp))
@@ -90,11 +118,9 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
 
   Future<void> removeMember(Member member, ChannelModel channel) async {
     await transaction(() async {
-      delete(
-        members,
-      ).where((tbl) =>
+      await (delete(members)..where((tbl) =>
           tbl.channelId.equals(channel.id) &
-          tbl.memberId.equals(member.user.id));
+          tbl.memberId.equals(member.user.id))).go();
     });
   }
 
@@ -116,7 +142,56 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
       if (filter.senderId != null) {
         query.where((tbl) => tbl.senderId.equals(filter.senderId!));
       }
+      if (filter.messageId != null) {
+        query.where((tbl) => tbl.id.equals(filter.messageId!));
+      }
     }
     return query.map((message) => message.toModel());
+  }
+
+  Future<int> sendMessage(ChatMessage message, ChannelModel channel) async {
+    final companion = MessagesCompanion.insert(
+      type: message.type,
+      state: message.state,
+      payload: message.payload,
+      channelId: channel.id,
+      senderId: message.senderId,
+      localCreatedAt: Value(message.timestamp),
+      updatedAt: Value(message.updatedAt),
+    );
+    return await into(messages).insertReturning(companion).then((msg) => msg.id);
+  }
+
+  Future<void> updateMessage(int messageId, ChatMessage updatedMessage) async {
+    await (update(messages)..where((tbl) => tbl.id.equals(messageId))).write(
+      MessagesCompanion(
+        state: Value(updatedMessage.state),
+        payload: Value(updatedMessage.payload),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  Future<void> deleteMessage(int messageId) async {
+    await (delete(messages)..where((tbl) => tbl.id.equals(messageId))).go();
+  }
+
+  Future<void> markMessagesAsRead(List<int> messageIds) async {
+    if (messageIds.isEmpty) return;
+    await (update(messages)..where((tbl) => tbl.id.isIn(messageIds))).write(
+      MessagesCompanion(
+        state: const Value(MessageState.read),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  Future<void> markChannelAsRead(int channelId) async {
+    await (update(messages)..where((tbl) => tbl.channelId.equals(channelId))).write(
+      MessagesCompanion(
+        state: const Value(MessageState.read),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
   }
 }

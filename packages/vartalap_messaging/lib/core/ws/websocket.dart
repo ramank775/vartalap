@@ -46,7 +46,7 @@ class Websocket {
     _connectWebSocket(force: true);
   }
 
-  void _onError(error) {
+  void _onError(dynamic error) {
     if (_channel!.closeCode == null) {
       return;
     }
@@ -54,7 +54,7 @@ class Websocket {
     _connectWebSocket(force: true);
   }
 
-  void _onNewMessage(event) {
+  void _onNewMessage(dynamic event) {
     final rmsg = RemoteMessage.fromString(event);
     _messageController.sink.add(rmsg);
   }

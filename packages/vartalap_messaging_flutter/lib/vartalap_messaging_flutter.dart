@@ -1,4 +1,4 @@
-library vartalap_messaging_flutter;
+library;
 
 export 'package:drift/drift.dart' show Selectable;
 export 'package:vartalap_messaging/vartalap_messaging.dart'

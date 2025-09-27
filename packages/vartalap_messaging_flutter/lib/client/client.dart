@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 import 'package:taskq/storage/database.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart'
@@ -7,9 +8,54 @@ import 'package:vartalap_messaging_flutter/client/chat.dart';
 import 'package:vartalap_messaging_flutter/client/secure_token_manager.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/events.dart';
-import 'package:vartalap_messaging_flutter/mapper/mapper.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
+/// Custom exception for VartalapChatClientFlutter initialization failures
+///
+/// Provides detailed error information including the original error for debugging
+class VartalapInitializationException implements Exception {
+  final String message;
+  final Object? originalError;
+  final StackTrace? stackTrace;
+
+  const VartalapInitializationException(
+    this.message, {
+    this.originalError,
+    this.stackTrace,
+  });
+
+  @override
+  String toString() {
+    if (originalError != null) {
+      return 'VartalapInitializationException: $message\nCaused by: $originalError';
+    }
+    return 'VartalapInitializationException: $message';
+  }
+}
+
+/// VartalapChatClientFlutter - Local-First Core Client
+///
+/// ARCHITECTURE PRINCIPLES:
+/// 1. LOCAL-FIRST: All operations work locally first, sync happens in background
+/// 2. DAO PATTERN: All database operations are delegated to DAO classes
+/// 3. NO HARDCODED DATA: UI layer provides all external data (contacts, etc.)
+/// 4. CLEAN INTERFACES: Methods don't expose implementation details
+///
+/// LAYER RESPONSIBILITIES:
+/// - This Client Layer: Business logic, orchestration, initialization
+/// - DAO Layer: All database CRUD operations
+/// - UI Layer: User interactions, device contacts, permissions
+///
+/// DATABASE OPERATIONS FLOW:
+/// UI -> VartalapChatClientFlutter -> ChannelDao/ChatDao -> Database
+///
+/// SYNC STRATEGY:
+/// - Optimistic updates: Local changes applied immediately
+/// - Background sync: Tasks scheduled for server synchronization
+/// - Conflict resolution: Server state takes precedence (future implementation)
+///
+/// IMPORTANT: DO NOT add direct database operations to this class.
+/// All database operations MUST go through DAO classes for consistency.
 class VartalapChatClientFlutter {
   late VartalapChatClient client;
   late TaskScheduler scheduler;
@@ -30,35 +76,129 @@ class VartalapChatClientFlutter {
         );
   }
 
+  /// Initializes the VartalapChatClientFlutter with robust error handling
+  ///
+  /// This method performs the following initialization steps:
+  /// 1. Validates user authentication status
+  /// 2. Initializes the local database connection
+  /// 3. Sets up the task factory and scheduler for background operations
+  /// 4. Establishes event stream handling
+  ///
+  /// Throws [VartalapInitializationException] if initialization fails
   Future<void> init() async {
-    final userId = await client.getLoggedInUser();
-    if (userId == null) {
-      throw Exception("User not logged in");
+    try {
+      // Step 1: Validate user authentication
+      final userId = await _validateUserAuthentication();
+
+      // Step 2: Initialize database connection
+      await _initializeDatabase(userId);
+
+      // Step 3: Set up task management system
+      await _initializeTaskSystem();
+
+      // Step 4: Set up event stream handling
+      await _initializeEventStreaming();
+    } catch (e) {
+      if (e is VartalapInitializationException) {
+        rethrow;
+      }
+      // Wrap unexpected errors with context
+      throw VartalapInitializationException(
+        'Unexpected error during initialization: ${e.toString()}',
+        originalError: e,
+      );
     }
-    _db = ChatDatabase(userId: userId);
-    factory = VartalapTaskFactory(client, _db);
-    final taskDb = TaskQDatabase.withQueryExectutor(_db.executor);
-    scheduler = TaskScheduler(factory, db: taskDb);
-    client.eventStream.listen((msg) {});
+  }
+
+  /// Validates that a user is logged in and returns the user ID
+  Future<String> _validateUserAuthentication() async {
+    try {
+      final userId = await client.getLoggedInUser();
+      if (userId == null || userId.isEmpty) {
+        throw const VartalapInitializationException(
+          'Cannot initialize VartalapChatClientFlutter: No user is currently logged in. '
+          'Please log in before calling init().',
+        );
+      }
+      return userId;
+    } catch (e) {
+      if (e is VartalapInitializationException) {
+        rethrow;
+      }
+      throw VartalapInitializationException(
+        'Failed to verify user authentication status: ${e.toString()}',
+        originalError: e,
+      );
+    }
+  }
+
+  /// Initializes the local database connection
+  Future<void> _initializeDatabase(String userId) async {
+    try {
+      _db = ChatDatabase(userId: userId);
+
+      // Verify database connection by attempting a simple operation
+      await _db.executor.runSelect('SELECT 1', []);
+    } catch (e) {
+      throw VartalapInitializationException(
+        'Failed to initialize local database for user $userId: ${e.toString()}',
+        originalError: e,
+      );
+    }
+  }
+
+  /// Sets up the task factory and scheduler for background operations
+  Future<void> _initializeTaskSystem() async {
+    try {
+      factory = VartalapTaskFactory(client, _db);
+
+      final taskDb = TaskQDatabase.withQueryExectutor(_db.executor);
+      scheduler = TaskScheduler(factory, db: taskDb);
+    } catch (e) {
+      if (e is VartalapInitializationException) {
+        rethrow;
+      }
+      throw const VartalapInitializationException(
+        'Failed to initialize task management system. This may be due to database connection issues or task factory configuration problems.',
+      );
+    }
+  }
+
+  /// Sets up event stream handling with error recovery
+  Future<void> _initializeEventStreaming() async {
+    try {
+      // Set up event stream with error handling
+      client.eventStream.listen(
+        (msg) {
+          // Process events - implementation can be expanded here
+        },
+        onError: (error) {
+          // Log event stream errors but don't fail initialization
+          // This allows the client to continue functioning even if WebSocket has issues
+          debugPrint('Event stream error: $error');
+        },
+        onDone: () {
+          debugPrint('Event stream closed - will attempt to reconnect');
+        },
+      );
+    } catch (e) {
+      throw VartalapInitializationException(
+        'Failed to initialize event streaming: ${e.toString()}',
+        originalError: e,
+      );
+    }
   }
 
   Future<Profile?> getLoggedInUser() async {
-    // final userId = await client.getLoggedInUser();
-    // if (userId == null) return null;
-    // final profile = await client.fetchProfile(userId);
-    // return Profile(
-    //   userId: profile.userId,
-    //   name: profile.name,
-    //   email: profile.email ?? '',
-    //   image: profile.image ?? '',
-    // );
-    final user = await client.getLoggedInUser();
-    if (user == null) return null;
+    final userId = await client.getLoggedInUser();
+    if (userId == null) return null;
+
+    final profile = await client.fetchProfile(userId);
     return Profile(
-      userId: '123',
-      name: 'Raman',
-      email: '',
-      image: '',
+      userId: profile.userId,
+      name: profile.name,
+      email: profile.email ?? '',
+      image: profile.image ?? '',
     );
   }
 
@@ -66,6 +206,96 @@ class VartalapChatClientFlutter {
     ChannelFilter? filter,
   }) {
     return _db.chatDao.getChatPreviews(filter: filter);
+  }
+
+  /// Watch all channels with real-time updates
+  ///
+  /// Returns a reactive stream of all channels with optional filtering.
+  /// The stream automatically updates when channels are created, updated, or deleted.
+  ///
+  /// Usage:
+  /// ```dart
+  /// client.watchAllChannels().listen((channels) {
+  ///   // UI updates automatically when channels change
+  /// });
+  /// ```
+  ///
+  /// Parameters:
+  /// - [filter]: Optional filter to apply to channels (type, name, memberIds)
+  ///
+  /// Returns: Stream&lt;List&lt;ChannelModel&gt;&gt; - Reactive stream for UI binding
+  Stream<List<ChannelModel>> watchAllChannels({
+    ChannelFilter? filter,
+  }) {
+    return _db.channelDao.getChannels(filter: filter).watch();
+  }
+
+  /// Watch chat previews with real-time updates
+  ///
+  /// Returns a reactive stream of chat previews including last message and unread counts.
+  /// The stream automatically updates when messages are sent, received, or marked as read.
+  ///
+  /// Usage:
+  /// ```dart
+  /// client.watchChatPreviews().listen((previews) {
+  ///   // UI updates automatically when chat state changes
+  /// });
+  /// ```
+  ///
+  /// Parameters:
+  /// - [filter]: Optional filter to apply to channels
+  ///
+  /// Returns: Stream&lt;List&lt;ChatPreview&gt;&gt; - Reactive stream for UI binding
+  Stream<List<ChatPreview>> watchChatPreviews({
+    ChannelFilter? filter,
+  }) {
+    return _db.chatDao.getChatPreviews(filter: filter).watch();
+  }
+
+  /// Watch unread message counts for all channels
+  ///
+  /// Returns a reactive stream of unread counts per channel.
+  /// The stream automatically updates when messages are marked as read or new messages arrive.
+  ///
+  /// Usage:
+  /// ```dart
+  /// client.watchUnreadCounts().listen((unreadCounts) {
+  ///   final channelUnreadCount = unreadCounts[channelId] ?? 0;
+  ///   // Update UI badges with unread counts
+  /// });
+  /// ```
+  ///
+  /// Returns: Stream&lt;Map&lt;int, int&gt;&gt; - Map of channelId to unreadCount
+  Stream<Map<int, int>> watchUnreadCounts() {
+    // Use chat previews stream to extract unread counts efficiently
+    return _db.chatDao.getChatPreviews().watch().map((previews) {
+      return Map.fromEntries(
+        previews.map(
+            (preview) => MapEntry(preview.channel.id, preview.unreadCount)),
+      );
+    });
+  }
+
+  /// Watch contacts with real-time updates
+  ///
+  /// Returns a reactive stream of all contacts with optional filtering.
+  /// The stream automatically updates when contacts are added, updated, or synchronized.
+  ///
+  /// Usage:
+  /// ```dart
+  /// client.watchContacts().listen((contacts) {
+  ///   // UI updates automatically when contacts change
+  /// });
+  /// ```
+  ///
+  /// Parameters:
+  /// - [filter]: Optional filter to apply to contacts (name, phone, status, username)
+  ///
+  /// Returns: Stream&lt;List&lt;Contact&gt;&gt; - Reactive stream for UI binding
+  Stream<List<Contact>> watchContacts({
+    ContactFilter? filter,
+  }) {
+    return _db.channelDao.getContacts(filter: filter).watch();
   }
 
   Future<ChatClient> chat({
@@ -90,56 +320,21 @@ class VartalapChatClientFlutter {
 
   Future<ChannelModel> createChannel(
       ChannelModel channel, List<Member> members) async {
-    final channelEntity = await _db.transaction(() async {
-      // CreateChannelTask task = factory.create(
-      //   CreateChannelTask.name,
-      //   payload: channel,
-      // ) as CreateChannelTask;
-      // final taskId = await scheduler.schedule(task);
-      const taskId = 1;
-      final channelComp = ChannelsCompanion.insert(
-        type: channel.type,
-        taskId: const Value(taskId),
-        config: const Value({}),
-        extraData: Value(channel.extraData),
-      );
-      final insertedChannel =
-          await _db.into(_db.channels).insertReturning(channelComp);
-      await _db.batch((batch) {
-        final rows = members.map(
-          (member) => MembersCompanion.insert(
-            memberId: member.user.id,
-            channelId: insertedChannel.id,
-          ),
-        );
-        if (rows.isEmpty) return;
-        batch.insertAll(_db.members, rows);
-      });
-      return insertedChannel;
-    });
-    // channel.id = channelId;
-    return channelEntity.toModel();
+    return await _db.channelDao.createChannel(channel, members);
+  }
+
+  Future<void> updateChannel(ChannelModel channel) async {
+    return await _db.channelDao.updateChannel(channel);
+  }
+
+  Future<void> deleteChannel(int channelId) async {
+    return await _db.channelDao.deleteChannel(channelId);
   }
 
   Selectable<Contact> getContacts({
     ContactFilter? filter,
   }) {
-    final query = _db.select(_db.contacts);
-    if (filter != null) {
-      if (filter.name != null) {
-        query.where((tbl) => tbl.extraData.like('%${filter.name}%'));
-      }
-      if (filter.phone != null) {
-        query.where((tbl) => tbl.phone.like('%${filter.phone}%'));
-      }
-      if (filter.status != null) {
-        query.where((tbl) => tbl.status.equals(filter.status.toString()));
-      }
-      if (filter.username != null) {
-        query.where((tbl) => tbl.username.like('%${filter.username}%'));
-      }
-    }
-    return query;
+    return _db.channelDao.getContacts(filter: filter);
   }
 
   Future<void> syncChannels() async {
@@ -165,45 +360,12 @@ class VartalapChatClientFlutter {
     // });
   }
 
-  Future<void> syncContacts() async {
-    await _db.transaction(() async {
-      final contacts = [
-        const Contact(
-          id: 2,
-          name: 'Raman',
-          phone: '1234567890',
-          username: 'raman123',
-          status: ContactStatus.active,
-        ),
-        const Contact(
-          id: 3,
-          name: 'Ravi',
-          phone: '0987654321',
-          username: 'ravi456',
-          status: ContactStatus.active,
-        ),
-      ];
-      final count = await _db.contacts.count().getSingle();
-      if (count > 0) {
-        return;
-      }
-      await _db.contacts.insertAll(
-        contacts.map(
-          (contact) => ContactsCompanion.insert(
-            id: Value(contact.id),
-            name: Value(contact.name),
-            phone: Value(contact.phone),
-            username: Value(contact.username),
-            status: contact.status,
-            extraData: Value(contact.extraData),
-            photo: Value(contact.photo),
-          ),
-        ),
-      );
-      // SyncContactsTask task =
-      //     factory.create(SyncContactsTask.name) as SyncContactsTask;
-      // await scheduler.schedule(task);
-    });
+  Future<void> syncContacts(List<Contact> contacts) async {
+    return await _db.channelDao.syncContacts(contacts);
+  }
+
+  Future<void> addContacts(List<Contact> contacts) async {
+    return await _db.channelDao.addContacts(contacts);
   }
 
   Future<void> syncMessages() async {
