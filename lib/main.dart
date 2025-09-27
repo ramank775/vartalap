@@ -64,7 +64,7 @@ class Home extends StatefulWidget {
   final String appName;
   final Widget homeScreen;
   final VartalapChatClientFlutter client;
-  Home(this.appName, this.homeScreen, this.client);
+  const Home(this.appName, this.homeScreen, this.client, {super.key});
   @override
   HomeState createState() => HomeState();
 }
@@ -81,7 +81,7 @@ class HomeState extends State<Home> {
   Widget build(BuildContext context) {
     return ConfigProvider(
       configStore: configStore,
-      child: VartalapClientProvider(
+      child: VartalapClientManager(
         client: widget.client,
         child: AuthListner(
           app: MaterialApp(
@@ -104,27 +104,27 @@ class HomeState extends State<Home> {
       Widget widget;
       switch (settings.name) {
         case '/':
-          widget = new StartupScreen();
+          widget = StartupScreen();
           break;
         case '/chats':
-          widget = new Chats();
+          widget = Chats();
           break;
         case '/chat':
-          widget = new ChatScreen(settings.arguments as ChatClient);
+          widget = ChatScreen(settings.arguments as ChatClient);
           break;
         case '/new-chat':
-          widget = new NewChatScreen();
+          widget = NewChatScreen();
           break;
         case '/new-group':
-          widget = new SelectGroupMemberScreen();
+          widget = SelectGroupMemberScreen();
           break;
         case '/create-group':
-          widget = new CreateGroup(settings.arguments as List<Contact>);
+          widget = CreateGroup(settings.arguments as List<Contact>);
           break;
         default:
-          widget = new Chats();
+          widget = Chats();
       }
-      return new MaterialPageRoute(builder: (BuildContext context) => widget);
+      return MaterialPageRoute(builder: (BuildContext context) => widget);
     };
   }
 

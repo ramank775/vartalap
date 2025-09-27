@@ -5,15 +5,16 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 
 class ConfigStore {
-  static ConfigStore _singleTon = ConfigStore._internal();
-  static String _configFile = kDebugMode ? "config.local.json" : "config.json";
-  static String _licenseFile = "LICENCE";
+  static final ConfigStore _singleTon = ConfigStore._internal();
+  static final String _configFile =
+      kDebugMode ? "config.local.json" : "config.json";
+  static final String _licenseFile = "LICENCE";
   static bool _isloaded = false;
   factory ConfigStore() {
     return _singleTon;
   }
 
-  Map<String, dynamic> _appConfig = Map<String, dynamic>();
+  final Map<String, dynamic> _appConfig = <String, dynamic>{};
   PackageInfo packageInfo = PackageInfo(
     appName: 'Vartalap',
     packageName: 'com.one9x.vartalap',

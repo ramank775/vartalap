@@ -5,7 +5,7 @@ import 'package:sqflite/sqflite.dart';
 class DB {
   final dbName = "Chat";
   final version = 4;
-  late Future<Database> _db = initDatabase();
+  late final Future<Database> _db = initDatabase();
 
   static final DB _singleton = DB._internal();
 
