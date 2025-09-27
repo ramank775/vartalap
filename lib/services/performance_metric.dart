@@ -66,10 +66,10 @@ class HttpPerformanceTrace {
 }
 
 class PerformanceMetric {
-  static FirebasePerformance _firebasePerformance =
+  static final FirebasePerformance _firebasePerformance =
       FirebasePerformance.instance;
 
-  static init() {
+  static void init() {
     _firebasePerformance.setPerformanceCollectionEnabled(kReleaseMode);
   }
 

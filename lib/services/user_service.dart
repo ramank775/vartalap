@@ -1,7 +1,7 @@
 import 'package:vartalap/services/auth_service.dart';
 
 class UserService {
-  static AuthService _authService = AuthService.instance;
+  static final AuthService _authService = AuthService.instance;
 
   static Future<bool> sendOTP(String phoneNumber) {
     return _authService.sendOtp(phoneNumber);

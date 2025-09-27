@@ -15,12 +15,12 @@ class AuthResponse {
 
 class AuthService {
   final VartalapChatClientFlutter chatClient;
-  FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   String? _phoneNumber;
   int? _resendToken;
   late String _verificationId;
   User? _user;
-  static FlutterSecureStorage _storage = new FlutterSecureStorage();
+  static final FlutterSecureStorage _storage = FlutterSecureStorage();
   static AuthService? _instance;
 
   StreamController<bool> authStateController =
@@ -33,7 +33,7 @@ class AuthService {
   }
 
   Future<bool> sendOtp(String phonenumber) async {
-    Completer<bool> _promise = Completer<bool>();
+    Completer<bool> promise = Completer<bool>();
     if (phonenumber != _phoneNumber) {
       _resendToken = null;
       try {
@@ -60,15 +60,15 @@ class AuthService {
               reason: "Error while access secure storage");
         }
 
-        _promise.complete(true);
+        promise.complete(true);
       },
       codeAutoRetrievalTimeout: (verificationId) {},
       verificationCompleted: (phoneAuthCredential) {},
       verificationFailed: (error) {
-        _promise.complete(false);
+        promise.complete(false);
       },
     );
-    return _promise.future;
+    return promise.future;
   }
 
   Future<bool> reSendOtp() {
@@ -80,49 +80,48 @@ class AuthService {
       verificationId: _verificationId,
       smsCode: otp,
     );
-    AuthResponse _resp = AuthResponse();
+    AuthResponse resp = AuthResponse();
     try {
       var result = await _auth.signInWithCredential(credential);
-      _resp.phoneNumber = _phoneNumber!;
+      resp.phoneNumber = _phoneNumber!;
       _user = result.user;
       var idTokenResult = await result.user!.getIdTokenResult();
-      _resp.token = idTokenResult.token!;
-      _resp.status = true;
+      resp.token = idTokenResult.token!;
+      resp.status = true;
     } catch (e, stack) {
-      _resp.error = e;
-      _resp.status = false;
-      _resp.phoneNumber = _phoneNumber!;
+      resp.error = e;
+      resp.status = false;
+      resp.phoneNumber = _phoneNumber!;
       Crashlytics.recordError(e, stack,
           reason: "Error while authentication with firebase");
     }
-    if (_resp.status) {
+    if (resp.status) {
       try {
         final notificationToken = await PushNotificationService.instance.token;
         final cred = Credential(
           username: _phoneNumber!,
-          externalAuthToken: _resp.token,
+          externalAuthToken: resp.token,
           notificationToken: notificationToken,
         );
-        await this.chatClient.client.login(cred);
-        this.authStateController.sink.add(true);
+        await chatClient.client.login(cred);
+        authStateController.sink.add(true);
       } catch (e, stack) {
         Crashlytics.recordError(e, stack, reason: "Login api service failed");
         await _auth.signOut();
-        _resp.error = e;
-        _resp.status = false;
+        resp.error = e;
+        resp.status = false;
       }
     }
 
-    return _resp;
+    return resp;
   }
 
   bool isLoggedIn() {
-    return true;
     return _user != null;
   }
 
   Future<void> signout() async {
-    await this._auth.signOut();
+    await _auth.signOut();
     authStateController.sink.add(false);
   }
 
@@ -140,8 +139,8 @@ class AuthService {
     return Future.value(null);
   }
 
-  dispose() {
-    this.authStateController.close();
+  void dispose() {
+    authStateController.close();
   }
 
   static AuthService get instance {
@@ -153,16 +152,14 @@ class AuthService {
 
   static Future<void> init(VartalapChatClientFlutter client) async {
     try {
-      if (_instance == null) {
-        _instance = AuthService(client);
+      _instance ??= AuthService(client);
+      String? phoneNumber = await _storage.read(key: 'phoneNumber');
+      if (phoneNumber != null) {
+        instance._phoneNumber = phoneNumber;
       }
-      String? _phoneNumber = await _storage.read(key: 'phoneNumber');
-      if (_phoneNumber != null) {
-        instance._phoneNumber = _phoneNumber;
-      }
-      String? _resendToken = await _storage.read(key: 'resendToken');
-      if (_resendToken != null) {
-        instance._resendToken = int.parse(_resendToken);
+      String? resendToken = await _storage.read(key: 'resendToken');
+      if (resendToken != null) {
+        instance._resendToken = int.parse(resendToken);
       }
       instance._user = _instance!._auth.currentUser;
     } catch (e, stack) {

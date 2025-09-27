@@ -13,10 +13,10 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
     {String? groupKey, int id = 0}) {
   const AndroidInitializationSettings initializationSettingsAndroid =
       AndroidInitializationSettings('@mipmap/ic_launcher');
-  var _initializationSettings =
+  var initializationSettings =
       InitializationSettings(android: initializationSettingsAndroid);
 
-  var _androidPlatformChannelSpecifics = AndroidNotificationDetails(
+  var androidPlatformChannelSpecifics = AndroidNotificationDetails(
     'VARTALAP_NOTIFICATION',
     'VARTALAP_NOTIFICATION',
     channelDescription: 'Vartalap notification channel',
@@ -29,13 +29,13 @@ Future<void> showNotificationService(String title, String body, dynamic payload,
     setAsGroupSummary: true,
     groupAlertBehavior: GroupAlertBehavior.summary,
   );
-  var _notificationDetails =
-      NotificationDetails(android: _androidPlatformChannelSpecifics);
+  var notificationDetails =
+      NotificationDetails(android: androidPlatformChannelSpecifics);
   var flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
-  flutterLocalNotificationsPlugin.initialize(_initializationSettings);
+  flutterLocalNotificationsPlugin.initialize(initializationSettings);
   var data = json.encode(payload);
   return flutterLocalNotificationsPlugin
-      .show(data.hashCode, title, body, _notificationDetails, payload: data);
+      .show(data.hashCode, title, body, notificationDetails, payload: data);
 }
 
 Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
@@ -64,7 +64,7 @@ class PushNotificationService {
     _initializationSettings =
         InitializationSettings(android: initializationSettingsAndroid);
 
-    this.clearAllNotification();
+    clearAllNotification();
   }
 
   void config({required Function onMessage}) async {
@@ -77,7 +77,7 @@ class PushNotificationService {
         if (details.payload != null) {
           var decoded = json.decode(details.payload!);
           Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
-          return onMessage({
+          onMessage({
             "data": {"message": data},
             "source": "ON_NOTIFICATION_TAP"
           });
@@ -87,7 +87,7 @@ class PushNotificationService {
         if (details.payload != null) {
           var decoded = json.decode(details.payload!);
           Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
-          return onMessage({
+          onMessage({
             "data": {"message": data},
             "source": "ON_NOTIFICATION_TAP"
           });
@@ -100,7 +100,7 @@ class PushNotificationService {
 
   void showNotification(String title, String body, dynamic payload,
       {String? groupKey, int id = 0}) {
-    var _androidPlatformChannelSpecifics = AndroidNotificationDetails(
+    var androidPlatformChannelSpecifics = AndroidNotificationDetails(
       'VARTALAP_NOTIFICATION',
       'VARTALAP_NOTIFICATION',
       channelDescription: 'Vartalap notification channel',
@@ -118,11 +118,11 @@ class PushNotificationService {
       groupAlertBehavior: GroupAlertBehavior.all,
     );
 
-    var _notificationDetails =
-        NotificationDetails(android: _androidPlatformChannelSpecifics);
+    var notificationDetails =
+        NotificationDetails(android: androidPlatformChannelSpecifics);
     var data = json.encode(payload);
 
-    _flutterLocalNotificationsPlugin.show(id, title, body, _notificationDetails,
+    _flutterLocalNotificationsPlugin.show(id, title, body, notificationDetails,
         payload: data);
   }
 

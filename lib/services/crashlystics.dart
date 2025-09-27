@@ -2,9 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 class Crashlytics {
-  static FirebaseCrashlytics _crashlytics = FirebaseCrashlytics.instance;
+  static final FirebaseCrashlytics _crashlytics = FirebaseCrashlytics.instance;
 
-  static init() {
+  static void init() {
     _crashlytics.setCrashlyticsCollectionEnabled(kReleaseMode);
     Function? originalOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails errorDetails) async {
