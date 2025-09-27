@@ -13,27 +13,27 @@ class ChatScreen extends StatefulWidget {
   ChatScreen(this.chat) : super(key: Key(chat.channel.id.toString()));
 
   @override
-  ChatState createState() => ChatState(chat);
+  ChatState createState() => ChatState();
 }
 
 class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
-  final ChatClient chat;
+  late final ChatClient chat;
   ChatMessageController _messageController =
-      new ChatMessageController(messages: []);
-  final _selectedMessges = SetNotifier<int>(Set<int>());
+      ChatMessageController(messages: []);
+  final _selectedMessges = SetNotifier<int>(<int>{});
   StreamSubscription? _notificationSub;
   StreamSubscription? _newMessageSub;
   Timer? _readTimer;
   Timer? _myTypingTimer;
   Timer? _remoteTypingTimer;
-  var _typing = ValueNotifier<bool>(false);
-  Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
-
-  ChatState(this.chat);
+  final _typing = ValueNotifier<bool>(false);
+  Set<ChatMessage> _unreadMessages = <ChatMessage>{};
+  final Set<int> _loadingMessages = <int>{};
 
   @override
   void initState() {
     super.initState();
+    chat = widget.chat;
     WidgetsBinding.instance.addObserver(this);
     chat.watch();
   }
@@ -45,8 +45,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     // These are the callbacks
     switch (state) {
       case AppLifecycleState.resumed:
-        this._newMessageSub?.resume();
-        this._notificationSub?.resume();
+        _newMessageSub?.resume();
+        _notificationSub?.resume();
         break;
       default:
         break;
@@ -88,17 +88,17 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
             onTap: () async {
               await Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => ChatInfo(this.chat),
+                  builder: (context) => ChatInfo(chat),
                 ),
               );
             },
             child: Row(
               mainAxisSize: MainAxisSize.max,
-              children: <Widget>[this._getTitle(context)],
+              children: <Widget>[_getTitle(context)],
             ),
           ),
         ),
-        actions: this._getActions(),
+        actions: _getActions(),
       ),
       body: Column(
         mainAxisSize: MainAxisSize.max,
@@ -113,14 +113,14 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                       return Center(
                         child: CircularProgressIndicator(
                           valueColor:
-                              new AlwaysStoppedAnimation<Color>(Colors.grey),
+                              AlwaysStoppedAnimation<Color>(Colors.grey),
                         ),
                       );
                     case ConnectionState.waiting:
                       return Center(
                         child: CircularProgressIndicator(
                           valueColor:
-                              new AlwaysStoppedAnimation<Color>(Colors.grey),
+                              AlwaysStoppedAnimation<Color>(Colors.grey),
                         ),
                       );
                     case ConnectionState.active:
@@ -136,24 +136,36 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                       _readTimer = Timer(
                           Duration(milliseconds: 200), _onReadTimerTimeout);
                       final messages = snapshot.data ?? [];
-                      this._messageController =
+                      // Track unread messages for read receipts
+                      _unreadMessages.addAll(messages.where((msg) =>
+                          msg.senderId != chat.currentUser.id &&
+                          msg.state != MessageState.read));
+                      _messageController =
                           ChatMessageController(messages: messages);
                       final Map<String, Member> members = {};
                       return ChatList(
-                        controller: this._messageController,
+                        controller: _messageController,
                         members: members,
-                        showName: this.chat.channel.type == ChannelType.group,
+                        showName: chat.channel.type == ChannelType.group,
+                        loadingMessages: _loadingMessages,
+                        currentUser: chat.currentUser,
                         onTab: (ChatMessage msg) {
-                          if (this._selectedMessges.value.length > 0) {
-                            this._selectOrRemove(msg);
+                          if (_selectedMessges.value.isNotEmpty) {
+                            _selectOrRemove(msg);
                           }
                         },
-                        onLongPress: _selectOrRemove,
+                        onLongPress: (ChatMessage msg) {
+                          if (_selectedMessges.value.isNotEmpty) {
+                            _selectOrRemove(msg);
+                          } else {
+                            _showMessageContextMenu(context, msg);
+                          }
+                        },
                       );
                   }
                 }),
           ),
-          ...this.chat.hasSendMessagePermission()
+          ...chat.hasSendMessagePermission()
               ? [
                   MessageInputWidget(
                     sendMessage: (String text) async {
@@ -165,8 +177,12 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                         sender: chat.currentUser,
                       );
 
-                      await chat.sendMessage([msg]);
-                      this._messageController.add(msg);
+                      try {
+                        await chat.sendMessage([msg]);
+                        _messageController.add(msg);
+                      } catch (e) {
+                        _showErrorSnackBar('Failed to send message: $e');
+                      }
                     },
                     onTyping: (bool state) async {
                       if (state) {
@@ -197,8 +213,9 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                         //       false,
                         //     ),
                         //     this._channel);
-                        if (_myTypingTimer?.isActive ?? false)
+                        if (_myTypingTimer?.isActive ?? false) {
                           _myTypingTimer!.cancel();
+                        }
                         _myTypingTimer = null;
                       }
                     },
@@ -212,16 +229,16 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _getTitle(BuildContext context) {
     return ValueListenableBuilder<Iterable<int>>(
-      valueListenable: this._selectedMessges,
+      valueListenable: _selectedMessges,
       builder: (BuildContext context, Iterable<int> selectedMessages,
           Widget? child) {
-        final subtitle = this._getSubTitle();
+        final subtitle = _getSubTitle();
         final titleWidgets = <Widget>[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2.0),
             child: Text(
-              this._selectedMessges.value.isNotEmpty
-                  ? _selectedMessges.value.length.toString() + " selected"
+              _selectedMessges.value.isNotEmpty
+                  ? "${_selectedMessges.value.length} selected"
                   : chat.displayName,
               style: TextStyle(
                 fontSize: 18.0,
@@ -230,19 +247,19 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
           ),
         ];
-        if (this._selectedMessges.value.isEmpty && subtitle.isNotEmpty) {
+        if (_selectedMessges.value.isEmpty && subtitle.isNotEmpty) {
           titleWidgets.add(
             SizedBox(
                 width: MediaQuery.of(context).size.width * 0.60,
                 child: ValueListenableBuilder<bool>(
                   valueListenable: _typing,
                   builder: (BuildContext context, bool state, Widget? child) {
-                    var _value = subtitle;
+                    var value = subtitle;
                     if (state) {
-                      _value = "typing...";
+                      value = "typing...";
                     }
                     return Text(
-                      _value,
+                      value,
                       overflow: TextOverflow.ellipsis,
                       softWrap: false,
                       style: TextStyle(
@@ -265,7 +282,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String _getSubTitle() {
-    return this.chat.displayName;
+    return chat.displayName;
   }
 
   void _selectOrRemove(ChatMessage msg) {
@@ -273,39 +290,76 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       _selectedMessges.value.add(msg.id);
     }
     msg.isSelected = !msg.isSelected;
-    this._messageController.update(msg);
-    this._selectedMessges.update();
+    _messageController.update(msg);
+    _selectedMessges.update();
   }
 
   List<Widget> _getActions() {
     Widget child = ValueListenableBuilder(
-      valueListenable: this._selectedMessges,
+      valueListenable: _selectedMessges,
       builder: (context, key, child) {
         List<Widget> actions = [];
-        if (this._selectedMessges.value.isNotEmpty) {
+        if (_selectedMessges.value.isNotEmpty) {
           actions.add(IconButton(
             icon: Icon(Icons.clear),
             onPressed: () {
               List<ChatMessage> msgs = [];
-              this._selectedMessges.value.forEach((id) {
-                final notifier =
-                    this._messageController.messageChangeNotifier[id];
+              for (var id in _selectedMessges.value) {
+                final notifier = _messageController.messageChangeNotifier[id];
                 if (notifier != null) {
                   notifier.value.isSelected = false;
                   msgs.add(notifier.value);
                 }
-              });
-              this._messageController.updateAll(msgs);
-              this._selectedMessges.value.clear();
-              this._selectedMessges.update();
+              }
+              _messageController.updateAll(msgs);
+              _selectedMessges.value.clear();
+              _selectedMessges.update();
             },
           ));
           actions.add(IconButton(
             icon: Icon(Icons.delete),
             onPressed: () async {
-              this._messageController.deleteAll(this._selectedMessges.value);
-              this._selectedMessges.value.clear();
-              this._selectedMessges.update();
+              final selectedIds = _selectedMessges.value.toList();
+              // Show confirmation dialog for bulk delete
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    title: Text('Delete Messages'),
+                    content: Text(
+                        'Are you sure you want to delete ${selectedIds.length} message(s)? This action cannot be undone.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        style:
+                            TextButton.styleFrom(foregroundColor: Colors.red),
+                        child: Text('Delete'),
+                      ),
+                    ],
+                  );
+                },
+              );
+
+              if (confirmed == true) {
+                try {
+                  // Delete messages from server
+                  for (final messageId in selectedIds) {
+                    await chat.deleteMessage(messageId);
+                  }
+                  // Remove from UI
+                  _messageController.deleteAll(selectedIds);
+                  _selectedMessges.value.clear();
+                  _selectedMessges.update();
+                  _showSuccessSnackBar(
+                      '${selectedIds.length} message(s) deleted successfully');
+                } catch (e) {
+                  _showErrorSnackBar('Failed to delete messages: $e');
+                }
+              }
             },
           ));
         }
@@ -316,15 +370,239 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     return [child];
   }
 
-  _onReadTimerTimeout() {
+  Future<void> _onReadTimerTimeout() async {
     if (_unreadMessages.isEmpty) return;
-    // final unreadMessages = _unreadMessages.toList();
-    _unreadMessages = Set<ChatMessage>();
-    // final future = client.markAsRead(unreadMessages, this._channel);
-    // unawaited(future);
-    if (_unreadMessages.isNotEmpty && _readTimer == null ||
-        !_readTimer!.isActive) {
+    _unreadMessages = <ChatMessage>{};
+
+    try {
+      // Mark all visible messages as read
+      await chat.markAsRead();
+    } catch (e) {
+      // Silently handle read receipt errors
+      debugPrint('Failed to mark messages as read: $e');
+    }
+
+    if (_unreadMessages.isNotEmpty &&
+        (_readTimer == null || !_readTimer!.isActive)) {
       _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
+    }
+  }
+
+  void _showMessageContextMenu(BuildContext context, ChatMessage message) {
+    final isMyMessage = message.senderId == chat.currentUser.id;
+    final isTextMessage = message.type == MessageType.text;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isMyMessage && isTextMessage)
+                ListTile(
+                  leading: Icon(Icons.edit),
+                  title: Text('Edit Message'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showEditMessageDialog(context, message);
+                  },
+                ),
+              if (isMyMessage)
+                ListTile(
+                  leading: Icon(Icons.delete, color: Colors.red),
+                  title: Text('Delete Message',
+                      style: TextStyle(color: Colors.red)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showDeleteConfirmationDialog(context, message);
+                  },
+                ),
+              ListTile(
+                leading: Icon(Icons.info_outline),
+                title: Text('Message Info'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showMessageInfo(context, message);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEditMessageDialog(BuildContext context, ChatMessage message) {
+    if (message is! TextMessage) return;
+
+    final textController = TextEditingController(text: message.text);
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Edit Message'),
+          content: TextField(
+            controller: textController,
+            decoration: InputDecoration(
+              hintText: 'Enter your message',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: null,
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final newText = textController.text.trim();
+                if (newText.isEmpty || newText == message.text) {
+                  Navigator.pop(context);
+                  return;
+                }
+
+                Navigator.pop(context);
+                await _editMessage(message.id, newText);
+              },
+              child: Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showDeleteConfirmationDialog(
+      BuildContext context, ChatMessage message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Delete Message'),
+          content: Text(
+              'Are you sure you want to delete this message? This action cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _deleteMessage(message.id);
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showMessageInfo(BuildContext context, ChatMessage message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Message Info'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Sent: ${_formatDateTime(message.timestamp)}'),
+              if (message.updatedAt != message.timestamp)
+                Text('Edited: ${_formatDateTime(message.updatedAt)}'),
+              Text('Status: ${_getMessageStatusText(message.state)}'),
+              Text('Type: ${message.type.toString().split('.').last}'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _editMessage(int messageId, String newText) async {
+    setState(() {
+      _loadingMessages.add(messageId);
+    });
+
+    try {
+      await chat.editMessage(messageId, newText);
+      _showSuccessSnackBar('Message edited successfully');
+    } catch (e) {
+      _showErrorSnackBar('Failed to edit message: $e');
+    } finally {
+      setState(() {
+        _loadingMessages.remove(messageId);
+      });
+    }
+  }
+
+  Future<void> _deleteMessage(int messageId) async {
+    setState(() {
+      _loadingMessages.add(messageId);
+    });
+
+    try {
+      await chat.deleteMessage(messageId);
+      _messageController.delete(messageId);
+      _showSuccessSnackBar('Message deleted successfully');
+    } catch (e) {
+      _showErrorSnackBar('Failed to delete message: $e');
+    } finally {
+      setState(() {
+        _loadingMessages.remove(messageId);
+      });
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _getMessageStatusText(MessageState state) {
+    switch (state) {
+      case MessageState.pending:
+        return 'Sending...';
+      case MessageState.sent:
+        return 'Sent';
+      case MessageState.delivered:
+        return 'Delivered';
+      case MessageState.read:
+        return 'Read';
+      case MessageState.other:
+        return 'Unknown';
     }
   }
 
@@ -336,7 +614,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();
     _notificationSub?.cancel();
     _newMessageSub?.cancel();
-    this._messageController.dispose();
+    _messageController.dispose();
     super.dispose();
   }
 }
