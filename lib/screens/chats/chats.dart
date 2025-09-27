@@ -15,6 +15,8 @@ import 'package:vartalap/widgets/rich_message.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class Chats extends StatefulWidget {
+  const Chats({super.key});
+
   @override
   ChatsState createState() => ChatsState();
 }
@@ -26,7 +28,7 @@ class ChatsState extends State<Chats> {
   @override
   void initState() {
     super.initState();
-    this._selectedChats = [];
+    _selectedChats = [];
   }
 
   @override
@@ -44,37 +46,49 @@ class ChatsState extends State<Chats> {
         ),
         actions: getActions(),
       ),
-      body: new Container(
+      body: Container(
         padding: EdgeInsets.fromLTRB(5, 5, 5, 0),
         child: StreamBuilder<List<ChatPreview>>(
-          stream: client.getChatPreviews().watch(),
-          builder: (context, snapshot) {
-            switch (snapshot.connectionState) {
+          stream: client.watchChatPreviews(),
+          builder: (context, chatSnapshot) {
+            switch (chatSnapshot.connectionState) {
               case ConnectionState.none:
                 return Center(
                   child: CircularProgressIndicator(
-                    valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
                   ),
                 );
               case ConnectionState.waiting:
                 return Center(
                   child: CircularProgressIndicator(
-                    valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
                   ),
                 );
               case ConnectionState.active:
               case ConnectionState.done:
-                if (snapshot.hasError) {
+                if (chatSnapshot.hasError) {
                   return Center(
-                    child: Text('Error: ${snapshot.error}'),
+                    child: Text('Error: ${chatSnapshot.error}'),
                   );
                 }
             }
-            return ChatListView(
-              chats: snapshot.data!,
-              selectedChats: _selectedChats,
-              selectOrRemove: this.selectOrRemove,
-              navigate: this.navigate,
+            return StreamBuilder<Map<int, int>>(
+              stream: client.watchUnreadCounts(),
+              builder: (context, unreadSnapshot) {
+                if (unreadSnapshot.hasError) {
+                  return Center(
+                    child: Text(
+                        'Error loading unread counts: ${unreadSnapshot.error}'),
+                  );
+                }
+                return ChatListView(
+                  chats: chatSnapshot.data!,
+                  unreadCounts: unreadSnapshot.data ?? {},
+                  selectedChats: _selectedChats,
+                  selectOrRemove: selectOrRemove,
+                  navigate: navigate,
+                );
+              },
             );
           },
         ),
@@ -82,8 +96,8 @@ class ChatsState extends State<Chats> {
       floatingActionButton: FloatingActionButton(
         onPressed: () => navigate('/new-chat'),
         tooltip: 'New',
-        child: Icon(Icons.add),
         backgroundColor: Theme.of(context).iconTheme.color,
+        child: Icon(Icons.add),
       ),
     );
   }
@@ -98,13 +112,13 @@ class ChatsState extends State<Chats> {
 
   List<Widget> getActions() {
     List<Widget> actions = [];
-    if (this._selectedChats.length > 0) {
+    if (_selectedChats.isNotEmpty) {
       actions.add(IconButton(
         iconSize: 22,
         icon: Icon(Icons.clear),
         onPressed: () {
           setState(() {
-            this._selectedChats = [];
+            _selectedChats = [];
           });
         },
       ));
@@ -113,7 +127,7 @@ class ChatsState extends State<Chats> {
         icon: Icon(Icons.delete),
         onPressed: () async {
           setState(() {
-            this._selectedChats = [];
+            _selectedChats = [];
           });
         },
       ));
@@ -165,7 +179,7 @@ class ChatsState extends State<Chats> {
             ),
           ];
           if (!kReleaseMode) {
-            options.add(PopupMenuItem(child: Text("Logout"), value: "Logout"));
+            options.add(PopupMenuItem(value: "Logout", child: Text("Logout")));
           }
           return options;
         },
@@ -175,7 +189,12 @@ class ChatsState extends State<Chats> {
   }
 
   Future<void> navigate(String screen, {Object? data}) async {
-    var result = await Navigator.pushNamed(context, screen, arguments: data);
+    // Get references before async operations
+    final currentUser = CurrentUser.of(context).user!;
+    final client = VartalapClientProvider.of(context).client;
+    final navigator = Navigator.of(context);
+    
+    var result = await navigator.pushNamed(screen, arguments: data);
     if (screen == "/new-chat") {
       if (result == null) {
         return;
@@ -186,31 +205,33 @@ class ChatsState extends State<Chats> {
       } else {
         return;
       }
-      final currentUser = CurrentUser.of(context).user!;
-      final client = VartalapClientProvider.of(context).client;
       final chat = await client.chat(
         channel: channel,
         currentUser: currentUser,
       );
-      await Navigator.of(context).pushNamed('/chat', arguments: chat);
+      if (mounted) {
+        await Navigator.of(context).pushNamed('/chat', arguments: chat);
+      }
     }
   }
 }
 
 class ChatListView extends StatefulWidget {
   const ChatListView({
-    Key? key,
+    super.key,
     required List<ChatPreview> chats,
+    required Map<int, int> unreadCounts,
     required List<ChatPreview> selectedChats,
     required Function selectOrRemove,
     required Function navigate,
   })  : _chats = chats,
+        _unreadCounts = unreadCounts,
         _selectedChats = selectedChats,
         _selectOrRemove = selectOrRemove,
-        _navigate = navigate,
-        super(key: key);
+        _navigate = navigate;
 
   final List<ChatPreview> _chats;
+  final Map<int, int> _unreadCounts;
   final List<ChatPreview> _selectedChats;
   final Function _selectOrRemove;
   final Function _navigate;
@@ -244,7 +265,7 @@ class ChatListViewState extends State<ChatListView>
 
   @override
   Widget build(BuildContext context) {
-    return _chats.length == 0
+    return _chats.isEmpty
         ? Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -280,24 +301,41 @@ class ChatListViewState extends State<ChatListView>
           )
         : ListView.builder(
             itemCount: _chats.length,
-            itemBuilder: (context, i) => new ChatPreviewWidget(
-              _chats[i],
-              (ChannelModel channel) async {
-                if (widget._selectedChats.length > 0) {
-                  widget._selectOrRemove(channel);
-                  return;
-                }
-                final currentUser = CurrentUser.of(context).user!;
-                final client = VartalapClientProvider.of(context).client;
-                final chatClient = await client.chat(
-                  channel: channel,
-                  currentUser: currentUser,
-                );
-                widget._navigate('/chat', data: chatClient);
-              },
-              widget._selectOrRemove,
-              isSelected: widget._selectedChats.contains(widget._chats[i]),
-            ),
+            itemBuilder: (context, i) {
+              final chat = _chats[i];
+              // Use unread count from the stream if available, otherwise use the one from ChatPreview
+              final effectiveUnreadCount =
+                  widget._unreadCounts[chat.channel.id] ?? chat.unreadCount;
+
+              // Create a new ChatPreview with the updated unread count if different
+              final chatWithUpdatedCount =
+                  effectiveUnreadCount != chat.unreadCount
+                      ? ChatPreview(
+                          channel: chat.channel,
+                          lastMessage: chat.lastMessage,
+                          unreadCount: effectiveUnreadCount,
+                        )
+                      : chat;
+
+              return ChatPreviewWidget(
+                chatWithUpdatedCount,
+                (ChannelModel channel) async {
+                  if (widget._selectedChats.isNotEmpty) {
+                    widget._selectOrRemove(channel);
+                    return;
+                  }
+                  final currentUser = CurrentUser.of(context).user!;
+                  final client = VartalapClientProvider.of(context).client;
+                  final chatClient = await client.chat(
+                    channel: channel,
+                    currentUser: currentUser,
+                  );
+                  widget._navigate('/chat', data: chatClient);
+                },
+                widget._selectOrRemove,
+                isSelected: widget._selectedChats.contains(widget._chats[i]),
+              );
+            },
           );
   }
 

@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/screens/login/verifyOtp.dart';
+import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
-import 'package:vartalap/widgets/loadingIndicator.dart';
+import 'package:vartalap/widgets/loading_indicator.dart';
 
 class LoginScreen extends StatelessWidget {
   final TextEditingController _phoneController =
       TextEditingController(text: "+91");
   final config = ConfigStore();
+
+  LoginScreen({super.key});
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -23,14 +25,12 @@ class LoginScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
-                  Container(
-                    child: Center(
-                      child: Container(
-                        constraints: const BoxConstraints(maxHeight: 340),
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        child: AppLogo(
-                          size: 45,
-                        ),
+                  Center(
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 340),
+                      margin: const EdgeInsets.symmetric(horizontal: 8),
+                      child: AppLogo(
+                        size: 45,
                       ),
                     ),
                   ),
@@ -111,23 +111,27 @@ class LoginScreen extends StatelessWidget {
                               context, "While we send you one time password");
                           bool status = await AuthService.instance
                               .sendOtp(_phoneController.text);
-                          Navigator.of(context).pop(); // close the loaded;
-                          if (status) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (ctx) => VerifyOtpWidget(),
-                              ),
-                            );
-                            return;
+                          if (context.mounted) {
+                            Navigator.of(context).pop(); // close the loaded;
+                            if (status) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (ctx) => VerifyOtpWidget(),
+                                ),
+                              );
+                              return;
+                            }
+                            errors = [
+                              'Unable to send one time password.',
+                              'Please verify the phone number and try again.'
+                            ];
                           }
-                          errors = [
-                            'Unable to send one time password.',
-                            'Please verify the phone number and try again.'
-                          ];
                         } else {
                           errors.add('Plese enter a phone numer.');
                         }
-                        showErrorDialog(context, errors);
+                        if (context.mounted) {
+                          showErrorDialog(context, errors);
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         shape: const RoundedRectangleBorder(

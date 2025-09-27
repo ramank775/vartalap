@@ -11,9 +11,9 @@ import 'package:vartalap_messaging_flutter/models/contact.dart';
 class AuthListner extends StatefulWidget {
   final MaterialApp app;
   const AuthListner({
-    Key? key,
+    super.key,
     required this.app,
-  }) : super(key: key);
+  });
 
   @override
   State<AuthListner> createState() => _AuthListnerState();
@@ -32,13 +32,12 @@ class _AuthListnerState extends State<AuthListner> {
     _navigatorKey = widget.app.navigatorKey!;
     _sub = authService.authStateChange.listen((event) {
       setState(() {
-        this._isLogin = authService.isLoggedIn();
+        _isLogin = authService.isLoggedIn();
       });
-      this._isLogin = authService.isLoggedIn();
-      this._navigatorKey.currentState!.pushAndRemoveUntil(
+      _isLogin = authService.isLoggedIn();
+      _navigatorKey.currentState!.pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (ctx) =>
-                this._isLogin ? StartupScreen() : IntroductionScreen(),
+            builder: (ctx) => _isLogin ? StartupScreen() : IntroductionScreen(),
           ),
           (route) => false);
     });
@@ -60,7 +59,7 @@ class _AuthListnerState extends State<AuthListner> {
             child: Text("Error"),
           );
         }
-        var user = null;
+        Contact? user;
         if (snapshot.data != null) {
           user = Contact(
             id: 1,

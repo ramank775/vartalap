@@ -7,8 +7,11 @@ import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/contact.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
+import 'package:vartalap/services/contact_service.dart';
 
 class NewChatScreen extends StatefulWidget {
+  const NewChatScreen({super.key});
+
   @override
   State<StatefulWidget> createState() => NewChatState();
 }
@@ -16,11 +19,13 @@ class NewChatScreen extends StatefulWidget {
 class NewChatState extends State<NewChatScreen>
     with SingleTickerProviderStateMixin {
   late VartalapChatClientFlutter client;
-  late Selectable<Contact> _contacts;
-  late Selectable<ChannelModel> _channels;
+  late Stream<List<Contact>> _contactsStream;
+  late Stream<List<ChannelModel>> _channelsStream;
   late TabController _tabController;
   late Future<PermissionStatus> _fPermission;
   bool _openSearch = false;
+  ContactFilter _contactFilter = ContactFilter(status: ContactStatus.active);
+  ChannelFilter _channelFilter = ChannelFilter(type: ChannelType.group);
   @override
   void initState() {
     super.initState();
@@ -32,14 +37,12 @@ class NewChatState extends State<NewChatScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     client = VartalapClientProvider.of(context).client;
-    _contacts = client.getContacts(
-      filter: ContactFilter(),
-    );
-    _channels = client.getChannels(
-      filter: ChannelFilter(
-        type: ChannelType.group,
-      ),
-    );
+    _updateStreams();
+  }
+
+  void _updateStreams() {
+    _contactsStream = client.watchContacts(filter: _contactFilter);
+    _channelsStream = client.watchAllChannels(filter: _channelFilter);
   }
 
   @override
@@ -50,14 +53,14 @@ class NewChatState extends State<NewChatScreen>
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
-        appBar: this._openSearch ? buildSearchAppBar() : buildAppBar(),
+    return Scaffold(
+        appBar: _openSearch ? buildSearchAppBar() : buildAppBar(),
         body: TabBarView(
           controller: _tabController,
           children: [
             contacts(),
             ChannelList(
-              channels: _channels,
+              channelsStream: _channelsStream,
               onTap: onChannelTap,
             ),
           ],
@@ -72,14 +75,14 @@ class NewChatState extends State<NewChatScreen>
           case ConnectionState.none:
             return Center(
               child: CircularProgressIndicator(
-                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
               ),
             );
           case ConnectionState.active:
           case ConnectionState.waiting:
             return Center(
               child: CircularProgressIndicator(
-                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
               ),
             );
           case ConnectionState.done:
@@ -90,15 +93,17 @@ class NewChatState extends State<NewChatScreen>
             }
         }
         if (snapshot.data == PermissionStatus.granted) {
-          return ContactList(contacts: _contacts);
+          return ContactList(contactsStream: _contactsStream);
         } else {
           return ContactPermissionDisclosure(onSkip: () {
             _tabController.index = 1;
-          }, onAllow: () {
+          }, onAllow: () async {
             setState(() {
               _fPermission = Permission.contacts.status;
-              // TODO: As soon as permission is granted, we need to sync the contacts
             });
+            // Sync contacts as soon as permission is granted
+            final contacts = await ContactService.fetchDeviceContacts();
+            await client.syncContacts(contacts);
           });
         }
       },
@@ -123,7 +128,7 @@ class NewChatState extends State<NewChatScreen>
           icon: Icon(Icons.search),
           onPressed: () {
             setState(() {
-              this._openSearch = true;
+              _openSearch = true;
             });
           },
         ),
@@ -133,8 +138,9 @@ class NewChatState extends State<NewChatScreen>
             child: GestureDetector(
               child: Text("Refresh"),
               onTap: () async {
+                final contacts = await ContactService.fetchDeviceContacts();
                 await Future.wait([
-                  client.syncContacts(),
+                  client.syncContacts(contacts),
                   client.syncChannels(),
                 ]);
               },
@@ -166,17 +172,10 @@ class NewChatState extends State<NewChatScreen>
         ),
         onPressed: () {
           setState(() {
-            this._openSearch = false;
-            this._contacts = client.getContacts(
-              filter: ContactFilter(
-                status: ContactStatus.active,
-              ),
-            );
-            this._channels = client.getChannels(
-              filter: ChannelFilter(
-                type: ChannelType.group,
-              ),
-            );
+            _openSearch = false;
+            _contactFilter = ContactFilter(status: ContactStatus.active);
+            _channelFilter = ChannelFilter(type: ChannelType.group);
+            _updateStreams();
           });
         },
         child: Icon(
@@ -201,20 +200,18 @@ class NewChatState extends State<NewChatScreen>
         autofocus: true,
         onChanged: (value) {
           setState(() {
-            if (_tabController.index == 0)
-              this._contacts = client.getContacts(
-                filter: ContactFilter(
-                  status: ContactStatus.active,
-                  name: value,
-                ),
+            if (_tabController.index == 0) {
+              _contactFilter = ContactFilter(
+                status: ContactStatus.active,
+                name: value.isNotEmpty ? value : null,
               );
-            else
-              this._channels = client.getChannels(
-                filter: ChannelFilter(
-                  type: ChannelType.group,
-                  name: value,
-                ),
+            } else {
+              _channelFilter = ChannelFilter(
+                type: ChannelType.group,
+                name: value.isNotEmpty ? value : null,
               );
+            }
+            _updateStreams();
           });
         },
       ),
@@ -225,10 +222,9 @@ class NewChatState extends State<NewChatScreen>
 
 class ContactPermissionDisclosure extends StatelessWidget {
   const ContactPermissionDisclosure(
-      {Key? key, required Function onSkip, required Function onAllow})
+      {super.key, required Function onSkip, required Function onAllow})
       : _onSkip = onSkip,
-        _onAllow = onAllow,
-        super(key: key);
+        _onAllow = onAllow;
   final Function _onSkip;
   final Function _onAllow;
   @override
@@ -302,31 +298,29 @@ class ContactPermissionDisclosure extends StatelessWidget {
 
 class ChannelList extends StatelessWidget {
   const ChannelList({
-    Key? key,
-    required Selectable<ChannelModel> channels,
+    super.key,
+    required this.channelsStream,
     required Function(ChannelModel ch) onTap,
-  })  : channels = channels,
-        _onTap = onTap,
-        super(key: key);
+  })  : _onTap = onTap;
 
-  final Selectable<ChannelModel> channels;
+  final Stream<List<ChannelModel>> channelsStream;
   final Function(ChannelModel) _onTap;
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: channels.watch(),
+    return StreamBuilder<List<ChannelModel>>(
+      stream: channelsStream,
       builder: (context, snapshot) {
         switch (snapshot.connectionState) {
           case ConnectionState.none:
             return Center(
               child: CircularProgressIndicator(
-                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
               ),
             );
           case ConnectionState.waiting:
             return Center(
               child: CircularProgressIndicator(
-                valueColor: new AlwaysStoppedAnimation<Color>(Colors.grey),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
               ),
             );
           case ConnectionState.active:
@@ -386,15 +380,15 @@ class ChannelList extends StatelessWidget {
 class ContactList extends StatelessWidget {
   const ContactList({
     super.key,
-    required this.contacts,
+    required this.contactsStream,
   });
 
-  final Selectable<Contact> contacts;
+  final Stream<List<Contact>> contactsStream;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Contact>>(
-      stream: contacts.watch(),
+      stream: contactsStream,
       builder: (context, snapshot) {
         switch (snapshot.connectionState) {
           case ConnectionState.none:
@@ -431,8 +425,8 @@ class ContactList extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
-          onTap: () {
-            Share.share(ConfigStore().get('share_message'));
+          onTap: () async {
+            await SharePlus.instance.share(ConfigStore().get('share_message'));
           },
         ));
 
@@ -447,19 +441,22 @@ class ContactList extends StatelessWidget {
                 onProfileTap: () => {},
                 onTap: (Contact user) async {
                   final client = VartalapClientProvider.of(context).client;
-                  client
+                  final loggedInUser = CurrentUser.of(context).user;
+                  
+                  final channels = await client
                       .getChannels(
                           filter: ChannelFilter(
                         type: ChannelType.individual,
                         memberIds: [user.id],
                       ))
-                      .get()
-                      .then((channels) {
+                      .get();
+                      
+                  if (context.mounted) {
                     if (channels.isNotEmpty) {
                       Navigator.of(context).pop(channels.first);
                       return;
                     }
-                    final loggedInUser = CurrentUser.of(context).user;
+                    
                     final channel = ChannelModel(
                       type: ChannelType.individual,
                       id: 0,
@@ -478,10 +475,12 @@ class ContactList extends StatelessWidget {
                         since: DateTime.now(),
                       ),
                     ];
-                    client.createChannel(channel, members).then((value) {
-                      Navigator.of(context).pop(value);
-                    });
-                  });
+                    
+                    final createdChannel = await client.createChannel(channel, members);
+                    if (context.mounted) {
+                      Navigator.of(context).pop(createdChannel);
+                    }
+                  }
                 });
           },
         );
