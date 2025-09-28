@@ -47,6 +47,7 @@ dependencies:
   bubble: ^1.2.1
   firebase_app_check: ^0.4.1
   path: ^1.9.1
+  provider: ^6.1.2
   vartalap_messaging_flutter:
     path: ./packages/vartalap_messaging_flutter
 
