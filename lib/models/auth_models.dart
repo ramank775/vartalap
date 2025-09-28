@@ -94,8 +94,9 @@ class OTPCredential {
   Map<String, dynamic> toVartalapCredential({String? notificationToken}) {
     return {
       'username': phoneNumber,
-      'externalAuthToken': externalAuthToken,
+      'authToken': externalAuthToken,
       'notificationToken': notificationToken,
+      'deviceId': 'default',
     };
   }
 
