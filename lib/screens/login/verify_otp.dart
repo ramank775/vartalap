@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:vartalap/models/auth_models.dart';
+import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/widgets/keyboard.dart';
-import 'package:vartalap/services/auth_service.dart';
 
 class VerifyOtpWidget extends StatefulWidget {
   const VerifyOtpWidget({super.key});
@@ -86,37 +88,43 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                       vertical: 10,
                     ),
                     constraints: const BoxConstraints(maxWidth: 500),
-                    child: ElevatedButton(
-                      onPressed: _authenticate,
-                      style: ElevatedButton.styleFrom(
-                        shape: const RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.all(Radius.circular(14))),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 8, horizontal: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: <Widget>[
-                            Text(
-                              'Confirm',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
+                    child: Consumer<VartalapAuthenticatedClient>(
+                      builder: (context, authClient, _) {
+                        return ElevatedButton(
+                          onPressed: authClient.state == AuthState.verifyingOTP
+                            ? null
+                            : _authenticate,
+                          style: ElevatedButton.styleFrom(
+                            shape: const RoundedRectangleBorder(
                                 borderRadius:
-                                    const BorderRadius.all(Radius.circular(20)),
-                              ),
-                              child: Icon(
-                                Icons.arrow_forward_ios,
-                                size: 16,
-                              ),
-                            )
-                          ],
-                        ),
-                      ),
+                                    BorderRadius.all(Radius.circular(14))),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 8, horizontal: 8),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: <Widget>[
+                                Text(
+                                  'Confirm',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    borderRadius:
+                                        const BorderRadius.all(Radius.circular(20)),
+                                  ),
+                                  child: Icon(
+                                    Icons.arrow_forward_ios,
+                                    size: 16,
+                                  ),
+                                )
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   Expanded(
@@ -175,12 +183,22 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
   }
 
   void _authenticate() async {
-    final result = await AuthService.instance.verify(_otp);
-    if (!result.status) {
+    final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+
+    try {
+      await authClient.verifyOTPAndLogin(_otp);
+
+      // The navigation will be handled by the main app based on authentication state
+      // No need for manual navigation here since VartalapApp will automatically
+      // navigate to StartupScreen when authClient.state becomes authenticated
+
+    } catch (e) {
       if (mounted) {
-        showErrorDialog(context, ['Incorrect one time password! Try again']);
+        showErrorDialog(context, [
+          authClient.lastError ?? 'Incorrect one time password! Try again'
+        ]);
+        authClient.clearError(); // Reset error state for retry
       }
-      return;
     }
   }
 }

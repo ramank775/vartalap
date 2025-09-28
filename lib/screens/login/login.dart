@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/screens/login/verify_otp.dart';
-import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/loading_indicator.dart';
@@ -103,69 +105,88 @@ class LoginScreen extends StatelessWidget {
                       vertical: 5,
                     ),
                     constraints: const BoxConstraints(maxWidth: 500),
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        List<String> errors = [];
-                        if (_phoneController.text.isNotEmpty) {
-                          showLoadingIndicator(
-                              context, "While we send you one time password");
-                          bool status = await AuthService.instance
-                              .sendOtp(_phoneController.text);
-                          if (context.mounted) {
-                            Navigator.of(context).pop(); // close the loaded;
-                            if (status) {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (ctx) => VerifyOtpWidget(),
-                                ),
-                              );
-                              return;
-                            }
-                            errors = [
-                              'Unable to send one time password.',
-                              'Please verify the phone number and try again.'
-                            ];
-                          }
-                        } else {
-                          errors.add('Plese enter a phone numer.');
-                        }
-                        if (context.mounted) {
-                          showErrorDialog(context, errors);
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.all(
-                            Radius.circular(14),
-                          ),
-                        ),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 8,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: <Widget>[
-                            Text(
-                              'Next',
+                    child: Consumer<VartalapAuthenticatedClient>(
+                      builder: (context, authClient, _) {
+                        return ElevatedButton(
+                          onPressed: authClient.state == AuthState.sendingOTP
+                            ? null
+                            : () async {
+                              List<String> errors = [];
+                              if (_phoneController.text.isNotEmpty) {
+                                try {
+                                  showLoadingIndicator(
+                                      context, "While we send you one time password");
+
+                                  await authClient.sendOTP(_phoneController.text);
+
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop(); // close the loader
+
+                                    if (authClient.state == AuthState.otpSent) {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (ctx) => VerifyOtpWidget(),
+                                        ),
+                                      );
+                                      return;
+                                    } else if (authClient.state == AuthState.error) {
+                                      errors = [
+                                        authClient.lastError ?? 'Unable to send one time password.',
+                                        'Please verify the phone number and try again.'
+                                      ];
+                                    }
+                                  }
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop(); // close the loader
+                                    errors = [
+                                      'Unable to send one time password.',
+                                      'Please verify the phone number and try again.'
+                                    ];
+                                  }
+                                }
+                              } else {
+                                errors.add('Please enter a phone number.');
+                              }
+                              if (context.mounted && errors.isNotEmpty) {
+                                showErrorDialog(context, errors);
+                              }
+                            },
+                          style: ElevatedButton.styleFrom(
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(14),
+                              ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.all(
-                                  Radius.circular(16),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 8,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: <Widget>[
+                                Text(
+                                  'Next',
                                 ),
-                              ),
-                              child: Icon(
-                                Icons.arrow_forward_ios,
-                                size: 16,
-                              ),
-                            )
-                          ],
-                        ),
-                      ),
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    borderRadius: const BorderRadius.all(
+                                      Radius.circular(16),
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.arrow_forward_ios,
+                                    size: 16,
+                                  ),
+                                )
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],
