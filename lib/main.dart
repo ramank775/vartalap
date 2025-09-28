@@ -81,7 +81,17 @@ class HomeState extends State<Home> {
   Widget build(BuildContext context) {
     return ConfigProvider(
       configStore: configStore,
-      child: VartalapClientManager(
+      child: _buildAppWithConditionalClientManager(),
+    );
+  }
+
+  Widget _buildAppWithConditionalClientManager() {
+    // Check if user is logged in to determine app structure
+    final isLoggedIn = AuthService.instance.isLoggedIn();
+
+    if (isLoggedIn) {
+      // User is logged in - provide full client management
+      return VartalapClientManager(
         client: widget.client,
         child: AuthListner(
           app: MaterialApp(
@@ -95,8 +105,20 @@ class HomeState extends State<Home> {
             home: widget.homeScreen,
           ),
         ),
-      ),
-    );
+      );
+    } else {
+      // User is not logged in - simple app without client management
+      return MaterialApp(
+        title: widget.appName,
+        debugShowCheckedModeBanner: false,
+        navigatorKey: _navigatorKey,
+        themeMode: VartalapTheme.themeMode,
+        theme: VartalapTheme.lightTheme.appTheme,
+        darkTheme: VartalapTheme.darkTheme.appTheme,
+        onGenerateRoute: _routes(),
+        home: widget.homeScreen,
+      );
+    }
   }
 
   RouteFactory _routes() {

@@ -3,6 +3,7 @@ import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap/utils/error_types.dart';
 import 'package:vartalap/widgets/error_widgets.dart';
 import 'package:vartalap/services/connectivity_service.dart';
+import 'package:vartalap/screens/login/introduction.dart';
 
 /// Enhanced client provider with error handling and connection monitoring
 class VartalapClientProvider extends InheritedWidget {
@@ -131,7 +132,16 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
         _isInitializing = false;
       });
     } catch (e) {
+      // Check if this is a login-related error
+      if (e.toString().contains('No user is currently logged in')) {
+        debugPrint('User not logged in to chat service, redirecting to login');
+        _handleLoginRequired();
+        return;
+      }
+
       final error = ErrorMapper.mapException(e);
+      debugPrint('VartalapClientManager initialization error: $e');
+      debugPrint('Mapped error: ${error.userFriendlyMessage}');
       setState(() {
         _connectionState = ClientConnectionState.error;
         _connectionError = error;
@@ -167,7 +177,16 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
         _connectionError = null;
       });
     } catch (e) {
+      // Check if this is a login-related error during reconnection
+      if (e.toString().contains('No user is currently logged in')) {
+        debugPrint('User not logged in during reconnection, redirecting to login');
+        _handleLoginRequired();
+        return;
+      }
+
       final error = ErrorMapper.mapException(e);
+      debugPrint('VartalapClientManager reconnection error: $e');
+      debugPrint('Mapped reconnection error: ${error.userFriendlyMessage}');
       setState(() {
         _connectionState = ClientConnectionState.error;
         _connectionError = error;
@@ -186,6 +205,20 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
         );
       }
     }
+  }
+
+  void _handleLoginRequired() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && context.mounted) {
+        // Navigate to login screen
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => IntroductionScreen(),
+          ),
+          (route) => false,
+        );
+      }
+    });
   }
 
   @override
@@ -251,28 +284,39 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
   }
 
   Widget _buildDefaultLoading() {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text(
-              'Initializing client...',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Material(
+        color: Colors.white,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              const Text(
+                'Initializing client...',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildDefaultError(AppError error, VoidCallback onRetry) {
-    return Scaffold(
-      body: ErrorStateWidget(
-        error: error,
-        onRetry: onRetry,
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Material(
+        color: Colors.white,
+        child: ErrorStateWidget(
+          error: error,
+          onRetry: onRetry,
+        ),
       ),
     );
   }

@@ -60,13 +60,13 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
 
     return query.asyncMap((row) async {
       final channel = row.readTable(channels).toModel();
-      final sender = row.readTable(contacts);
+      final sender = row.readTableOrNull(contacts);
       final lastMessage = row.readTable(messages).toModel(sender: sender);
       final unReadCountExp = messages.id.count().cast<int>();
       final unreadQuery = selectOnly(messages)
         ..addColumns([unReadCountExp])
-        ..where(messages.channelId.equals(channel.id) & 
-                messages.state.isNotValue(MessageState.read.toString()))
+        ..where(messages.channelId.equals(channel.id) &
+                messages.state.isNotValue(MessageState.read.name))
         ..limit(10);
       final unreadCount = await unreadQuery
               .map((row) => row.read(unReadCountExp))
@@ -128,24 +128,44 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     ChannelModel? channel,
     MessageFilter? filter,
   }) {
-    final query = select(messages);
+    var query = select(messages);
+
+    // Build where conditions properly
+    Expression<bool>? whereCondition;
+
     if (channel != null) {
-      query.where((tbl) => tbl.channelId.equals(channel.id));
+      whereCondition = messages.channelId.equals(channel.id);
     }
+
     if (filter != null) {
       if (filter.type != null) {
-        query.where((tbl) => tbl.type.equals(filter.type.toString()));
+        final typeCondition = messages.type.equals(filter.type!.name);
+        whereCondition = whereCondition == null ? typeCondition : whereCondition & typeCondition;
       }
+
       if (filter.state != null) {
-        query.where((tbl) => tbl.state.equals(filter.state.toString()));
+        final stateCondition = messages.state.equals(filter.state!.name);
+        whereCondition = whereCondition == null ? stateCondition : whereCondition & stateCondition;
       }
+
       if (filter.senderId != null) {
-        query.where((tbl) => tbl.senderId.equals(filter.senderId!));
+        final senderCondition = messages.senderId.equals(filter.senderId!);
+        whereCondition = whereCondition == null ? senderCondition : whereCondition & senderCondition;
       }
+
       if (filter.messageId != null) {
-        query.where((tbl) => tbl.id.equals(filter.messageId!));
+        final messageIdCondition = messages.id.equals(filter.messageId!);
+        whereCondition = whereCondition == null ? messageIdCondition : whereCondition & messageIdCondition;
       }
     }
+
+    if (whereCondition != null) {
+      query.where((tbl) => whereCondition!);
+    }
+
+    // Order by timestamp for consistent ordering
+    query.orderBy([(tbl) => OrderingTerm.asc(tbl.createdAt)]);
+
     return query.map((message) => message.toModel());
   }
 

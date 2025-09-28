@@ -46,25 +46,37 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
   Selectable<ChannelModel> getChannels({
     ChannelFilter? filter,
   }) {
-    var query = select(channels).join([]);
+    var query = select(channels);
+
     if (filter != null) {
+      // Build where conditions
+      Expression<bool>? whereCondition;
+
       if (filter.type != null) {
-        query.where(channels.type.equals(filter.type!.toString()));
+        whereCondition = channels.type.equals(filter.type!.name);
       }
+
       if (filter.name != null) {
-        query.where(channels.extraData.like('%${filter.name}%'));
+        final nameCondition = channels.extraData.like('%${filter.name}%');
+        whereCondition = whereCondition == null ? nameCondition : whereCondition & nameCondition;
       }
+
       if (filter.memberIds != null && filter.memberIds!.isNotEmpty) {
-        query = query.join([
-          innerJoin(
-            members,
-            members.channelId.equalsExp(channels.id),
-          ),
-        ])
+        // For member filtering, we need a subquery approach
+        final memberSubquery = selectOnly(members)
+          ..addColumns([members.channelId])
           ..where(members.memberId.isIn(filter.memberIds!));
+
+        final memberCondition = channels.id.isInQuery(memberSubquery);
+        whereCondition = whereCondition == null ? memberCondition : whereCondition & memberCondition;
+      }
+
+      if (whereCondition != null) {
+        query.where((tbl) => whereCondition!);
       }
     }
-    return query.map((row) => row.readTable(channels).toModel());
+
+    return query.map((row) => row.toModel());
   }
 
   Future<ChannelModel> createChannel(ChannelModel channel, List<Member> channelMembers) async {
@@ -106,21 +118,36 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
   }
 
   Selectable<Contact> getContacts({ContactFilter? filter}) {
-    final query = select(contacts);
+    var query = select(contacts);
+
     if (filter != null) {
+      // Build where conditions properly
+      Expression<bool>? whereCondition;
+
       if (filter.name != null) {
-        query.where((tbl) => tbl.extraData.like('%${filter.name}%'));
+        whereCondition = contacts.extraData.like('%${filter.name}%');
       }
+
       if (filter.phone != null) {
-        query.where((tbl) => tbl.phone.like('%${filter.phone}%'));
+        final phoneCondition = contacts.phone.like('%${filter.phone}%');
+        whereCondition = whereCondition == null ? phoneCondition : whereCondition & phoneCondition;
       }
+
       if (filter.status != null) {
-        query.where((tbl) => tbl.status.equals(filter.status.toString()));
+        final statusCondition = contacts.status.equals(filter.status!.name);
+        whereCondition = whereCondition == null ? statusCondition : whereCondition & statusCondition;
       }
+
       if (filter.username != null) {
-        query.where((tbl) => tbl.username.like('%${filter.username}%'));
+        final usernameCondition = contacts.username.like('%${filter.username}%');
+        whereCondition = whereCondition == null ? usernameCondition : whereCondition & usernameCondition;
+      }
+
+      if (whereCondition != null) {
+        query.where((tbl) => whereCondition!);
       }
     }
+
     return query;
   }
 
@@ -145,12 +172,21 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
 
   Future<void> syncContacts(List<Contact> contactList) async {
     await transaction(() async {
-      final count = await contacts.count().getSingle();
-      if (count > 0) {
-        return;
-      }
-      
-      await addContacts(contactList);
+      // Use insertAll with onConflict to handle updates properly
+      await batch((batch) {
+        final companions = contactList.map(
+          (contact) => ContactsCompanion.insert(
+            id: Value(contact.id),
+            name: Value(contact.name),
+            phone: Value(contact.phone),
+            username: Value(contact.username),
+            status: contact.status,
+            extraData: Value(contact.extraData),
+            photo: Value(contact.photo),
+          ),
+        );
+        batch.insertAll(contacts, companions, mode: InsertMode.insertOrReplace);
+      });
     });
   }
 }
