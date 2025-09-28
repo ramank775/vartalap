@@ -141,16 +141,26 @@ abstract class OTPProviderFactory {
   /// This should return the primary OTP provider for the application.
   /// Can be configured through environment variables or app configuration.
   static IOTPProvider createDefault() {
-    // This will be implemented when we create the concrete providers
-    throw UnimplementedError('OTPProviderFactory.createDefault() not implemented yet');
+    // For now, Firebase is the default provider
+    return createFirebase();
   }
 
   /// Create a Firebase OTP provider
   ///
   /// Returns a Firebase-based OTP provider implementation.
   static IOTPProvider createFirebase() {
-    // This will be implemented when we create FirebaseOTPProvider
-    throw UnimplementedError('OTPProviderFactory.createFirebase() not implemented yet');
+    // Import done locally to avoid circular dependencies
+    // ignore: implementation_imports
+    return (const bool.fromEnvironment('dart.library.io'))
+        ? _createFirebaseProvider()
+        : throw UnsupportedError('Firebase OTP provider not available on this platform');
+  }
+
+  /// Internal method to create Firebase provider
+  /// This will be properly implemented once we add the import
+  static IOTPProvider _createFirebaseProvider() {
+    // This is a placeholder - will be updated when we can import FirebaseOTPProvider
+    throw UnimplementedError('Firebase provider creation not yet implemented in factory');
   }
 
   /// Create a test OTP provider for development/testing

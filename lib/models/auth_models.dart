@@ -80,21 +80,18 @@ class OTPCredential {
   /// The external authentication token (e.g., Firebase ID token)
   final String externalAuthToken;
 
-  /// Optional notification token for push notifications
-  final String? notificationToken;
-
   /// Provider-specific metadata
   final Map<String, dynamic>? metadata;
 
   const OTPCredential({
     required this.phoneNumber,
     required this.externalAuthToken,
-    this.notificationToken,
     this.metadata,
   });
 
   /// Convert to VartalapClient Credential format
-  Map<String, dynamic> toVartalapCredential() {
+  /// Note: Push notification token should be handled separately from authentication
+  Map<String, dynamic> toVartalapCredential({String? notificationToken}) {
     return {
       'username': phoneNumber,
       'externalAuthToken': externalAuthToken,
