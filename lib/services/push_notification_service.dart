@@ -6,7 +6,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 Future<void> showNotificationService(String title, String body, dynamic payload,
@@ -48,7 +47,7 @@ Future<dynamic> fcmBackgroundMessageHandler(RemoteMessage payload) async {
     wsUrl: configStore.get('ws_url'),
   );
   await client.init();
-  await AuthService.init(client);
+  // Push notifications are now handled separately from authentication
   // final event = payload.data["message"];
 }
 

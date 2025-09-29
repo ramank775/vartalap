@@ -45,26 +45,23 @@ abstract class IOTPProvider {
 
   /// Verify the OTP entered by the user
   ///
-  /// This method validates the OTP code against the verification session
+  /// This method validates the OTP code against the current verification session
   /// and returns a credential that can be used for VartalapClient authentication.
+  /// The provider manages its own session state internally.
   ///
   /// Parameters:
-  /// - [verificationId]: The verification ID returned from [sendOTP]
   /// - [otp]: The OTP code entered by the user
   ///
   /// Returns: [OTPCredential] containing authentication token for VartalapClient
   ///
-  /// Throws: [AuthError] if OTP verification fails
+  /// Throws: [AuthError] if OTP verification fails or no active session
   ///
   /// Example:
   /// ```dart
-  /// final credential = await provider.verifyOTP(verificationId, '123456');
+  /// final credential = await provider.verifyOTP('123456');
   /// await vartalapClient.login(credential);
   /// ```
-  Future<OTPCredential> verifyOTP(
-    String verificationId,
-    String otp,
-  );
+  Future<OTPCredential> verifyOTP(String otp);
 
   /// Get provider capabilities
   ///
@@ -198,21 +195,17 @@ class TestOTPProvider implements IOTPProvider {
   }
 
   @override
-  Future<OTPCredential> verifyOTP(String verificationId, String otp) async {
+  Future<OTPCredential> verifyOTP(String otp) async {
     // Simulate network delay
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // Accept any OTP for testing
-    if (verificationId != _testVerificationId) {
-      throw AuthError.otpVerification('Invalid verification ID');
-    }
-
+    // Accept any OTP for testing (in real implementation, would validate against internal session)
     return OTPCredential(
       phoneNumber: '+1234567890', // Mock phone number
       externalAuthToken: _testToken,
       metadata: {
         'provider': 'test',
-        'verificationId': verificationId,
+        'verificationId': _testVerificationId,
         'otp': otp,
         'timestamp': DateTime.now().toIso8601String(),
       },

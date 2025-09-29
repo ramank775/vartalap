@@ -24,7 +24,6 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
   AuthState _state = AuthState.unauthenticated;
   Profile? _currentUser;
   String? _currentPhoneNumber;
-  String? _currentVerificationId;
   String? _lastError;
 
   VartalapAuthenticatedClient({
@@ -67,7 +66,6 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
       final result = await _otpProvider.sendOTP(phoneNumber);
 
       if (result.success) {
-        _currentVerificationId = result.verificationId;
         _setState(AuthState.otpSent);
       } else {
         _setError(result.errorMessage ?? 'Failed to send OTP', AuthState.error);
@@ -83,15 +81,10 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
   /// Verify OTP and authenticate with VartalapClient
   Future<void> verifyOTPAndLogin(String otp) async {
     try {
-      if (_currentVerificationId == null) {
-        _setError('No verification session found. Please request OTP again.', AuthState.error);
-        return;
-      }
-
       _setState(AuthState.verifyingOTP);
 
-      // Verify OTP with provider
-      final credential = await _otpProvider.verifyOTP(_currentVerificationId!, otp);
+      // Verify OTP with provider (provider manages its own session state)
+      final credential = await _otpProvider.verifyOTP(otp);
 
       // Authenticate with VartalapClient using the credential
       final vartalapCredentialMap = credential.toVartalapCredential();
@@ -163,7 +156,6 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
   void _clearState() {
     _currentUser = null;
     _currentPhoneNumber = null;
-    _currentVerificationId = null;
     _lastError = null;
   }
 

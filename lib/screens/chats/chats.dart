@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/config_provider.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
@@ -167,7 +168,8 @@ class ChatsState extends State<Chats> {
             var link = config.get('privacy_policy');
             launchUrl(link);
           } else if (value == "Logout") {
-            await AuthService.instance.signout();
+            final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+            await authClient.logout();
           }
         },
         itemBuilder: (BuildContext context) {

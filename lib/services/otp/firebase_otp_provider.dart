@@ -38,22 +38,22 @@ class FirebaseOTPProvider implements IOTPProvider {
   FirebaseOTPProvider({
     FirebaseAuth? auth,
     FlutterSecureStorage? storage,
-  }) : _auth = auth ?? FirebaseAuth.instance,
-       _storage = storage ?? const FlutterSecureStorage();
+  })  : _auth = auth ?? FirebaseAuth.instance,
+        _storage = storage ?? const FlutterSecureStorage();
 
   @override
   OTPProviderCapabilities get capabilities => const OTPProviderCapabilities(
-    supportsVoiceCalls: false, // Firebase doesn't expose voice call option
-    supportsCustomTemplates: false, // Firebase uses fixed templates
-    supportsResend: true,
-    maxTimeoutSeconds: 120,
-    minTimeoutSeconds: 30,
-    customFeatures: {
-      'auto_verification': true,
-      'sms_retrieval': true,
-      'provider': 'firebase',
-    },
-  );
+        supportsVoiceCalls: false, // Firebase doesn't expose voice call option
+        supportsCustomTemplates: false, // Firebase uses fixed templates
+        supportsResend: true,
+        maxTimeoutSeconds: 120,
+        minTimeoutSeconds: 30,
+        customFeatures: {
+          'auto_verification': true,
+          'sms_retrieval': true,
+          'provider': 'firebase',
+        },
+      );
 
   @override
   Future<OTPResult> sendOTP(String phoneNumber, {OTPOptions? options}) async {
@@ -157,9 +157,9 @@ class FirebaseOTPProvider implements IOTPProvider {
       });
 
       return await completer.future;
-
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace, reason: "Firebase OTP send failed");
+      Crashlytics.recordError(e, stackTrace,
+          reason: "Firebase OTP send failed");
 
       throw AuthError.otpDelivery(
         'Failed to send OTP: ${e.toString()}',
@@ -170,49 +170,52 @@ class FirebaseOTPProvider implements IOTPProvider {
   }
 
   @override
-  Future<OTPCredential> verifyOTP(String verificationId, String otp) async {
+  Future<OTPCredential> verifyOTP(String otp) async {
     try {
       if (_currentPhoneNumber == null) {
-        throw AuthError.otpVerification('No phone number associated with this verification session');
+        throw AuthError.otpVerification(
+            'No phone number associated with this verification session');
       }
+
+      if (_currentVerificationId == null) {
+        throw AuthError.otpVerification(
+            'No active verification session. Please request OTP again.');
+      }
+
       final verifiedPhoneNumber = _currentPhoneNumber!;
+      final verificationId = _currentVerificationId!;
+      User? user;
 
       // Handle auto-verification case
       if (verificationId == 'auto_verified') {
         // For auto-verification, we need to get the current user's token
-        final user = _auth.currentUser;
+        user = _auth.currentUser;
         if (user == null) {
-          throw AuthError.otpVerification('Auto-verification failed: no user found');
+          throw AuthError.otpVerification(
+              'Auto-verification failed: no user found');
         }
-
-        final token = await user.getIdToken();
-
-        return OTPCredential(
-          phoneNumber: verifiedPhoneNumber,
-          externalAuthToken: token,
-          metadata: {
-            'provider': 'firebase',
-            'autoVerified': true,
-            'timestamp': DateTime.now().toIso8601String(),
-          },
+      } else {
+        // Standard OTP verification
+        final credential = PhoneAuthProvider.credential(
+          verificationId: verificationId,
+          smsCode: otp,
         );
-      }
 
-      // Standard OTP verification
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: otp,
-      );
+        final userCredential = await _auth.signInWithCredential(credential);
+        user = userCredential.user;
 
-      final userCredential = await _auth.signInWithCredential(credential);
-      final user = userCredential.user;
-
-      if (user == null) {
-        throw AuthError.otpVerification('Verification succeeded but no user was created');
+        if (user == null) {
+          throw AuthError.otpVerification(
+              'Verification succeeded but no user was created');
+        }
       }
 
       // Get the Firebase ID token for VartalapClient authentication
       final idToken = await user.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        throw AuthError.otpVerification(
+            'Failed to retrieve ID token after verification');
+      }
 
       return OTPCredential(
         phoneNumber: verifiedPhoneNumber,
@@ -224,15 +227,15 @@ class FirebaseOTPProvider implements IOTPProvider {
           'timestamp': DateTime.now().toIso8601String(),
         },
       );
-
     } on FirebaseAuthException catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace, reason: "Firebase OTP verification failed");
+      Crashlytics.recordError(e, stackTrace,
+          reason: "Firebase OTP verification failed");
 
       final authError = _mapFirebaseError(e, 'OTP verification failed');
       throw authError;
-
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace, reason: "OTP verification unexpected error");
+      Crashlytics.recordError(e, stackTrace,
+          reason: "OTP verification unexpected error");
 
       throw AuthError.otpVerification(
         'Unexpected error during OTP verification: ${e.toString()}',
@@ -276,7 +279,8 @@ class FirebaseOTPProvider implements IOTPProvider {
     try {
       await _storage.deleteAll();
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace, reason: "Error cleaning up secure storage");
+      Crashlytics.recordError(e, stackTrace,
+          reason: "Error cleaning up secure storage");
     }
   }
 
@@ -288,7 +292,8 @@ class FirebaseOTPProvider implements IOTPProvider {
         await _storage.write(key: 'resendToken', value: resendToken.toString());
       }
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace, reason: "Error persisting session data");
+      Crashlytics.recordError(e, stackTrace,
+          reason: "Error persisting session data");
     }
   }
 
@@ -298,13 +303,15 @@ class FirebaseOTPProvider implements IOTPProvider {
   }
 
   /// Map Firebase errors to AuthError
-  AuthError _mapFirebaseError(FirebaseAuthException firebaseError, String context) {
+  AuthError _mapFirebaseError(
+      FirebaseAuthException firebaseError, String context) {
     String userMessage;
     AuthErrorType errorType;
 
     switch (firebaseError.code) {
       case 'invalid-phone-number':
-        userMessage = 'Invalid phone number format. Please check and try again.';
+        userMessage =
+            'Invalid phone number format. Please check and try again.';
         errorType = AuthErrorType.invalidInput;
         break;
       case 'too-many-requests':
@@ -328,18 +335,21 @@ class FirebaseOTPProvider implements IOTPProvider {
         errorType = AuthErrorType.otpDelivery;
         break;
       case 'network-request-failed':
-        userMessage = 'Network error. Please check your connection and try again.';
+        userMessage =
+            'Network error. Please check your connection and try again.';
         errorType = AuthErrorType.network;
         break;
       default:
-        userMessage = '$context: ${firebaseError.message ?? firebaseError.code}';
+        userMessage =
+            '$context: ${firebaseError.message ?? firebaseError.code}';
         errorType = AuthErrorType.unknown;
     }
 
     return AuthError(
       type: errorType,
       message: userMessage,
-      technicalDetails: 'Firebase error: ${firebaseError.code} - ${firebaseError.message}',
+      technicalDetails:
+          'Firebase error: ${firebaseError.code} - ${firebaseError.message}',
       originalError: firebaseError,
     );
   }
