@@ -5,6 +5,25 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Mock Mode (Offline Development)",
+            "program": "lib/main.dart",
+            "request": "launch",
+            "type": "dart",
+            "args": [
+                "--dart-define=MOCK_MODE=true",
+                "--flavor=dev"
+            ],
+            "console": "debugConsole",
+        },
+        {
+            "name": "🚀 Production Mode (With Server)",
+            "program": "lib/main.dart",
+            "request": "launch",
+            "type": "dart",
+            "args": [],
+            "console": "debugConsole"
+        },
+        {
             "name": "Vartalap-Dev",
             "program": "lib/main.dart",
             "request": "launch",
@@ -12,7 +31,8 @@
             "args": [
                 "--flavor=dev"
             ]
-        }, {
+        },
+        {
             "name": "Flutter:profile",
             "program": "lib/main.dart",
             "request": "launch",

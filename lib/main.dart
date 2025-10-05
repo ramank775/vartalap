@@ -9,8 +9,11 @@ import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/startup/startup.dart';
+import 'package:vartalap/services/otp/firebase_otp_provider.dart';
+import 'package:vartalap/services/otp/iotp_provider.dart';
 import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 void main() async {
@@ -45,14 +48,41 @@ class VartalapApp extends StatelessWidget {
     debugPrint('🏗️ [PERF] VartalapApp.build() started');
 
     final providerStart = DateTime.now();
+
+    // Create appropriate client based on MOCK_MODE flag
+    // In mock mode: Use MockVartalapChatClient for offline development (no server needed)
+    // In production mode: Use real VartalapChatClient with server communication
+    // Note: Both modes use SecureStorageTokenManager (it's offline-first, no server needed)
+    final tokenManager = SecureStorageTokenManager();
+    final chatClient = AppConfig.isMockMode
+      ? MockVartalapChatClient(tokenManager: tokenManager)
+      : VartalapChatClient(
+          apiKey: AppConfig.apiKey,
+          apiBaseUrl: AppConfig.apiUrl,
+          wsUrl: AppConfig.wsUrl,
+          tokenManager: tokenManager,
+        );
+
+    // Create appropriate OTP provider based on MOCK_MODE flag
+    // In mock mode: Use TestOTPProvider (accepts any OTP, no Firebase needed)
+    // In production mode: Use FirebaseOTPProvider (real SMS OTP)
+    final otpProvider = AppConfig.isMockMode
+      ? OTPProviderFactory.createTest()
+      : FirebaseOTPProvider();
+
     final authClient = VartalapAuthenticatedClient(
       client: VartalapChatClientFlutter(
         apiKey: AppConfig.apiKey,
         apiBaseUrl: AppConfig.apiUrl,
         wsUrl: AppConfig.wsUrl,
+        client: chatClient,
       ),
+      otpProvider: otpProvider,
     );
     debugPrint('⏱️ [PERF] VartalapAuthenticatedClient creation took: ${DateTime.now().difference(providerStart).inMilliseconds}ms');
+    if (AppConfig.isMockMode) {
+      debugPrint('🎭 [MOCK] Running in MOCK MODE - no server required!');
+    }
 
     return ChangeNotifierProvider<VartalapAuthenticatedClient>(
       create: (_) => authClient,

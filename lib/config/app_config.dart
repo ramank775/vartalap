@@ -31,6 +31,9 @@ class AppConfig {
     defaultValue: 'https://vartalap.one9x.org/privacy-policy',
   );
 
+  // Development mode configuration
+  static const bool isMockMode = bool.fromEnvironment('MOCK_MODE', defaultValue: false);
+
   // App metadata - static singleton loaded once
   static late final PackageInfo packageInfo;
   static const String subtitle = "Open source personal chat messager";
@@ -55,6 +58,7 @@ class AppConfig {
   static String get environmentInfo {
     return '''
 Environment: ${kDebugMode ? 'Development' : 'Production'}
+Mock Mode: ${isMockMode ? 'Enabled' : 'Disabled'}
 API URL: $apiUrl
 WS URL: $wsUrl
 API Key: ${apiKey.isEmpty ? 'Not Set' : 'Set (${apiKey.length} chars)'}

@@ -11,9 +11,39 @@
 - Texts with emoji 
 - Group Chat
 
-## Setup
+## Quick Start for Developers 🚀
 
-### Local setup
+### Option 1: Mock Mode (No Server Required) - Fastest Way to Start!
+
+Perfect for frontend development, UI/UX work, or trying out the app without server setup:
+
+```bash
+# Clone the repo
+git clone https://github.com/ramank775/vartalap.git
+cd vartalap
+
+# Get dependencies
+flutter pub get
+
+# Run in mock mode (offline, no server needed!)
+flutter run --dart-define MOCK_MODE=true
+```
+
+**Features in Mock Mode:**
+- ✅ No server setup required
+- ✅ No Firebase configuration needed
+- ✅ Pre-populated with sample chats and contacts
+- ✅ Perfect for UI development and testing
+- ✅ Works completely offline
+- ✅ Data persists across restarts
+
+**VS Code Users:** Press `F5` and select **"🎭 Mock Mode (Offline Development)"** from the launch configurations dropdown.
+
+👉 **See [Local Development Guide](docs/LOCAL_DEVELOPMENT.md) for detailed mock mode documentation**
+
+### Option 2: Full Setup (With Server)
+
+For backend development or full production-like environment:
 
 - Download or clone the repo `https://github.com/ramank775/vartalap.git`
 - Get the required dependencies `flutter pub get`
