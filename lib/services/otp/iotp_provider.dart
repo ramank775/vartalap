@@ -5,6 +5,7 @@
 /// without affecting the core authentication logic.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:vartalap/models/auth_models.dart';
 
 /// Abstract interface for OTP (One-Time Password) providers
@@ -170,19 +171,37 @@ abstract class OTPProviderFactory {
 
 /// Test implementation of IOTPProvider for development and testing
 ///
-/// This provider always succeeds and doesn't actually send any OTP.
-/// Useful for development, testing, and debugging.
+/// This provider simulates OTP delivery and verification for mock mode.
+/// It stores the phone number from sendOTP and returns it during verification.
+///
+/// **OTP Validation:**
+/// - Correct OTP: "123456" → Success
+/// - Any other OTP → Throws AuthError (allows testing error cases)
+///
+/// Useful for development, testing, and debugging authentication flows.
 class TestOTPProvider implements IOTPProvider {
   static const String _testVerificationId = 'test_verification_id';
   static const String _testToken = 'test_auth_token';
+  static const String _correctOTP = '123456';
+
+  // Store phone number from sendOTP to return during verifyOTP
+  String? _currentPhoneNumber;
 
   @override
   OTPProviderCapabilities get capabilities => OTPProviderCapabilities.fullFeatured();
 
   @override
   Future<OTPResult> sendOTP(String phoneNumber, {OTPOptions? options}) async {
+    // Store phone number for later verification
+    _currentPhoneNumber = phoneNumber;
+
     // Simulate network delay
     await Future.delayed(const Duration(milliseconds: 500));
+
+    // In mock mode, log the correct OTP for developer convenience
+    debugPrint('[TEST OTP] Phone: $phoneNumber');
+    debugPrint('[TEST OTP] Use OTP: $_correctOTP');
+    debugPrint('[TEST OTP] Any other OTP will fail (for testing error cases)');
 
     return OTPResult.success(
       _testVerificationId,
@@ -199,9 +218,19 @@ class TestOTPProvider implements IOTPProvider {
     // Simulate network delay
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // Accept any OTP for testing (in real implementation, would validate against internal session)
+    // Check if we have a phone number from sendOTP
+    if (_currentPhoneNumber == null) {
+      throw AuthError.otpVerification('No active OTP session. Please request OTP first.');
+    }
+
+    // Validate OTP - only accept the correct one to enable error testing
+    if (otp != _correctOTP) {
+      throw AuthError.otpVerification('Invalid OTP. Use "$_correctOTP" for test mode.');
+    }
+
+    // OTP is correct - return credential with stored phone number
     return OTPCredential(
-      phoneNumber: '+1234567890', // Mock phone number
+      phoneNumber: _currentPhoneNumber!,
       externalAuthToken: _testToken,
       metadata: {
         'provider': 'test',
@@ -214,6 +243,6 @@ class TestOTPProvider implements IOTPProvider {
 
   @override
   void dispose() {
-    // Nothing to clean up for test provider
+    _currentPhoneNumber = null;
   }
 }

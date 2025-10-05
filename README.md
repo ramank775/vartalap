@@ -39,6 +39,8 @@ flutter run --dart-define MOCK_MODE=true
 
 **VS Code Users:** Press `F5` and select **"🎭 Mock Mode (Offline Development)"** from the launch configurations dropdown.
 
+**Login:** Use any phone number, then enter OTP `123456` (check console for details).
+
 👉 **See [Local Development Guide](docs/LOCAL_DEVELOPMENT.md) for detailed mock mode documentation**
 
 ### Option 2: Full Setup (With Server)

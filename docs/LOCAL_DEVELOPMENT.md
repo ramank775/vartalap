@@ -77,7 +77,9 @@ Mock mode uses **dependency injection at the app boundary** (in `main.dart`) to 
 3. **TestOTPProvider**
    - Drop-in replacement for `FirebaseOTPProvider`
    - Located in `lib/services/otp/iotp_provider.dart`
-   - Accepts any OTP code, no SMS required
+   - **Correct OTP**: `123456` (any other OTP will fail)
+   - Allows testing both success and error cases
+   - Returns the actual phone number you entered
 
 ## Mock Data
 
@@ -140,8 +142,12 @@ flutter run
 ```bash
 # Mock Mode
 1. Enter any phone number (e.g., +1234567890)
-2. Enter any OTP (e.g., 123456)
-3. Login succeeds immediately
+2. Check debug console for the correct OTP:
+   [TEST OTP] Use OTP: 123456
+3. Enter OTP: 123456 ✅
+   - Correct: Login succeeds
+   - Wrong OTP: Error shown (allows testing error handling)
+4. The phone number you entered will be your user ID
 ```
 
 ### Messaging
