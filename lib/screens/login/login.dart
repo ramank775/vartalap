@@ -1,4 +1,6 @@
+import 'package:country_codes/country_codes.dart';
 import 'package:flutter/material.dart';
+import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/models/auth_models.dart';
@@ -8,11 +10,38 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/loading_indicator.dart';
 
-class LoginScreen extends StatelessWidget {
-  final TextEditingController _phoneController =
-      TextEditingController(text: "+91");
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
 
-  LoginScreen({super.key});
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  String _completePhoneNumber = '';
+  String? _initialCountryCode;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeviceCountryCode();
+  }
+
+  Future<void> _loadDeviceCountryCode() async {
+    try {
+      await CountryCodes.init();
+      final locale = CountryCodes.getDeviceLocale();
+      setState(() {
+        _initialCountryCode = locale?.countryCode ?? 'IN';
+      });
+    } catch (e) {
+      // Fallback to India if country detection fails
+      setState(() {
+        _initialCountryCode = 'IN';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -83,20 +112,29 @@ class LoginScreen extends StatelessWidget {
                       horizontal: 20,
                       vertical: 10,
                     ),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: TextField(
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: "+91...",
-                          icon: Icon(Icons.phone),
-                        ),
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        maxLines: 1,
-                        autofocus: true,
-                      ),
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _initialCountryCode == null
+                        ? const SizedBox.shrink()
+                        : IntlPhoneField(
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              hintText: 'Phone Number',
+                              contentPadding: EdgeInsets.symmetric(vertical: 12),
+                              counterText: '',
+                              isDense: true,
+                            ),
+                            dropdownIconPosition: IconPosition.trailing,
+                            flagsButtonPadding: const EdgeInsets.symmetric(horizontal: 8),
+                            initialCountryCode: _initialCountryCode,
+                            showCountryFlag: true,
+                            disableLengthCheck: true,
+                            onChanged: (phone) {
+                              setState(() {
+                                _completePhoneNumber = phone.completeNumber;
+                              });
+                            },
+                            autofocus: true,
+                          ),
                   ),
                   Container(
                     margin: const EdgeInsets.symmetric(
@@ -111,12 +149,12 @@ class LoginScreen extends StatelessWidget {
                             ? null
                             : () async {
                               List<String> errors = [];
-                              if (_phoneController.text.isNotEmpty) {
+                              if (_completePhoneNumber.isNotEmpty) {
                                 try {
                                   showLoadingIndicator(
                                       context, "While we send you one time password");
 
-                                  await authClient.sendOTP(_phoneController.text);
+                                  await authClient.sendOTP(_completePhoneNumber);
 
                                   if (context.mounted) {
                                     Navigator.of(context).pop(); // close the loader
