@@ -10,15 +10,11 @@ class Credential {
   @JsonKey(name: "authToken")
   String externalAuthToken;
 
-  @JsonKey(includeIfNull: true)
-  String? notificationToken;
-
   String deviceId = "default";
 
   Credential({
     required this.username,
     required this.externalAuthToken,
-    this.notificationToken,
     this.deviceId = "default",
   });
 

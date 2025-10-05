@@ -6,6 +6,7 @@
 library;
 
 import 'package:flutter/foundation.dart';
+import 'package:mobile_device_identifier/mobile_device_identifier.dart';
 import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
 import 'package:vartalap/services/otp/firebase_otp_provider.dart';
@@ -86,8 +87,20 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
       // Verify OTP with provider (provider manages its own session state)
       final credential = await _otpProvider.verifyOTP(otp);
 
+      // Get unique device ID
+      String deviceId = 'unknown';
+      try {
+        final id = await MobileDeviceIdentifier().getDeviceId();
+        if (id != null && id.isNotEmpty) {
+          deviceId = id;
+        }
+      } catch (e) {
+        // Fallback to 'unknown' if device ID retrieval fails
+        debugPrint('Failed to get device ID: $e');
+      }
+
       // Authenticate with VartalapClient using the credential
-      final vartalapCredentialMap = credential.toVartalapCredential();
+      final vartalapCredentialMap = credential.toVartalapCredential(deviceId: deviceId);
       final vartalapCredential = Credential.fromJson(vartalapCredentialMap);
       await _client.client.login(vartalapCredential);
 

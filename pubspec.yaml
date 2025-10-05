@@ -50,6 +50,7 @@ dependencies:
   provider: ^6.1.2
   intl_phone_field: ^3.1.0
   country_codes: ^3.3.0
+  mobile_device_identifier: ^0.0.3
   vartalap_messaging_flutter:
     path: ./packages/vartalap_messaging_flutter
 

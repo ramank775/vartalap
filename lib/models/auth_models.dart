@@ -91,12 +91,11 @@ class OTPCredential {
 
   /// Convert to VartalapClient Credential format
   /// Note: Push notification token should be handled separately from authentication
-  Map<String, dynamic> toVartalapCredential({String? notificationToken}) {
+  Map<String, dynamic> toVartalapCredential({required String deviceId}) {
     return {
       'username': phoneNumber,
       'authToken': externalAuthToken,
-      'notificationToken': notificationToken,
-      'deviceId': 'default',
+      'deviceId': deviceId,
     };
   }
 
