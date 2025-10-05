@@ -23,6 +23,7 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
 
   // Authentication state
   AuthState _state = AuthState.unauthenticated;
+  AuthState? _previousState; // Track state before error
   Profile? _currentUser;
   String? _currentPhoneNumber;
   String? _lastError;
@@ -38,16 +39,21 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
   Profile? get currentUser => _currentUser;
   String? get currentPhoneNumber => _currentPhoneNumber;
   String? get lastError => _lastError;
-  bool get isAuthenticated => _currentUser != null;
+  bool get isAuthenticated => _state == AuthState.authenticated;
   VartalapChatClientFlutter get client => _client;
 
   /// Initialize the client and check existing authentication
+  ///
+  /// This method checks if a user is logged in by verifying the stored token.
+  /// It works offline and does NOT require database initialization.
+  /// The user profile will be loaded later after database initialization.
   Future<void> initialize() async {
     try {
-      final user = await _client.getLoggedInUser();
-      if (user != null) {
-        _currentUser = user;
-        _currentPhoneNumber = user.userId; // Phone number is userId
+      final userId = await _client.getLoggedInUser();
+      if (userId != null) {
+        // User has a valid token, mark as authenticated
+        // We'll load the profile after database initialization
+        _currentPhoneNumber = userId; // Phone number is userId
         _setState(AuthState.authenticated);
       } else {
         _setState(AuthState.unauthenticated);
@@ -104,30 +110,62 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
       final vartalapCredential = Credential.fromJson(vartalapCredentialMap);
       await _client.client.login(vartalapCredential);
 
-      // Get the authenticated user
-      final user = await _client.getLoggedInUser();
-      if (user == null) {
+      // Get the authenticated user ID (works offline via token)
+      debugPrint('[AUTH] Fetching logged in user after login...');
+      final userId = await _client.getLoggedInUser();
+      debugPrint('[AUTH] Got userId: ${userId ?? "null"}');
+
+      if (userId == null) {
         throw AuthError.clientAuthentication('Login succeeded but no user found');
       }
 
-      _currentUser = user;
+      _currentPhoneNumber = userId; // Phone number is userId
+
+      // Initialize the database for this user
+      debugPrint('[AUTH] Initializing database for user: $userId');
+      await _client.init();
+
+      // Fetch and save user profile to database for offline access
+      debugPrint('[AUTH] Fetching and saving user profile...');
+      final profile = await _client.getLoggedInUserProfile();
+      if (profile != null) {
+        _currentUser = profile;
+        debugPrint('[AUTH] Profile saved: ${profile.userId}');
+      } else {
+        debugPrint('[AUTH] Warning: Could not fetch user profile');
+      }
+
+      debugPrint('[AUTH] Setting state to authenticated');
       _setState(AuthState.authenticated);
+      debugPrint('[AUTH] State is now: $_state');
 
     } on AuthError catch (e) {
       _setError(e.message, AuthState.error);
+      rethrow; // Rethrow so UI can show error dialog
     } catch (e, stackTrace) {
       Crashlytics.recordError(e, stackTrace, reason: "Failed to verify OTP and login");
       _setError('Login failed. Please try again.', AuthState.error);
+      rethrow; // Rethrow so UI can show error dialog
     }
   }
 
   /// Logout and clear all authentication state
+  ///
+  /// This method clears:
+  /// - Authentication token from secure storage
+  /// - Database connections
+  /// - Network connections
+  /// - Local authentication state
   Future<void> logout() async {
     try {
-      // Close client connections
-      await _client.client.close();
+      // Logout from client (clears token, closes DB and network)
+      await _client.logout();
+
+      // Clear local authentication state
       _clearState();
       _setState(AuthState.unauthenticated);
+
+      debugPrint('[AUTH] Logout successful');
     } catch (e, stackTrace) {
       Crashlytics.recordError(e, stackTrace, reason: "Failed to logout");
       // Clear state anyway since logout should always succeed
@@ -145,10 +183,16 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
     await sendOTP(_currentPhoneNumber!);
   }
 
-  /// Reset error state and return to unauthenticated
+  /// Reset error state and return to appropriate previous state
+  ///
+  /// If OTP was sent, returns to otpSent state to allow retry.
+  /// Otherwise, returns to unauthenticated state.
   void clearError() {
     _lastError = null;
-    _setState(AuthState.unauthenticated);
+    // Restore to previous state, or unauthenticated if no previous state
+    final targetState = _previousState ?? AuthState.unauthenticated;
+    _previousState = null;
+    _setState(targetState);
   }
 
   /// Update authentication state and notify listeners
@@ -161,6 +205,10 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
   /// Set error state with message
   void _setError(String error, AuthState errorState) {
     _lastError = error;
+    // Store current state before transitioning to error (unless already in error)
+    if (_state != AuthState.error) {
+      _previousState = _state;
+    }
     _state = errorState;
     notifyListeners();
   }
@@ -170,6 +218,7 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
     _currentUser = null;
     _currentPhoneNumber = null;
     _lastError = null;
+    _previousState = null;
   }
 
   @override

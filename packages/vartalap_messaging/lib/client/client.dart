@@ -159,6 +159,13 @@ class VartalapChatClient {
     await _apiClient.asset.markAssetAsUploaded(assetId);
   }
 
+  Future<void> logout() async {
+    // Clear stored token
+    print('[VartalapChatClient] Calling logout on token manager...');
+    await _tokenManager.clearToken();
+    print('[VartalapChatClient] Logout completed');
+  }
+
   Future<void> close() async {
     await _wsStreamSub.cancel();
   }

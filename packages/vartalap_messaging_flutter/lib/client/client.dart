@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:taskq/storage/database.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart'
-    show VartalapChatClient;
+    show VartalapChatClient, TokenManager;
 import 'package:vartalap_messaging_flutter/client/chat.dart';
 import 'package:vartalap_messaging_flutter/client/secure_token_manager.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
@@ -61,18 +61,24 @@ class VartalapChatClientFlutter {
   late TaskScheduler scheduler;
   late VartalapTaskFactory factory;
   late ChatDatabase _db;
+  late TokenManager _tokenManager;
+  bool _isInitialized = false;
+
   VartalapChatClientFlutter({
     required String apiKey,
     String? apiBaseUrl,
     String? wsUrl,
     VartalapChatClient? client,
   }) {
+    // Create token manager that will be shared
+    _tokenManager = SecureStorageTokenManager();
+
     this.client = client ??
         VartalapChatClient(
           apiKey: apiKey,
           apiBaseUrl: apiBaseUrl,
           wsUrl: wsUrl,
-          tokenManager: SecureStorageTokenManager(),
+          tokenManager: _tokenManager,
         );
   }
 
@@ -84,8 +90,17 @@ class VartalapChatClientFlutter {
   /// 3. Sets up the task factory and scheduler for background operations
   /// 4. Establishes event stream handling
   ///
+  /// This method is idempotent - calling it multiple times is safe and will
+  /// only initialize once.
+  ///
   /// Throws [VartalapInitializationException] if initialization fails
   Future<void> init() async {
+    // Skip if already initialized
+    if (_isInitialized) {
+      debugPrint('[CLIENT] Already initialized, skipping');
+      return;
+    }
+
     try {
       // Step 1: Validate user authentication
       final userId = await _validateUserAuthentication();
@@ -98,6 +113,8 @@ class VartalapChatClientFlutter {
 
       // Step 4: Set up event stream handling
       await _initializeEventStreaming();
+
+      _isInitialized = true;
     } catch (e) {
       if (e is VartalapInitializationException) {
         rethrow;
@@ -136,7 +153,7 @@ class VartalapChatClientFlutter {
   Future<void> _initializeDatabase(String userId) async {
     try {
       _db = ChatDatabase(userId: userId);
-
+      await _db.executor.ensureOpen(_db);
       // Verify database connection by attempting a simple operation
       await _db.executor.runSelect('SELECT 1', []);
     } catch (e) {
@@ -189,17 +206,64 @@ class VartalapChatClientFlutter {
     }
   }
 
-  Future<Profile?> getLoggedInUser() async {
-    final userId = await client.getLoggedInUser();
+  /// Get the logged-in user ID
+  ///
+  /// This method works offline by checking the stored token.
+  /// Returns the userId if a valid token exists, null otherwise.
+  ///
+  /// NOTE: This does NOT require database initialization and can be called
+  /// before init() to check authentication status.
+  Future<String?> getLoggedInUser() async {
+    // Directly check token manager (offline-first)
+    final token = await _tokenManager.fetchActiveToken();
+    return token?.userId;
+  }
+
+  /// Get the logged-in user profile
+  ///
+  /// This method works offline-first:
+  /// 1. Retrieves the cached profile from the local database
+  /// 2. Falls back to fetching from server if not cached (requires network)
+  ///
+  /// IMPORTANT: Requires database to be initialized via init() first.
+  /// Returns null if no user is logged in or profile not found.
+  Future<Profile?> getLoggedInUserProfile() async {
+    // Use this class's getLoggedInUser (checks token manager directly)
+    final userId = await getLoggedInUser();
     if (userId == null) return null;
 
-    final profile = await client.fetchProfile(userId);
-    return Profile(
-      userId: profile.userId,
-      name: profile.name,
-      email: profile.email ?? '',
-      image: profile.image ?? '',
-    );
+    // Try to get profile from local database first (offline-first)
+    final cachedProfile = await _db.userProfileDao.getProfile(userId);
+    if (cachedProfile != null) {
+      return cachedProfile;
+    }
+
+    // If not in database, fetch from server and cache it
+    try {
+      final profile = await client.fetchProfile(userId);
+      final userProfile = Profile(
+        userId: profile.userId,
+        name: profile.name,
+        email: profile.email ?? '',
+        image: profile.image ?? '',
+      );
+
+      // Cache the profile for offline access
+      await _db.userProfileDao.saveProfile(userProfile);
+
+      return userProfile;
+    } catch (e) {
+      // If we can't fetch from server and don't have cache, return null
+      debugPrint('Failed to fetch user profile: $e');
+      return null;
+    }
+  }
+
+  /// Save the user profile to local database
+  ///
+  /// This should be called after successful login to enable offline authentication
+  Future<void> saveUserProfile(Profile profile) async {
+    await _db.userProfileDao.saveProfile(profile);
   }
 
   Selectable<ChatPreview> getChatPreviews({
@@ -374,5 +438,42 @@ class VartalapChatClientFlutter {
       //     factory.create(SyncMessageTask.name) as SyncMessageTask;
       // await scheduler.schedule(task);
     });
+  }
+
+  /// Logout and clear all data
+  ///
+  /// This method performs a complete logout by:
+  /// 1. Clearing the authentication token from secure storage
+  /// 2. Closing the database connection
+  /// 3. Closing network connections
+  /// 4. Resetting the initialization state
+  ///
+  /// Note: This does NOT delete the database file. The database is user-specific
+  /// and will be reused if the same user logs in again.
+  Future<void> logout() async {
+    try {
+      // Clear the authentication token directly from token manager
+      await _tokenManager.clearToken();
+      debugPrint('[CLIENT] Token cleared');
+
+      // Close database connection if initialized
+      if (_isInitialized) {
+        await _db.close();
+        debugPrint('[CLIENT] Database connection closed');
+      }
+
+      // Close network connections
+      await client.close();
+
+      // Reset initialization state so a new login requires re-init
+      _isInitialized = false;
+
+      debugPrint('[CLIENT] Logout completed successfully');
+    } catch (e) {
+      debugPrint('[CLIENT] Error during logout: $e');
+      // Still reset initialization state even if there was an error
+      _isInitialized = false;
+      rethrow;
+    }
   }
 }

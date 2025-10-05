@@ -260,7 +260,9 @@ class MockVartalapChatClient extends VartalapChatClient {
   @override
   Future<String?> getLoggedInUser() async {
     await Future.delayed(const Duration(milliseconds: 100));
-    return mockUserId;
+    // Delegate to parent class which checks token manager
+    // This ensures logout works correctly in mock mode
+    return await super.getLoggedInUser();
   }
 
   @override

@@ -4,6 +4,7 @@ abstract class TokenManager {
   Future<void> setToken(Token token);
   Future<Token?> fetchToken(String userId);
   Future<Token?> fetchActiveToken();
+  Future<void> clearToken();
 }
 
 // // TODO: Extract the Implementation outside the Core

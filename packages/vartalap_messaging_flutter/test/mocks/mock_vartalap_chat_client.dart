@@ -170,4 +170,9 @@ class MockTokenManager implements TokenManager {
   Future<void> setToken(Token token) async {
     _token = token;
   }
+
+  @override
+  Future<void> clearToken() async {
+    _token = null;
+  }
 }

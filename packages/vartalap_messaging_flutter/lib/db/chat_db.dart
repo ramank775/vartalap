@@ -16,9 +16,11 @@ part 'chat_db.g.dart';
   Contacts,
   Members,
   Messages,
+  UserProfiles,
 ], daos: [
   ChatDao,
   ChannelDao,
+  UserProfileDao,
 ])
 class ChatDatabase extends _$ChatDatabase {
   String userId;
@@ -28,7 +30,7 @@ class ChatDatabase extends _$ChatDatabase {
   }) : super(_openConnection(userId: userId, isMemory: inMemory));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   static QueryExecutor _openConnection({
     required String userId,
@@ -37,11 +39,10 @@ class ChatDatabase extends _$ChatDatabase {
     if (isMemory) {
       return NativeDatabase.memory();
     }
-    return driftDatabase(name: 'db_$userId');
-    // return LazyDatabase(() async {
-    //   final dbDir = await getApplicationDocumentsDirectory();
-    //   final path = join(dbDir.path, 'db_$userId.sqlite');
-    //   return NativeDatabase(File(path));
-    // });
+    // driftDatabase automatically handles async initialization via DatabaseConnection.delayed
+    return driftDatabase(
+      name: 'db_$userId',
+      native: DriftNativeOptions(),
+    );
   }
 }

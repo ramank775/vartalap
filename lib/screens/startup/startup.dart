@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:vartalap/config/app_config.dart';
-import 'package:vartalap/screens/chats/chats.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -33,18 +32,27 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
       final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
       debugPrint('⏱️ [PERF] Getting authClient from provider took: ${DateTime.now().difference(providerStart).inMilliseconds}ms');
 
-      setState(() {
-        _currentStep = "Checking authentication...";
-      });
+      // Auth client already initialized in main(), just initialize database and load profile
+      if (authClient.isAuthenticated) {
+        setState(() {
+          _currentStep = "Loading profile...";
+        });
 
-      final authInitStart = DateTime.now();
-      await authClient.initialize().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutError(
-          'Authentication check timed out.',
-        ),
-      );
-      debugPrint('⏱️ [PERF] authClient.initialize() took: ${DateTime.now().difference(authInitStart).inMilliseconds}ms');
+        final dbInitStart = DateTime.now();
+        await authClient.client.init();
+        debugPrint('⏱️ [PERF] Database initialization took: ${DateTime.now().difference(dbInitStart).inMilliseconds}ms');
+
+        // Load user profile from database (offline-first)
+        final profileStart = DateTime.now();
+        final profile = await authClient.client.getLoggedInUserProfile();
+        if (profile != null) {
+          // Profile loaded successfully (either from cache or server)
+          debugPrint('✅ [AUTH] Profile loaded: ${profile.userId}');
+        } else {
+          debugPrint('⚠️ [AUTH] Could not load user profile');
+        }
+        debugPrint('⏱️ [PERF] Profile loading took: ${DateTime.now().difference(profileStart).inMilliseconds}ms');
+      }
 
       final permissionsStart = DateTime.now();
       _requestPermissionsInBackground();
@@ -92,10 +100,8 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
   }
 
   void onNext() {
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (context) => Chats(),
-      ),
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/chats',
       (route) => false,
     );
   }

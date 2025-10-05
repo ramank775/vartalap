@@ -167,6 +167,14 @@ class ChatsState extends State<Chats> {
           } else if (value == "Logout") {
             final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
             await authClient.logout();
+
+            // Navigate to login screen after logout
+            if (context.mounted) {
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                '/',
+                (route) => false,
+              );
+            }
           }
         },
         itemBuilder: (BuildContext context) {

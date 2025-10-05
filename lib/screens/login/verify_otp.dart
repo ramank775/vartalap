@@ -186,13 +186,17 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
     final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
 
     try {
+      debugPrint('[UI] Starting OTP verification with: $_otp');
       await authClient.verifyOTPAndLogin(_otp);
+      debugPrint('[UI] OTP verification completed successfully');
+      debugPrint('[UI] Auth state is now: ${authClient.state}');
 
       // The navigation will be handled by the main app based on authentication state
       // No need for manual navigation here since VartalapApp will automatically
       // navigate to StartupScreen when authClient.state becomes authenticated
 
     } catch (e) {
+      debugPrint('[UI] OTP verification failed: $e');
       if (mounted) {
         showErrorDialog(context, [
           authClient.lastError ?? 'Incorrect one time password! Try again'
