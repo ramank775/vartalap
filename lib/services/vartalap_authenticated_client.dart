@@ -108,7 +108,7 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
       // Authenticate with VartalapClient using the credential
       final vartalapCredentialMap = credential.toVartalapCredential(deviceId: deviceId);
       final vartalapCredential = Credential.fromJson(vartalapCredentialMap);
-      await _client.client.login(vartalapCredential);
+      await _client.login(vartalapCredential);
 
       // Get the authenticated user ID (works offline via token)
       debugPrint('[AUTH] Fetching logged in user after login...');

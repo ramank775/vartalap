@@ -5,6 +5,7 @@ import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/login/introduction.dart';
+import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
@@ -112,10 +113,11 @@ class VartalapApp extends StatelessWidget {
         return StartupScreen();
       case AuthState.error:
         return IntroductionScreen(); // Show login on error
-      case AuthState.unauthenticated:
-      case AuthState.sendingOTP:
       case AuthState.otpSent:
       case AuthState.verifyingOTP:
+        return VerifyOtpWidget();
+      case AuthState.unauthenticated:
+      case AuthState.sendingOTP:
         return IntroductionScreen();
     }
   }
@@ -131,6 +133,9 @@ class VartalapApp extends StatelessWidget {
         switch (settings.name) {
           case '/':
             widget = StartupScreen();
+            break;
+          case '/verify-otp':
+            widget = VerifyOtpWidget();
             break;
           case '/chats':
             // Wrap Chats with VartalapClientManager to provide client context

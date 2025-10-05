@@ -4,7 +4,6 @@ import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/models/auth_models.dart';
-import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
@@ -160,11 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     Navigator.of(context).pop(); // close the loader
 
                                     if (authClient.state == AuthState.otpSent) {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (ctx) => VerifyOtpWidget(),
-                                        ),
-                                      );
+                                      Navigator.of(context).pushNamed('/verify-otp');
                                       return;
                                     } else if (authClient.state == AuthState.error) {
                                       errors = [

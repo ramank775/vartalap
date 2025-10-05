@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:vartalap_messaging/core/api/api_client.dart';
 import 'package:vartalap_messaging/core/api/response.dart';
 import 'package:vartalap_messaging/core/http/http_client.dart';
-import 'package:vartalap_messaging/core/http/token.dart';
 import 'package:vartalap_messaging/core/http/token_manager.dart';
 import 'package:vartalap_messaging/core/models/channel.dart';
 import 'package:vartalap_messaging/core/models/credentail.dart';
@@ -67,16 +66,7 @@ class VartalapChatClient {
   }
 
   Future<LoginResponse> login(Credential creds) async {
-    // final resp = await _apiClient.auth.login(creds);
-    final resp = LoginResponse.fromJson({
-      "status": true,
-      "username": creds.username,
-      "accesskey": "asdfasdfasd",
-      "isNew": false,
-      "userId": creds.username,
-    });
-    final token = Token(userId: resp.userId, accesskey: resp.accessKey);
-    await _tokenManager.setToken(token);
+    final resp = await _apiClient.auth.login(creds);
     return resp;
   }
 

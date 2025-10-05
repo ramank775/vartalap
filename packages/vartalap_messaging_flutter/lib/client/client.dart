@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:taskq/storage/database.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart'
-    show VartalapChatClient, TokenManager;
+    show VartalapChatClient, TokenManager, Credential, LoginResponse, Token;
 import 'package:vartalap_messaging_flutter/client/chat.dart';
 import 'package:vartalap_messaging_flutter/client/secure_token_manager.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
@@ -217,6 +217,31 @@ class VartalapChatClientFlutter {
     // Directly check token manager (offline-first)
     final token = await _tokenManager.fetchActiveToken();
     return token?.userId;
+  }
+
+  /// Login with credentials
+  ///
+  /// This method handles the complete login flow with client-side token management:
+  /// 1. Calls the server client's login method to authenticate
+  /// 2. Manages token storage on the client side using the token manager
+  ///
+  /// This approach keeps VartalapChatClient as a pure server client without
+  /// client-side logic, while VartalapChatClientFlutter handles all client-side
+  /// concerns including token persistence.
+  ///
+  /// NOTE: After successful login, you must call init() to initialize the database
+  /// and other components before using other methods.
+  ///
+  /// Returns: LoginResponse containing user details and access key
+  Future<LoginResponse> login(Credential creds) async {
+    // Call the pure server client login (no client-side logic)
+    final resp = await client.login(creds);
+
+    // Handle token management on client side for consistency
+    final token = Token(userId: resp.userId, accesskey: resp.accessKey);
+    await _tokenManager.setToken(token);
+
+    return resp;
   }
 
   /// Get the logged-in user profile
