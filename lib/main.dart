@@ -1,12 +1,6 @@
-import 'dart:async';
-
-import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/chat/chat.dart';
@@ -15,43 +9,31 @@ import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/startup/startup.dart';
-import 'package:vartalap/services/crashlystics.dart';
-import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
-import 'package:vartalap/widgets/Inherited/config_provider.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
-final configStore = ConfigStore();
-
 void main() async {
+  final startTime = DateTime.now();
+  debugPrint('🚀 [PERF] App main() started at: ${startTime.millisecondsSinceEpoch}');
+
+  final bindingStart = DateTime.now();
   WidgetsFlutterBinding.ensureInitialized();
-  await configStore.loadConfig();
+  debugPrint('⏱️ [PERF] WidgetsFlutterBinding took: ${DateTime.now().difference(bindingStart).inMilliseconds}ms');
 
-  // Initialize Firebase and core services
-  await _initializeFirebase();
-  Crashlytics.init();
-  PerformanceMetric.init();
+  final configStart = DateTime.now();
+  await AppConfig.initialize();
+  debugPrint('⏱️ [PERF] AppConfig.initialize took: ${DateTime.now().difference(configStart).inMilliseconds}ms');
 
-  // Set up global error handling
-  FlutterError.onError = (errorDetails) {
-    FirebaseCrashlytics.instance.recordFlutterFatalError(errorDetails);
-  };
-  PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-    return true;
-  };
-
+  final runAppStart = DateTime.now();
   runApp(VartalapApp());
+  debugPrint('⏱️ [PERF] runApp() took: ${DateTime.now().difference(runAppStart).inMilliseconds}ms');
+  debugPrint('🎯 [PERF] Total main() time: ${DateTime.now().difference(startTime).inMilliseconds}ms');
+
+  // Analytics will initialize lazily when first used - no Firebase blocking!
+  debugPrint('✅ [PERF] Firebase deferred to lazy initialization');
 }
 
-Future<void> _initializeFirebase() async {
-  await Firebase.initializeApp();
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.playIntegrity,
-    appleProvider: AppleProvider.appAttestWithDeviceCheckFallback,
-  );
-}
 
 /// Main App Widget with Unified Authentication
 class VartalapApp extends StatelessWidget {
@@ -59,29 +41,37 @@ class VartalapApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ConfigProvider(
-      configStore: configStore,
-      child: ChangeNotifierProvider<VartalapAuthenticatedClient>(
-        create: (_) => VartalapAuthenticatedClient(
-          client: VartalapChatClientFlutter(
-            apiKey: configStore.get('apiKey'),
-            apiBaseUrl: configStore.get('api_url'),
-            wsUrl: configStore.get('ws_url'),
-          ),
-        )..initialize(),
-        child: Consumer<VartalapAuthenticatedClient>(
-          builder: (context, authClient, _) {
-            return MaterialApp(
-              title: configStore.packageInfo.appName,
-              debugShowCheckedModeBanner: false,
-              themeMode: VartalapTheme.themeMode,
-              theme: VartalapTheme.lightTheme.appTheme,
-              darkTheme: VartalapTheme.darkTheme.appTheme,
-              onGenerateRoute: _routes,
-              home: _buildHomeScreen(authClient),
-            );
-          },
-        ),
+    final buildStart = DateTime.now();
+    debugPrint('🏗️ [PERF] VartalapApp.build() started');
+
+    final providerStart = DateTime.now();
+    final authClient = VartalapAuthenticatedClient(
+      client: VartalapChatClientFlutter(
+        apiKey: AppConfig.apiKey,
+        apiBaseUrl: AppConfig.apiUrl,
+        wsUrl: AppConfig.wsUrl,
+      ),
+    );
+    debugPrint('⏱️ [PERF] VartalapAuthenticatedClient creation took: ${DateTime.now().difference(providerStart).inMilliseconds}ms');
+
+    return ChangeNotifierProvider<VartalapAuthenticatedClient>(
+      create: (_) => authClient,
+      child: Consumer<VartalapAuthenticatedClient>(
+        builder: (context, authClient, _) {
+          final materialAppStart = DateTime.now();
+          final app = MaterialApp(
+            title: AppConfig.packageInfo.appName,
+            debugShowCheckedModeBanner: false,
+            themeMode: VartalapTheme.themeMode,
+            theme: VartalapTheme.lightTheme.appTheme,
+            darkTheme: VartalapTheme.darkTheme.appTheme,
+            onGenerateRoute: _routes,
+            home: _buildHomeScreen(authClient),
+          );
+          debugPrint('⏱️ [PERF] MaterialApp creation took: ${DateTime.now().difference(materialAppStart).inMilliseconds}ms');
+          debugPrint('🎯 [PERF] Total VartalapApp.build() time: ${DateTime.now().difference(buildStart).inMilliseconds}ms');
+          return app;
+        },
       ),
     );
   }

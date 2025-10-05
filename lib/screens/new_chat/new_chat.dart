@@ -1,6 +1,6 @@
 import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
@@ -426,7 +426,7 @@ class ContactList extends StatelessWidget {
             ),
           ),
           onTap: () async {
-            await SharePlus.instance.share(ConfigStore().get('share_message'));
+            await Share.share(AppConfig.shareMessage);
           },
         ));
 

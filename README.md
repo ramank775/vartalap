@@ -17,10 +17,57 @@
 
 - Download or clone the repo `https://github.com/ramank775/vartalap.git`
 - Get the required dependencies `flutter pub get`
-
 - Setup local chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
-- Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
-- Update `api_url` and `ws_url` of  [chat-server](https://www.github.com/ramank775/chat-server)
+
+### Configuration
+
+The app uses `--dart-define` for configuration instead of JSON files. This provides better performance and security.
+
+#### Required Configuration Variables:
+- `API_URL` - Your chat server API URL
+- `WS_URL` - Your chat server WebSocket URL
+- `API_KEY` - Your API key (optional, can be empty)
+
+#### Development Setup:
+```bash
+# Run with development server
+flutter run \
+  --dart-define=API_URL=http://localhost:3000 \
+  --dart-define=WS_URL=ws://localhost:3000/wss \
+  --dart-define=API_KEY=your_dev_api_key
+```
+
+#### Production Build:
+```bash
+# Build for production
+flutter build apk \
+  --dart-define=API_URL=https://vartalapapp.one9x.org \
+  --dart-define=WS_URL=https://vartalapapp.one9x.org/wss \
+  --dart-define=API_KEY=your_production_api_key
+```
+
+#### Optional Configuration Variables:
+- `APP_DESCRIPTION` - Custom app description
+- `SHARE_MESSAGE` - Custom share message
+- `PRIVACY_POLICY` - Privacy policy URL
+
+#### Environment Scripts (Recommended):
+Convenience scripts are provided in the `scripts/` folder:
+
+**Development:**
+```bash
+./scripts/dev.sh
+```
+
+**Production Build:**
+```bash
+./scripts/build-prod.sh
+```
+
+You can customize these scripts with your own server URLs and API keys.
+
+#### Legacy Configuration (Deprecated):
+The old `config.json` and `config.local.json` files are no longer used. Please migrate to `--dart-define` for better performance.
 
 
 ### Setup with Gitpod
@@ -55,8 +102,7 @@ Gitpod command
 
 Chat Server
 - Start chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
-- Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
-- Update `api_url` and `ws_url` of  [chat-server](https://www.github.com/ramank775/chat-server)
+- Use the `--dart-define` configuration method as described above to set your server URLs
 
 
 

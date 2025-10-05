@@ -11,9 +11,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
 import 'package:vartalap/services/crashlystics.dart';
+import 'package:vartalap/services/firebase_initializer.dart';
 // Push notifications are handled separately from authentication
 
-/// Firebase implementation of IOTPProvider
+/// Firebase implementation of IOTPProvider with lazy initialization
 ///
 /// This provider handles OTP delivery and verification using Firebase Phone Authentication.
 /// It's responsible ONLY for OTP-related operations, not for authentication state management.
@@ -24,7 +25,7 @@ import 'package:vartalap/services/crashlystics.dart';
 /// - Handle Firebase-specific errors and edge cases
 /// - Manage verification sessions and resend tokens
 class FirebaseOTPProvider implements IOTPProvider {
-  final FirebaseAuth _auth;
+  FirebaseAuth? _auth;
   final FlutterSecureStorage _storage;
 
   // Firebase-specific state for OTP verification
@@ -38,8 +39,17 @@ class FirebaseOTPProvider implements IOTPProvider {
   FirebaseOTPProvider({
     FirebaseAuth? auth,
     FlutterSecureStorage? storage,
-  })  : _auth = auth ?? FirebaseAuth.instance,
+  })  : _auth = auth,
         _storage = storage ?? const FlutterSecureStorage();
+
+  /// Lazy getter for FirebaseAuth that ensures Firebase is initialized
+  Future<FirebaseAuth> get _lazyAuth async {
+    if (_auth != null) return _auth!;
+
+    await FirebaseInitializer.ensureInitialized();
+    _auth = FirebaseAuth.instance;
+    return _auth!;
+  }
 
   @override
   OTPProviderCapabilities get capabilities => const OTPProviderCapabilities(
@@ -71,7 +81,8 @@ class FirebaseOTPProvider implements IOTPProvider {
       // Configure timeout
       final timeoutSeconds = options?.timeoutSeconds ?? 60;
 
-      await _auth.verifyPhoneNumber(
+      final auth = await _lazyAuth;
+      await auth.verifyPhoneNumber(
         phoneNumber: phoneNumber,
         timeout: Duration(seconds: timeoutSeconds),
         forceResendingToken: _resendToken,
@@ -186,10 +197,12 @@ class FirebaseOTPProvider implements IOTPProvider {
       final verificationId = _currentVerificationId!;
       User? user;
 
+      final auth = await _lazyAuth;
+
       // Handle auto-verification case
       if (verificationId == 'auto_verified') {
         // For auto-verification, we need to get the current user's token
-        user = _auth.currentUser;
+        user = auth.currentUser;
         if (user == null) {
           throw AuthError.otpVerification(
               'Auto-verification failed: no user found');
@@ -201,7 +214,7 @@ class FirebaseOTPProvider implements IOTPProvider {
           smsCode: otp,
         );
 
-        final userCredential = await _auth.signInWithCredential(credential);
+        final userCredential = await auth.signInWithCredential(credential);
         user = userCredential.user;
 
         if (user == null) {

@@ -2,10 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
-import 'package:vartalap/widgets/Inherited/config_provider.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
@@ -24,7 +23,6 @@ class Chats extends StatefulWidget {
 
 class ChatsState extends State<Chats> {
   List<ChatPreview> _selectedChats = [];
-  late ConfigStore config;
 
   @override
   void initState() {
@@ -34,12 +32,11 @@ class ChatsState extends State<Chats> {
 
   @override
   Widget build(BuildContext context) {
-    config = ConfigProvider.of(context).configStore;
     final client = VartalapClientProvider.of(context).client;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          config.packageInfo.appName,
+          AppConfig.packageInfo.appName,
           style: VartalapTheme.theme.appTitleStyle.copyWith(
             fontWeight: FontWeight.bold,
             color: Colors.white,
@@ -140,16 +137,16 @@ class ChatsState extends State<Chats> {
           if (value == 'About Dialog') {
             showAboutDialog(
               context: context,
-              applicationName: config.packageInfo.appName,
+              applicationName: AppConfig.packageInfo.appName,
               applicationIcon: AppLogo(size: 25),
               applicationVersion:
-                  "${config.packageInfo.version}+${config.packageInfo.buildNumber}",
+                  "${AppConfig.packageInfo.version}+${AppConfig.packageInfo.buildNumber}",
               children: <Widget>[
                 Text(
-                  config.subtitle,
+                  AppConfig.subtitle,
                 ),
                 RichMessage(
-                  config.get("description"),
+                  AppConfig.description,
                   TextStyle(
                     fontSize: 12,
                     color: Theme.of(context).textTheme.bodyLarge?.color,
@@ -157,7 +154,7 @@ class ChatsState extends State<Chats> {
                 ),
                 Text("------------------------------------------------"),
                 RichMessage(
-                    """Server Info:\n API URL: ${config.get("api_url")} \n WebSocket: ${config.get("ws_url")}""",
+                    """Server Info:\n API URL: ${AppConfig.apiUrl} \n WebSocket: ${AppConfig.wsUrl}""",
                     TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).textTheme.bodyLarge?.color,
@@ -165,7 +162,7 @@ class ChatsState extends State<Chats> {
               ],
             );
           } else if (value == 'Privacy Policy') {
-            var link = config.get('privacy_policy');
+            var link = AppConfig.privacyPolicy;
             launchUrl(link);
           } else if (value == "Logout") {
             final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);

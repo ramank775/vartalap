@@ -1,85 +1,40 @@
-import 'package:firebase_performance/firebase_performance.dart';
-import 'package:flutter/foundation.dart';
-import 'package:vartalap/utils/enum_helper.dart';
+import 'package:vartalap/services/analytics/ianalytics_provider.dart';
 
 class PerformanceTrace {
-  final Trace _trace;
+  final IPerformanceTrace? _trace;
   PerformanceTrace(this._trace);
 
   Future<void> start() {
-    return _trace.start();
+    return _trace?.start() ?? Future.value();
   }
 
   Future<void> stop() {
-    return _trace.stop();
+    return _trace?.stop() ?? Future.value();
   }
 
   void putAttribute(String name, dynamic value) {
-    return _trace.putAttribute(name, value.toString());
+    _trace?.putAttribute(name, value.toString());
   }
 
   void setMetric(String name, int value) {
-    return _trace.setMetric(name, value);
+    _trace?.setMetric(name, value);
   }
 
   void incrementMetric(String name) {
-    return _trace.incrementMetric(name, 1);
-  }
-}
-
-class HttpPerformanceTrace {
-  final HttpMetric _metric;
-
-  HttpPerformanceTrace(this._metric);
-
-  Future<void> start() {
-    return _metric.start();
-  }
-
-  Future<void> stop() {
-    return _metric.stop();
-  }
-
-  int get httpResponseCode => _metric.httpResponseCode!;
-
-  int get requestPayloadSize => _metric.requestPayloadSize ?? 0;
-
-  String get responseContentType => _metric.responseContentType ?? '';
-
-  int get responsePayloadSize => _metric.responsePayloadSize ?? 0;
-
-  set httpResponseCode(int httpResponseCode) {
-    _metric.httpResponseCode = httpResponseCode;
-  }
-
-  set requestPayloadSize(int requestPayloadSize) {
-    _metric.requestPayloadSize = requestPayloadSize;
-  }
-
-  set responseContentType(String responseContentType) {
-    _metric.responseContentType = responseContentType;
-  }
-
-  set responsePayloadSize(int responsePayloadSize) {
-    _metric.responsePayloadSize = responsePayloadSize;
+    _trace?.incrementMetric(name);
   }
 }
 
 class PerformanceMetric {
-  static final FirebasePerformance _firebasePerformance =
-      FirebasePerformance.instance;
+  static final IAnalyticsProvider _provider = IAnalyticsProvider.createDefault();
 
   static void init() {
-    _firebasePerformance.setPerformanceCollectionEnabled(kReleaseMode);
+    // Initialize provider lazily - it will set up Firebase when first used
+    _provider.initialize();
   }
 
   static PerformanceTrace newTrace(String name) {
-    return PerformanceTrace(_firebasePerformance.newTrace(name));
-  }
-
-  static HttpPerformanceTrace newHttpMetric(String url, String method) {
-    var httpMethod = stringToEnum(method, HttpMethod.values);
-    return HttpPerformanceTrace(
-        _firebasePerformance.newHttpMetric(url, httpMethod));
+    final trace = _provider.newTrace(name);
+    return PerformanceTrace(trace);
   }
 }

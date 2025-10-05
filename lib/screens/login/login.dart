@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/services/vartalap_authenticated_client.dart';
@@ -11,7 +11,6 @@ import 'package:vartalap/widgets/loading_indicator.dart';
 class LoginScreen extends StatelessWidget {
   final TextEditingController _phoneController =
       TextEditingController(text: "+91");
-  final config = ConfigStore();
 
   LoginScreen({super.key});
   @override
@@ -39,7 +38,7 @@ class LoginScreen extends StatelessWidget {
                   Container(
                     margin: EdgeInsets.only(top: 10),
                     child: Text(
-                      config.packageInfo.appName,
+                      AppConfig.packageInfo.appName,
                       style: VartalapTheme.theme.appTitleStyle.copyWith(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,

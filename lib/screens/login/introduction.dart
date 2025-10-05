@@ -1,6 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
@@ -8,9 +8,8 @@ import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/screens/login/login.dart';
 
 class IntroductionScreen extends StatelessWidget {
-  final config = ConfigStore();
 
-  IntroductionScreen({super.key});
+  const IntroductionScreen({super.key});
   @override
   Widget build(BuildContext context) {
     final theme = VartalapTheme.theme;
@@ -40,7 +39,7 @@ class IntroductionScreen extends StatelessWidget {
                   Container(
                     margin: EdgeInsets.only(top: 10),
                     child: Text(
-                      config.packageInfo.appName,
+                      AppConfig.packageInfo.appName,
                       style: VartalapTheme.theme.appTitleStyle.copyWith(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,
@@ -70,7 +69,7 @@ class IntroductionScreen extends StatelessWidget {
                             style: linkTheme,
                             recognizer: TapGestureRecognizer()
                               ..onTap = () => launchUrl(
-                                    config.get('privacy_policy'),
+                                    AppConfig.privacyPolicy,
                                   ),
                           ),
                           TextSpan(
@@ -81,7 +80,7 @@ class IntroductionScreen extends StatelessWidget {
                             style: linkTheme,
                             recognizer: TapGestureRecognizer()
                               ..onTap = () => launchUrl(
-                                    config.get('privacy_policy'),
+                                    AppConfig.privacyPolicy,
                                   ),
                           )
                         ],
@@ -143,7 +142,7 @@ class IntroductionScreen extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    "v${config.packageInfo.version}+${config.packageInfo.buildNumber}",
+                    "v${AppConfig.packageInfo.version}+${AppConfig.packageInfo.buildNumber}",
                   )
                 ],
               ),

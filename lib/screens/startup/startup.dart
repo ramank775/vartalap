@@ -1,15 +1,14 @@
 import 'dart:async';
 
-import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/theme/theme.dart';
-import 'package:vartalap/widgets/Inherited/config_provider.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/app_logo.dart';
-import 'package:vartalap/services/contact_service.dart';
 import 'package:vartalap/services/connectivity_service.dart';
+import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/utils/error_types.dart';
 import 'package:vartalap/widgets/error_widgets.dart';
 
@@ -25,81 +24,70 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
   AppError? _initializationError;
   String _currentStep = "Initializing...";
 
-  Future<void> _initializeApp(
-      ConfigStore configStore, BuildContext context) async {
+  Future<void> _initializeApp(BuildContext context) async {
+    final startupStart = DateTime.now();
+    debugPrint('🚀 [PERF] StartupScreen._initializeApp() started');
+
     try {
-      // Get client reference before any async operations
-      final client = VartalapClientProvider.of(context).client;
-      
-      setState(() {
-        _currentStep = "Checking connectivity...";
-      });
-
-      // Initialize connectivity service
-      await ConnectivityService().initialize();
+      final providerStart = DateTime.now();
+      final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+      debugPrint('⏱️ [PERF] Getting authClient from provider took: ${DateTime.now().difference(providerStart).inMilliseconds}ms');
 
       setState(() {
-        _currentStep = "Requesting permissions...";
+        _currentStep = "Checking authentication...";
       });
 
-      // Request notification permission with error handling
-      final notificationPermission = await Permission.notification.request();
-      if (notificationPermission.isDenied) {
-        throw PermissionError(
-          'Notification permission is required for app functionality.',
-          technicalDetails: 'Notification permission denied',
-        );
-      }
+      final authInitStart = DateTime.now();
+      await authClient.initialize().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TimeoutError(
+          'Authentication check timed out.',
+        ),
+      );
+      debugPrint('⏱️ [PERF] authClient.initialize() took: ${DateTime.now().difference(authInitStart).inMilliseconds}ms');
 
-      setState(() {
-        _currentStep = "Initializing client...";
-      });
-
-      // Initialize client with timeout
-      await client.init().timeout(
-            const Duration(seconds: 30),
-            onTimeout: () => throw TimeoutError(
-              'Client initialization timed out. Please check your internet connection.',
-            ),
-          );
-
-      setState(() {
-        _currentStep = "Syncing contacts...";
-      });
-
-      // Handle contacts with permission check
-      final contactsPermission = await Permission.contacts.status;
-      if (contactsPermission.isGranted) {
-        try {
-          final contacts = await ContactService.fetchDeviceContacts().timeout(
-            const Duration(seconds: 15),
-            onTimeout: () => throw TimeoutError(
-              'Contact fetching timed out.',
-            ),
-          );
-          await client.syncContacts(contacts);
-        } on Exception catch (e) {
-          // Don't fail initialization for contact sync errors
-          debugPrint('Contact sync failed: $e');
-        }
-      }
+      final permissionsStart = DateTime.now();
+      _requestPermissionsInBackground();
+      debugPrint('⏱️ [PERF] Starting background permissions took: ${DateTime.now().difference(permissionsStart).inMilliseconds}ms');
 
       setState(() {
         _isInitializing = false;
       });
 
-      // Small delay to show completion
-      await Future.delayed(const Duration(milliseconds: 500));
+      debugPrint('🎯 [PERF] Total StartupScreen initialization: ${DateTime.now().difference(startupStart).inMilliseconds}ms');
 
       if (context.mounted) {
         onNext();
       }
     } catch (e) {
+      debugPrint('❌ [PERF] StartupScreen initialization failed after: ${DateTime.now().difference(startupStart).inMilliseconds}ms');
       final error = ErrorMapper.mapException(e);
       setState(() {
         _isInitializing = false;
         _initializationError = error;
       });
+    }
+  }
+
+  // Request permissions in background without blocking startup
+  void _requestPermissionsInBackground() async {
+    final backgroundStart = DateTime.now();
+    debugPrint('📱 [PERF] Background permissions started');
+
+    try {
+      final connectivityStart = DateTime.now();
+      final connectivityFuture = ConnectivityService().initialize();
+
+      final notificationStart = DateTime.now();
+      final notificationFuture = Permission.notification.request();
+
+      await Future.wait([connectivityFuture, notificationFuture]);
+
+      debugPrint('⏱️ [PERF] ConnectivityService.initialize took: ${DateTime.now().difference(connectivityStart).inMilliseconds}ms');
+      debugPrint('⏱️ [PERF] Permission.notification.request took: ${DateTime.now().difference(notificationStart).inMilliseconds}ms');
+      debugPrint('🎯 [PERF] Total background permissions: ${DateTime.now().difference(backgroundStart).inMilliseconds}ms');
+    } catch (e) {
+      debugPrint('❌ [PERF] Background permission setup failed after: ${DateTime.now().difference(backgroundStart).inMilliseconds}ms - $e');
     }
   }
 
@@ -116,16 +104,14 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final configStore = ConfigProvider.of(context).configStore;
-      _initializeApp(configStore, context);
+      _initializeApp(context);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final configStore = ConfigProvider.of(context).configStore;
-    final packageInfo = configStore.packageInfo;
+    final packageInfo = AppConfig.packageInfo;
 
     return Scaffold(
       body: Column(
@@ -141,7 +127,7 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
                 if (_initializationError != null)
                   _buildErrorState(theme, packageInfo)
                 else
-                  _buildLoadingState(theme, configStore, packageInfo),
+                  _buildLoadingState(theme, packageInfo),
               ],
             ),
           ),
@@ -151,7 +137,7 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
   }
 
   Widget _buildLoadingState(
-      ThemeData theme, ConfigStore configStore, packageInfo) {
+      ThemeData theme, packageInfo) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.start,
       children: [
@@ -198,7 +184,7 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
                 const SizedBox(height: 8),
               ],
               Text(
-                configStore.subtitle,
+                AppConfig.subtitle,
                 style: const TextStyle(
                   fontSize: 18.0,
                   fontWeight: FontWeight.bold,
@@ -251,8 +237,7 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
                   _initializationError = null;
                   _currentStep = "Retrying...";
                 });
-                final configStore = ConfigProvider.of(context).configStore;
-                _initializeApp(configStore, context);
+                _initializeApp(context);
               },
             ),
           ),
