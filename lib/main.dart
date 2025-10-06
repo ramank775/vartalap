@@ -81,18 +81,58 @@ VartalapAuthenticatedClient _createAuthClient() {
 
 
 /// Main App Widget with Unified Authentication
-class VartalapApp extends StatelessWidget {
+class VartalapApp extends StatefulWidget {
   final VartalapAuthenticatedClient authClient;
 
   const VartalapApp({super.key, required this.authClient});
 
   @override
+  State<VartalapApp> createState() => _VartalapAppState();
+}
+
+class _VartalapAppState extends State<VartalapApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  AuthState? _previousAuthState;
+
+  @override
+  void initState() {
+    super.initState();
+    _previousAuthState = widget.authClient.state;
+    // Listen to auth state changes
+    widget.authClient.addListener(_onAuthStateChanged);
+  }
+
+  void _onAuthStateChanged() {
+    final currentState = widget.authClient.state;
+
+    // Detect logout: transition from authenticated to unauthenticated
+    if (_previousAuthState == AuthState.authenticated &&
+        currentState == AuthState.unauthenticated) {
+      debugPrint('[AUTH] Detected logout, clearing navigation stack');
+      // Clear all routes and return to home (login screen)
+      _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        '/',
+        (route) => false,
+      );
+    }
+
+    _previousAuthState = currentState;
+  }
+
+  @override
+  void dispose() {
+    widget.authClient.removeListener(_onAuthStateChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<VartalapAuthenticatedClient>(
-      create: (_) => authClient,
+      create: (_) => widget.authClient,
       child: Consumer<VartalapAuthenticatedClient>(
         builder: (context, authClient, _) {
           return MaterialApp(
+            navigatorKey: _navigatorKey,
             title: AppConfig.packageInfo.appName,
             debugShowCheckedModeBanner: false,
             themeMode: VartalapTheme.themeMode,

@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 
 import 'package:vartalap_messaging/core/api/api_client.dart';
@@ -151,9 +153,7 @@ class VartalapChatClient {
 
   Future<void> logout() async {
     // Clear stored token
-    print('[VartalapChatClient] Calling logout on token manager...');
     await _tokenManager.clearToken();
-    print('[VartalapChatClient] Logout completed');
   }
 
   Future<void> close() async {

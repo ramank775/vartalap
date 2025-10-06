@@ -65,8 +65,13 @@ class ChatsState extends State<Chats> {
               case ConnectionState.active:
               case ConnectionState.done:
                 if (chatSnapshot.hasError) {
+                  // Don't show error if it's due to logout (database closed)
+                  // The Consumer in main.dart will handle navigation
+                  debugPrint('Chat stream error: ${chatSnapshot.error}');
                   return Center(
-                    child: Text('Error: ${chatSnapshot.error}'),
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
+                    ),
                   );
                 }
             }
@@ -74,9 +79,12 @@ class ChatsState extends State<Chats> {
               stream: client.watchUnreadCounts(),
               builder: (context, unreadSnapshot) {
                 if (unreadSnapshot.hasError) {
+                  // Don't show error if it's due to logout (database closed)
+                  debugPrint('Unread counts stream error: ${unreadSnapshot.error}');
                   return Center(
-                    child: Text(
-                        'Error loading unread counts: ${unreadSnapshot.error}'),
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
+                    ),
                   );
                 }
                 return ChatListView(
@@ -165,16 +173,9 @@ class ChatsState extends State<Chats> {
             var link = AppConfig.privacyPolicy;
             launchUrl(link);
           } else if (value == "Logout") {
-            final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+            final authClient = Provider.of<VartalapAuthenticatedClient>(context,
+                listen: false);
             await authClient.logout();
-
-            // Navigate to login screen after logout
-            if (context.mounted) {
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                '/',
-                (route) => false,
-              );
-            }
           }
         },
         itemBuilder: (BuildContext context) {
@@ -200,7 +201,7 @@ class ChatsState extends State<Chats> {
     final currentUser = CurrentUser.of(context).user!;
     final client = VartalapClientProvider.of(context).client;
     final navigator = Navigator.of(context);
-    
+
     var result = await navigator.pushNamed(screen, arguments: data);
     if (screen == "/new-chat") {
       if (result == null) {

@@ -3,7 +3,6 @@ import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap/utils/error_types.dart';
 import 'package:vartalap/widgets/error_widgets.dart';
 import 'package:vartalap/services/connectivity_service.dart';
-import 'package:vartalap/screens/login/introduction.dart';
 
 /// Enhanced client provider with error handling and connection monitoring
 class VartalapClientProvider extends InheritedWidget {
@@ -134,8 +133,14 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
     } catch (e) {
       // Check if this is a login-related error
       if (e.toString().contains('No user is currently logged in')) {
-        debugPrint('User not logged in to chat service, redirecting to login');
-        _handleLoginRequired();
+        debugPrint('User not logged in to chat service - auth state will handle navigation');
+        // Don't show error page, just set to disconnected state
+        // The Consumer<VartalapAuthenticatedClient> in main.dart will handle navigation
+        setState(() {
+          _connectionState = ClientConnectionState.disconnected;
+          _connectionError = null;
+          _isInitializing = false;
+        });
         return;
       }
 
@@ -179,8 +184,12 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
     } catch (e) {
       // Check if this is a login-related error during reconnection
       if (e.toString().contains('No user is currently logged in')) {
-        debugPrint('User not logged in during reconnection, redirecting to login');
-        _handleLoginRequired();
+        debugPrint('User not logged in during reconnection - auth state will handle navigation');
+        // Don't show error page, just set to disconnected state
+        setState(() {
+          _connectionState = ClientConnectionState.disconnected;
+          _connectionError = null;
+        });
         return;
       }
 
@@ -205,20 +214,6 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
         );
       }
     }
-  }
-
-  void _handleLoginRequired() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && context.mounted) {
-        // Navigate to login screen
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => IntroductionScreen(),
-          ),
-          (route) => false,
-        );
-      }
-    });
   }
 
   @override

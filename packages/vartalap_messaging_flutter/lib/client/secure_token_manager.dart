@@ -1,5 +1,6 @@
 // ignore_for_file: constant_identifier_names
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 
@@ -34,26 +35,26 @@ class SecureStorageTokenManager implements TokenManager {
   Future<Token?> fetchActiveToken() async {
     if (_userId == null) {
       _userId = await _storage.read(key: USER_ID_KEY);
-      print('[SecureStorageTokenManager] Read userId from storage: $_userId');
+      debugPrint('[SecureStorageTokenManager] Read userId from storage: $_userId');
     } else if (_token != null) {}
     if (_userId == null) {
-      print('[SecureStorageTokenManager] No userId found, returning null');
+      debugPrint('[SecureStorageTokenManager] No userId found, returning null');
       return null;
     }
 
     final token = await fetchToken(_userId!);
-    print('[SecureStorageTokenManager] Fetched token: ${token != null ? "found" : "null"}');
+    debugPrint('[SecureStorageTokenManager] Fetched token: ${token != null ? "found" : "null"}');
     return token;
   }
 
   /// Clear all stored tokens (for logout)
   @override
   Future<void> clearToken() async {
-    print('[SecureStorageTokenManager] Clearing tokens...');
+    debugPrint('[SecureStorageTokenManager] Clearing tokens...');
     await _storage.delete(key: USER_ID_KEY);
     await _storage.delete(key: ACCESS_KEY);
     _userId = null;
     _token = null;
-    print('[SecureStorageTokenManager] Tokens cleared successfully');
+    debugPrint('[SecureStorageTokenManager] Tokens cleared successfully');
   }
 }

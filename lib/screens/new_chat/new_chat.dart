@@ -426,7 +426,7 @@ class ContactList extends StatelessWidget {
             ),
           ),
           onTap: () async {
-            await Share.share(AppConfig.shareMessage);
+            await SharePlus.instance.share(ShareParams(text: AppConfig.shareMessage));
           },
         ));
 

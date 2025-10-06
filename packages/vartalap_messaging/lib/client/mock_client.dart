@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -5,7 +7,6 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:vartalap_messaging/client/client.dart';
 import 'package:vartalap_messaging/core/api/response.dart';
-import 'package:vartalap_messaging/core/http/token_manager.dart';
 import 'package:vartalap_messaging/core/models/channel.dart';
 import 'package:vartalap_messaging/core/models/credentail.dart';
 import 'package:vartalap_messaging/core/models/event.dart';
@@ -45,10 +46,9 @@ class MockVartalapChatClient extends VartalapChatClient {
 
   MockVartalapChatClient({
     this.mockUserId = "+1234567890",
-    required TokenManager tokenManager,
+    required super.tokenManager,
   }) : super(
           apiKey: "mock_api_key",
-          tokenManager: tokenManager,
           apiBaseUrl: "http://localhost:3000",
           wsUrl: "ws://localhost:3000",
         );
@@ -95,7 +95,8 @@ class MockVartalapChatClient extends VartalapChatClient {
       final channelsList = state['channels'] as List<dynamic>?;
       if (channelsList != null) {
         for (var channelJson in channelsList) {
-          _channels.add(MockChannel.fromJson(channelJson as Map<String, dynamic>));
+          _channels
+              .add(MockChannel.fromJson(channelJson as Map<String, dynamic>));
         }
       }
 
@@ -103,11 +104,13 @@ class MockVartalapChatClient extends VartalapChatClient {
       final messagesMap = state['messages'] as Map<String, dynamic>?;
       if (messagesMap != null) {
         messagesMap.forEach((channelId, messages) {
-          _channelMessages[channelId] = List<Map<String, dynamic>>.from(messages as List);
+          _channelMessages[channelId] =
+              List<Map<String, dynamic>>.from(messages as List);
         });
       }
 
-      print('[MOCK] Loaded persisted state: ${_channels.length} channels, ${_profiles.length} profiles');
+      print(
+          '[MOCK] Loaded persisted state: ${_channels.length} channels, ${_profiles.length} profiles');
       return true;
     } catch (e) {
       print('[MOCK] Error loading state: $e');
@@ -123,14 +126,16 @@ class MockVartalapChatClient extends VartalapChatClient {
       final state = {
         'version': '1.0',
         'mockUserId': mockUserId,
-        'profiles': _profiles.map((key, value) => MapEntry(key, value.toJson())),
+        'profiles':
+            _profiles.map((key, value) => MapEntry(key, value.toJson())),
         'channels': _channels.map((c) => c.toJson()).toList(),
         'messages': _channelMessages,
         'lastUpdated': DateTime.now().toIso8601String(),
       };
 
       await file.writeAsString(jsonEncode(state));
-      print('[MOCK] Saved state: ${_channels.length} channels, ${_profiles.length} profiles');
+      print(
+          '[MOCK] Saved state: ${_channels.length} channels, ${_profiles.length} profiles');
     } catch (e) {
       print('[MOCK] Error saving state: $e');
     }
@@ -241,7 +246,8 @@ class MockVartalapChatClient extends VartalapChatClient {
 
     for (var i = 0; i < count; i++) {
       final text = sampleTexts[i % sampleTexts.length];
-      final timestamp = now.subtract(Duration(hours: count - i, minutes: i * 5));
+      final timestamp =
+          now.subtract(Duration(hours: count - i, minutes: i * 5));
 
       messages.add({
         "id": "msg_${channelId}_$i",
@@ -283,11 +289,12 @@ class MockVartalapChatClient extends VartalapChatClient {
   Future<ProfileResponse> fetchProfile(String userId) async {
     await Future.delayed(const Duration(milliseconds: 200));
 
-    final profile = _profiles[userId] ?? MockProfile(
-      userId: userId,
-      name: "Unknown User",
-      email: "unknown@example.com",
-    );
+    final profile = _profiles[userId] ??
+        MockProfile(
+          userId: userId,
+          name: "Unknown User",
+          email: "unknown@example.com",
+        );
 
     return ProfileResponse.fromJson({
       "name": profile.name,
@@ -324,14 +331,16 @@ class MockVartalapChatClient extends VartalapChatClient {
   Future<ChannelsResponse> queryChannels() async {
     await Future.delayed(const Duration(milliseconds: 250));
 
-    final channelsJson = _channels.map((c) => {
-      "id": c.id,
-      "name": c.name,
-      "type": c.type,
-      "createdBy": c.createdBy,
-      "createdAt": c.createdAt.toIso8601String(),
-      "members": c.members,
-    }).toList();
+    final channelsJson = _channels
+        .map((c) => {
+              "id": c.id,
+              "name": c.name,
+              "type": c.type,
+              "createdBy": c.createdBy,
+              "createdAt": c.createdAt.toIso8601String(),
+              "members": c.members,
+            })
+        .toList();
 
     return ChannelsResponse.fromJson(channelsJson);
   }
@@ -366,7 +375,8 @@ class MockVartalapChatClient extends VartalapChatClient {
   }
 
   @override
-  Future<void> addChannelMembers(String channelId, List<String> memberIds) async {
+  Future<void> addChannelMembers(
+      String channelId, List<String> memberIds) async {
     await Future.delayed(const Duration(milliseconds: 200));
 
     final index = _channels.indexWhere((c) => c.id == channelId);
@@ -537,22 +547,22 @@ class MockChannel {
   });
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'type': type,
-    'name': name,
-    'members': members,
-    'createdBy': createdBy,
-    'createdAt': createdAt.toIso8601String(),
-  };
+        'id': id,
+        'type': type,
+        'name': name,
+        'members': members,
+        'createdBy': createdBy,
+        'createdAt': createdAt.toIso8601String(),
+      };
 
   factory MockChannel.fromJson(Map<String, dynamic> json) => MockChannel(
-    id: json['id'] as String,
-    type: json['type'] as String,
-    name: json['name'] as String,
-    members: List<String>.from(json['members'] as List),
-    createdBy: json['createdBy'] as String,
-    createdAt: DateTime.parse(json['createdAt'] as String),
-  );
+        id: json['id'] as String,
+        type: json['type'] as String,
+        name: json['name'] as String,
+        members: List<String>.from(json['members'] as List),
+        createdBy: json['createdBy'] as String,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
 }
 
 class MockProfile {
@@ -569,16 +579,16 @@ class MockProfile {
   });
 
   Map<String, dynamic> toJson() => {
-    'userId': userId,
-    'name': name,
-    'email': email,
-    'imageUrl': imageUrl,
-  };
+        'userId': userId,
+        'name': name,
+        'email': email,
+        'imageUrl': imageUrl,
+      };
 
   factory MockProfile.fromJson(Map<String, dynamic> json) => MockProfile(
-    userId: json['userId'] as String,
-    name: json['name'] as String,
-    email: json['email'] as String,
-    imageUrl: json['imageUrl'] as String?,
-  );
+        userId: json['userId'] as String,
+        name: json['name'] as String,
+        email: json['email'] as String,
+        imageUrl: json['imageUrl'] as String?,
+      );
 }

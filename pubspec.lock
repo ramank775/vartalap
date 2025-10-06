@@ -1029,7 +1029,7 @@ packages:
     source: hosted
     version: "4.5.1"
   vartalap_messaging:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "packages/vartalap_messaging"
       relative: true

@@ -153,9 +153,7 @@ class VartalapChatClientFlutter {
   Future<void> _initializeDatabase(String userId) async {
     try {
       _db = ChatDatabase(userId: userId);
-      await _db.executor.ensureOpen(_db);
-      // Verify database connection by attempting a simple operation
-      await _db.executor.runSelect('SELECT 1', []);
+      // Database will open automatically on first query (driftDatabase uses DatabaseConnection.delayed)
     } catch (e) {
       throw VartalapInitializationException(
         'Failed to initialize local database for user $userId: ${e.toString()}',

@@ -53,6 +53,8 @@ dependencies:
   mobile_device_identifier: ^0.0.3
   vartalap_messaging_flutter:
     path: ./packages/vartalap_messaging_flutter
+  vartalap_messaging:
+    path: ./packages/vartalap_messaging
 
 dev_dependencies:
   flutter_test:
