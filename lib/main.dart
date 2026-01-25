@@ -17,8 +17,9 @@ import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
-import 'package:vartalap_messaging/vartalap_messaging.dart';
+import 'package:vartalap/widgets/mock_developer_menu.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
+import 'package:vartalap_testing/vartalap_testing.dart';
 
 void main() async {
   final startTime = DateTime.now();
@@ -133,7 +134,7 @@ class _VartalapAppState extends State<VartalapApp> {
       create: (_) => widget.authClient,
       child: Consumer<VartalapAuthenticatedClient>(
         builder: (context, authClient, _) {
-          return MaterialApp(
+          Widget app = MaterialApp(
             navigatorKey: _navigatorKey,
             title: AppConfig.packageInfo.appName,
             debugShowCheckedModeBanner: false,
@@ -143,6 +144,12 @@ class _VartalapAppState extends State<VartalapApp> {
             onGenerateRoute: _routes,
             home: _buildHomeScreen(authClient),
           );
+
+          if (AppConfig.isMockMode) {
+            app = MockDeveloperMenu(child: app);
+          }
+
+          return app;
         },
       ),
     );

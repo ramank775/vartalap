@@ -1,0 +1,20 @@
+name: vartalap_testing
+description: Dedicated testing framework and virtual server for Vartalap.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  vartalap_messaging:
+    path: ../vartalap_messaging
+  path_provider: ^2.1.5
+  meta: ^1.16.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

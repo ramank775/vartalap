@@ -6,6 +6,7 @@
 library;
 
 import 'package:flutter/foundation.dart';
+import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/models/auth_models.dart';
 
 /// Abstract interface for OTP (One-Time Password) providers
@@ -151,14 +152,16 @@ abstract class OTPProviderFactory {
     // ignore: implementation_imports
     return (const bool.fromEnvironment('dart.library.io'))
         ? _createFirebaseProvider()
-        : throw UnsupportedError('Firebase OTP provider not available on this platform');
+        : throw UnsupportedError(
+            'Firebase OTP provider not available on this platform');
   }
 
   /// Internal method to create Firebase provider
   /// This will be properly implemented once we add the import
   static IOTPProvider _createFirebaseProvider() {
     // This is a placeholder - will be updated when we can import FirebaseOTPProvider
-    throw UnimplementedError('Firebase provider creation not yet implemented in factory');
+    throw UnimplementedError(
+        'Firebase provider creation not yet implemented in factory');
   }
 
   /// Create a test OTP provider for development/testing
@@ -188,15 +191,18 @@ class TestOTPProvider implements IOTPProvider {
   String? _currentPhoneNumber;
 
   @override
-  OTPProviderCapabilities get capabilities => OTPProviderCapabilities.fullFeatured();
+  OTPProviderCapabilities get capabilities =>
+      OTPProviderCapabilities.fullFeatured();
 
   @override
   Future<OTPResult> sendOTP(String phoneNumber, {OTPOptions? options}) async {
     // Store phone number for later verification
     _currentPhoneNumber = phoneNumber;
 
-    // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Simulate network delay (skip in tests to avoid hangs)
+    if (!AppConfig.isTesting) {
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
 
     // In mock mode, log the correct OTP for developer convenience
     debugPrint('[TEST OTP] Phone: $phoneNumber');
@@ -215,17 +221,21 @@ class TestOTPProvider implements IOTPProvider {
 
   @override
   Future<OTPCredential> verifyOTP(String otp) async {
-    // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 300));
+    // Simulate network delay (skip in tests)
+    if (!AppConfig.isTesting) {
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
 
     // Check if we have a phone number from sendOTP
     if (_currentPhoneNumber == null) {
-      throw AuthError.otpVerification('No active OTP session. Please request OTP first.');
+      throw AuthError.otpVerification(
+          'No active OTP session. Please request OTP first.');
     }
 
     // Validate OTP - only accept the correct one to enable error testing
     if (otp != _correctOTP) {
-      throw AuthError.otpVerification('Invalid OTP. Use "$_correctOTP" for test mode.');
+      throw AuthError.otpVerification(
+          'Invalid OTP. Use "$_correctOTP" for test mode.');
     }
 
     // OTP is correct - return credential with stored phone number

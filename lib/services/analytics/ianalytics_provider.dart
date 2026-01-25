@@ -29,6 +29,10 @@ abstract class IAnalyticsProvider {
 
   /// Factory method to create the default analytics provider
   static IAnalyticsProvider createDefault() {
+    const isMockMode = bool.fromEnvironment('MOCK_MODE', defaultValue: false);
+    if (isMockMode) {
+      return _NoOpAnalyticsProvider();
+    }
     return _createFirebaseProvider();
   }
 

@@ -76,9 +76,12 @@ class VartalapChatClientFlutter {
     String? apiBaseUrl,
     String? wsUrl,
     VartalapChatClient? client,
+    TokenManager? tokenManager,
   }) {
-    // Create token manager that will be shared
-    _tokenManager = SecureStorageTokenManager();
+    // Priority: 1. Constructor param, 2. Provided client's manager, 3. Default secure storage
+    _tokenManager = tokenManager ?? 
+                    client?.tokenManager ?? 
+                    SecureStorageTokenManager();
 
     this.client = client ??
         VartalapChatClient(
@@ -254,25 +257,50 @@ class VartalapChatClientFlutter {
       }
 
       if (channelRow == null) {
-        debugPrint('[EVENT] Channel not found for incoming message, ignoring');
-        return;
+        if (remoteMsg.head.type == messaging.ChannelType.individual) {
+          debugPrint('[EVENT] 1-1 Channel not found, auto-creating for sender: ${remoteMsg.head.from}');
+          // 1. Ensure sender contact exists
+          final senderRow = await (_db.select(_db.contacts)
+                ..where((tbl) => tbl.uid.equals(remoteMsg.head.from)))
+              .getSingleOrNull();
+          
+          int contactId;
+          if (senderRow == null) {
+            contactId = await _db.into(_db.contacts).insert(ContactsCompanion.insert(
+              uid: Value(remoteMsg.head.from),
+              username: Value(remoteMsg.head.from),
+              status: ContactStatus.active,
+            ));
+          } else {
+            contactId = senderRow.id;
+          }
+
+          // 2. Create the channel locally
+          final newChannel = await _db.into(_db.channels).insertReturning(ChannelsCompanion.insert(
+            type: messaging.ChannelType.individual,
+            cid: Value(remoteMsg.head.from), // For 1-1, CID is the other person's UID
+            config: const Value({}),
+          ));
+          
+          // 3. Add members
+          await _db.into(_db.members).insert(MembersCompanion.insert(
+            channelId: newChannel.id,
+            memberId: contactId,
+          ));
+          
+          channelRow = newChannel;
+        } else {
+          debugPrint('[EVENT] Channel not found for incoming message, ignoring');
+          return;
+        }
       }
 
-      // 2. Resolve local sender ID
+      // 2. Resolve local sender ID (might have been created above)
       final senderRow = await (_db.select(_db.contacts)
             ..where((tbl) => tbl.uid.equals(remoteMsg.head.from)))
           .getSingleOrNull();
 
-      int localSenderId;
-      if (senderRow == null) {
-        localSenderId = await _db.into(_db.contacts).insert(ContactsCompanion.insert(
-          uid: Value(remoteMsg.head.from),
-          username: Value(remoteMsg.head.from),
-          status: ContactStatus.active,
-        ));
-      } else {
-        localSenderId = senderRow.id;
-      }
+      int localSenderId = senderRow!.id;
 
       // 3. Prevent duplicates
       final existingMsg = await (_db.select(_db.messages)

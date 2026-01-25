@@ -1,7 +1,6 @@
 library;
 
 export 'package:dio/dio.dart' show CancelToken, ProgressCallback;
-export 'client/mock_client.dart';
 export 'client/client.dart';
 export 'core/ws/connection_status.dart';
 export 'core/api/response.dart';

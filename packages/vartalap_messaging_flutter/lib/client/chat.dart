@@ -72,7 +72,19 @@ class ChatClient {
 
   Future<void> init() async {
     _members = await chatDao.getMembers(channelId: channel.id).get();
-
+    
+    // Fallback if no members in DB yet (e.g. newly created channel)
+    if (_members.isEmpty && channel.extraData['members'] != null) {
+      final memberUids = channel.extraData['members'] as List;
+      // Note: This is a shallow mock for the UI to not crash
+      _members = memberUids.map((uid) => Member(
+        user: Contact(id: 0, username: uid.toString(), status: ContactStatus.active, uid: uid.toString()),
+        role: 'member',
+        since: DateTime.now(),
+        updatedAt: DateTime.now(),
+      )).toList();
+    }
+    
     // Listen for ephemeral events filtered for this channel
     _ephemeralSub = client.ephemeralEvents.listen((event) {
       if (event.head.category == 'typing') {

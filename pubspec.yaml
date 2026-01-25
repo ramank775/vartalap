@@ -54,6 +54,8 @@ dependencies:
   image_picker: ^1.1.2
   file_picker: ^8.1.7
   drift: ^2.28.2
+  vartalap_testing:
+    path: ./packages/vartalap_testing
   vartalap_messaging_flutter:
     path: ./packages/vartalap_messaging_flutter
   vartalap_messaging:

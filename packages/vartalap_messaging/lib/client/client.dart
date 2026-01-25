@@ -58,6 +58,8 @@ class VartalapChatClient {
   late final TokenManager _tokenManager;
   late StreamSubscription<RemoteMessage> _wsStreamSub;
 
+  TokenManager get tokenManager => _tokenManager;
+
   final StreamController<RemoteMessage> _controller =
       StreamController<RemoteMessage>.broadcast();
   Stream<RemoteMessage> get eventStream =>

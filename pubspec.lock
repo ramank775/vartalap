@@ -1154,6 +1154,13 @@ packages:
       relative: true
     source: path
     version: "0.0.1"
+  vartalap_testing:
+    dependency: "direct main"
+    description:
+      path: "packages/vartalap_testing"
+      relative: true
+    source: path
+    version: "0.0.1"
   vector_math:
     dependency: transitive
     description:

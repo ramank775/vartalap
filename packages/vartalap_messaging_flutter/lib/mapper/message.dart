@@ -60,6 +60,7 @@ extension ChatMessageX on ChatMessage {
   MessageEntity toEntity({required int channelId}) {
     return MessageEntity(
       id: id,
+      rid: rid,
       channelId: channelId,
       senderId: senderId,
       state: state,

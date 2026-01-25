@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -33,19 +34,24 @@ class AppConfig {
 
   // Development mode configuration
   static const bool isMockMode = bool.fromEnvironment('MOCK_MODE', defaultValue: false);
+  static bool isTesting = false;
 
   // App metadata - static singleton loaded once
   static late final PackageInfo packageInfo;
   static const String subtitle = "Open source personal chat messager";
+  static bool _isInitialized = false;
 
   // Private constructor to prevent instantiation
   AppConfig._();
 
   /// Initialize package info - call once at app startup
   static Future<void> initialize() async {
+    if (_isInitialized) return;
+    isTesting = const bool.fromEnvironment('dart.library.io') && Platform.environment.containsKey('FLUTTER_TEST');
     final packageStart = DateTime.now();
     debugPrint('📦 [PERF] PackageInfo.fromPlatform() started');
     packageInfo = await PackageInfo.fromPlatform();
+    _isInitialized = true;
     debugPrint('⏱️ [PERF] PackageInfo.fromPlatform() took: ${DateTime.now().difference(packageStart).inMilliseconds}ms');
   }
 
