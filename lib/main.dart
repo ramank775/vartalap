@@ -9,6 +9,7 @@ import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
+import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:vartalap/services/otp/firebase_otp_provider.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
@@ -171,7 +172,7 @@ class _VartalapAppState extends State<VartalapApp> {
         final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
 
         // Define protected routes that require authentication
-        final protectedRoutes = {'/chats', '/chat', '/new-chat', '/new-group', '/create-group'};
+        final protectedRoutes = {'/chats', '/chat', '/new-chat', '/new-group', '/create-group', '/profile'};
 
         // Check if route requires authentication
         if (protectedRoutes.contains(settings.name) && !authClient.isAuthenticated) {
@@ -186,6 +187,12 @@ class _VartalapAppState extends State<VartalapApp> {
             break;
           case '/verify-otp':
             widget = VerifyOtpWidget();
+            break;
+          case '/profile':
+            widget = _buildAuthenticatedScreen(
+              authClient: authClient,
+              child: const ProfileScreen(),
+            );
             break;
           case '/chats':
             // Wrap authenticated screens with CurrentUser provider

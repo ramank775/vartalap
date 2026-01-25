@@ -9,6 +9,7 @@ enum MessageState {
   sent,
   delivered,
   read,
+  error,
   other,
 }
 

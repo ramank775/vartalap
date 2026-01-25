@@ -7,6 +7,7 @@ extension ChannelEntityX on ChannelEntity {
     return ChannelModel(
       type: type,
       id: id,
+      cid: cid,
       isMuted: muted,
       config: ChannelConfig.fromJson(config),
       extraData: extraData ?? {},

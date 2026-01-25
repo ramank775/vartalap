@@ -246,36 +246,55 @@ class _VartalapClientManagerState extends State<VartalapClientManager>
   }
 
   Widget _buildConnectionIndicator() {
-    if (_connectionState == ClientConnectionState.reconnecting) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        color: Colors.orange.shade600,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+    if (_connectionState == ClientConnectionState.connected) {
+      return const SizedBox.shrink();
+    }
+
+    Color bgColor = Colors.orange.shade600;
+    String text = 'Connecting...';
+    bool showLoading = true;
+
+    if (_connectionState == ClientConnectionState.disconnected) {
+      bgColor = Colors.grey.shade700;
+      text = 'Waiting for network...';
+      showLoading = false;
+    } else if (_connectionState == ClientConnectionState.error) {
+      bgColor = Colors.red.shade700;
+      text = 'Connection Error';
+      showLoading = false;
+    } else if (_connectionState == ClientConnectionState.reconnecting) {
+      text = 'Reconnecting...';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      color: bgColor,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (showLoading) ...[
             const SizedBox(
-              width: 16,
-              height: 16,
+              width: 14,
+              height: 14,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
                 valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              'Reconnecting...',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
-            ),
           ],
-        ),
-      );
-    }
-
-    return const SizedBox.shrink();
+          Text(
+            text,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildDefaultLoading() {

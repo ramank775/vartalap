@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:vartalap/screens/chat/chat_info.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -36,6 +37,19 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     chat = widget.chat;
     WidgetsBinding.instance.addObserver(this);
     chat.watch();
+    
+    // Listen for remote typing indicators
+    _newMessageSub = chat.typingStream.listen((isTyping) {
+      _typing.value = isTyping;
+      
+      // Auto-clear typing indicator after a timeout if no "stop" event received
+      if (isTyping) {
+        _remoteTypingTimer?.cancel();
+        _remoteTypingTimer = Timer(const Duration(seconds: 5), () {
+          _typing.value = false;
+        });
+      }
+    });
   }
 
   @override
@@ -45,7 +59,6 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     // These are the callbacks
     switch (state) {
       case AppLifecycleState.resumed:
-        _newMessageSub?.resume();
         _notificationSub?.resume();
         break;
       default:
@@ -178,8 +191,10 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                       );
 
                       try {
+                        // The UI simply requests to send the message.
+                        // The client/DAO handles the DB insertion, 
+                        // which triggers the reactive messagesStream.
                         await chat.sendMessage([msg]);
-                        _messageController.add(msg);
                       } catch (e) {
                         _showErrorSnackBar('Failed to send message: $e');
                       }
@@ -187,32 +202,14 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                     onTyping: (bool state) async {
                       if (state) {
                         if (!(_myTypingTimer?.isActive ?? false)) {
-                          // ChatService.sendSystemMessage(
-                          //     TypingMessage(
-                          //       this._channel.id,
-                          //       this._currentUser.username,
-                          //       true,
-                          //     ),
-                          //     this._channel);
-                          _myTypingTimer = Timer.periodic(Duration(seconds: 2),
+                          await chat.sendTypingIndicator(true);
+                          _myTypingTimer = Timer.periodic(const Duration(seconds: 3),
                               (Timer timer) {
-                            // ChatService.sendSystemMessage(
-                            //     TypingMessage(
-                            //       this._channel.id,
-                            //       this._currentUser.username,
-                            //       true,
-                            //     ),
-                            //     this._channel);
+                            chat.sendTypingIndicator(true);
                           });
                         }
                       } else {
-                        // await ChatService.sendSystemMessage(
-                        //     TypingMessage(
-                        //       this._channel.id,
-                        //       this._currentUser.username,
-                        //       false,
-                        //     ),
-                        //     this._channel);
+                        await chat.sendTypingIndicator(false);
                         if (_myTypingTimer?.isActive ?? false) {
                           _myTypingTimer!.cancel();
                         }
@@ -399,6 +396,24 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (isTextMessage)
+                ListTile(
+                  leading: const Icon(Icons.copy),
+                  title: const Text('Copy Text'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Clipboard.setData(ClipboardData(text: (message as TextMessage).text));
+                    _showSuccessSnackBar('Text copied to clipboard');
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.forward),
+                title: const Text('Forward'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showErrorSnackBar('Forwarding is not yet implemented');
+                },
+              ),
               if (isMyMessage && isTextMessage)
                 ListTile(
                   leading: Icon(Icons.edit),
@@ -601,6 +616,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         return 'Delivered';
       case MessageState.read:
         return 'Read';
+      case MessageState.error:
+        return 'Error';
       case MessageState.other:
         return 'Unknown';
     }

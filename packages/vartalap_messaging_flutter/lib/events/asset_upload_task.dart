@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/client/client.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
@@ -9,7 +10,16 @@ class AssetUploadTask extends VartalapTask<int> {
     VartalapChatClient client,
     ChatDatabase db, {
     int? payload,
-  }) : super(client, db, name, payload: payload);
+    int? id,
+    TaskStatus state = TaskStatus.pending,
+  }) : super(
+          client,
+          db,
+          name,
+          payload: payload,
+          id: id,
+          state: state,
+        );
 
   @override
   Future<void> process() async {

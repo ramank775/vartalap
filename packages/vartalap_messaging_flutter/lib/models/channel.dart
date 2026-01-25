@@ -26,6 +26,7 @@ class ChannelConfig {
 
 class ChannelModel {
   final int id;
+  final String? cid; // Remote Channel ID
   final ChannelType type;
   bool isMuted = false;
   DateTime createdAt;
@@ -36,6 +37,7 @@ class ChannelModel {
   ChannelModel({
     required this.type,
     required this.id,
+    this.cid,
     required this.config,
     this.isMuted = false,
     this.extraData = const {},

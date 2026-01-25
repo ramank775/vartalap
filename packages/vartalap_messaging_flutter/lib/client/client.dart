@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:taskq/storage/database.dart';
 import 'package:taskq/taskq.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging/vartalap_messaging.dart'
     show VartalapChatClient, TokenManager, Credential, LoginResponse, Token;
 import 'package:vartalap_messaging_flutter/client/chat.dart';
@@ -63,6 +65,9 @@ class VartalapChatClientFlutter {
   late ChatDatabase _db;
   late TokenManager _tokenManager;
   bool _isInitialized = false;
+  
+  // Internal event bus for ephemeral events (typing, status, etc.)
+  final _eventBus = StreamController<messaging.RemoteMessage>.broadcast();
 
   VartalapChatClientFlutter({
     required String apiKey,
@@ -185,11 +190,9 @@ class VartalapChatClientFlutter {
       // Set up event stream with error handling
       client.eventStream.listen(
         (msg) {
-          // Process events - implementation can be expanded here
+          _handleIncomingEvent(msg);
         },
         onError: (error) {
-          // Log event stream errors but don't fail initialization
-          // This allows the client to continue functioning even if WebSocket has issues
           debugPrint('Event stream error: $error');
         },
         onDone: () {
@@ -204,7 +207,131 @@ class VartalapChatClientFlutter {
     }
   }
 
-  /// Get the logged-in user ID
+  /// Process incoming events from the server
+  /// Translates backend RemoteMessage into local actions
+  void _handleIncomingEvent(messaging.RemoteMessage msg) {
+    debugPrint('[EVENT] Received event: ${msg.head.category} (ephemeral: ${msg.head.ephemeral})');
+    
+    if (msg.head.ephemeral) {
+      if (msg.head.category == 'typing') {
+        _handleTypingEvent(msg);
+      } else {
+        // Broadcast other ephemeral events to the bus
+        _eventBus.add(msg);
+      }
+    } else {
+      if (msg.head.category == 'message') {
+        _handleNewMessage(msg);
+      } else if (msg.head.category == 'ack') {
+        _handleAckEvent(msg);
+      }
+    }
+  }
+
+  /// Handle persistent messages from other users
+  Future<void> _handleNewMessage(messaging.RemoteMessage remoteMsg) async {
+    try {
+      // 1. Resolve local channel ID
+      final myUid = await getLoggedInUser();
+      
+      ChannelEntity? channelRow;
+      if (remoteMsg.head.to == myUid) {
+        // 1-1 message: find channel where members contain 'from'
+        channelRow = await (_db.select(_db.channels).join([
+          innerJoin(_db.members, _db.members.channelId.equalsExp(_db.channels.id)),
+          innerJoin(_db.contacts, _db.contacts.id.equalsExp(_db.members.memberId)),
+        ])..where(_db.contacts.uid.equals(remoteMsg.head.from) & 
+                 _db.channels.type.equals(messaging.ChannelType.individual.name)))
+        .map((row) => row.readTable(_db.channels))
+        .getSingleOrNull();
+      } else {
+        // Group message: 'to' is the Group CID
+        channelRow = await (_db.select(_db.channels)
+              ..where((tbl) => tbl.cid.equals(remoteMsg.head.to)))
+            .getSingleOrNull();
+      }
+
+      if (channelRow == null) {
+        debugPrint('[EVENT] Channel not found for incoming message, ignoring');
+        return;
+      }
+
+      // 2. Resolve local sender ID
+      final senderRow = await (_db.select(_db.contacts)
+            ..where((tbl) => tbl.uid.equals(remoteMsg.head.from)))
+          .getSingleOrNull();
+
+      int localSenderId;
+      if (senderRow == null) {
+        localSenderId = await _db.into(_db.contacts).insert(ContactsCompanion.insert(
+          uid: Value(remoteMsg.head.from),
+          username: Value(remoteMsg.head.from),
+          status: ContactStatus.active,
+        ));
+      } else {
+        localSenderId = senderRow.id;
+      }
+
+      // 3. Prevent duplicates
+      final existingMsg = await (_db.select(_db.messages)
+            ..where((tbl) => tbl.rid.equals(remoteMsg.id)))
+          .getSingleOrNull();
+      if (existingMsg != null) return;
+
+      // 4. Insert to DB - triggers reactive UI
+      await _db.into(_db.messages).insert(MessagesCompanion.insert(
+        rid: Value(remoteMsg.id),
+        type: remoteMsg.head.category == 'image' ? MessageType.image : MessageType.text,
+        state: MessageState.delivered,
+        payload: remoteMsg.body as Map<String, dynamic>,
+        channelId: channelRow.id,
+        senderId: localSenderId,
+        remoteCreatedAt: Value(DateTime.fromMillisecondsSinceEpoch(remoteMsg.meta.createdAt)),
+        updatedAt: Value(DateTime.now()),
+      ));
+      
+      debugPrint('[EVENT] New message saved to local DB: ${remoteMsg.id}');
+    } catch (e) {
+      debugPrint('[EVENT] Error handling incoming message: $e');
+    }
+  }
+
+  /// Handle message acknowledgments (delivery/read receipts)
+  Future<void> _handleAckEvent(messaging.RemoteMessage ackMsg) async {
+    try {
+      final messageId = ackMsg.id; // Correlation ID
+      final status = ackMsg.meta.raw['status'] as String?;
+      
+      MessageState newState;
+      switch (status) {
+        case 'delivered': newState = MessageState.delivered; break;
+        case 'read': newState = MessageState.read; break;
+        case 'sent': newState = MessageState.sent; break;
+        default: newState = MessageState.sent;
+      }
+
+      // Update local message state by RID
+      await (_db.update(_db.messages)
+            ..where((tbl) => tbl.rid.equals(messageId)))
+          .write(MessagesCompanion(
+        state: Value(newState),
+        updatedAt: Value(DateTime.now()),
+      ));
+      
+      debugPrint('[EVENT] Updated message $messageId status to $newState');
+    } catch (e) {
+      debugPrint('[EVENT] Error handling ack: $e');
+    }
+  }
+
+  /// Handle typing indicators
+  void _handleTypingEvent(messaging.RemoteMessage typingMsg) {
+    // Just broadcast it to the bus
+    _eventBus.add(typingMsg);
+  }
+
+  /// Getter for the ephemeral event bus
+  Stream<messaging.RemoteMessage> get ephemeralEvents => _eventBus.stream;
   ///
   /// This method works offline by checking the stored token.
   /// Returns the userId if a valid token exists, null otherwise.
@@ -407,7 +534,16 @@ class VartalapChatClientFlutter {
 
   Future<ChannelModel> createChannel(
       ChannelModel channel, List<Member> members) async {
-    return await _db.channelDao.createChannel(channel, members);
+    final localChannel = await _db.channelDao.createChannel(channel, members);
+    
+    // Schedule remote creation task
+    final task = factory.create(
+      CreateChannelTask.name,
+      payload: localChannel,
+    );
+    await scheduler.schedule(task);
+    
+    return localChannel;
   }
 
   Future<void> updateChannel(ChannelModel channel) async {
@@ -422,6 +558,21 @@ class VartalapChatClientFlutter {
     ContactFilter? filter,
   }) {
     return _db.channelDao.getContacts(filter: filter);
+  }
+
+  /// Trigger a background synchronization of messages and contacts
+  Future<void> triggerSync() async {
+    if (!_isInitialized) return;
+
+    // 1. Sync Contacts
+    final contactTask = factory.create(SyncContactsTask.name);
+    await scheduler.schedule(contactTask);
+
+    // 2. Sync Messages
+    final messageTask = factory.create(SyncMessageTask.name);
+    await scheduler.schedule(messageTask);
+    
+    debugPrint('[CLIENT] Sync tasks scheduled');
   }
 
   Future<void> syncChannels() async {

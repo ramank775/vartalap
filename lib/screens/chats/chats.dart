@@ -172,6 +172,8 @@ class ChatsState extends State<Chats> {
           } else if (value == 'Privacy Policy') {
             var link = AppConfig.privacyPolicy;
             launchUrl(link);
+          } else if (value == "Profile") {
+            Navigator.of(context).pushNamed('/profile');
           } else if (value == "Logout") {
             final authClient = Provider.of<VartalapAuthenticatedClient>(context,
                 listen: false);
@@ -180,6 +182,7 @@ class ChatsState extends State<Chats> {
         },
         itemBuilder: (BuildContext context) {
           final options = [
+            PopupMenuItem(value: 'Profile', child: Text("Profile")),
             PopupMenuItem(value: 'About Dialog', child: Text("About us")),
             PopupMenuItem(
               value: 'Privacy Policy',

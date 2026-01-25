@@ -7,11 +7,13 @@ class Avator extends StatelessWidget {
   final double _opacity = 0.65;
   final double width;
   final double height;
+  final double fontSize;
   const Avator({
     super.key,
     required this.text,
     required this.width,
     required this.height,
+    this.fontSize = 12,
   });
 
   @override
@@ -31,7 +33,7 @@ class Avator extends StatelessWidget {
         upperCase: true,
         letterType: LetterType.circular,
         textColor: Colors.white,
-        fontSize: 12,
+        fontSize: fontSize,
       ),
     );
   }

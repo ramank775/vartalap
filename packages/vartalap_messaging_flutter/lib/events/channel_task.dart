@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
-import 'package:taskq/task.dart';
-import 'package:vartalap_messaging/vartalap_messaging.dart'
-    show VartalapChatClient;
+import 'package:flutter/foundation.dart';
+import 'package:taskq/taskq.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 import 'package:vartalap_messaging_flutter/mapper/mapper.dart';
@@ -11,10 +11,19 @@ import '../models/models.dart';
 class CreateChannelTask extends VartalapTask<ChannelModel> {
   static const name = 'create-channel';
   CreateChannelTask(
-    VartalapChatClient client,
+    messaging.VartalapChatClient client,
     ChatDatabase db, {
     ChannelModel? payload,
-  }) : super(client, db, name, payload: payload);
+    int? id,
+    TaskStatus state = TaskStatus.pending,
+  }) : super(
+          client,
+          db,
+          name,
+          payload: payload,
+          id: id,
+          state: state,
+        );
 
   @override
   Future<List<Task>> getDependencies() async {
@@ -23,32 +32,35 @@ class CreateChannelTask extends VartalapTask<ChannelModel> {
 
   @override
   Future<void> process() async {
-    // ChannelEntity channel = await (db.select(db.channels)
-    //       ..whereSamePrimaryKey(ChannelsCompanion(id: Value(payload.id))))
-    //     .getSingle();
-    // final result = await (db.selectOnly(db.members)
-    //       ..join([
-    //         innerJoin(
-    //             db.contacts, db.members.memberId.equalsExp(db.contacts.id)),
-    //       ])
-    //       ..where(db.members.channelId.equals(channel.id))
-    //       ..addColumns([db.contacts.username, db.members.role]))
-    //     .get();
-    // final members =
-    //     result.map((row) => row.read<String>(db.contacts.username)!).toList();
+    // 1. Fetch channel members from local DB
+    final memberRows = await (db.select(db.members).join([
+      innerJoin(db.contacts, db.contacts.id.equalsExp(db.members.memberId)),
+    ])..where(db.members.channelId.equals(payload.id))).get();
 
-    // final resp = await client.createChannel(
-    //   ChannelModel(
-    //     id: payload.id,
-    //     type: payload.type,
-    //     displayName: payload.displayName,
-    //     members: members.map((m) => Member(user: m, role: 'member')).toList(),
-    //   ),
-    // );
-    const cid = '';
+    final memberUids = memberRows
+        .map((row) => row.readTable(db.contacts).uid)
+        .whereType<String>()
+        .toList();
+
+    if (memberUids.isEmpty) {
+      throw Exception('Cannot create channel: No members with valid remote UIDs');
+    }
+
+    // 2. Call backend to create channel
+    final response = await client.createChannel(messaging.ChannelPayload()
+      ..type = payload.type.name
+      ..name = payload.extraData['name'] as String? ?? ''
+      ..members = memberUids);
+
+    // 3. Update local channel with remote ID (cid)
     await (db.update(db.channels)
-          ..where((channel) => channel.id.equals(payload.id)))
-        .write(const ChannelsCompanion(cid: Value(cid)));
+          ..where((tbl) => tbl.id.equals(payload.id)))
+        .write(ChannelsCompanion(
+      cid: Value(response.channelId),
+      updatedAt: Value(DateTime.now()),
+    ));
+
+    debugPrint('[SYNC] Created remote channel: ${response.channelId}');
   }
 
   @override

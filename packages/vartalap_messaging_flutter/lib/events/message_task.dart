@@ -1,30 +1,30 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
-import 'package:vartalap_messaging_flutter/events/placeholder_task.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
 class SendMessage {
   int channelId;
-  List<ChatMessage> messages;
+  List<int> messageIds;
 
-  SendMessage(this.channelId, this.messages);
+  SendMessage(this.channelId, this.messageIds);
 
   Map<String, dynamic> toJson() {
     return {
       "channelId": channelId,
-      "messages": messages,
+      "messageIds": messageIds,
     };
   }
 
   static SendMessage fromJson(Map<String, dynamic> json) {
-    final channel = json["channelId"];
-    final messages =
-        json["messages"].map((item) => RemoteMessage.fromJson(item)).toList();
-    return SendMessage(channel, messages);
+    return SendMessage(
+      json["channelId"] as int,
+      List<int>.from(json["messageIds"] as List),
+    );
   }
 }
 
@@ -46,43 +46,59 @@ class SendMessageTask extends VartalapTask<SendMessage> {
         );
 
   @override
-  Future<List<Task>> getDependencies() async {
-    final channelRow = await (db.selectOnly(db.channels)
-          ..addColumns([db.channels.cid, db.channels.taskId])
-          ..where(db.channels.id.equals(payload.channelId)))
-        .getSingle();
-
-    final cid = channelRow.read(db.channels.cid);
-    List<Task> dependencies = [];
-    if (cid == null) {
-      final taskId = channelRow.read(db.channels.taskId)!;
-      dependencies.add(PlaceholderTask(client, db, id: taskId));
-    }
-    // Decode the message and convert into remote message here
-    // If message contains attachments upload those attachment
-    // Add dependency task for those attachments
-    // On Attachment upload task successfully update attachment ids
-    // So that on process messages can be recontructed from database
-    // At the time of reconstruction all the dependencies will be
-    // Available as all the dependent task are completed.
-    await db.batch((batch) {
-      final rows = payload.messages.map(
-        (m) => MessagesCompanion.insert(
-          type: m.type,
-          state: m.state,
-          payload: m.payload,
-          channelId: payload.channelId,
-          senderId: m.senderId,
-        ),
-      );
-      batch.insertAll(db.messages, rows);
-    });
-    return dependencies;
-  }
-
-  @override
   Future<void> process() async {
-    // await client.sendMessage(payload.messages);
+    final channelRow = await (db.select(db.channels)
+          ..where((tbl) => tbl.id.equals(payload.channelId)))
+        .getSingle();
+    
+    final remoteChannelId = channelRow.cid;
+    if (remoteChannelId == null) {
+      throw Exception('Cannot send message: Channel has no remote ID yet');
+    }
+
+    final messageRows = await (db.select(db.messages)
+          ..where((tbl) => tbl.id.isIn(payload.messageIds)))
+        .get();
+
+    final remoteMessages = <RemoteMessage>[];
+    for (var row in messageRows) {
+      final head = Head(
+        type: channelRow.type,
+        to: remoteChannelId,
+        from: (await client.getLoggedInUser()) ?? 'unknown',
+        category: 'message',
+      );
+
+      final remoteMsg = RemoteMessage()
+        ..id = row.id.toString() // Use local ID as correlation ID
+        ..head = head
+        ..meta = Meta(createdAt: row.localCreatedAt.millisecondsSinceEpoch)
+        ..body = row.payload;
+      
+      remoteMessages.add(remoteMsg);
+    }
+
+    try {
+      // Send to server
+      await client.sendMessage(remoteMessages, sync: true);
+
+      // Update local state to 'sent'
+      await (db.update(db.messages)
+            ..where((tbl) => tbl.id.isIn(payload.messageIds)))
+          .write(MessagesCompanion(
+        state: const Value(MessageState.sent),
+        updatedAt: Value(DateTime.now()),
+      ));
+    } catch (e) {
+      // Update local state to 'error'
+      await (db.update(db.messages)
+            ..where((tbl) => tbl.id.isIn(payload.messageIds)))
+          .write(MessagesCompanion(
+        state: const Value(MessageState.error),
+        updatedAt: Value(DateTime.now()),
+      ));
+      rethrow;
+    }
   }
 
   @override
@@ -93,6 +109,6 @@ class SendMessageTask extends VartalapTask<SendMessage> {
 
   @override
   String serializePayload() {
-    return json.encode(payload);
+    return json.encode(payload.toJson());
   }
 }

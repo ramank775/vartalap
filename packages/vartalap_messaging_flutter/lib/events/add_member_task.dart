@@ -1,3 +1,6 @@
+import 'package:taskq/taskq.dart';
+import 'package:vartalap_messaging/client/client.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 
 import '../models/models.dart';
@@ -10,7 +13,20 @@ class AddMembers {
 
 class AddMembersTask extends VartalapTask<AddMembers> {
   static const name = 'add-members';
-  AddMembersTask(super.client, super.db, super.type);
+  AddMembersTask(
+    VartalapChatClient client,
+    ChatDatabase db, {
+    AddMembers? payload,
+    int? id,
+    TaskStatus state = TaskStatus.pending,
+  }) : super(
+          client,
+          db,
+          name,
+          payload: payload,
+          id: id,
+          state: state,
+        );
 
   @override
   void deserializePayload(String rawPayload) {

@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/dao/dao.dart';
+import 'package:vartalap_messaging_flutter/events/events.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 /// ChatClient - Per-Channel Chat Operations
@@ -45,6 +48,9 @@ class ChatClient {
   List<Member> _members = [];
   Stream<List<Member>>? _membersStream;
   Stream<List<ChatMessage>>? _messagesStream;
+  final _typingController = StreamController<bool>.broadcast();
+  StreamSubscription? _ephemeralSub;
+
   ChatClient({
     required this.channel,
     required this.client,
@@ -66,6 +72,30 @@ class ChatClient {
 
   Future<void> init() async {
     _members = await chatDao.getMembers(channelId: channel.id).get();
+
+    // Listen for ephemeral events filtered for this channel
+    _ephemeralSub = client.ephemeralEvents.listen((event) {
+      if (event.head.category == 'typing') {
+        final from = event.head.from;
+        // Don't show typing for self
+        if (from == currentUser.uid) return;
+
+        // Check if event is for this channel
+        bool relevant = false;
+        if (channel.type == ChannelType.individual) {
+          relevant = (from == channel.extraData['uid']); // Simplified check
+        } else {
+          relevant = (event.head.to == channel.cid);
+        }
+
+        if (relevant) {
+          final isTyping = event.body is Map
+              ? event.body['typing'] as bool? ?? false
+              : false;
+          updateRemoteTypingStatus(isTyping);
+        }
+      }
+    });
   }
 
   void watch() {
@@ -73,7 +103,10 @@ class ChatClient {
     _messagesStream = chatDao.getMessages(channel: channel).watch();
   }
 
-  void dispose() {}
+  void dispose() {
+    _ephemeralSub?.cancel();
+    _typingController.close();
+  }
 
   Stream<List<Member>> get membersStream {
     return _membersStream!;
@@ -81,6 +114,43 @@ class ChatClient {
 
   Stream<List<ChatMessage>> get messagesStream {
     return _messagesStream!;
+  }
+
+  Stream<bool> get typingStream => _typingController.stream;
+
+  Future<void> sendTypingIndicator(bool isTyping) async {
+    final myUid = currentUser.uid;
+    if (myUid == null) return;
+
+    final target = channel.type == ChannelType.individual
+        ? (channel.extraData['uid'] as String?)
+        : channel.cid;
+
+    if (target == null) return;
+
+    final head = messaging.Head(
+      type: channel.type,
+      to: target,
+      from: myUid,
+      category: 'typing',
+      ephemeral: true,
+    );
+
+    final remoteMsg = messaging.RemoteMessage()
+      ..id = 'typing_${DateTime.now().millisecondsSinceEpoch}'
+      ..head = head
+      ..meta = messaging.Meta()
+      ..body = {'typing': isTyping};
+
+    // Send directly via websocket (ephemeral)
+    await client.client.sendMessage([remoteMsg], sync: false, ack: false);
+  }
+
+  /// Internal method to update typing status from remote events
+  void updateRemoteTypingStatus(bool isTyping) {
+    if (!_typingController.isClosed) {
+      _typingController.add(isTyping);
+    }
   }
 
   Future<void> addMembers(List<Member> members) async {
@@ -105,8 +175,15 @@ class ChatClient {
 
   Future<void> sendMessage(List<ChatMessage> messages) async {
     for (var message in messages) {
-      await chatDao.sendMessage(message, channel);
+      final id = await chatDao.sendMessage(message, channel);
       message.updateState(MessageState.pending);
+
+      // Schedule background sync task
+      final task = client.factory.create(
+        SendMessageTask.name,
+        payload: SendMessage(channel.id, [id]),
+      );
+      await client.scheduler.schedule(task);
     }
   }
 

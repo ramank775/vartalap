@@ -45,15 +45,21 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
   /// Initialize the client and check existing authentication
   ///
   /// This method checks if a user is logged in by verifying the stored token.
-  /// It works offline and does NOT require database initialization.
-  /// The user profile will be loaded later after database initialization.
+  /// It then initializes the underlying client and loads the user profile.
   Future<void> initialize() async {
     try {
       final userId = await _client.getLoggedInUser();
       if (userId != null) {
-        // User has a valid token, mark as authenticated
-        // We'll load the profile after database initialization
+        // User has a valid token, initialize client
         _currentPhoneNumber = userId; // Phone number is userId
+        
+        debugPrint('[AUTH] Restoring session for: $userId');
+        await _client.init();
+        
+        // Try to load profile for offline access
+        _currentUser = await _client.getLoggedInUserProfile();
+        debugPrint('[AUTH] Profile restored: ${_currentUser?.name ?? "No name"}');
+        
         _setState(AuthState.authenticated);
       } else {
         _setState(AuthState.unauthenticated);
@@ -146,6 +152,34 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
       Crashlytics.recordError(e, stackTrace, reason: "Failed to verify OTP and login");
       _setError('Login failed. Please try again.', AuthState.error);
       rethrow; // Rethrow so UI can show error dialog
+    }
+  }
+
+  /// Update the current user profile
+  Future<void> updateProfile({String? name, String? image}) async {
+    if (_currentUser == null) return;
+
+    try {
+      final updatedProfile = Profile(
+        userId: _currentUser!.userId,
+        name: name ?? _currentUser!.name,
+        email: _currentUser!.email,
+        image: image ?? _currentUser!.image,
+      );
+
+      // Save to local database
+      await _client.saveUserProfile(updatedProfile);
+      
+      // Update local state
+      _currentUser = updatedProfile;
+      notifyListeners();
+
+      debugPrint('[AUTH] Profile updated locally: ${updatedProfile.name}');
+      
+      // TODO: Schedule a background task to sync with server
+    } catch (e, stackTrace) {
+      Crashlytics.recordError(e, stackTrace, reason: "Failed to update profile");
+      rethrow;
     }
   }
 

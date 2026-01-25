@@ -209,6 +209,10 @@ class MessageWidget extends StatelessWidget {
         icon = Icons.done_all_sharp;
         color = VartalapTheme.theme.readMessage;
         break;
+      case MessageState.error:
+        icon = Icons.error_outline;
+        color = Colors.red;
+        break;
     }
 
     return Icon(
