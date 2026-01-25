@@ -14,6 +14,7 @@ import 'package:vartalap/services/otp/firebase_otp_provider.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
 import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
@@ -169,6 +170,15 @@ class _VartalapAppState extends State<VartalapApp> {
       builder: (BuildContext context) {
         final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
 
+        // Define protected routes that require authentication
+        final protectedRoutes = {'/chats', '/chat', '/new-chat', '/new-group', '/create-group'};
+
+        // Check if route requires authentication
+        if (protectedRoutes.contains(settings.name) && !authClient.isAuthenticated) {
+          debugPrint('[ROUTE] Attempted to access ${settings.name} without authentication, redirecting to login');
+          return IntroductionScreen();
+        }
+
         Widget widget;
         switch (settings.name) {
           case '/':
@@ -178,9 +188,9 @@ class _VartalapAppState extends State<VartalapApp> {
             widget = VerifyOtpWidget();
             break;
           case '/chats':
-            // Wrap Chats with VartalapClientManager to provide client context
-            widget = VartalapClientManager(
-              client: authClient.client,
+            // Wrap authenticated screens with CurrentUser provider
+            widget = _buildAuthenticatedScreen(
+              authClient: authClient,
               child: const Chats(),
             );
             break;
@@ -188,23 +198,120 @@ class _VartalapAppState extends State<VartalapApp> {
             widget = ChatScreen(settings.arguments as ChatClient);
             break;
           case '/new-chat':
-            widget = NewChatScreen();
+            widget = _buildAuthenticatedScreen(
+              authClient: authClient,
+              child: NewChatScreen(),
+            );
             break;
           case '/new-group':
-            widget = SelectGroupMemberScreen();
+            widget = _buildAuthenticatedScreen(
+              authClient: authClient,
+              child: SelectGroupMemberScreen(),
+            );
             break;
           case '/create-group':
-            widget = CreateGroup(settings.arguments as List<Contact>);
+            widget = _buildAuthenticatedScreen(
+              authClient: authClient,
+              child: CreateGroup(settings.arguments as List<Contact>),
+            );
             break;
           default:
-            // Default route also wraps with VartalapClientManager
-            widget = VartalapClientManager(
-              client: authClient.client,
-              child: const Chats(),
-            );
+            // Default route also wraps with authentication check
+            if (authClient.isAuthenticated) {
+              widget = _buildAuthenticatedScreen(
+                authClient: authClient,
+                child: const Chats(),
+              );
+            } else {
+              widget = IntroductionScreen();
+            }
         }
         return widget;
       },
+    );
+  }
+
+  /// Build authenticated screen with CurrentUser provider
+  Widget _buildAuthenticatedScreen({
+    required VartalapAuthenticatedClient authClient,
+    required Widget child,
+  }) {
+    // Wrap with VartalapClientManager and CurrentUser provider
+    return VartalapClientManager(
+      client: authClient.client,
+      child: _CurrentUserProvider(
+        authClient: authClient,
+        child: child,
+      ),
+    );
+  }
+}
+
+/// Provides CurrentUser Contact from authClient's profile
+class _CurrentUserProvider extends StatefulWidget {
+  final VartalapAuthenticatedClient authClient;
+  final Widget child;
+
+  const _CurrentUserProvider({
+    required this.authClient,
+    required this.child,
+  });
+
+  @override
+  State<_CurrentUserProvider> createState() => _CurrentUserProviderState();
+}
+
+class _CurrentUserProviderState extends State<_CurrentUserProvider> {
+  Contact? _currentContact;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    try {
+      final profile = widget.authClient.currentUser;
+      if (profile == null) {
+        debugPrint('[CurrentUser] No profile available');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Fetch the Contact for the logged-in user using their userId (phone number)
+      final contacts = await widget.authClient.client
+          .getContacts(filter: ContactFilter(phone: profile.userId))
+          .get();
+
+      if (contacts.isNotEmpty) {
+        setState(() {
+          _currentContact = contacts.first;
+          _isLoading = false;
+        });
+        debugPrint('[CurrentUser] Loaded contact: ${_currentContact?.username}');
+      } else {
+        debugPrint('[CurrentUser] No contact found for userId: ${profile.userId}');
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint('[CurrentUser] Error loading current user: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return CurrentUser(
+      user: _currentContact,
+      child: widget.child,
     );
   }
 }
