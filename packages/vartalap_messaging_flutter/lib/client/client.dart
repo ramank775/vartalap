@@ -66,6 +66,8 @@ class VartalapChatClientFlutter {
   late TokenManager _tokenManager;
   bool _isInitialized = false;
   
+  ChatDatabase get db => _db;
+  
   // Internal event bus for ephemeral events (typing, status, etc.)
   final _eventBus = StreamController<messaging.RemoteMessage>.broadcast();
 
@@ -604,6 +606,52 @@ class VartalapChatClientFlutter {
 
   Future<void> addContacts(List<Contact> contacts) async {
     return await _db.channelDao.addContacts(contacts);
+  }
+
+  /// Send an attachment (image, video, document)
+  Future<void> sendAttachment({
+    required int channelId,
+    required String path,
+    required String category,
+    required Contact currentUser,
+  }) async {
+    final fileName = path.split('/').last;
+    final extension = fileName.split('.').last;
+
+    await _db.transaction(() async {
+      // 1. Create Local Asset
+      final assetId = await _db.into(_db.assests).insert(AssestsCompanion.insert(
+            type: Value(category),
+            path: Value(path),
+            mimeType: Value(extension), // Simplified
+            createdAt: Value(DateTime.now()),
+            updatedAt: Value(DateTime.now()),
+          ));
+
+      // 2. Create local message
+      final msgId = await _db.into(_db.messages).insert(MessagesCompanion.insert(
+            type: category == 'image' ? MessageType.image : category == 'video' ? MessageType.video : MessageType.attachment,
+            state: MessageState.pending,
+            payload: {'name': fileName, 'path': path},
+            channelId: channelId,
+            senderId: currentUser.id,
+            localCreatedAt: Value(DateTime.now()),
+            updatedAt: Value(DateTime.now()),
+          ));
+
+      // 3. Link Asset to Message
+      await _db.into(_db.messageAssets).insert(MessageAssetsCompanion.insert(
+            messageId: msgId,
+            assetId: assetId,
+          ));
+
+      // 4. Schedule Task
+      final task = factory.create(
+        SendMessageTask.name,
+        payload: SendMessage(channelId, [msgId]),
+      );
+      await scheduler.schedule(task);
+    });
   }
 
   Future<void> syncMessages() async {

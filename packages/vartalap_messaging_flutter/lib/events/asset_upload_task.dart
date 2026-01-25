@@ -1,13 +1,14 @@
+import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:taskq/taskq.dart';
-import 'package:vartalap_messaging/client/client.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 
 class AssetUploadTask extends VartalapTask<int> {
   static const name = 'asset-upload';
   AssetUploadTask(
-    VartalapChatClient client,
+    messaging.VartalapChatClient client,
     ChatDatabase db, {
     int? payload,
     int? id,
@@ -23,22 +24,44 @@ class AssetUploadTask extends VartalapTask<int> {
 
   @override
   Future<void> process() async {
+    final currentPayload = payload;
+
     final asset = await (db.select(db.assests)
-          ..whereSamePrimaryKey(AssestsCompanion(id: Value(payload))))
+          ..where((tbl) => tbl.id.equals(currentPayload)))
         .getSingle();
-    final resp = await uploadAsset(asset);
-    await (db.update(db.assests)..where((asset) => asset.id.equals(payload)))
-        .write(AssestsCompanion(assetId: Value(resp)));
+
+    final remoteAssetId = await uploadAsset(asset);
+
+    await (db.update(db.assests)..where((tbl) => tbl.id.equals(currentPayload)))
+        .write(AssestsCompanion(assetId: Value(remoteAssetId)));
   }
 
   Future<String> uploadAsset(AssestEntity asset) async {
-    // Generate a upload url to the server
-    final data = await client.getUploadUrl(asset.mimeType!, 'default');
-    // Upload the asset to the server. via put request to the upload url
+    final path = asset.path;
+    if (path == null) {
+      throw Exception('Asset path is null, cannot upload');
+    }
 
-    // Mark the upload as done
-    client.markAssetAsUploaded(data.assetId!);
-    // Return the asset id
+    final file = File(path);
+    if (!await file.exists()) {
+      throw Exception('Asset file does not exist at path: $path');
+    }
+
+    // 1. Generate a upload url from the server
+    final extension = path.split('.').last;
+    final category = asset.type ?? 'default';
+    final data = await client.getUploadUrl(extension, category);
+
+    if (data.assetId == null) {
+      throw Exception('Server failed to provide an assetId');
+    }
+
+    // 2. Upload the physical file to the server
+    await client.uploadAsset(data.url, file);
+
+    // 3. Mark the upload as done
+    await client.markAssetAsUploaded(data.assetId!);
+
     return data.assetId!;
   }
 

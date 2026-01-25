@@ -51,6 +51,9 @@ dependencies:
   intl_phone_field: ^3.1.0
   country_codes: ^3.3.0
   mobile_device_identifier: ^0.0.3
+  image_picker: ^1.1.2
+  file_picker: ^8.1.7
+  drift: ^2.28.2
   vartalap_messaging_flutter:
     path: ./packages/vartalap_messaging_flutter
   vartalap_messaging:

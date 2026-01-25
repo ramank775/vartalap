@@ -1,6 +1,7 @@
 // ignore_for_file: avoid_print
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:vartalap_messaging/core/api/api_client.dart';
 import 'package:vartalap_messaging/core/api/response.dart';
@@ -149,6 +150,10 @@ class VartalapChatClient {
 
   Future<void> markAssetAsUploaded(String assetId) async {
     await _apiClient.asset.markAssetAsUploaded(assetId);
+  }
+
+  Future<void> uploadAsset(String url, File file) async {
+    await _apiClient.asset.uploadFile(url, file);
   }
 
   Future<void> logout() async {

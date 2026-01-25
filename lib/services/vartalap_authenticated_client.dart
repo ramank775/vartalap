@@ -5,12 +5,15 @@
 /// Firebase is used ONLY as an OTP delivery service.
 library;
 
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mobile_device_identifier/mobile_device_identifier.dart';
 import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
 import 'package:vartalap/services/otp/firebase_otp_provider.dart';
 import 'package:vartalap/services/crashlystics.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart';
+import 'package:vartalap_messaging_flutter/events/events.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 /// Unified authentication client that handles the complete auth flow
@@ -152,6 +155,53 @@ class VartalapAuthenticatedClient extends ChangeNotifier {
       Crashlytics.recordError(e, stackTrace, reason: "Failed to verify OTP and login");
       _setError('Login failed. Please try again.', AuthState.error);
       rethrow; // Rethrow so UI can show error dialog
+    }
+  }
+
+  /// Update the current user profile image
+  Future<void> updateProfileImage(String path) async {
+    if (_currentUser == null) return;
+
+    try {
+      final fileName = path.split('/').last;
+      final extension = fileName.split('.').last;
+
+      await _client.db.transaction(() async {
+        // 1. Create Local Asset for Profile Image
+        final assetId = await _client.db.into(_client.db.assests).insert(
+          AssestsCompanion.insert(
+            type: const Value('profile_image'),
+            path: Value(path),
+            mimeType: Value(extension),
+            createdAt: Value(DateTime.now()),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+
+        // 2. Schedule Upload Task
+        final task = _client.factory.create(
+          AssetUploadTask.name,
+          payload: assetId,
+        );
+        await _client.scheduler.schedule(task);
+
+        // 3. Update local state (optimistic)
+        final updatedProfile = Profile(
+          userId: _currentUser!.userId,
+          name: _currentUser!.name,
+          email: _currentUser!.email,
+          image: path, // Local path for immediate display
+        );
+        
+        await _client.saveUserProfile(updatedProfile);
+        _currentUser = updatedProfile;
+        notifyListeners();
+      });
+
+      debugPrint('[AUTH] Profile image update scheduled: $path');
+    } catch (e, stackTrace) {
+      Crashlytics.recordError(e, stackTrace, reason: "Failed to update profile image");
+      rethrow;
     }
   }
 

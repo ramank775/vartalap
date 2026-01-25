@@ -4,6 +4,8 @@ import 'package:drift/drift.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
+import 'package:vartalap_messaging_flutter/events/asset_upload_task.dart';
+import 'package:vartalap_messaging_flutter/events/factory.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
@@ -46,11 +48,32 @@ class SendMessageTask extends VartalapTask<SendMessage> {
         );
 
   @override
+  Future<List<Task>> getDependencies() async {
+    final assetRows = await (db.select(db.assests).join([
+      innerJoin(db.messages, db.messages.id.isIn(payload.messageIds)),
+    ])
+          ..where(db.assests.id.isNotNull()))
+        .get();
+
+    final dependencies = <Task>[];
+    for (final row in assetRows) {
+      final assetId = row.readTable(db.assests).id;
+      final task = VartalapTaskFactory(client, db).create(
+        AssetUploadTask.name,
+        payload: assetId,
+      );
+      dependencies.add(task);
+    }
+
+    return dependencies;
+  }
+
+  @override
   Future<void> process() async {
     final channelRow = await (db.select(db.channels)
           ..where((tbl) => tbl.id.equals(payload.channelId)))
         .getSingle();
-    
+
     final remoteChannelId = channelRow.cid;
     if (remoteChannelId == null) {
       throw Exception('Cannot send message: Channel has no remote ID yet');
@@ -62,19 +85,38 @@ class SendMessageTask extends VartalapTask<SendMessage> {
 
     final remoteMessages = <RemoteMessage>[];
     for (var row in messageRows) {
+      // 1. Resolve attachments for this message
+      final linkedAssetRows = await (db.select(db.assests).join([
+        innerJoin(db.messageAssets,
+            db.messageAssets.assetId.equalsExp(db.assests.id)),
+      ])
+            ..where(db.messageAssets.messageId.equals(row.id)))
+          .get();
+
+      final attachments =
+          linkedAssetRows.map((r) => r.readTable(db.assests)).toList();
+
+      // 2. Map local payload to remote payload
+      Map<String, dynamic> remoteBody = Map.from(row.payload);
+
+      // If it's an image, use the remote assetId from the first attachment
+      if (row.type == MessageType.image && attachments.isNotEmpty) {
+        remoteBody['assetId'] = attachments.first.assetId;
+      }
+
       final head = Head(
         type: channelRow.type,
         to: remoteChannelId,
         from: (await client.getLoggedInUser()) ?? 'unknown',
-        category: 'message',
+        category: _mapLocalTypeToRemote(row.type),
       );
 
       final remoteMsg = RemoteMessage()
-        ..id = row.id.toString() // Use local ID as correlation ID
+        ..id = row.id.toString() // Correlation ID
         ..head = head
         ..meta = Meta(createdAt: row.localCreatedAt.millisecondsSinceEpoch)
-        ..body = row.payload;
-      
+        ..body = remoteBody;
+
       remoteMessages.add(remoteMsg);
     }
 
@@ -86,7 +128,7 @@ class SendMessageTask extends VartalapTask<SendMessage> {
       await (db.update(db.messages)
             ..where((tbl) => tbl.id.isIn(payload.messageIds)))
           .write(MessagesCompanion(
-        state: const Value(MessageState.sent),
+        state: Value(MessageState.sent),
         updatedAt: Value(DateTime.now()),
       ));
     } catch (e) {
@@ -94,10 +136,21 @@ class SendMessageTask extends VartalapTask<SendMessage> {
       await (db.update(db.messages)
             ..where((tbl) => tbl.id.isIn(payload.messageIds)))
           .write(MessagesCompanion(
-        state: const Value(MessageState.error),
+        state: Value(MessageState.error),
         updatedAt: Value(DateTime.now()),
       ));
       rethrow;
+    }
+  }
+
+  String _mapLocalTypeToRemote(MessageType type) {
+    switch (type) {
+      case MessageType.text:
+        return 'message';
+      case MessageType.image:
+        return 'image';
+      default:
+        return 'message';
     }
   }
 

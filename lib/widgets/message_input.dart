@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
+  final Function(String path, String category)? sendAttachment;
   final Function(bool state)? onTyping;
   const MessageInputWidget({
     super.key,
     required this.sendMessage,
+    this.sendAttachment,
     this.onTyping,
   });
 
@@ -17,11 +21,80 @@ class MessageInputWidget extends StatefulWidget {
 }
 
 class MessageInputState extends State<MessageInputWidget> {
+  final ImagePicker _picker = ImagePicker();
   late Function _sendMessage;
   bool _isShowSticker = false;
   FocusNode _inputFocus = FocusNode();
   Timer? _typingTimer;
   final TextEditingController _controller = TextEditingController();
+
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? image = await _picker.pickImage(source: source);
+    if (image != null && widget.sendAttachment != null) {
+      widget.sendAttachment!(image.path, 'image');
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    final XFile? video = await _picker.pickVideo(source: ImageSource.gallery);
+    if (video != null && widget.sendAttachment != null) {
+      widget.sendAttachment!(video.path, 'video');
+    }
+  }
+
+  Future<void> _pickDocument() async {
+    final FilePickerResult? result = await FilePicker.platform.pickFiles();
+    if (result != null && result.files.single.path != null && widget.sendAttachment != null) {
+      widget.sendAttachment!(result.files.single.path!, 'document');
+    }
+  }
+
+  void _showAttachmentMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Camera'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.videocam),
+                title: const Text('Video'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickVideo();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.insert_drive_file),
+                title: const Text('Document'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickDocument();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
   @override
   void initState() {
     super.initState();
@@ -145,13 +218,13 @@ class MessageInputState extends State<MessageInputWidget> {
                     focusNode: _inputFocus,
                   ),
                 ),
-                // IconButton(
-                //   icon: Icon(Icons.attach_file),
-                //   onPressed: () {},
-                // ),
+                IconButton(
+                  icon: const Icon(Icons.attach_file),
+                  onPressed: _showAttachmentMenu,
+                ),
                 IconButton(
                   onPressed: sendMessage,
-                  icon: Icon(Icons.send_rounded),
+                  icon: const Icon(Icons.send_rounded),
                 ),
               ],
             ),

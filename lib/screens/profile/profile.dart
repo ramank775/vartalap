@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -11,6 +12,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final ImagePicker _picker = ImagePicker();
   late TextEditingController _nameController;
   bool _isEditing = false;
   bool _isLoading = false;
@@ -26,6 +28,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void dispose() {
     _nameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickProfileImage() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        setState(() => _isLoading = true);
+        await authClient.updateProfileImage(image.path);
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Profile image updated')),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to pick image: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -63,6 +92,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     children: [
                       Avator(
                         text: profile.name,
+                        image: profile.image,
                         width: 120,
                         height: 120,
                         fontSize: 40,
@@ -78,12 +108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             child: IconButton(
                               icon: const Icon(Icons.camera_alt, color: Colors.white),
-                              onPressed: () {
-                                // TODO: Implement image picker
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Image picker not yet implemented')),
-                                );
-                              },
+                              onPressed: _pickProfileImage,
                             ),
                           ),
                         ),

@@ -18,6 +18,7 @@ extension MessageEntityX on MessageEntity {
       case MessageType.text:
         return TextMessage(
           id: id,
+          rid: rid,
           senderId: senderId,
           state: state,
           ts: localCreatedAt,
@@ -25,9 +26,22 @@ extension MessageEntityX on MessageEntity {
           payload: payload,
           sender: sender,
         );
+      case MessageType.image:
+        return ImageMessage(
+          id: id,
+          rid: rid,
+          senderId: senderId,
+          state: state,
+          ts: localCreatedAt,
+          updatedAt: updatedAt,
+          payload: payload,
+          sender: sender,
+          attachments: attachments ?? [],
+        );
       default:
         return CustomMessage(
           id: id,
+          rid: rid,
           senderId: senderId,
           state: state,
           ts: localCreatedAt,

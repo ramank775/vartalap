@@ -2071,6 +2071,204 @@ class MessagesCompanion extends UpdateCompanion<MessageEntity> {
   }
 }
 
+class $MessageAssetsTable extends MessageAssets
+    with TableInfo<$MessageAssetsTable, MessageAsset> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MessageAssetsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _messageIdMeta =
+      const VerificationMeta('messageId');
+  @override
+  late final GeneratedColumn<int> messageId = GeneratedColumn<int>(
+      'message_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES messages (id) ON DELETE CASCADE'));
+  static const VerificationMeta _assetIdMeta =
+      const VerificationMeta('assetId');
+  @override
+  late final GeneratedColumn<int> assetId = GeneratedColumn<int>(
+      'asset_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES assests (id) ON DELETE CASCADE'));
+  @override
+  List<GeneratedColumn> get $columns => [messageId, assetId];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'message_assets';
+  @override
+  VerificationContext validateIntegrity(Insertable<MessageAsset> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('message_id')) {
+      context.handle(_messageIdMeta,
+          messageId.isAcceptableOrUnknown(data['message_id']!, _messageIdMeta));
+    } else if (isInserting) {
+      context.missing(_messageIdMeta);
+    }
+    if (data.containsKey('asset_id')) {
+      context.handle(_assetIdMeta,
+          assetId.isAcceptableOrUnknown(data['asset_id']!, _assetIdMeta));
+    } else if (isInserting) {
+      context.missing(_assetIdMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {messageId, assetId};
+  @override
+  MessageAsset map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MessageAsset(
+      messageId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}message_id'])!,
+      assetId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}asset_id'])!,
+    );
+  }
+
+  @override
+  $MessageAssetsTable createAlias(String alias) {
+    return $MessageAssetsTable(attachedDatabase, alias);
+  }
+}
+
+class MessageAsset extends DataClass implements Insertable<MessageAsset> {
+  final int messageId;
+  final int assetId;
+  const MessageAsset({required this.messageId, required this.assetId});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['message_id'] = Variable<int>(messageId);
+    map['asset_id'] = Variable<int>(assetId);
+    return map;
+  }
+
+  MessageAssetsCompanion toCompanion(bool nullToAbsent) {
+    return MessageAssetsCompanion(
+      messageId: Value(messageId),
+      assetId: Value(assetId),
+    );
+  }
+
+  factory MessageAsset.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MessageAsset(
+      messageId: serializer.fromJson<int>(json['messageId']),
+      assetId: serializer.fromJson<int>(json['assetId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'messageId': serializer.toJson<int>(messageId),
+      'assetId': serializer.toJson<int>(assetId),
+    };
+  }
+
+  MessageAsset copyWith({int? messageId, int? assetId}) => MessageAsset(
+        messageId: messageId ?? this.messageId,
+        assetId: assetId ?? this.assetId,
+      );
+  MessageAsset copyWithCompanion(MessageAssetsCompanion data) {
+    return MessageAsset(
+      messageId: data.messageId.present ? data.messageId.value : this.messageId,
+      assetId: data.assetId.present ? data.assetId.value : this.assetId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MessageAsset(')
+          ..write('messageId: $messageId, ')
+          ..write('assetId: $assetId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(messageId, assetId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MessageAsset &&
+          other.messageId == this.messageId &&
+          other.assetId == this.assetId);
+}
+
+class MessageAssetsCompanion extends UpdateCompanion<MessageAsset> {
+  final Value<int> messageId;
+  final Value<int> assetId;
+  final Value<int> rowid;
+  const MessageAssetsCompanion({
+    this.messageId = const Value.absent(),
+    this.assetId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MessageAssetsCompanion.insert({
+    required int messageId,
+    required int assetId,
+    this.rowid = const Value.absent(),
+  })  : messageId = Value(messageId),
+        assetId = Value(assetId);
+  static Insertable<MessageAsset> custom({
+    Expression<int>? messageId,
+    Expression<int>? assetId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (messageId != null) 'message_id': messageId,
+      if (assetId != null) 'asset_id': assetId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MessageAssetsCompanion copyWith(
+      {Value<int>? messageId, Value<int>? assetId, Value<int>? rowid}) {
+    return MessageAssetsCompanion(
+      messageId: messageId ?? this.messageId,
+      assetId: assetId ?? this.assetId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (messageId.present) {
+      map['message_id'] = Variable<int>(messageId.value);
+    }
+    if (assetId.present) {
+      map['asset_id'] = Variable<int>(assetId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MessageAssetsCompanion(')
+          ..write('messageId: $messageId, ')
+          ..write('assetId: $assetId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $UserProfilesTable extends UserProfiles
     with TableInfo<$UserProfilesTable, Profile> {
   @override
@@ -2281,6 +2479,7 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
   late final $ContactsTable contacts = $ContactsTable(this);
   late final $MembersTable members = $MembersTable(this);
   late final $MessagesTable messages = $MessagesTable(this);
+  late final $MessageAssetsTable messageAssets = $MessageAssetsTable(this);
   late final $UserProfilesTable userProfiles = $UserProfilesTable(this);
   late final ChatDao chatDao = ChatDao(this as ChatDatabase);
   late final ChannelDao channelDao = ChannelDao(this as ChatDatabase);
@@ -2290,8 +2489,15 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [assests, channels, contacts, members, messages, userProfiles];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+        assests,
+        channels,
+        contacts,
+        members,
+        messages,
+        messageAssets,
+        userProfiles
+      ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
         [
@@ -2323,6 +2529,20 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
               TableUpdate('messages', kind: UpdateKind.delete),
             ],
           ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('messages',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('message_assets', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('assests',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('message_assets', kind: UpdateKind.delete),
+            ],
+          ),
         ],
       );
 }
@@ -2349,6 +2569,26 @@ typedef $$AssestsTableUpdateCompanionBuilder = AssestsCompanion Function({
   Value<DateTime> updatedAt,
   Value<DateTime?> deletedAt,
 });
+
+final class $$AssestsTableReferences
+    extends BaseReferences<_$ChatDatabase, $AssestsTable, AssestEntity> {
+  $$AssestsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$MessageAssetsTable, List<MessageAsset>>
+      _messageAssetsRefsTable(_$ChatDatabase db) =>
+          MultiTypedResultKey.fromTable(db.messageAssets,
+              aliasName: $_aliasNameGenerator(
+                  db.assests.id, db.messageAssets.assetId));
+
+  $$MessageAssetsTableProcessedTableManager get messageAssetsRefs {
+    final manager = $$MessageAssetsTableTableManager($_db, $_db.messageAssets)
+        .filter((f) => f.assetId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_messageAssetsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
 
 class $$AssestsTableFilterComposer
     extends Composer<_$ChatDatabase, $AssestsTable> {
@@ -2385,6 +2625,27 @@ class $$AssestsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
       column: $table.deletedAt, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> messageAssetsRefs(
+      Expression<bool> Function($$MessageAssetsTableFilterComposer f) f) {
+    final $$MessageAssetsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.messageAssets,
+        getReferencedColumn: (t) => t.assetId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessageAssetsTableFilterComposer(
+              $db: $db,
+              $table: $db.messageAssets,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$AssestsTableOrderingComposer
@@ -2459,6 +2720,27 @@ class $$AssestsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  Expression<T> messageAssetsRefs<T extends Object>(
+      Expression<T> Function($$MessageAssetsTableAnnotationComposer a) f) {
+    final $$MessageAssetsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.messageAssets,
+        getReferencedColumn: (t) => t.assetId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessageAssetsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.messageAssets,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$AssestsTableTableManager extends RootTableManager<
@@ -2470,9 +2752,9 @@ class $$AssestsTableTableManager extends RootTableManager<
     $$AssestsTableAnnotationComposer,
     $$AssestsTableCreateCompanionBuilder,
     $$AssestsTableUpdateCompanionBuilder,
-    (AssestEntity, BaseReferences<_$ChatDatabase, $AssestsTable, AssestEntity>),
+    (AssestEntity, $$AssestsTableReferences),
     AssestEntity,
-    PrefetchHooks Function()> {
+    PrefetchHooks Function({bool messageAssetsRefs})> {
   $$AssestsTableTableManager(_$ChatDatabase db, $AssestsTable table)
       : super(TableManagerState(
           db: db,
@@ -2528,9 +2810,35 @@ class $$AssestsTableTableManager extends RootTableManager<
             deletedAt: deletedAt,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map((e) =>
+                  (e.readTable(table), $$AssestsTableReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback: ({messageAssetsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (messageAssetsRefs) db.messageAssets
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (messageAssetsRefs)
+                    await $_getPrefetchedData<AssestEntity, $AssestsTable,
+                            MessageAsset>(
+                        currentTable: table,
+                        referencedTable: $$AssestsTableReferences
+                            ._messageAssetsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$AssestsTableReferences(db, table, p0)
+                                .messageAssetsRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.assetId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
         ));
 }
 
@@ -2543,9 +2851,9 @@ typedef $$AssestsTableProcessedTableManager = ProcessedTableManager<
     $$AssestsTableAnnotationComposer,
     $$AssestsTableCreateCompanionBuilder,
     $$AssestsTableUpdateCompanionBuilder,
-    (AssestEntity, BaseReferences<_$ChatDatabase, $AssestsTable, AssestEntity>),
+    (AssestEntity, $$AssestsTableReferences),
     AssestEntity,
-    PrefetchHooks Function()>;
+    PrefetchHooks Function({bool messageAssetsRefs})>;
 typedef $$ChannelsTableCreateCompanionBuilder = ChannelsCompanion Function({
   Value<int> id,
   required ChannelType type,
@@ -3747,6 +4055,21 @@ final class $$MessagesTableReferences
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: [item]));
   }
+
+  static MultiTypedResultKey<$MessageAssetsTable, List<MessageAsset>>
+      _messageAssetsRefsTable(_$ChatDatabase db) =>
+          MultiTypedResultKey.fromTable(db.messageAssets,
+              aliasName: $_aliasNameGenerator(
+                  db.messages.id, db.messageAssets.messageId));
+
+  $$MessageAssetsTableProcessedTableManager get messageAssetsRefs {
+    final manager = $$MessageAssetsTableTableManager($_db, $_db.messageAssets)
+        .filter((f) => f.messageId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_messageAssetsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
 }
 
 class $$MessagesTableFilterComposer
@@ -3829,6 +4152,27 @@ class $$MessagesTableFilterComposer
                   $removeJoinBuilderFromRootComposer,
             ));
     return composer;
+  }
+
+  Expression<bool> messageAssetsRefs(
+      Expression<bool> Function($$MessageAssetsTableFilterComposer f) f) {
+    final $$MessageAssetsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.messageAssets,
+        getReferencedColumn: (t) => t.messageId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessageAssetsTableFilterComposer(
+              $db: $db,
+              $table: $db.messageAssets,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
   }
 }
 
@@ -3980,6 +4324,27 @@ class $$MessagesTableAnnotationComposer
             ));
     return composer;
   }
+
+  Expression<T> messageAssetsRefs<T extends Object>(
+      Expression<T> Function($$MessageAssetsTableAnnotationComposer a) f) {
+    final $$MessageAssetsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.messageAssets,
+        getReferencedColumn: (t) => t.messageId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessageAssetsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.messageAssets,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
@@ -3993,7 +4358,8 @@ class $$MessagesTableTableManager extends RootTableManager<
     $$MessagesTableUpdateCompanionBuilder,
     (MessageEntity, $$MessagesTableReferences),
     MessageEntity,
-    PrefetchHooks Function({bool channelId, bool senderId})> {
+    PrefetchHooks Function(
+        {bool channelId, bool senderId, bool messageAssetsRefs})> {
   $$MessagesTableTableManager(_$ChatDatabase db, $MessagesTable table)
       : super(TableManagerState(
           db: db,
@@ -4056,10 +4422,15 @@ class $$MessagesTableTableManager extends RootTableManager<
               .map((e) =>
                   (e.readTable(table), $$MessagesTableReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({channelId = false, senderId = false}) {
+          prefetchHooksCallback: (
+              {channelId = false,
+              senderId = false,
+              messageAssetsRefs = false}) {
             return PrefetchHooks(
               db: db,
-              explicitlyWatchedTables: [],
+              explicitlyWatchedTables: [
+                if (messageAssetsRefs) db.messageAssets
+              ],
               addJoins: <
                   T extends TableManagerState<
                       dynamic,
@@ -4097,7 +4468,21 @@ class $$MessagesTableTableManager extends RootTableManager<
                 return state;
               },
               getPrefetchedDataCallback: (items) async {
-                return [];
+                return [
+                  if (messageAssetsRefs)
+                    await $_getPrefetchedData<MessageEntity, $MessagesTable,
+                            MessageAsset>(
+                        currentTable: table,
+                        referencedTable: $$MessagesTableReferences
+                            ._messageAssetsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$MessagesTableReferences(db, table, p0)
+                                .messageAssetsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.messageId == item.id),
+                        typedResults: items)
+                ];
               },
             );
           },
@@ -4115,7 +4500,315 @@ typedef $$MessagesTableProcessedTableManager = ProcessedTableManager<
     $$MessagesTableUpdateCompanionBuilder,
     (MessageEntity, $$MessagesTableReferences),
     MessageEntity,
-    PrefetchHooks Function({bool channelId, bool senderId})>;
+    PrefetchHooks Function(
+        {bool channelId, bool senderId, bool messageAssetsRefs})>;
+typedef $$MessageAssetsTableCreateCompanionBuilder = MessageAssetsCompanion
+    Function({
+  required int messageId,
+  required int assetId,
+  Value<int> rowid,
+});
+typedef $$MessageAssetsTableUpdateCompanionBuilder = MessageAssetsCompanion
+    Function({
+  Value<int> messageId,
+  Value<int> assetId,
+  Value<int> rowid,
+});
+
+final class $$MessageAssetsTableReferences
+    extends BaseReferences<_$ChatDatabase, $MessageAssetsTable, MessageAsset> {
+  $$MessageAssetsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $MessagesTable _messageIdTable(_$ChatDatabase db) =>
+      db.messages.createAlias(
+          $_aliasNameGenerator(db.messageAssets.messageId, db.messages.id));
+
+  $$MessagesTableProcessedTableManager get messageId {
+    final $_column = $_itemColumn<int>('message_id')!;
+
+    final manager = $$MessagesTableTableManager($_db, $_db.messages)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_messageIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static $AssestsTable _assetIdTable(_$ChatDatabase db) =>
+      db.assests.createAlias(
+          $_aliasNameGenerator(db.messageAssets.assetId, db.assests.id));
+
+  $$AssestsTableProcessedTableManager get assetId {
+    final $_column = $_itemColumn<int>('asset_id')!;
+
+    final manager = $$AssestsTableTableManager($_db, $_db.assests)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_assetIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$MessageAssetsTableFilterComposer
+    extends Composer<_$ChatDatabase, $MessageAssetsTable> {
+  $$MessageAssetsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  $$MessagesTableFilterComposer get messageId {
+    final $$MessagesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.messageId,
+        referencedTable: $db.messages,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessagesTableFilterComposer(
+              $db: $db,
+              $table: $db.messages,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$AssestsTableFilterComposer get assetId {
+    final $$AssestsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.assetId,
+        referencedTable: $db.assests,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AssestsTableFilterComposer(
+              $db: $db,
+              $table: $db.assests,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$MessageAssetsTableOrderingComposer
+    extends Composer<_$ChatDatabase, $MessageAssetsTable> {
+  $$MessageAssetsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  $$MessagesTableOrderingComposer get messageId {
+    final $$MessagesTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.messageId,
+        referencedTable: $db.messages,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessagesTableOrderingComposer(
+              $db: $db,
+              $table: $db.messages,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$AssestsTableOrderingComposer get assetId {
+    final $$AssestsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.assetId,
+        referencedTable: $db.assests,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AssestsTableOrderingComposer(
+              $db: $db,
+              $table: $db.assests,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$MessageAssetsTableAnnotationComposer
+    extends Composer<_$ChatDatabase, $MessageAssetsTable> {
+  $$MessageAssetsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  $$MessagesTableAnnotationComposer get messageId {
+    final $$MessagesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.messageId,
+        referencedTable: $db.messages,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$MessagesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.messages,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$AssestsTableAnnotationComposer get assetId {
+    final $$AssestsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.assetId,
+        referencedTable: $db.assests,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AssestsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.assests,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$MessageAssetsTableTableManager extends RootTableManager<
+    _$ChatDatabase,
+    $MessageAssetsTable,
+    MessageAsset,
+    $$MessageAssetsTableFilterComposer,
+    $$MessageAssetsTableOrderingComposer,
+    $$MessageAssetsTableAnnotationComposer,
+    $$MessageAssetsTableCreateCompanionBuilder,
+    $$MessageAssetsTableUpdateCompanionBuilder,
+    (MessageAsset, $$MessageAssetsTableReferences),
+    MessageAsset,
+    PrefetchHooks Function({bool messageId, bool assetId})> {
+  $$MessageAssetsTableTableManager(_$ChatDatabase db, $MessageAssetsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MessageAssetsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MessageAssetsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MessageAssetsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> messageId = const Value.absent(),
+            Value<int> assetId = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              MessageAssetsCompanion(
+            messageId: messageId,
+            assetId: assetId,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required int messageId,
+            required int assetId,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              MessageAssetsCompanion.insert(
+            messageId: messageId,
+            assetId: assetId,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$MessageAssetsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({messageId = false, assetId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (messageId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.messageId,
+                    referencedTable:
+                        $$MessageAssetsTableReferences._messageIdTable(db),
+                    referencedColumn:
+                        $$MessageAssetsTableReferences._messageIdTable(db).id,
+                  ) as T;
+                }
+                if (assetId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.assetId,
+                    referencedTable:
+                        $$MessageAssetsTableReferences._assetIdTable(db),
+                    referencedColumn:
+                        $$MessageAssetsTableReferences._assetIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$MessageAssetsTableProcessedTableManager = ProcessedTableManager<
+    _$ChatDatabase,
+    $MessageAssetsTable,
+    MessageAsset,
+    $$MessageAssetsTableFilterComposer,
+    $$MessageAssetsTableOrderingComposer,
+    $$MessageAssetsTableAnnotationComposer,
+    $$MessageAssetsTableCreateCompanionBuilder,
+    $$MessageAssetsTableUpdateCompanionBuilder,
+    (MessageAsset, $$MessageAssetsTableReferences),
+    MessageAsset,
+    PrefetchHooks Function({bool messageId, bool assetId})>;
 typedef $$UserProfilesTableCreateCompanionBuilder = UserProfilesCompanion
     Function({
   required String userId,
@@ -4297,6 +4990,8 @@ class $ChatDatabaseManager {
       $$MembersTableTableManager(_db, _db.members);
   $$MessagesTableTableManager get messages =>
       $$MessagesTableTableManager(_db, _db.messages);
+  $$MessageAssetsTableTableManager get messageAssets =>
+      $$MessageAssetsTableTableManager(_db, _db.messageAssets);
   $$UserProfilesTableTableManager get userProfiles =>
       $$UserProfilesTableTableManager(_db, _db.userProfiles);
 }

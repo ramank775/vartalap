@@ -145,6 +145,7 @@ class TestDataFactories {
     String? path,
     String? name,
     String? type,
+    String? category,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -153,6 +154,7 @@ class TestDataFactories {
       path: path ?? "/test/path/file.jpg",
       name: name ?? "test_file.jpg",
       type: type ?? "image",
+      category: category ?? "image",
       createdAt: createdAt,
       updatedAt: updatedAt,
     );

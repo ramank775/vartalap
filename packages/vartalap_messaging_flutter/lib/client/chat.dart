@@ -187,6 +187,15 @@ class ChatClient {
     }
   }
 
+  Future<void> sendAttachment(String path, String category) async {
+    await client.sendAttachment(
+      channelId: channel.id,
+      path: path,
+      category: category,
+      currentUser: currentUser,
+    );
+  }
+
   Selectable<ChatMessage> getMessages({
     MessageFilter? filter,
   }) {
@@ -228,9 +237,47 @@ class ChatClient {
   Future<void> markAsRead({int? messageId}) async {
     if (messageId != null) {
       await chatDao.markMessagesAsRead([messageId]);
+      await _sendReadReceipt(messageId: messageId);
     } else {
       await chatDao.markChannelAsRead(channel.id);
+      await _sendReadReceipt();
     }
+  }
+
+  /// Sends a read receipt ack to the server
+  Future<void> _sendReadReceipt({int? messageId}) async {
+    final myUid = currentUser.uid;
+    if (myUid == null) return;
+
+    final target = channel.type == ChannelType.individual
+        ? (channel.extraData['uid'] as String?)
+        : channel.cid;
+
+    if (target == null) return;
+
+    // If messageId provided, send ack for that specific message.
+    // Otherwise, send ack for the channel (server handles resolving latest).
+    String? remoteId;
+    if (messageId != null) {
+      final msg = await chatDao.getMessages(channel: channel, filter: MessageFilter(messageId: messageId)).getSingleOrNull();
+      remoteId = msg?.rid;
+    }
+
+    final head = messaging.Head(
+      type: channel.type,
+      to: target,
+      from: myUid,
+      category: 'ack',
+      ephemeral: true,
+    );
+
+    final remoteMsg = messaging.RemoteMessage()
+      ..id = remoteId ?? 'channel_read_${channel.id}'
+      ..head = head
+      ..meta = messaging.Meta(hash: 'read') // Using meta to flag as read status
+      ..body = {'status': 'read', 'channelId': channel.cid};
+
+    await client.client.sendMessage([remoteMsg], sync: false, ack: false);
   }
 
   bool hasSendMessagePermission() {

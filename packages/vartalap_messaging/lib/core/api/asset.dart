@@ -1,9 +1,14 @@
+import 'dart:io';
 import 'package:vartalap_messaging/core/api/base_api.dart';
 import 'package:vartalap_messaging/core/api/response.dart';
 import 'package:vartalap_messaging/core/http/http_client.dart';
 
 class AssetApi extends BaseApi {
   AssetApi(HttpClient client) : super(client, 'assets');
+
+  Future<void> uploadFile(String url, File file) async {
+    await client.uploadFile(url, file);
+  }
 
   Future<AssetPreSignedUrlResponse> uploadUrl(
       String extension, String category) async {

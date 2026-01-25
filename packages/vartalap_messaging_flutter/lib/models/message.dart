@@ -37,6 +37,7 @@ class NotificationContent {
 
 abstract class ChatMessage {
   final int _id;
+  final String? _rid;
   final int _senderId;
   Contact? _sender;
   MessageState _state;
@@ -46,6 +47,7 @@ abstract class ChatMessage {
   final List<Attachment> _attachments;
 
   int get id => _id;
+  String? get rid => _rid;
   int get senderId => _senderId;
   Contact? get sender => _sender;
 
@@ -67,11 +69,13 @@ abstract class ChatMessage {
     required MessageType type,
     MessageState state = MessageState.pending,
     int id = 0,
+    String? rid,
     DateTime? ts,
     DateTime? updatedAt,
     Contact? sender,
     List<Attachment> attachments = const [],
   })  : _id = id,
+        _rid = rid,
         _senderId = senderId,
         _state = state,
         _type = type,
@@ -125,6 +129,7 @@ class TextMessage extends ChatMessage {
     required super.senderId,
     required Map<String, dynamic> payload,
     super.id,
+    super.rid,
     super.state,
     super.ts,
     super.updatedAt,
@@ -145,12 +150,47 @@ class TextMessage extends ChatMessage {
   Map<String, dynamic> get payload => {"text": _text};
 }
 
+class ImageMessage extends ChatMessage {
+  ImageMessage({
+    required super.senderId,
+    required Map<String, dynamic> payload,
+    super.id,
+    super.rid,
+    super.state,
+    super.ts,
+    super.updatedAt,
+    super.sender,
+    super.attachments = const [],
+  }) : super(
+          type: MessageType.image,
+        );
+
+  @override
+  NotificationContent get notificationContent =>
+      NotificationContent(text: "Sent an image", show: true);
+
+  @override
+  String get previewContent => "Image";
+
+  @override
+  Map<String, dynamic> get payload {
+    if (attachments.isNotEmpty) {
+      return {
+        "assetId": attachments.first.remoteId,
+        "name": attachments.first.name,
+      };
+    }
+    return {};
+  }
+}
+
 class CustomMessage extends ChatMessage {
   final Map<String, dynamic> _rawbody;
 
   CustomMessage({
     required super.senderId,
     required super.id,
+    super.rid,
     required super.state,
     required super.type,
     required super.ts,

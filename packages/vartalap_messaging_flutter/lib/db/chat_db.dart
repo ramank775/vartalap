@@ -16,6 +16,7 @@ part 'chat_db.g.dart';
   Contacts,
   Members,
   Messages,
+  MessageAssets,
   UserProfiles,
 ], daos: [
   ChatDao,

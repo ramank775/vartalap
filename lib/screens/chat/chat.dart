@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:vartalap/screens/chat/chat_info.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/bouncing_dots.dart';
 import 'package:vartalap/widgets/chatlist.dart';
 import 'package:vartalap/widgets/notifier/iterable_notifier.dart';
 import 'package:vartalap/widgets/message_input.dart';
@@ -22,6 +23,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   ChatMessageController _messageController =
       ChatMessageController(messages: []);
   final _selectedMessges = SetNotifier<int>(<int>{});
+  final ScrollController _scrollController = ScrollController();
+  final ValueNotifier<bool> _showScrollToBottom = ValueNotifier<bool>(false);
   StreamSubscription? _notificationSub;
   StreamSubscription? _newMessageSub;
   Timer? _readTimer;
@@ -38,6 +41,14 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     chat.watch();
     
+    _scrollController.addListener(() {
+      if (_scrollController.offset > 200 && !_showScrollToBottom.value) {
+        _showScrollToBottom.value = true;
+      } else if (_scrollController.offset <= 200 && _showScrollToBottom.value) {
+        _showScrollToBottom.value = false;
+      }
+    });
+
     // Listen for remote typing indicators
     _newMessageSub = chat.typingStream.listen((isTyping) {
       _typing.value = isTyping;
@@ -156,24 +167,49 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                       _messageController =
                           ChatMessageController(messages: messages);
                       final Map<String, Member> members = {};
-                      return ChatList(
-                        controller: _messageController,
-                        members: members,
-                        showName: chat.channel.type == ChannelType.group,
-                        loadingMessages: _loadingMessages,
-                        currentUser: chat.currentUser,
-                        onTab: (ChatMessage msg) {
-                          if (_selectedMessges.value.isNotEmpty) {
-                            _selectOrRemove(msg);
-                          }
-                        },
-                        onLongPress: (ChatMessage msg) {
-                          if (_selectedMessges.value.isNotEmpty) {
-                            _selectOrRemove(msg);
-                          } else {
-                            _showMessageContextMenu(context, msg);
-                          }
-                        },
+                      return Stack(
+                        children: [
+                          ChatList(
+                            controller: _messageController,
+                            members: members,
+                            showName: chat.channel.type == ChannelType.group,
+                            loadingMessages: _loadingMessages,
+                            currentUser: chat.currentUser,
+                            scrollController: _scrollController,
+                            onTab: (ChatMessage msg) {
+                              if (_selectedMessges.value.isNotEmpty) {
+                                _selectOrRemove(msg);
+                              }
+                            },
+                            onLongPress: (ChatMessage msg) {
+                              if (_selectedMessges.value.isNotEmpty) {
+                                _selectOrRemove(msg);
+                              } else {
+                                _showMessageContextMenu(context, msg);
+                              }
+                            },
+                          ),
+                          ValueListenableBuilder<bool>(
+                            valueListenable: _showScrollToBottom,
+                            builder: (context, show, child) {
+                              if (!show) return const SizedBox.shrink();
+                              return Positioned(
+                                bottom: 16,
+                                right: 16,
+                                child: FloatingActionButton.small(
+                                  onPressed: () {
+                                    _scrollController.animateTo(
+                                      0,
+                                      duration: const Duration(milliseconds: 300),
+                                      curve: Curves.easeOut,
+                                    );
+                                  },
+                                  child: const Icon(Icons.arrow_downward),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       );
                   }
                 }),
@@ -197,6 +233,13 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                         await chat.sendMessage([msg]);
                       } catch (e) {
                         _showErrorSnackBar('Failed to send message: $e');
+                      }
+                    },
+                    sendAttachment: (String path, String category) async {
+                      try {
+                        await chat.sendAttachment(path, category);
+                      } catch (e) {
+                        _showErrorSnackBar('Failed to send attachment: $e');
                       }
                     },
                     onTyping: (bool state) async {
@@ -253,13 +296,22 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                   builder: (BuildContext context, bool state, Widget? child) {
                     var value = subtitle;
                     if (state) {
-                      value = "typing...";
+                      return Row(
+                        children: [
+                          const Text(
+                            "typing",
+                            style: TextStyle(fontSize: 12.0, color: Colors.white),
+                          ),
+                          const SizedBox(width: 4),
+                          const BouncingDots(),
+                        ],
+                      );
                     }
                     return Text(
                       value,
                       overflow: TextOverflow.ellipsis,
                       softWrap: false,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 12.0,
                         color: Colors.white,
                       ),
@@ -631,6 +683,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();
     _notificationSub?.cancel();
     _newMessageSub?.cancel();
+    _scrollController.dispose();
+    _showScrollToBottom.dispose();
     _messageController.dispose();
     super.dispose();
   }

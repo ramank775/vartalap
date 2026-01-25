@@ -85,6 +85,7 @@ class ChatList extends StatelessWidget {
   final Map<String, Member> members;
   final Set<int>? loadingMessages;
   final Contact? currentUser;
+  final ScrollController? scrollController;
 
   const ChatList({
     super.key,
@@ -95,6 +96,7 @@ class ChatList extends StatelessWidget {
     this.onTab,
     this.loadingMessages,
     this.currentUser,
+    this.scrollController,
   });
 
   @override
@@ -109,6 +111,7 @@ class ChatList extends StatelessWidget {
           showUserNames: showName,
         )[0] as List<Object>;
         return ListView.builder(
+          controller: scrollController,
           itemCount: displayMessages.length,
           reverse: true,
           itemBuilder: (context, i) {

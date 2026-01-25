@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:bubble/bubble.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -185,9 +186,97 @@ class MessageWidget extends StatelessWidget {
             textStyle,
           );
         }
+      case MessageType.image:
+        return _buildImageMessage(context);
+      case MessageType.video:
+        return _buildVideoMessage(context);
+      case MessageType.attachment:
+        return _buildFileMessage(context);
       default:
         return SizedBox();
     }
+  }
+
+  Widget _buildImageMessage(BuildContext context) {
+    if (_msg.attachments.isEmpty) return const Text("Image missing");
+    final attachment = _msg.attachments.first;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(
+            File(attachment.path),
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100),
+          ),
+        ),
+        if (attachment.name.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4.0),
+            child: Text(attachment.name, style: const TextStyle(fontSize: 12)),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildVideoMessage(BuildContext context) {
+    if (_msg.attachments.isEmpty) return const Text("Video missing");
+    final attachment = _msg.attachments.first;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.play_circle_fill, size: 40),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            attachment.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFileMessage(BuildContext context) {
+    if (_msg.attachments.isEmpty) return const Text("File missing");
+    final attachment = _msg.attachments.first;
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.insert_drive_file),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  attachment.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  attachment.type.toUpperCase(),
+                  style: const TextStyle(fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _getIcon() {

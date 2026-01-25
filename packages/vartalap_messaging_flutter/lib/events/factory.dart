@@ -5,6 +5,7 @@ import 'package:vartalap_messaging/vartalap_messaging.dart'
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/message_task.dart';
 import 'package:vartalap_messaging_flutter/events/sync_message_task.dart';
+import 'package:vartalap_messaging_flutter/events/asset_upload_task.dart';
 
 import '../models/channel.dart';
 import 'channel_task.dart';
@@ -40,6 +41,14 @@ class VartalapTaskFactory implements TaskFactory {
         return SyncMessageTask(
           client,
           db,
+          id: id,
+          state: state,
+        );
+      case AssetUploadTask.name:
+        return AssetUploadTask(
+          client,
+          db,
+          payload: payload as int?,
           id: id,
           state: state,
         );
