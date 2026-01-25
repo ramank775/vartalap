@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/login.dart';
 import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
-import 'package:vartalap/widgets/loading_indicator.dart';
-import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_testing/vartalap_testing.dart';
 import 'test_app_wrapper.dart';
@@ -77,8 +73,9 @@ void main() {
       // Enter phone number - IntlPhoneField uses a TextField internally
       final phoneField = find.byType(IntlPhoneField);
       expect(phoneField, findsOneWidget);
-      
-      final textField = find.descendant(of: phoneField, matching: find.byType(TextField));
+
+      final textField =
+          find.descendant(of: phoneField, matching: find.byType(TextField));
       await tester.enterText(textField, '1234567890');
       await tester.pumpAndSettle();
 
@@ -87,7 +84,7 @@ void main() {
 
       // Loading indicator should appear in a dialog
       await tester.pumpAndSettle();
-      
+
       expect(find.textContaining('Please wait'), findsOneWidget);
 
       // Wait for OTP to be "sent"
@@ -112,7 +109,7 @@ void main() {
 
         // Tap Confirm
         await tester.tap(find.text('Confirm'));
-        
+
         // Wait for async login and database init to complete
         await Future.delayed(const Duration(seconds: 2));
       });

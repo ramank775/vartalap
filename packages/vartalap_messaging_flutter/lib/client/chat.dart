@@ -167,6 +167,15 @@ class ChatClient {
 
   Future<void> addMembers(List<Member> members) async {
     await chatDao.addMembers(members, channel);
+
+    final task = client.factory.create(
+      AddMembersTask.name,
+      payload: AddMembersPayload(
+        localChannelId: channel.id,
+        localMemberIds: members.map((m) => m.user.id).toList(),
+      ),
+    );
+    await client.scheduler.schedule(task);
   }
 
   Future<void> removeMember({
@@ -183,6 +192,15 @@ class ChatClient {
       return;
     }
     await chatDao.removeMember(member, channel);
+
+    final task = client.factory.create(
+      RemoveMemberTask.name,
+      payload: RemoveMemberPayload(
+        localChannelId: channel.id,
+        localMemberId: member.user.id,
+      ),
+    );
+    await client.scheduler.schedule(task);
   }
 
   Future<void> sendMessage(List<ChatMessage> messages) async {

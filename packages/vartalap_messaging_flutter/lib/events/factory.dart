@@ -7,6 +7,8 @@ import 'package:vartalap_messaging_flutter/events/message_task.dart';
 import 'package:vartalap_messaging_flutter/events/sync_message_task.dart';
 import 'package:vartalap_messaging_flutter/events/asset_upload_task.dart';
 import 'package:vartalap_messaging_flutter/events/sync_contact_task.dart';
+import 'package:vartalap_messaging_flutter/events/add_member_task.dart';
+import 'package:vartalap_messaging_flutter/events/remove_member_task.dart';
 
 import '../models/channel.dart';
 import 'channel_task.dart';
@@ -58,6 +60,22 @@ class VartalapTaskFactory implements TaskFactory {
           client,
           db,
           payload: payload as int?,
+          id: id,
+          state: state,
+        );
+      case AddMembersTask.name:
+        return AddMembersTask(
+          client,
+          db,
+          payload: payload as AddMembersPayload?,
+          id: id,
+          state: state,
+        );
+      case RemoveMemberTask.name:
+        return RemoveMemberTask(
+          client,
+          db,
+          payload: payload as RemoveMemberPayload?,
           id: id,
           state: state,
         );
