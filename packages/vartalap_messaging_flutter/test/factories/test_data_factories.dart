@@ -54,7 +54,7 @@ class TestDataFactories {
     ChannelType? type,
     bool? isMuted,
     ChannelConfig? config,
-    Map<String, Object?>? extraData,
+    Map<String, dynamic>? extraData,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -71,11 +71,11 @@ class TestDataFactories {
     return ChannelModel(
       id: id ?? _channelCounter++,
       type: type ?? ChannelType.group,
-      config: channelConfig,
-      isMuted: isMuted ?? false,
+      config: channelConfig.toJson(),
+      muted: isMuted ?? false,
       extraData: channelExtraData,
-      createdAt: createdAt,
-      updatedAt: updatedAt,
+      createdAt: createdAt ?? DateTime.now(),
+      updatedAt: updatedAt ?? DateTime.now(),
     );
   }
 
@@ -103,7 +103,7 @@ class TestDataFactories {
   }
 
   /// Creates a test text message
-  static TextMessage createTextMessage({
+  static ChatMessage createChatMessage({
     int? id,
     int? senderId,
     Contact? sender,
@@ -111,28 +111,30 @@ class TestDataFactories {
     MessageState? state,
     DateTime? ts,
     DateTime? updatedAt,
+    int? channelId,
   }) {
-    return TextMessage(
+    return ChatMessage.text(
       id: id ?? _messageCounter++,
+      channelId: channelId ?? 1,
       senderId: senderId ?? 1,
-      payload: {"text": text ?? "Test message $_messageCounter"},
-      sender: sender,
+      text: text ?? "Test message $_messageCounter",
       state: state ?? MessageState.sent,
-      ts: ts ?? DateTime.now(),
-      updatedAt: updatedAt ?? DateTime.now(),
-    );
+      timestamp: ts ?? DateTime.now(),
+    ).copyWith(sender: sender);
   }
 
   /// Creates multiple test messages for a conversation
-  static List<TextMessage> createConversation({
+  static List<ChatMessage> createConversation({
     int messageCount = 5,
     List<int>? senderIds,
+    int? channelId,
   }) {
     final senders = senderIds ?? [1, 2];
     return List.generate(messageCount, (index) {
       final senderId = senders[index % senders.length];
-      return createTextMessage(
+      return createChatMessage(
         senderId: senderId,
+        channelId: channelId,
         text: "Message ${index + 1} from sender $senderId",
         ts: DateTime.now().subtract(Duration(minutes: messageCount - index)),
       );
@@ -168,7 +170,7 @@ class TestDataFactories {
   }) {
     return ChatPreview(
       channel: channel ?? createChannel(),
-      lastMessage: lastMessage ?? createTextMessage(),
+      lastMessage: lastMessage ?? createChatMessage(),
       unreadCount: unreadCount ?? 0,
     );
   }
@@ -190,9 +192,10 @@ class TestDataFactories {
     final channels = createChannels(channelCount);
     
     // Create messages for each channel
-    final allMessages = <TextMessage>[];
+    final allMessages = <ChatMessage>[];
     for (int i = 0; i < channels.length; i++) {
       final channelMessages = createConversation(
+        channelId: channels[i].id,
         messageCount: messagesPerChannel,
         senderIds: contacts.take(2).map((c) => c.id).toList(),
       );
@@ -221,7 +224,7 @@ class TestDataFactories {
 class TestDataSet {
   final List<Contact> contacts;
   final List<ChannelModel> channels;
-  final List<TextMessage> messages;
+  final List<ChatMessage> messages;
   final List<Member> members;
 
   const TestDataSet({
@@ -268,7 +271,7 @@ class QuickTestData {
   );
 
   /// Creates a simple test message
-  static TextMessage get testMessage => TestDataFactories.createTextMessage(
+  static ChatMessage get testMessage => TestDataFactories.createChatMessage(
     senderId: testUserId,
     text: "Hello, World!",
   );

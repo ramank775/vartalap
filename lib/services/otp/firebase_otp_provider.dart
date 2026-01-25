@@ -8,7 +8,7 @@ library;
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:vartalap/models/auth_models.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
 import 'package:vartalap/services/crashlystics.dart';
 import 'package:vartalap/services/firebase_initializer.dart';
@@ -52,39 +52,27 @@ class FirebaseOTPProvider implements IOTPProvider {
   }
 
   @override
-  OTPProviderCapabilities get capabilities => const OTPProviderCapabilities(
-        supportsVoiceCalls: false, // Firebase doesn't expose voice call option
-        supportsCustomTemplates: false, // Firebase uses fixed templates
-        supportsResend: true,
-        maxTimeoutSeconds: 120,
-        minTimeoutSeconds: 30,
-        customFeatures: {
-          'auto_verification': true,
-          'sms_retrieval': true,
-          'provider': 'firebase',
-        },
-      );
-
-  @override
-  Future<OTPResult> sendOTP(String phoneNumber, {OTPOptions? options}) async {
+  Future<OTPResult> sendOTP(
+    String phoneNumber, {
+    Map<String, dynamic>? options,
+  }) async {
     try {
       // Clean up previous session if phone number changed
       if (phoneNumber != _currentPhoneNumber) {
         await _cleanupPreviousSession();
       }
 
-      _currentPhoneNumber = phoneNumber;
-      final completer = Completer<OTPResult>();
-      final sessionId = _generateSessionId();
-      _sendOtpCompleters[sessionId] = completer;
+    _currentPhoneNumber = phoneNumber;
 
-      // Configure timeout
-      final timeoutSeconds = options?.timeoutSeconds ?? 60;
+    final timeout = (options?['timeoutSeconds'] as int?) ?? 60;
+    final sessionId = _generateSessionId();
+
+    final completer = Completer<OTPResult>();
 
       final auth = await _lazyAuth;
       await auth.verifyPhoneNumber(
         phoneNumber: phoneNumber,
-        timeout: Duration(seconds: timeoutSeconds),
+        timeout: Duration(seconds: timeout),
         forceResendingToken: _resendToken,
 
         // OTP sent successfully
@@ -153,7 +141,7 @@ class FirebaseOTPProvider implements IOTPProvider {
       );
 
       // Set up timeout for the completer
-      Timer(Duration(seconds: timeoutSeconds + 10), () {
+      Timer(Duration(seconds: timeout + 10), () {
         if (!completer.isCompleted) {
           completer.complete(OTPResult.failure(
             'OTP delivery timed out. Please try again.',
@@ -258,11 +246,9 @@ class FirebaseOTPProvider implements IOTPProvider {
     }
   }
 
-  /// Resend OTP to the current phone number
-  ///
-  /// This method uses the stored resend token to resend OTP to the same phone number.
+  /// This is NOT an override of IOTPProvider, but a Firebase-specific helper.
   /// It's a convenience method that calls [sendOTP] with the current phone number.
-  Future<OTPResult> resendOTP({OTPOptions? options}) async {
+  Future<OTPResult> resendOTP({Map<String, dynamic>? options}) async {
     if (_currentPhoneNumber == null) {
       throw AuthError.otpDelivery('No phone number to resend OTP to');
     }

@@ -5,14 +5,14 @@ import 'package:vartalap/models/message_spacer.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 void main() {
-  final currentUser = const Contact(
+  const currentUser = Contact(
     id: 1,
     username: 'me',
     uid: 'uid_me',
     status: ContactStatus.active,
   );
 
-  final otherUser = const Contact(
+  const otherUser = Contact(
     id: 2,
     name: 'Alice',
     username: 'alice',
@@ -24,20 +24,19 @@ void main() {
     test('calculateChatMessages - adds date header for first message', () {
       final now = DateTime.now();
       final messages = [
-        TextMessage(
+        ChatMessage.text(
           id: 1,
+          channelId: 1,
           senderId: otherUser.id,
-          payload: {'text': 'Hello'},
-          ts: now,
-          sender: otherUser,
-        ),
+          text: 'Hello',
+          timestamp: now,
+        ).copyWith(sender: otherUser),
       ];
 
       final result = calculateChatMessages(messages, currentUser, showUserNames: false);
       final displayList = result[0] as List<Object>;
 
       // Expected for 1 message: [DateHeader, MessageSpacer, Map(message)]
-      // (Order might vary depending on exact loop logic, let's check existence)
       expect(displayList.any((e) => e is DateHeader), true);
       expect(displayList.any((e) => e is Map), true);
       
@@ -48,20 +47,20 @@ void main() {
     test('calculateChatMessages - groups consecutive messages from same user', () {
       final now = DateTime.now();
       final messages = [
-        TextMessage(
+        ChatMessage.text(
           id: 1,
+          channelId: 1,
           senderId: otherUser.id,
-          payload: {'text': 'Hi'},
-          ts: now.subtract(const Duration(seconds: 30)),
-          sender: otherUser,
-        ),
-        TextMessage(
+          text: 'Hi',
+          timestamp: now.subtract(const Duration(seconds: 30)),
+        ).copyWith(sender: otherUser),
+        ChatMessage.text(
           id: 2,
+          channelId: 1,
           senderId: otherUser.id,
-          payload: {'text': 'How are you?'},
-          ts: now,
-          sender: otherUser,
-        ),
+          text: 'How are you?',
+          timestamp: now,
+        ).copyWith(sender: otherUser),
       ];
 
       final result = calculateChatMessages(messages, currentUser, showUserNames: false);
@@ -72,9 +71,6 @@ void main() {
         (e) => e is Map && (e['message'] as ChatMessage).id == 2
       ) as Map;
       
-      // Since messages are ordered Old -> New (index 0 is Old), and loop runs New -> Old.
-      // For Msg2 (New), nextMessage is Msg1 (Old).
-      // Since they are from same author and close in time, nextMessageInGroup is true.
       expect(msg2Map['nextMessageInGroup'], true);
       expect(msg2Map['showNip'], false); // Grouped messages don't show nip
     });
@@ -82,20 +78,20 @@ void main() {
     test('calculateChatMessages - adds spacer between different users', () {
       final now = DateTime.now();
       final messages = [
-        TextMessage(
+        ChatMessage.text(
           id: 1,
+          channelId: 1,
           senderId: otherUser.id,
-          payload: {'text': 'Alice message'},
-          ts: now.subtract(const Duration(minutes: 5)),
-          sender: otherUser,
-        ),
-        TextMessage(
+          text: 'Alice message',
+          timestamp: now.subtract(const Duration(minutes: 5)),
+        ).copyWith(sender: otherUser),
+        ChatMessage.text(
           id: 2,
+          channelId: 1,
           senderId: currentUser.id,
-          payload: {'text': 'My response'},
-          ts: now,
-          sender: currentUser,
-        ),
+          text: 'My response',
+          timestamp: now,
+        ).copyWith(sender: currentUser),
       ];
 
       final result = calculateChatMessages(messages, currentUser, showUserNames: false);
@@ -109,13 +105,13 @@ void main() {
     test('calculateChatMessages - shows name for messages from others when enabled', () {
       final now = DateTime.now();
       final messages = [
-        TextMessage(
+        ChatMessage.text(
           id: 1,
+          channelId: 1,
           senderId: otherUser.id,
-          payload: {'text': 'Msg from Alice'},
-          ts: now,
-          sender: otherUser,
-        ),
+          text: 'Msg from Alice',
+          timestamp: now,
+        ).copyWith(sender: otherUser),
       ];
 
       final result = calculateChatMessages(messages, currentUser, showUserNames: true);

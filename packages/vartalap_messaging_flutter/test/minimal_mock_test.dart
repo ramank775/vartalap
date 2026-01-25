@@ -21,7 +21,7 @@ void main() {
         extraData: {'name': 'Family Chat'},
       );
 
-      final message = TestDataFactories.createTextMessage(
+      final message = TestDataFactories.createChatMessage(
         text: "Hello family!",
         senderId: contact.id,
       );
@@ -62,7 +62,7 @@ void main() {
 
     test('Message model should handle state transitions correctly', () {
       // Test real message state logic
-      final message = TestDataFactories.createTextMessage(
+      final message = TestDataFactories.createChatMessage(
         state: MessageState.pending,
       );
 

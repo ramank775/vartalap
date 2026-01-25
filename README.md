@@ -162,3 +162,52 @@ Vartalap has adopted [Contributor Covenant](./CODE_OF_CONDUCT.md), we expect pro
 # Contact us
 - Twitter [@vartalap_app](https://twitter.com/vartalap_app).
 
+# Current Architecture
+
+```mermaid
+ graph TD
+     subgraph "UI Layer (Flutter)"
+         UI[ChatScreen / UI]
+         Provider[VartalapClientProvider]
+         AuthWrapper[VartalapAuthenticatedClient]
+
+         UI -->|Reads Stream| DAO
+         UI -->|1. User Action| ChatClient
+         Provider --> AuthWrapper
+        end
+   
+        subgraph "Logic Layer (vartalap_messaging_flutter)"
+            AuthWrapper --> FlutterClient[VartalapChatClientFlutter]
+   
+            subgraph "Immediate Action"
+                ChatClient -->|2. Insert Local Data| DAO[ChatDao / ChannelDao]
+                ChatClient -->|3. Schedule Task| Scheduler[TaskScheduler]
+            end
+   
+            subgraph "Background Sync (TaskQ)"
+                Scheduler -->|4. Read Pending| TaskDB[(Task DB)]
+                TaskDB -->|5. Deserialize| TaskFactory
+                TaskFactory -->|6. Execute| Tasks[Specific Tasks]
+   
+                Tasks -->|Dependency Check| Graph{DAG Graph}
+                Graph -->|Has Image?| UploadTask[AssetUploadTask]
+                Graph -->|Ready?| SendTask[SendMessageTask]
+                Graph -->|Sync?| SyncContactTask
+            end
+        end
+   
+        subgraph "Persistence Layer"
+            DAO <-->|Read/Write| SQLite[(Drift DB)]
+            Tasks <-->|Update Status| SQLite
+        end
+   
+        subgraph "Network Layer (vartalap_messaging)"
+            UploadTask -->|7. Upload| PureClient[VartalapChatClient]
+            SendTask -->|8. Send DTO| PureClient
+   
+            PureClient -->|9. HTTP/WS| Server((Server / Broker))
+            PureClient -->|10. Stream Events| FlutterClient
+        end
+   
+        FlutterClient -->|11. Update DB| DAO
+```

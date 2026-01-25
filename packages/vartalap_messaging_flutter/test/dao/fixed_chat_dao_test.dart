@@ -35,7 +35,7 @@ void main() {
 
       test('Message state transitions should follow business rules', () {
         // Test real message business logic
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           state: MessageState.pending,
         );
 
@@ -56,7 +56,7 @@ void main() {
 
       test('Chat message models should handle different types correctly', () {
         // Test real message model behavior
-        final textMessage = TestDataFactories.createTextMessage(
+        final textMessage = TestDataFactories.createChatMessage(
           text: "Hello World",
           senderId: 123,
         );
@@ -74,9 +74,9 @@ void main() {
 
       test('Message equality should work correctly', () {
         // Test real equality logic
-        final message1 = TestDataFactories.createTextMessage(id: 1, text: "Test");
-        final message2 = TestDataFactories.createTextMessage(id: 1, text: "Different text");
-        final message3 = TestDataFactories.createTextMessage(id: 2, text: "Test");
+        final message1 = TestDataFactories.createChatMessage(id: 1, text: "Test");
+        final message2 = TestDataFactories.createChatMessage(id: 1, text: "Different text");
+        final message3 = TestDataFactories.createChatMessage(id: 2, text: "Test");
 
         // Messages with same ID should be equal
         expect(message1, equals(message2));
@@ -144,7 +144,7 @@ void main() {
         final channel = TestDataFactories.createChannel(id: 1);
         final createdChannel = await channelDao!.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           senderId: 123,
           text: "Local test message",
         );
@@ -156,7 +156,7 @@ void main() {
         // Test real message retrieval
         final messages = await chatDao!.getMessages(channel: createdChannel).get();
         expect(messages, hasLength(1));
-        expect((messages.first as TextMessage).text, equals("Local test message"));
+        expect((messages.first).text, equals("Local test message"));
       });
 
       test('should handle message state updates locally', () async {
@@ -168,7 +168,7 @@ void main() {
         final channel = TestDataFactories.createChannel(id: 1);
         final createdChannel = await channelDao!.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           state: MessageState.pending,
           text: "State test message",
         );
@@ -176,7 +176,7 @@ void main() {
         final messageId = await chatDao!.sendMessage(message, createdChannel);
 
         // Test real state update
-        final updatedMessage = TestDataFactories.createTextMessage(
+        final updatedMessage = TestDataFactories.createChatMessage(
           state: MessageState.sent,
           text: "State test message",
         );
@@ -195,7 +195,7 @@ void main() {
         final channel = TestDataFactories.createChannel();
         final createdChannel = await channelDao!.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           text: "Preview test message",
         );
         await chatDao!.sendMessage(message, createdChannel);
@@ -223,7 +223,7 @@ void main() {
         await expectLater(messageStream, emits(isEmpty));
 
         // Add message and verify reactive update
-        final message = TestDataFactories.createTextMessage(text: "Reactive test");
+        final message = TestDataFactories.createChatMessage(text: "Reactive test");
         await chatDao!.sendMessage(message, createdChannel);
 
         await expectLater(messageStream, emits(hasLength(1)));

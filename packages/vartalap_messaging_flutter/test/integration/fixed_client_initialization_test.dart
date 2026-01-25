@@ -59,7 +59,7 @@ void main() {
           extraData: {'name': 'Test Channel'},
         );
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           senderId: contact.id,
           text: "Hello from client test",
         );
@@ -174,7 +174,7 @@ void main() {
           final channel = TestDataFactories.createChannel();
           final createdChannel = await channelDao.createChannel(channel, []);
 
-          final message = TestDataFactories.createTextMessage(
+          final message = TestDataFactories.createChatMessage(
             text: "Local data flow test",
           );
           await chatDao.sendMessage(message, createdChannel);
@@ -185,7 +185,7 @@ void main() {
 
           expect(channels, hasLength(1));
           expect(messages, hasLength(1));
-          expect((messages.first as TextMessage).text, equals("Local data flow test"));
+          expect((messages.first).text, equals("Local data flow test"));
 
           await database.close();
         } catch (e) {

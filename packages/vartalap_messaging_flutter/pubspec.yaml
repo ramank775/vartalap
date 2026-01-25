@@ -20,6 +20,7 @@ dependencies:
   path_provider: ^2.1.5
   json_annotation: ^4.9.0
   drift_flutter: ^0.2.7
+  mobile_device_identifier: ^0.0.3
 
 dev_dependencies:
   flutter_test:

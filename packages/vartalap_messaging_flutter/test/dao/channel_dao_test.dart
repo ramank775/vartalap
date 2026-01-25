@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap_messaging_flutter/dao/dao.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
@@ -15,6 +16,7 @@ void main() {
     setUpAll(() {
       // Initialize Flutter binding for platform channels and database operations
       TestWidgetsFlutterBinding.ensureInitialized();
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
     });
 
     setUp(() async {

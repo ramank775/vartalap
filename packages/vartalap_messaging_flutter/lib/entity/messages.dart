@@ -1,10 +1,9 @@
 import 'package:drift/drift.dart';
 import 'package:vartalap_messaging_flutter/converter/map_converter.dart';
 import 'package:vartalap_messaging_flutter/entity/entity.dart';
+import 'package:vartalap_messaging_flutter/models/message.dart';
 
-import '../models/models.dart';
-
-@DataClassName("MessageEntity")
+@UseRowClass(ChatMessage)
 class Messages extends Table {
   IntColumn get id => integer()();
   TextColumn get rid => text().nullable()();

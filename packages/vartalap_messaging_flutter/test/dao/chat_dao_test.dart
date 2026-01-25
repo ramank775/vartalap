@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' hide isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap_messaging_flutter/dao/dao.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
@@ -15,6 +16,7 @@ void main() {
     setUpAll(() {
       // Initialize Flutter binding for platform channels and database operations
       TestWidgetsFlutterBinding.ensureInitialized();
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
     });
 
     setUp(() async {
@@ -33,7 +35,7 @@ void main() {
       test('should send message and store locally', () async {
         // Arrange
         final channel = TestDataFactories.createChannel(id: 1);
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           senderId: 123,
           text: "Hello, World!",
         );
@@ -51,7 +53,7 @@ void main() {
         // Verify message was stored
         final messages = await chatDao.getMessages(channel: channel).get();
         expect(messages, hasLength(1));
-        expect((messages.first as TextMessage).text, equals("Hello, World!"));
+        expect((messages.first).text, equals("Hello, World!"));
         expect(messages.first.senderId, equals(123));
       });
 
@@ -79,7 +81,7 @@ void main() {
         );
 
         // Add another message and verify stream updates
-        final newMessage = TestDataFactories.createTextMessage(
+        final newMessage = TestDataFactories.createChatMessage(
           text: "New message",
         );
         await chatDao.sendMessage(newMessage, channel);
@@ -95,7 +97,7 @@ void main() {
         final channel = TestDataFactories.createChannel(id: 1);
         await channelDao.createChannel(channel, []);
 
-        final originalMessage = TestDataFactories.createTextMessage(
+        final originalMessage = TestDataFactories.createChatMessage(
           text: "Original text",
           state: MessageState.pending,
         );
@@ -103,7 +105,7 @@ void main() {
         // Act - Send message and update it
         final messageId = await chatDao.sendMessage(originalMessage, channel);
         
-        final editedMessage = TestDataFactories.createTextMessage(
+        final editedMessage = TestDataFactories.createChatMessage(
           text: "Edited text",
           state: MessageState.sent,
         );
@@ -112,7 +114,7 @@ void main() {
         // Assert
         final messages = await chatDao.getMessages(channel: channel).get();
         expect(messages, hasLength(1));
-        expect((messages.first as TextMessage).text, equals("Edited text"));
+        expect((messages.first).text, equals("Edited text"));
         expect(messages.first.state, equals(MessageState.sent));
       });
 
@@ -121,7 +123,7 @@ void main() {
         final channel = TestDataFactories.createChannel(id: 1);
         await channelDao.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           text: "Message to delete",
         );
 
@@ -142,7 +144,7 @@ void main() {
         // Send some unread messages
         final messageIds = <int>[];
         for (int i = 0; i < 3; i++) {
-          final message = TestDataFactories.createTextMessage(
+          final message = TestDataFactories.createChatMessage(
             text: "Unread message $i",
             state: MessageState.delivered,
           );
@@ -168,7 +170,7 @@ void main() {
 
         // Send some unread messages
         for (int i = 0; i < 5; i++) {
-          final message = TestDataFactories.createTextMessage(
+          final message = TestDataFactories.createChatMessage(
             text: "Unread message $i",
             state: MessageState.delivered,
           );
@@ -219,14 +221,14 @@ void main() {
         await channelDao.createChannel(channel, []);
 
         // Send some read messages
-        final readMessage = TestDataFactories.createTextMessage(
+        final readMessage = TestDataFactories.createChatMessage(
           state: MessageState.read,
         );
         await chatDao.sendMessage(readMessage, channel);
 
         // Send some unread messages
         for (int i = 0; i < 3; i++) {
-          final unreadMessage = TestDataFactories.createTextMessage(
+          final unreadMessage = TestDataFactories.createChatMessage(
             state: MessageState.delivered,
             text: "Unread message $i",
           );
@@ -292,7 +294,7 @@ void main() {
 
         // Act - Insert large number of messages
         for (int i = 0; i < messageCount; i++) {
-          final message = TestDataFactories.createTextMessage(
+          final message = TestDataFactories.createChatMessage(
             text: "Message $i",
           );
           await chatDao.sendMessage(message, channel);
@@ -315,7 +317,7 @@ void main() {
 
         // Insert test messages with different states
         for (int i = 0; i < 20; i++) {
-          final message = TestDataFactories.createTextMessage(
+          final message = TestDataFactories.createChatMessage(
             text: "Message $i",
             state: i % 2 == 0 ? MessageState.read : MessageState.delivered,
           );

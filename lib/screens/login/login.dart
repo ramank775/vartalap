@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
-import 'package:vartalap/models/auth_models.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/loading_indicator.dart';
@@ -141,10 +140,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       vertical: 5,
                     ),
                     constraints: const BoxConstraints(maxWidth: 500),
-                    child: Consumer<VartalapAuthenticatedClient>(
-                      builder: (context, authClient, _) {
+                    child: Consumer<AuthRepository>(
+                      builder: (context, auth, _) {
                         return ElevatedButton(
-                          onPressed: authClient.state == AuthState.sendingOTP
+                          onPressed: auth.state == AuthState.sendingOTP
                             ? null
                             : () async {
                               List<String> errors = [];
@@ -153,17 +152,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                   showLoadingIndicator(
                                       context, "While we send you one time password");
 
-                                  await authClient.sendOTP(_completePhoneNumber);
+                                  await auth.sendOTP(_completePhoneNumber);
 
                                   if (context.mounted) {
                                     Navigator.of(context).pop(); // close the loader
 
-                                    if (authClient.state == AuthState.otpSent) {
+                                    if (auth.state == AuthState.otpSent) {
                                       Navigator.of(context).pushNamed('/verify-otp');
                                       return;
-                                    } else if (authClient.state == AuthState.error) {
+                                    } else if (auth.state == AuthState.error) {
                                       errors = [
-                                        authClient.lastError ?? 'Unable to send one time password.',
+                                        auth.lastError ?? 'Unable to send one time password.',
                                         'Please verify the phone number and try again.'
                                       ];
                                     }

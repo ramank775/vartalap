@@ -4,7 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/screens/profile/profile.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap/services/otp/iotp_provider.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_testing/vartalap_testing.dart';
 
@@ -30,10 +30,10 @@ void main() {
 
   group('ProfileScreen Widget Tests', () {
     testWidgets('Displays profile information', (tester) async {
-      final testAuthClient = TestAuthClient(
-          client: VartalapChatClientFlutter(
-              apiKey: 'test', client: mockMessagingClient));
-      testAuthClient.setUserExplicit(Profile(
+      final client = VartalapChatClientFlutter(
+              apiKey: 'test', client: mockMessagingClient);
+      final testAuth = TestAuthRepository(client);
+      testAuth.setUserExplicit(Profile(
         userId: '+1234567890',
         name: 'Test Tester',
         email: 'test@example.com',
@@ -41,8 +41,8 @@ void main() {
       ));
 
       await tester.pumpWidget(
-        ChangeNotifierProvider<VartalapAuthenticatedClient>.value(
-          value: testAuthClient,
+        ChangeNotifierProvider<AuthRepository>.value(
+          value: testAuth,
           child: const MaterialApp(home: ProfileScreen()),
         ),
       );
@@ -53,10 +53,10 @@ void main() {
     });
 
     testWidgets('Enables editing and saves changes', (tester) async {
-      final testAuthClient = TestAuthClient(
-          client: VartalapChatClientFlutter(
-              apiKey: 'test', client: mockMessagingClient));
-      testAuthClient.setUserExplicit(Profile(
+      final client = VartalapChatClientFlutter(
+              apiKey: 'test', client: mockMessagingClient);
+      final testAuth = TestAuthRepository(client);
+      testAuth.setUserExplicit(Profile(
         userId: '+1234567890',
         name: 'Old Name',
         email: 'test@example.com',
@@ -64,8 +64,8 @@ void main() {
       ));
 
       await tester.pumpWidget(
-        ChangeNotifierProvider<VartalapAuthenticatedClient>.value(
-          value: testAuthClient,
+        ChangeNotifierProvider<AuthRepository>.value(
+          value: testAuth,
           child: const MaterialApp(home: ProfileScreen()),
         ),
       );
@@ -82,14 +82,14 @@ void main() {
       await tester.tap(find.text('SAVE CHANGES'));
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(testAuthClient.currentUser?.name, 'New Name');
+      expect(testAuth.currentUser?.name, 'New Name');
       expect(find.text('New Name'), findsOneWidget);
     });
   });
 }
 
-class TestAuthClient extends VartalapAuthenticatedClient {
-  TestAuthClient({required super.client});
+class TestAuthRepository extends AuthRepository {
+  TestAuthRepository(VartalapChatClientFlutter client) : super(client, MockOTPProvider());
 
   @override
   Profile? get currentUser => _testUser;
@@ -113,3 +113,4 @@ class TestAuthClient extends VartalapAuthenticatedClient {
     }
   }
 }
+

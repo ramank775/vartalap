@@ -62,11 +62,12 @@ class _CreateGroupState extends State<CreateGroup> with ErrorHandlingMixin {
                     ))
                 .toList();
 
-            ChannelModel channel = ChannelModel(
-              id: 0, // ID will be assigned by the server
-              type: ChannelType.group,
-              config: null,
-            );
+                      final channel = ChannelModel.initial(
+                        type: ChannelType.group,
+                        extraData: {
+                          'name': name.trim(),
+                        },
+                      );
 
             await client.createChannel(channel, channelMembers).timeout(
                   const Duration(seconds: 30),

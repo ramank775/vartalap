@@ -218,13 +218,11 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
               ? [
                   MessageInputWidget(
                     sendMessage: (String text) async {
-                      final msg = TextMessage(
+                      final msg = ChatMessage.text(
+                        channelId: chat.channel.id,
                         senderId: chat.currentUser.id,
-                        payload: {
-                          "text": text,
-                        },
-                        sender: chat.currentUser,
-                      );
+                        text: text,
+                      ).copyWith(sender: chat.currentUser);
 
                       try {
                         // The UI simply requests to send the message.
@@ -454,7 +452,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                   title: const Text('Copy Text'),
                   onTap: () {
                     Navigator.pop(context);
-                    Clipboard.setData(ClipboardData(text: (message as TextMessage).text));
+                    Clipboard.setData(ClipboardData(text: message.text));
                     _showSuccessSnackBar('Text copied to clipboard');
                   },
                 ),
@@ -501,7 +499,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _showEditMessageDialog(BuildContext context, ChatMessage message) {
-    if (message is! TextMessage) return;
+    if (message.type != MessageType.text) return;
 
     final textController = TextEditingController(text: message.text);
 
@@ -686,6 +684,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     _scrollController.dispose();
     _showScrollToBottom.dispose();
     _messageController.dispose();
+    chat.dispose();
     super.dispose();
   }
 }

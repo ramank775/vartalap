@@ -76,7 +76,7 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
       }
     }
 
-    return query.map((row) => row.toModel());
+    return query;
   }
 
   Future<ChannelModel> createChannel(ChannelModel channel, List<Member> channelMembers) async {
@@ -100,7 +100,7 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
         }
       });
       
-      return insertedChannel.toModel();
+      return insertedChannel;
     });
   }
 

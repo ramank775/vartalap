@@ -54,7 +54,7 @@ class MockVartalapChatClient extends VartalapChatClient
   @override
   Future<void> simulateAck(String messageId, String status,
       {Duration delay = Duration.zero}) async {
-    if (delay != Duration.zero && !AppConfig.isTesting) {
+    if (delay != Duration.zero) {
       await Future.delayed(delay);
     }
 

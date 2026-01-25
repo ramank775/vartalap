@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
-import 'package:vartalap/models/auth_models.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/login/introduction.dart';
@@ -13,12 +12,12 @@ import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/screens/startup/startup.dart';
 import 'package:vartalap/services/otp/firebase_otp_provider.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/mock_developer_menu.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap_testing/vartalap_testing.dart';
 
 void main() async {
@@ -35,12 +34,15 @@ void main() async {
 
   // Create and initialize auth client before running the app
   final authClientStart = DateTime.now();
-  final authClient = _createAuthClient();
-  await authClient.initialize();
+  final client = _createClient();
+  
+  // Restore session
+  await client.auth.checkAuth();
+  
   debugPrint('⏱️ [PERF] AuthClient initialization took: ${DateTime.now().difference(authClientStart).inMilliseconds}ms');
 
   final runAppStart = DateTime.now();
-  runApp(VartalapApp(authClient: authClient));
+  runApp(VartalapApp(client: client));
   debugPrint('⏱️ [PERF] runApp() took: ${DateTime.now().difference(runAppStart).inMilliseconds}ms');
   debugPrint('🎯 [PERF] Total main() time: ${DateTime.now().difference(startTime).inMilliseconds}ms');
 
@@ -48,7 +50,7 @@ void main() async {
   debugPrint('✅ [PERF] Firebase deferred to lazy initialization');
 }
 
-VartalapAuthenticatedClient _createAuthClient() {
+VartalapChatClientFlutter _createClient() {
   // Create appropriate client based on MOCK_MODE flag
   final tokenManager = SecureStorageTokenManager();
   final chatClient = AppConfig.isMockMode
@@ -62,32 +64,31 @@ VartalapAuthenticatedClient _createAuthClient() {
 
   // Create appropriate OTP provider based on MOCK_MODE flag
   final otpProvider = AppConfig.isMockMode
-      ? OTPProviderFactory.createTest()
+      ? MockOTPProvider()
       : FirebaseOTPProvider();
 
-  final authClient = VartalapAuthenticatedClient(
-    client: VartalapChatClientFlutter(
-      apiKey: AppConfig.apiKey,
-      apiBaseUrl: AppConfig.apiUrl,
-      wsUrl: AppConfig.wsUrl,
-      client: chatClient,
-    ),
-    otpProvider: otpProvider,
+  final client = VartalapChatClientFlutter(
+    apiKey: AppConfig.apiKey,
+    apiBaseUrl: AppConfig.apiUrl,
+    wsUrl: AppConfig.wsUrl,
+    client: chatClient,
   );
+  
+  client.initAuth(otpProvider);
 
   if (AppConfig.isMockMode) {
     debugPrint('🎭 [MOCK] Running in MOCK MODE - no server required!');
   }
 
-  return authClient;
+  return client;
 }
 
 
 /// Main App Widget with Unified Authentication
 class VartalapApp extends StatefulWidget {
-  final VartalapAuthenticatedClient authClient;
+  final VartalapChatClientFlutter client;
 
-  const VartalapApp({super.key, required this.authClient});
+  const VartalapApp({super.key, required this.client});
 
   @override
   State<VartalapApp> createState() => _VartalapAppState();
@@ -100,13 +101,13 @@ class _VartalapAppState extends State<VartalapApp> {
   @override
   void initState() {
     super.initState();
-    _previousAuthState = widget.authClient.state;
+    _previousAuthState = widget.client.auth.state;
     // Listen to auth state changes
-    widget.authClient.addListener(_onAuthStateChanged);
+    widget.client.auth.addListener(_onAuthStateChanged);
   }
 
   void _onAuthStateChanged() {
-    final currentState = widget.authClient.state;
+    final currentState = widget.client.auth.state;
 
     // Detect logout: transition from authenticated to unauthenticated
     if (_previousAuthState == AuthState.authenticated &&
@@ -124,40 +125,43 @@ class _VartalapAppState extends State<VartalapApp> {
 
   @override
   void dispose() {
-    widget.authClient.removeListener(_onAuthStateChanged);
+    widget.client.auth.removeListener(_onAuthStateChanged);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<VartalapAuthenticatedClient>(
-      create: (_) => widget.authClient,
-      child: Consumer<VartalapAuthenticatedClient>(
-        builder: (context, authClient, _) {
-          Widget app = MaterialApp(
-            navigatorKey: _navigatorKey,
-            title: AppConfig.packageInfo.appName,
-            debugShowCheckedModeBanner: false,
-            themeMode: VartalapTheme.themeMode,
-            theme: VartalapTheme.lightTheme.appTheme,
-            darkTheme: VartalapTheme.darkTheme.appTheme,
-            onGenerateRoute: _routes,
-            home: _buildHomeScreen(authClient),
-          );
+    return Provider<VartalapChatClientFlutter>(
+      create: (_) => widget.client,
+      child: ChangeNotifierProvider<AuthRepository>.value(
+        value: widget.client.auth,
+        child: Consumer<AuthRepository>(
+          builder: (context, auth, _) {
+            Widget app = MaterialApp(
+              navigatorKey: _navigatorKey,
+              title: AppConfig.packageInfo.appName,
+              debugShowCheckedModeBanner: false,
+              themeMode: VartalapTheme.themeMode,
+              theme: VartalapTheme.lightTheme.appTheme,
+              darkTheme: VartalapTheme.darkTheme.appTheme,
+              onGenerateRoute: _routes,
+              home: _buildHomeScreen(auth),
+            );
 
-          if (AppConfig.isMockMode) {
-            app = MockDeveloperMenu(child: app);
-          }
+            if (AppConfig.isMockMode) {
+              app = MockDeveloperMenu(child: app);
+            }
 
-          return app;
-        },
+            return app;
+          },
+        ),
       ),
     );
   }
 
   /// Build the appropriate home screen based on authentication state
-  Widget _buildHomeScreen(VartalapAuthenticatedClient authClient) {
-    switch (authClient.state) {
+  Widget _buildHomeScreen(AuthRepository auth) {
+    switch (auth.state) {
       case AuthState.authenticated:
         return StartupScreen();
       case AuthState.error:
@@ -176,13 +180,14 @@ class _VartalapAppState extends State<VartalapApp> {
     return MaterialPageRoute(
       settings: settings,
       builder: (BuildContext context) {
-        final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+        final client = Provider.of<VartalapChatClientFlutter>(context, listen: false);
+        final auth = client.auth;
 
         // Define protected routes that require authentication
         final protectedRoutes = {'/chats', '/chat', '/new-chat', '/new-group', '/create-group', '/profile'};
 
         // Check if route requires authentication
-        if (protectedRoutes.contains(settings.name) && !authClient.isAuthenticated) {
+        if (protectedRoutes.contains(settings.name) && !auth.isAuthenticated) {
           debugPrint('[ROUTE] Attempted to access ${settings.name} without authentication, redirecting to login');
           return IntroductionScreen();
         }
@@ -197,14 +202,14 @@ class _VartalapAppState extends State<VartalapApp> {
             break;
           case '/profile':
             widget = _buildAuthenticatedScreen(
-              authClient: authClient,
+              client: client,
               child: const ProfileScreen(),
             );
             break;
           case '/chats':
             // Wrap authenticated screens with CurrentUser provider
             widget = _buildAuthenticatedScreen(
-              authClient: authClient,
+              client: client,
               child: const Chats(),
             );
             break;
@@ -213,27 +218,27 @@ class _VartalapAppState extends State<VartalapApp> {
             break;
           case '/new-chat':
             widget = _buildAuthenticatedScreen(
-              authClient: authClient,
+              client: client,
               child: NewChatScreen(),
             );
             break;
           case '/new-group':
             widget = _buildAuthenticatedScreen(
-              authClient: authClient,
+              client: client,
               child: SelectGroupMemberScreen(),
             );
             break;
           case '/create-group':
             widget = _buildAuthenticatedScreen(
-              authClient: authClient,
+              client: client,
               child: CreateGroup(settings.arguments as List<Contact>),
             );
             break;
           default:
             // Default route also wraps with authentication check
-            if (authClient.isAuthenticated) {
+            if (auth.isAuthenticated) {
               widget = _buildAuthenticatedScreen(
-                authClient: authClient,
+                client: client,
                 child: const Chats(),
               );
             } else {
@@ -247,14 +252,14 @@ class _VartalapAppState extends State<VartalapApp> {
 
   /// Build authenticated screen with CurrentUser provider
   Widget _buildAuthenticatedScreen({
-    required VartalapAuthenticatedClient authClient,
+    required VartalapChatClientFlutter client,
     required Widget child,
   }) {
     // Wrap with VartalapClientManager and CurrentUser provider
     return VartalapClientManager(
-      client: authClient.client,
+      client: client,
       child: _CurrentUserProvider(
-        authClient: authClient,
+        client: client,
         child: child,
       ),
     );
@@ -263,11 +268,11 @@ class _VartalapAppState extends State<VartalapApp> {
 
 /// Provides CurrentUser Contact from authClient's profile
 class _CurrentUserProvider extends StatefulWidget {
-  final VartalapAuthenticatedClient authClient;
+  final VartalapChatClientFlutter client;
   final Widget child;
 
   const _CurrentUserProvider({
-    required this.authClient,
+    required this.client,
     required this.child,
   });
 
@@ -287,7 +292,7 @@ class _CurrentUserProviderState extends State<_CurrentUserProvider> {
 
   Future<void> _loadCurrentUser() async {
     try {
-      final profile = widget.authClient.currentUser;
+      final profile = widget.client.auth.currentUser;
       if (profile == null) {
         debugPrint('[CurrentUser] No profile available');
         setState(() => _isLoading = false);
@@ -295,7 +300,7 @@ class _CurrentUserProviderState extends State<_CurrentUserProvider> {
       }
 
       // Fetch the Contact for the logged-in user using their userId (phone number)
-      final contacts = await widget.authClient.client
+      final contacts = await widget.client
           .getContacts(filter: ContactFilter(phone: profile.userId))
           .get();
 

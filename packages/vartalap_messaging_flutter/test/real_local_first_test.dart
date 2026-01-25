@@ -34,7 +34,7 @@ void main() {
       // Act - Test REAL local persistence
       final createdChannel = await channelDao.createChannel(channel, [member]);
 
-      final message = TestDataFactories.createTextMessage(
+      final message = TestDataFactories.createChatMessage(
         senderId: contact.id,
         text: "Test local message",
       );
@@ -47,7 +47,7 @@ void main() {
       expect(storedChannels, hasLength(1));
       expect(storedChannels.first.id, equals(createdChannel.id));
       expect(storedMessages, hasLength(1));
-      expect((storedMessages.first as TextMessage).text, equals("Test local message"));
+      expect((storedMessages.first).text, equals("Test local message"));
     });
 
     test('Local operations should work in offline-first manner', () async {
@@ -67,7 +67,7 @@ void main() {
       // Add messages to each channel
       for (final channel in createdChannels) {
         for (int i = 0; i < 5; i++) {
-          final message = TestDataFactories.createTextMessage(
+          final message = TestDataFactories.createChatMessage(
             text: "Message $i in ${channel.displayName}",
           );
           await chatDao.sendMessage(message, channel);
@@ -102,7 +102,7 @@ void main() {
       );
 
       // Send a message
-      final message = TestDataFactories.createTextMessage(text: "First message");
+      final message = TestDataFactories.createChatMessage(text: "First message");
       await chatDao.sendMessage(message, createdChannel);
 
       // Assert - Preview should update reactively
@@ -112,13 +112,13 @@ void main() {
       );
 
       // Send another message and verify update
-      final secondMessage = TestDataFactories.createTextMessage(text: "Latest message");
+      final secondMessage = TestDataFactories.createChatMessage(text: "Latest message");
       await chatDao.sendMessage(secondMessage, createdChannel);
 
       // Should still have 1 preview but with updated last message
       final previews = await chatDao.getChatPreviews().get();
       expect(previews, hasLength(1));
-      expect((previews.first.lastMessage as TextMessage).text, equals("Latest message"));
+      expect((previews.first.lastMessage)!.text, equals("Latest message"));
     });
 
     test('Local data should handle concurrent operations correctly', () async {
@@ -132,7 +132,7 @@ void main() {
       // Act - Simulate concurrent message sending
       final futures = <Future>[];
       for (int i = 0; i < 10; i++) {
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           text: "Concurrent message $i",
         );
         futures.add(chatDao.sendMessage(message, createdChannel));
@@ -159,14 +159,14 @@ void main() {
       final createdChannel = await channelDao.createChannel(channel, []);
 
       // Act - Send message and transition states
-      final message = TestDataFactories.createTextMessage(
+      final message = TestDataFactories.createChatMessage(
         text: "State transition test",
         state: MessageState.pending,
       );
       final messageId = await chatDao.sendMessage(message, createdChannel);
 
       // Update to sent
-      final sentMessage = TestDataFactories.createTextMessage(
+      final sentMessage = TestDataFactories.createChatMessage(
         text: "State transition test",
         state: MessageState.sent,
       );
@@ -193,10 +193,10 @@ void main() {
 
       // Create messages with different states and content
       final testMessages = [
-        TestDataFactories.createTextMessage(text: "Hello world", state: MessageState.sent),
-        TestDataFactories.createTextMessage(text: "Flutter testing", state: MessageState.read),
-        TestDataFactories.createTextMessage(text: "Local first", state: MessageState.delivered),
-        TestDataFactories.createTextMessage(text: "Database query", state: MessageState.sent),
+        TestDataFactories.createChatMessage(text: "Hello world", state: MessageState.sent),
+        TestDataFactories.createChatMessage(text: "Flutter testing", state: MessageState.read),
+        TestDataFactories.createChatMessage(text: "Local first", state: MessageState.delivered),
+        TestDataFactories.createChatMessage(text: "Database query", state: MessageState.sent),
       ];
 
       for (final message in testMessages) {

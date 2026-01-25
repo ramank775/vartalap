@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap/widgets/avator.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -20,8 +20,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
-    _nameController = TextEditingController(text: authClient.currentUser?.name ?? '');
+    final auth = Provider.of<AuthRepository>(context, listen: false);
+    _nameController = TextEditingController(text: auth.currentUser?.name ?? '');
   }
 
   @override
@@ -32,7 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _pickProfileImage() async {
     final messenger = ScaffoldMessenger.of(context);
-    final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+    final auth = Provider.of<AuthRepository>(context, listen: false);
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
@@ -43,7 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (image != null) {
         setState(() => _isLoading = true);
-        await authClient.updateProfileImage(image.path);
+        await auth.updateProfileImage(image.path);
         messenger.showSnackBar(
           const SnackBar(content: Text('Profile image updated')),
         );
@@ -75,9 +75,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
         ],
       ),
-      body: Consumer<VartalapAuthenticatedClient>(
-        builder: (context, authClient, _) {
-          final profile = authClient.currentUser;
+      body: Consumer<AuthRepository>(
+        builder: (context, auth, _) {
+          final profile = auth.currentUser;
           if (profile == null) {
             return const Center(child: Text('No profile found'));
           }
@@ -187,8 +187,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
-      await authClient.updateProfile(name: newName);
+      final auth = Provider.of<AuthRepository>(context, listen: false);
+      await auth.updateProfile(name: newName);
       if (mounted) {
         setState(() {
           _isEditing = false;

@@ -457,12 +457,13 @@ class ContactList extends StatelessWidget {
                       return;
                     }
                     
-                    final channel = ChannelModel(
-                      type: ChannelType.individual,
-                      id: 0,
-                      config: ChannelConfig(isPublic: false),
-                      extraData: {},
-                    );
+                      final channel = ChannelModel.initial(
+                        type: ChannelType.individual,
+                        extraData: {
+                          'name': user.displayName,
+                          'uid': user.uid,
+                        },
+                      );
                     final members = [
                       Member(
                         user: user,

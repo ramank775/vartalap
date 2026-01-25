@@ -11,6 +11,8 @@ import 'package:vartalap_messaging_flutter/client/secure_token_manager.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/events.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
+import 'package:vartalap_messaging_flutter/auth/otp_provider.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 
 /// Custom exception for VartalapChatClientFlutter initialization failures
 ///
@@ -64,7 +66,10 @@ class VartalapChatClientFlutter {
   late VartalapTaskFactory factory;
   late ChatDatabase _db;
   late TokenManager _tokenManager;
+  late AuthRepository auth; // Auth Repository
   bool _isInitialized = false;
+  final bool _inMemory;
+  StreamSubscription? _eventStreamSubscription;
   
   ChatDatabase get db => _db;
   
@@ -77,7 +82,8 @@ class VartalapChatClientFlutter {
     String? wsUrl,
     VartalapChatClient? client,
     TokenManager? tokenManager,
-  }) {
+    bool inMemory = false,
+  }) : _inMemory = inMemory {
     // Priority: 1. Constructor param, 2. Provided client's manager, 3. Default secure storage
     _tokenManager = tokenManager ?? 
                     client?.tokenManager ?? 
@@ -90,6 +96,11 @@ class VartalapChatClientFlutter {
           wsUrl: wsUrl,
           tokenManager: _tokenManager,
         );
+  }
+
+  /// Initialize Auth Repository
+  void initAuth(IOTPProvider otpProvider) {
+    auth = AuthRepository(this, otpProvider);
   }
 
   /// Initializes the VartalapChatClientFlutter with robust error handling
@@ -162,7 +173,7 @@ class VartalapChatClientFlutter {
   /// Initializes the local database connection
   Future<void> _initializeDatabase(String userId) async {
     try {
-      _db = ChatDatabase(userId: userId);
+      _db = ChatDatabase(userId: userId, inMemory: _inMemory);
       // Database will open automatically on first query (driftDatabase uses DatabaseConnection.delayed)
     } catch (e) {
       throw VartalapInitializationException(
@@ -193,7 +204,7 @@ class VartalapChatClientFlutter {
   Future<void> _initializeEventStreaming() async {
     try {
       // Set up event stream with error handling
-      client.eventStream.listen(
+      _eventStreamSubscription = client.eventStream.listen(
         (msg) {
           _handleIncomingEvent(msg);
         },
@@ -238,9 +249,11 @@ class VartalapChatClientFlutter {
     try {
       // 1. Resolve local channel ID
       final myUid = await getLoggedInUser();
+      debugPrint('[EVENT] Handling new message for $myUid, from ${remoteMsg.head.from}, to ${remoteMsg.head.to}');
       
-      ChannelEntity? channelRow;
+      ChannelModel? channelRow;
       if (remoteMsg.head.to == myUid) {
+        debugPrint('[EVENT] 1-1 message detected');
         // 1-1 message: find channel where members contain 'from'
         channelRow = await (_db.select(_db.channels).join([
           innerJoin(_db.members, _db.members.channelId.equalsExp(_db.channels.id)),
@@ -250,6 +263,7 @@ class VartalapChatClientFlutter {
         .map((row) => row.readTable(_db.channels))
         .getSingleOrNull();
       } else {
+        debugPrint('[EVENT] Group/Broadcast message detected');
         // Group message: 'to' is the Group CID
         channelRow = await (_db.select(_db.channels)
               ..where((tbl) => tbl.cid.equals(remoteMsg.head.to)))
@@ -257,6 +271,7 @@ class VartalapChatClientFlutter {
       }
 
       if (channelRow == null) {
+        debugPrint('[EVENT] Channel Row NOT found');
         if (remoteMsg.head.type == messaging.ChannelType.individual) {
           debugPrint('[EVENT] 1-1 Channel not found, auto-creating for sender: ${remoteMsg.head.from}');
           // 1. Ensure sender contact exists
@@ -266,16 +281,19 @@ class VartalapChatClientFlutter {
           
           int contactId;
           if (senderRow == null) {
+            debugPrint('[EVENT] Sender contact NOT found, creating it');
             contactId = await _db.into(_db.contacts).insert(ContactsCompanion.insert(
               uid: Value(remoteMsg.head.from),
               username: Value(remoteMsg.head.from),
               status: ContactStatus.active,
             ));
           } else {
+            debugPrint('[EVENT] Sender contact found with ID: ${senderRow.id}');
             contactId = senderRow.id;
           }
 
           // 2. Create the channel locally
+          debugPrint('[EVENT] Creating channel locally');
           final newChannel = await _db.into(_db.channels).insertReturning(ChannelsCompanion.insert(
             type: messaging.ChannelType.individual,
             cid: Value(remoteMsg.head.from), // For 1-1, CID is the other person's UID
@@ -283,6 +301,7 @@ class VartalapChatClientFlutter {
           ));
           
           // 3. Add members
+          debugPrint('[EVENT] Adding member to new channel');
           await _db.into(_db.members).insert(MembersCompanion.insert(
             channelId: newChannel.id,
             memberId: contactId,
@@ -293,6 +312,8 @@ class VartalapChatClientFlutter {
           debugPrint('[EVENT] Channel not found for incoming message, ignoring');
           return;
         }
+      } else {
+        debugPrint('[EVENT] Found channel with ID: ${channelRow.id}');
       }
 
       // 2. Resolve local sender ID (might have been created above)
@@ -362,6 +383,13 @@ class VartalapChatClientFlutter {
 
   /// Getter for the ephemeral event bus
   Stream<messaging.RemoteMessage> get ephemeralEvents => _eventBus.stream;
+
+  /// Dispose resources
+  void dispose() {
+    _eventStreamSubscription?.cancel();
+    _eventBus.close();
+  }
+
   ///
   /// This method works offline by checking the stored token.
   /// Returns the userId if a valid token exists, null otherwise.
@@ -569,7 +597,7 @@ class VartalapChatClientFlutter {
     // Schedule remote creation task
     final task = factory.create(
       CreateChannelTask.name,
-      payload: localChannel,
+      payload: localChannel.id,
     );
     await scheduler.schedule(task);
     

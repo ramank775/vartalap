@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap/models/auth_models.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap/widgets/keyboard.dart';
 
 class VerifyOtpWidget extends StatefulWidget {
@@ -88,10 +87,10 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                       vertical: 10,
                     ),
                     constraints: const BoxConstraints(maxWidth: 500),
-                    child: Consumer<VartalapAuthenticatedClient>(
-                      builder: (context, authClient, _) {
+                    child: Consumer<AuthRepository>(
+                      builder: (context, auth, _) {
                         return ElevatedButton(
-                          onPressed: authClient.state == AuthState.verifyingOTP
+                          onPressed: auth.state == AuthState.verifyingOTP
                             ? null
                             : _authenticate,
                           style: ElevatedButton.styleFrom(
@@ -183,25 +182,27 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
   }
 
   void _authenticate() async {
-    final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
+    final auth = Provider.of<AuthRepository>(context, listen: false);
 
     try {
       debugPrint('[UI] Starting OTP verification with: $_otp');
-      await authClient.verifyOTPAndLogin(_otp);
+      await auth.verifyOTP(_otp);
       debugPrint('[UI] OTP verification completed successfully');
-      debugPrint('[UI] Auth state is now: ${authClient.state}');
+      debugPrint('[UI] Auth state is now: ${auth.state}');
 
       // The navigation will be handled by the main app based on authentication state
       // No need for manual navigation here since VartalapApp will automatically
-      // navigate to StartupScreen when authClient.state becomes authenticated
+      // navigate to StartupScreen when auth.state becomes authenticated
 
     } catch (e) {
       debugPrint('[UI] OTP verification failed: $e');
       if (mounted) {
         showErrorDialog(context, [
-          authClient.lastError ?? 'Incorrect one time password! Try again'
+          auth.lastError ?? 'Incorrect one time password! Try again'
         ]);
-        authClient.clearError(); // Reset error state for retry
+        // AuthRepository doesn't need clearError() as setState clears it automatically 
+        // when transitioning, but if it stays in error state, we might need a way to clear.
+        // However, user can just try again which calls verifyOTP and clears error.
       }
     }
   }

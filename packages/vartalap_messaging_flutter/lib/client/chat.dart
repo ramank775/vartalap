@@ -60,11 +60,11 @@ class ChatClient {
 
   String get displayName {
     if (channel.type == ChannelType.individual) {
-      final member = _members.firstWhere((m) => m.user.id != currentUser.id);
+      final member = _members.firstWhere((m) => m.user.id != currentUser.id, orElse: () => _members.first);
       return member.user.displayName;
     }
-    if (channel.extraData['name'] != null) {
-      return channel.extraData['name']! as String;
+    if (channel.extraData != null && channel.extraData!['name'] != null) {
+      return channel.extraData!['name']! as String;
     }
     final groupName = _members.map((m) => m.user.displayName).join(', ');
     return groupName;
@@ -74,8 +74,8 @@ class ChatClient {
     _members = await chatDao.getMembers(channelId: channel.id).get();
     
     // Fallback if no members in DB yet (e.g. newly created channel)
-    if (_members.isEmpty && channel.extraData['members'] != null) {
-      final memberUids = channel.extraData['members'] as List;
+    if (_members.isEmpty && channel.extraData != null && channel.extraData!['members'] != null) {
+      final memberUids = channel.extraData!['members'] as List;
       // Note: This is a shallow mock for the UI to not crash
       _members = memberUids.map((uid) => Member(
         user: Contact(id: 0, username: uid.toString(), status: ContactStatus.active, uid: uid.toString()),
@@ -95,7 +95,7 @@ class ChatClient {
         // Check if event is for this channel
         bool relevant = false;
         if (channel.type == ChannelType.individual) {
-          relevant = (from == channel.extraData['uid']); // Simplified check
+          relevant = (channel.extraData != null && from == channel.extraData!['uid']); 
         } else {
           relevant = (event.head.to == channel.cid);
         }
@@ -135,7 +135,7 @@ class ChatClient {
     if (myUid == null) return;
 
     final target = channel.type == ChannelType.individual
-        ? (channel.extraData['uid'] as String?)
+        ? (channel.extraData?['uid'] as String?)
         : channel.cid;
 
     if (target == null) return;
@@ -227,15 +227,14 @@ class ChatClient {
     }
 
     if (existingMessage.type == MessageType.text) {
-      final updatedMessage = TextMessage(
+      final updatedMessage = ChatMessage.text(
+        channelId: channel.id,
         senderId: existingMessage.senderId,
-        payload: {"text": newText},
+        text: newText,
         id: existingMessage.id,
         state: existingMessage.state,
-        ts: existingMessage.timestamp,
-        updatedAt: DateTime.now(),
-        sender: existingMessage.sender,
-      );
+        timestamp: existingMessage.timestamp,
+      ).copyWith(sender: existingMessage.sender);
       await chatDao.updateMessage(messageId, updatedMessage);
     } else {
       throw Exception('Cannot edit message of type ${existingMessage.type}');
@@ -262,7 +261,7 @@ class ChatClient {
     if (myUid == null) return;
 
     final target = channel.type == ChannelType.individual
-        ? (channel.extraData['uid'] as String?)
+        ? (channel.extraData?['uid'] as String?)
         : channel.cid;
 
     if (target == null) return;

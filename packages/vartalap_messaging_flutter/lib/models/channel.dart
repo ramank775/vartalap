@@ -1,5 +1,4 @@
 import 'package:json_annotation/json_annotation.dart';
-
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 
 part 'channel.g.dart';
@@ -26,32 +25,52 @@ class ChannelConfig {
 
 class ChannelModel {
   final int id;
-  final String? cid; // Remote Channel ID
   final ChannelType type;
-  bool isMuted = false;
-  DateTime createdAt;
-  DateTime updatedAt;
-  ChannelConfig? config;
-  Map<String, Object?> extraData;
+  final String? cid;
+  final int? taskId;
+  final Map<String, dynamic>? extraData;
+  final Map<String, dynamic> config;
+  final bool muted;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? deletedAt;
 
   ChannelModel({
-    required this.type,
     required this.id,
+    required this.type,
     this.cid,
+    this.taskId,
+    this.extraData,
     required this.config,
-    this.isMuted = false,
-    this.extraData = const {},
-    DateTime? createdAt,
-    DateTime? updatedAt,
-  })  : createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+    required this.muted,
+    required this.createdAt,
+    required this.updatedAt,
+    this.deletedAt,
+  });
+
+  factory ChannelModel.initial({
+    required ChannelType type,
+    Map<String, dynamic>? extraData,
+  }) {
+    return ChannelModel(
+      id: 0,
+      type: type,
+      extraData: extraData,
+      config: const {},
+      muted: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+  }
 
   String get displayName {
-    if (extraData['name'] != null) {
-      return extraData['name']! as String;
+    if (extraData != null && extraData!['name'] != null) {
+      return extraData!['name']! as String;
     }
     return "Unknown";
   }
+
+  ChannelConfig get channelConfig => ChannelConfig.fromJson(config);
 }
 
 class ChannelFilter {

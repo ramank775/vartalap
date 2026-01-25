@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
@@ -175,9 +175,9 @@ class ChatsState extends State<Chats> {
           } else if (value == "Profile") {
             Navigator.of(context).pushNamed('/profile');
           } else if (value == "Logout") {
-            final authClient = Provider.of<VartalapAuthenticatedClient>(context,
+            final auth = Provider.of<AuthRepository>(context,
                 listen: false);
-            await authClient.logout();
+            await auth.logout();
           }
         },
         itemBuilder: (BuildContext context) {

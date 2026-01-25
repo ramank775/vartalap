@@ -179,13 +179,10 @@ class MessageWidget extends StatelessWidget {
     );
     switch (_msg.type) {
       case MessageType.text:
-        {
-          final msg = _msg as TextMessage;
-          return RichMessage(
-            msg.text,
-            textStyle,
-          );
-        }
+        return RichMessage(
+          _msg.text,
+          textStyle,
+        );
       case MessageType.image:
         return _buildImageMessage(context);
       case MessageType.video:

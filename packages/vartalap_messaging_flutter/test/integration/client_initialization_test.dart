@@ -71,7 +71,7 @@ void main() {
         final channel = TestDataFactories.createChannel();
         await channelDao.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage();
+        final message = TestDataFactories.createChatMessage();
         final messageId = await chatDao.sendMessage(message, channel);
 
         // Assert - All operations should work without platform dependencies
@@ -184,7 +184,7 @@ void main() {
         );
 
         // Send a message
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           text: "Hello, World!",
         );
         await chatDao.sendMessage(message, channel);
@@ -204,8 +204,8 @@ void main() {
         await channelDao.createChannel(channel, []);
 
         // Act - Send messages
-        final message1 = TestDataFactories.createTextMessage(text: "Message 1");
-        final message2 = TestDataFactories.createTextMessage(text: "Message 2");
+        final message1 = TestDataFactories.createChatMessage(text: "Message 1");
+        final message2 = TestDataFactories.createChatMessage(text: "Message 2");
 
         await chatDao.sendMessage(message1, channel);
         await chatDao.sendMessage(message2, channel);
@@ -213,8 +213,8 @@ void main() {
         // Assert - Messages should be stored locally
         final storedMessages = await chatDao.getMessages(channel: channel).get();
         expect(storedMessages, hasLength(2));
-        expect((storedMessages[0] as TextMessage).text, equals("Message 1"));
-        expect((storedMessages[1] as TextMessage).text, equals("Message 2"));
+        expect((storedMessages[0]).text, equals("Message 1"));
+        expect((storedMessages[1]).text, equals("Message 2"));
       });
 
       test('should handle message state updates', () async {
@@ -223,14 +223,14 @@ void main() {
         await channelDao.createChannel(channel, []);
 
         // Send initial message
-        final originalMessage = TestDataFactories.createTextMessage(
+        final originalMessage = TestDataFactories.createChatMessage(
           text: "Original message",
           state: MessageState.pending,
         );
         final messageId = await chatDao.sendMessage(originalMessage, channel);
 
         // Act - Update message state
-        final updatedMessage = TestDataFactories.createTextMessage(
+        final updatedMessage = TestDataFactories.createChatMessage(
           text: "Updated message",
           state: MessageState.sent,
         );
@@ -239,7 +239,7 @@ void main() {
         // Assert - Message should be updated locally
         final messages = await chatDao.getMessages(channel: channel).get();
         expect(messages, hasLength(1));
-        expect((messages.first as TextMessage).text, equals("Updated message"));
+        expect((messages.first).text, equals("Updated message"));
         expect(messages.first.state, equals(MessageState.sent));
       });
     });

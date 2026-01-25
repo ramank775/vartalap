@@ -69,7 +69,7 @@ void main() {
     test('Message state transitions should follow business rules', () {
       // Test real state transition logic without mocking
 
-      final message = TestDataFactories.createTextMessage(
+      final message = TestDataFactories.createChatMessage(
         state: MessageState.pending,
         text: "Integration test message",
       );
@@ -232,7 +232,7 @@ void main() {
       // Test error scenarios that don't require external systems
 
       // Test with invalid message state
-      final message = TestDataFactories.createTextMessage(state: MessageState.read);
+      final message = TestDataFactories.createChatMessage(state: MessageState.read);
 
       // Try invalid state transitions
       expect(message.updateState(MessageState.pending), isFalse);

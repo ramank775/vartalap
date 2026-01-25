@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_testing/vartalap_testing.dart';
 
@@ -29,8 +29,8 @@ class MockDeveloperMenu extends StatelessWidget {
   }
 
   void _showMenu(BuildContext context) {
-    final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
-    final chatClient = authClient.client.client; // The VartalapChatClient
+    final client = Provider.of<VartalapChatClientFlutter>(context, listen: false);
+    final chatClient = client.client; // The VartalapChatClient
 
     if (chatClient is! MockVartalapChatClient) return;
 

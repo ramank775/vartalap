@@ -1,7 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:vartalap_messaging_flutter/models/attachment.dart';
-import 'package:vartalap_messaging_flutter/utils/utils.dart';
-
 import 'contact.dart';
 
 enum MessageState {
@@ -24,86 +22,156 @@ enum MessageType {
 }
 
 class NotificationContent {
-  bool _showNotification = false;
-  String? _text;
-  String? get content => _text;
-  bool get show => _showNotification;
+  final String? text;
+  final bool show;
 
-  NotificationContent({String? text, bool show = false}) {
-    _text = text;
-    _showNotification = show;
-  }
+  NotificationContent({this.text, this.show = false});
+
+  String? get content => text;
 }
 
-abstract class ChatMessage {
-  final int _id;
-  final String? _rid;
-  final int _senderId;
-  Contact? _sender;
-  MessageState _state;
-  final MessageType _type;
-  final DateTime _ts;
-  final DateTime _updatedAt;
-  final List<Attachment> _attachments;
+class ChatMessage {
+  final int id;
+  final String? rid;
+  final MessageType type;
+  MessageState state;
+  final Map<String, dynamic> payload;
+  final int channelId;
+  final int senderId;
+  final DateTime localCreatedAt;
+  final DateTime? remoteCreatedAt;
+  DateTime updatedAt;
 
-  int get id => _id;
-  String? get rid => _rid;
-  int get senderId => _senderId;
-  Contact? get sender => _sender;
-
-  MessageState get state => _state;
-  MessageType get type => _type;
-
-  DateTime get timestamp => _ts;
-
-  DateTime get updatedAt => _updatedAt;
-
-  List<Attachment> get attachments => _attachments;
-
-  Map<String, dynamic> get payload;
-
-  bool isSelected = false;
+  // Extra fields NOT in DB but used in UI
+  final Contact? sender;
+  final List<Attachment> attachments;
 
   ChatMessage({
-    required int senderId,
-    required MessageType type,
-    MessageState state = MessageState.pending,
-    int id = 0,
-    String? rid,
-    DateTime? ts,
-    DateTime? updatedAt,
-    Contact? sender,
-    List<Attachment> attachments = const [],
-  })  : _id = id,
-        _rid = rid,
-        _senderId = senderId,
-        _state = state,
-        _type = type,
-        _attachments = attachments,
-        _updatedAt = updatedAt ?? DateTime.now(),
-        _ts = ts ?? DateTime.now();
+    required this.id,
+    this.rid,
+    required this.type,
+    required this.state,
+    required this.payload,
+    required this.channelId,
+    required this.senderId,
+    required this.localCreatedAt,
+    this.remoteCreatedAt,
+    required this.updatedAt,
+    this.sender,
+    this.attachments = const [],
+  });
 
-  NotificationContent get notificationContent =>
-      NotificationContent(show: false);
-
-  String get previewContent => "";
-
-  bool updateState(MessageState state) {
-    if (_state != MessageState.other) {
-      int existingState = enumToInt(_state, MessageState.values);
-      int newState = enumToInt(state, MessageState.values);
-      if (existingState > newState) return false;
+  bool updateState(MessageState newState) {
+    if (state != MessageState.other && newState != MessageState.error) {
+      if (state.index > newState.index) return false;
     }
-    _state = state;
+    state = newState;
+    updatedAt = DateTime.now();
     return true;
   }
 
+  factory ChatMessage.text({
+    required int channelId,
+    required int senderId,
+    required String text,
+    int id = 0,
+    MessageState state = MessageState.pending,
+    DateTime? timestamp,
+  }) {
+    return ChatMessage(
+      id: id,
+      type: MessageType.text,
+      state: state,
+      payload: {'text': text},
+      channelId: channelId,
+      senderId: senderId,
+      localCreatedAt: timestamp ?? DateTime.now(),
+      updatedAt: timestamp ?? DateTime.now(),
+    );
+  }
+
+  factory ChatMessage.image({
+    required int channelId,
+    required int senderId,
+    required String path,
+    String name = '',
+    int id = 0,
+    MessageState state = MessageState.pending,
+    DateTime? timestamp,
+    List<Attachment> attachments = const [],
+  }) {
+    return ChatMessage(
+      id: id,
+      type: MessageType.image,
+      state: state,
+      payload: {'path': path, 'name': name},
+      channelId: channelId,
+      senderId: senderId,
+      localCreatedAt: timestamp ?? DateTime.now(),
+      updatedAt: timestamp ?? DateTime.now(),
+      attachments: attachments,
+    );
+  }
+
+  ChatMessage copyWith({
+    Contact? sender,
+    List<Attachment>? attachments,
+    MessageState? state,
+    Map<String, dynamic>? payload,
+  }) {
+    return ChatMessage(
+      id: id,
+      rid: rid,
+      type: type,
+      state: state ?? this.state,
+      payload: payload ?? this.payload,
+      channelId: channelId,
+      senderId: senderId,
+      localCreatedAt: localCreatedAt,
+      remoteCreatedAt: remoteCreatedAt,
+      updatedAt: updatedAt,
+      sender: sender ?? this.sender,
+      attachments: attachments ?? this.attachments,
+    );
+  }
+
+  DateTime get timestamp => localCreatedAt;
+
+  NotificationContent get notificationContent {
+    switch (type) {
+      case MessageType.text:
+        return NotificationContent(text: payload['text'] ?? '', show: true);
+      case MessageType.image:
+        return NotificationContent(text: "Sent an image", show: true);
+      default:
+        return NotificationContent(show: false);
+    }
+  }
+
+  String get previewContent {
+    switch (type) {
+      case MessageType.text:
+        return text;
+      case MessageType.image:
+        return 'Image';
+      default:
+        return '';
+    }
+  }
+
+  String get text => payload['text'] ?? '';
+  String get assetPath => payload['path'] ?? '';
+  String get assetName => payload['name'] ?? '';
+
+  // UI helper
+  bool isSelected = false;
+
   @override
-  int get hashCode => "message_$id".hashCode;
+  int get hashCode => id.hashCode;
 
   @override
   bool operator ==(Object other) {
-    return hashCode == other.hashCode;
+    return other is ChatMessage && other.id == id;
   }
 }
 
@@ -119,89 +187,6 @@ class ChatMessageNotifier extends ValueNotifier<ChatMessage> {
     _value = newValue;
     notifyListeners();
   }
-}
-
-class TextMessage extends ChatMessage {
-  final String _text;
-  String get text => _text;
-
-  TextMessage({
-    required super.senderId,
-    required Map<String, dynamic> payload,
-    super.id,
-    super.rid,
-    super.state,
-    super.ts,
-    super.updatedAt,
-    super.sender,
-  })  : _text = payload["text"] ?? "",
-        super(
-          type: MessageType.text,
-        );
-
-  @override
-  NotificationContent get notificationContent =>
-      NotificationContent(text: _text, show: true);
-
-  @override
-  String get previewContent => _text;
-
-  @override
-  Map<String, dynamic> get payload => {"text": _text};
-}
-
-class ImageMessage extends ChatMessage {
-  ImageMessage({
-    required super.senderId,
-    required Map<String, dynamic> payload,
-    super.id,
-    super.rid,
-    super.state,
-    super.ts,
-    super.updatedAt,
-    super.sender,
-    super.attachments = const [],
-  }) : super(
-          type: MessageType.image,
-        );
-
-  @override
-  NotificationContent get notificationContent =>
-      NotificationContent(text: "Sent an image", show: true);
-
-  @override
-  String get previewContent => "Image";
-
-  @override
-  Map<String, dynamic> get payload {
-    if (attachments.isNotEmpty) {
-      return {
-        "assetId": attachments.first.remoteId,
-        "name": attachments.first.name,
-      };
-    }
-    return {};
-  }
-}
-
-class CustomMessage extends ChatMessage {
-  final Map<String, dynamic> _rawbody;
-
-  CustomMessage({
-    required super.senderId,
-    required super.id,
-    super.rid,
-    required super.state,
-    required super.type,
-    required super.ts,
-    required super.updatedAt,
-    super.sender,
-    super.attachments = const [],
-    Map<String, dynamic> payload = const {},
-  }) : _rawbody = payload;
-
-  @override
-  Map<String, dynamic> get payload => _rawbody;
 }
 
 class MessageFilter {

@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' hide isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 
@@ -10,6 +11,7 @@ void main() {
 
     setUpAll(() {
       TestDatabaseHelper.setupTestEnvironment();
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
     });
 
     setUp(() async {
@@ -51,7 +53,7 @@ void main() {
       // Arrange & Act
       final channel = TestDataFactories.createChannel();
       final contact = TestDataFactories.createContact();
-      final message = TestDataFactories.createTextMessage();
+      final message = TestDataFactories.createChatMessage();
       final member = TestDataFactories.createMember();
 
       // Assert - Data should be created correctly
@@ -86,18 +88,18 @@ void main() {
 
     test('should demonstrate local-first architecture readiness', () async {
       // Arrange
-      final database = TestDatabaseHelper.createTestDatabase(userId: "demo_user");
+      final tempDb = TestDatabaseHelper.createTestDatabase(userId: "demo_user");
 
       // Act - Verify components are properly initialized
-      await TestDatabaseHelper.verifyBasicFunctionality(database);
+      await TestDatabaseHelper.verifyBasicFunctionality(tempDb);
 
       // Assert - All components should be accessible
-      expect(database.userId, equals("demo_user"));
-      expect(database.channelDao, isNotNull);
-      expect(database.chatDao, isNotNull);
+      expect(tempDb.userId, equals("demo_user"));
+      expect(tempDb.channelDao, isNotNull);
+      expect(tempDb.chatDao, isNotNull);
 
       // Cleanup
-      await database.close();
+      await tempDb.close();
     });
   });
 }

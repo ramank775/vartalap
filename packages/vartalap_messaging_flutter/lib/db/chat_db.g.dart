@@ -448,7 +448,7 @@ class AssestsCompanion extends UpdateCompanion<AssestEntity> {
 }
 
 class $ChannelsTable extends Channels
-    with TableInfo<$ChannelsTable, ChannelEntity> {
+    with TableInfo<$ChannelsTable, ChannelModel> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
@@ -540,7 +540,7 @@ class $ChannelsTable extends Channels
   String get actualTableName => $name;
   static const String $name = 'channels';
   @override
-  VerificationContext validateIntegrity(Insertable<ChannelEntity> instance,
+  VerificationContext validateIntegrity(Insertable<ChannelModel> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
@@ -577,9 +577,9 @@ class $ChannelsTable extends Channels
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  ChannelEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+  ChannelModel map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return ChannelEntity(
+    return ChannelModel.new(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       type: $ChannelsTable.$convertertype.fromSql(attachedDatabase.typeMapping
@@ -618,188 +618,7 @@ class $ChannelsTable extends Channels
       MapConverter();
 }
 
-class ChannelEntity extends DataClass implements Insertable<ChannelEntity> {
-  final int id;
-  final ChannelType type;
-  final String? cid;
-  final int? taskId;
-  final Map<String, dynamic>? extraData;
-  final Map<String, dynamic> config;
-  final bool muted;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-  final DateTime? deletedAt;
-  const ChannelEntity(
-      {required this.id,
-      required this.type,
-      this.cid,
-      this.taskId,
-      this.extraData,
-      required this.config,
-      required this.muted,
-      required this.createdAt,
-      required this.updatedAt,
-      this.deletedAt});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    {
-      map['type'] = Variable<String>($ChannelsTable.$convertertype.toSql(type));
-    }
-    if (!nullToAbsent || cid != null) {
-      map['cid'] = Variable<String>(cid);
-    }
-    if (!nullToAbsent || taskId != null) {
-      map['task_id'] = Variable<int>(taskId);
-    }
-    if (!nullToAbsent || extraData != null) {
-      map['extra_data'] =
-          Variable<String>($ChannelsTable.$converterextraData.toSql(extraData));
-    }
-    {
-      map['config'] =
-          Variable<String>($ChannelsTable.$converterconfig.toSql(config));
-    }
-    map['muted'] = Variable<bool>(muted);
-    map['created_at'] = Variable<DateTime>(createdAt);
-    map['updated_at'] = Variable<DateTime>(updatedAt);
-    if (!nullToAbsent || deletedAt != null) {
-      map['deleted_at'] = Variable<DateTime>(deletedAt);
-    }
-    return map;
-  }
-
-  ChannelsCompanion toCompanion(bool nullToAbsent) {
-    return ChannelsCompanion(
-      id: Value(id),
-      type: Value(type),
-      cid: cid == null && nullToAbsent ? const Value.absent() : Value(cid),
-      taskId:
-          taskId == null && nullToAbsent ? const Value.absent() : Value(taskId),
-      extraData: extraData == null && nullToAbsent
-          ? const Value.absent()
-          : Value(extraData),
-      config: Value(config),
-      muted: Value(muted),
-      createdAt: Value(createdAt),
-      updatedAt: Value(updatedAt),
-      deletedAt: deletedAt == null && nullToAbsent
-          ? const Value.absent()
-          : Value(deletedAt),
-    );
-  }
-
-  factory ChannelEntity.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return ChannelEntity(
-      id: serializer.fromJson<int>(json['id']),
-      type: $ChannelsTable.$convertertype
-          .fromJson(serializer.fromJson<String>(json['type'])),
-      cid: serializer.fromJson<String?>(json['cid']),
-      taskId: serializer.fromJson<int?>(json['taskId']),
-      extraData: serializer.fromJson<Map<String, dynamic>?>(json['extraData']),
-      config: serializer.fromJson<Map<String, dynamic>>(json['config']),
-      muted: serializer.fromJson<bool>(json['muted']),
-      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
-      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
-      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'type':
-          serializer.toJson<String>($ChannelsTable.$convertertype.toJson(type)),
-      'cid': serializer.toJson<String?>(cid),
-      'taskId': serializer.toJson<int?>(taskId),
-      'extraData': serializer.toJson<Map<String, dynamic>?>(extraData),
-      'config': serializer.toJson<Map<String, dynamic>>(config),
-      'muted': serializer.toJson<bool>(muted),
-      'createdAt': serializer.toJson<DateTime>(createdAt),
-      'updatedAt': serializer.toJson<DateTime>(updatedAt),
-      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
-    };
-  }
-
-  ChannelEntity copyWith(
-          {int? id,
-          ChannelType? type,
-          Value<String?> cid = const Value.absent(),
-          Value<int?> taskId = const Value.absent(),
-          Value<Map<String, dynamic>?> extraData = const Value.absent(),
-          Map<String, dynamic>? config,
-          bool? muted,
-          DateTime? createdAt,
-          DateTime? updatedAt,
-          Value<DateTime?> deletedAt = const Value.absent()}) =>
-      ChannelEntity(
-        id: id ?? this.id,
-        type: type ?? this.type,
-        cid: cid.present ? cid.value : this.cid,
-        taskId: taskId.present ? taskId.value : this.taskId,
-        extraData: extraData.present ? extraData.value : this.extraData,
-        config: config ?? this.config,
-        muted: muted ?? this.muted,
-        createdAt: createdAt ?? this.createdAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-        deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
-      );
-  ChannelEntity copyWithCompanion(ChannelsCompanion data) {
-    return ChannelEntity(
-      id: data.id.present ? data.id.value : this.id,
-      type: data.type.present ? data.type.value : this.type,
-      cid: data.cid.present ? data.cid.value : this.cid,
-      taskId: data.taskId.present ? data.taskId.value : this.taskId,
-      extraData: data.extraData.present ? data.extraData.value : this.extraData,
-      config: data.config.present ? data.config.value : this.config,
-      muted: data.muted.present ? data.muted.value : this.muted,
-      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
-      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('ChannelEntity(')
-          ..write('id: $id, ')
-          ..write('type: $type, ')
-          ..write('cid: $cid, ')
-          ..write('taskId: $taskId, ')
-          ..write('extraData: $extraData, ')
-          ..write('config: $config, ')
-          ..write('muted: $muted, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt, ')
-          ..write('deletedAt: $deletedAt')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(id, type, cid, taskId, extraData, config,
-      muted, createdAt, updatedAt, deletedAt);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is ChannelEntity &&
-          other.id == this.id &&
-          other.type == this.type &&
-          other.cid == this.cid &&
-          other.taskId == this.taskId &&
-          other.extraData == this.extraData &&
-          other.config == this.config &&
-          other.muted == this.muted &&
-          other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt &&
-          other.deletedAt == this.deletedAt);
-}
-
-class ChannelsCompanion extends UpdateCompanion<ChannelEntity> {
+class ChannelsCompanion extends UpdateCompanion<ChannelModel> {
   final Value<int> id;
   final Value<ChannelType> type;
   final Value<String?> cid;
@@ -834,7 +653,7 @@ class ChannelsCompanion extends UpdateCompanion<ChannelEntity> {
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
   }) : type = Value(type);
-  static Insertable<ChannelEntity> custom({
+  static Insertable<ChannelModel> custom({
     Expression<int>? id,
     Expression<String>? type,
     Expression<String>? cid,
@@ -1565,7 +1384,7 @@ class MembersCompanion extends UpdateCompanion<MemberEntity> {
 }
 
 class $MessagesTable extends Messages
-    with TableInfo<$MessagesTable, MessageEntity> {
+    with TableInfo<$MessagesTable, ChatMessage> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
@@ -1655,7 +1474,7 @@ class $MessagesTable extends Messages
   String get actualTableName => $name;
   static const String $name = 'messages';
   @override
-  VerificationContext validateIntegrity(Insertable<MessageEntity> instance,
+  VerificationContext validateIntegrity(Insertable<ChatMessage> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
@@ -1700,9 +1519,9 @@ class $MessagesTable extends Messages
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  MessageEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+  ChatMessage map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return MessageEntity(
+    return ChatMessage.new(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       rid: attachedDatabase.typeMapping
@@ -1740,191 +1559,7 @@ class $MessagesTable extends Messages
       MapConverter();
 }
 
-class MessageEntity extends DataClass implements Insertable<MessageEntity> {
-  final int id;
-  final String? rid;
-  final MessageType type;
-  final MessageState state;
-  final Map<String, dynamic> payload;
-  final int channelId;
-  final int senderId;
-  final DateTime localCreatedAt;
-  final DateTime? remoteCreatedAt;
-  final DateTime updatedAt;
-  const MessageEntity(
-      {required this.id,
-      this.rid,
-      required this.type,
-      required this.state,
-      required this.payload,
-      required this.channelId,
-      required this.senderId,
-      required this.localCreatedAt,
-      this.remoteCreatedAt,
-      required this.updatedAt});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    if (!nullToAbsent || rid != null) {
-      map['rid'] = Variable<String>(rid);
-    }
-    {
-      map['type'] = Variable<String>($MessagesTable.$convertertype.toSql(type));
-    }
-    {
-      map['state'] =
-          Variable<String>($MessagesTable.$converterstate.toSql(state));
-    }
-    {
-      map['payload'] =
-          Variable<String>($MessagesTable.$converterpayload.toSql(payload));
-    }
-    map['channel_id'] = Variable<int>(channelId);
-    map['sender_id'] = Variable<int>(senderId);
-    map['local_created_at'] = Variable<DateTime>(localCreatedAt);
-    if (!nullToAbsent || remoteCreatedAt != null) {
-      map['remote_created_at'] = Variable<DateTime>(remoteCreatedAt);
-    }
-    map['updated_at'] = Variable<DateTime>(updatedAt);
-    return map;
-  }
-
-  MessagesCompanion toCompanion(bool nullToAbsent) {
-    return MessagesCompanion(
-      id: Value(id),
-      rid: rid == null && nullToAbsent ? const Value.absent() : Value(rid),
-      type: Value(type),
-      state: Value(state),
-      payload: Value(payload),
-      channelId: Value(channelId),
-      senderId: Value(senderId),
-      localCreatedAt: Value(localCreatedAt),
-      remoteCreatedAt: remoteCreatedAt == null && nullToAbsent
-          ? const Value.absent()
-          : Value(remoteCreatedAt),
-      updatedAt: Value(updatedAt),
-    );
-  }
-
-  factory MessageEntity.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return MessageEntity(
-      id: serializer.fromJson<int>(json['id']),
-      rid: serializer.fromJson<String?>(json['rid']),
-      type: $MessagesTable.$convertertype
-          .fromJson(serializer.fromJson<String>(json['type'])),
-      state: $MessagesTable.$converterstate
-          .fromJson(serializer.fromJson<String>(json['state'])),
-      payload: serializer.fromJson<Map<String, dynamic>>(json['payload']),
-      channelId: serializer.fromJson<int>(json['channelId']),
-      senderId: serializer.fromJson<int>(json['senderId']),
-      localCreatedAt: serializer.fromJson<DateTime>(json['localCreatedAt']),
-      remoteCreatedAt: serializer.fromJson<DateTime?>(json['remoteCreatedAt']),
-      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'rid': serializer.toJson<String?>(rid),
-      'type':
-          serializer.toJson<String>($MessagesTable.$convertertype.toJson(type)),
-      'state': serializer
-          .toJson<String>($MessagesTable.$converterstate.toJson(state)),
-      'payload': serializer.toJson<Map<String, dynamic>>(payload),
-      'channelId': serializer.toJson<int>(channelId),
-      'senderId': serializer.toJson<int>(senderId),
-      'localCreatedAt': serializer.toJson<DateTime>(localCreatedAt),
-      'remoteCreatedAt': serializer.toJson<DateTime?>(remoteCreatedAt),
-      'updatedAt': serializer.toJson<DateTime>(updatedAt),
-    };
-  }
-
-  MessageEntity copyWith(
-          {int? id,
-          Value<String?> rid = const Value.absent(),
-          MessageType? type,
-          MessageState? state,
-          Map<String, dynamic>? payload,
-          int? channelId,
-          int? senderId,
-          DateTime? localCreatedAt,
-          Value<DateTime?> remoteCreatedAt = const Value.absent(),
-          DateTime? updatedAt}) =>
-      MessageEntity(
-        id: id ?? this.id,
-        rid: rid.present ? rid.value : this.rid,
-        type: type ?? this.type,
-        state: state ?? this.state,
-        payload: payload ?? this.payload,
-        channelId: channelId ?? this.channelId,
-        senderId: senderId ?? this.senderId,
-        localCreatedAt: localCreatedAt ?? this.localCreatedAt,
-        remoteCreatedAt: remoteCreatedAt.present
-            ? remoteCreatedAt.value
-            : this.remoteCreatedAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
-  MessageEntity copyWithCompanion(MessagesCompanion data) {
-    return MessageEntity(
-      id: data.id.present ? data.id.value : this.id,
-      rid: data.rid.present ? data.rid.value : this.rid,
-      type: data.type.present ? data.type.value : this.type,
-      state: data.state.present ? data.state.value : this.state,
-      payload: data.payload.present ? data.payload.value : this.payload,
-      channelId: data.channelId.present ? data.channelId.value : this.channelId,
-      senderId: data.senderId.present ? data.senderId.value : this.senderId,
-      localCreatedAt: data.localCreatedAt.present
-          ? data.localCreatedAt.value
-          : this.localCreatedAt,
-      remoteCreatedAt: data.remoteCreatedAt.present
-          ? data.remoteCreatedAt.value
-          : this.remoteCreatedAt,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('MessageEntity(')
-          ..write('id: $id, ')
-          ..write('rid: $rid, ')
-          ..write('type: $type, ')
-          ..write('state: $state, ')
-          ..write('payload: $payload, ')
-          ..write('channelId: $channelId, ')
-          ..write('senderId: $senderId, ')
-          ..write('localCreatedAt: $localCreatedAt, ')
-          ..write('remoteCreatedAt: $remoteCreatedAt, ')
-          ..write('updatedAt: $updatedAt')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(id, rid, type, state, payload, channelId,
-      senderId, localCreatedAt, remoteCreatedAt, updatedAt);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is MessageEntity &&
-          other.id == this.id &&
-          other.rid == this.rid &&
-          other.type == this.type &&
-          other.state == this.state &&
-          other.payload == this.payload &&
-          other.channelId == this.channelId &&
-          other.senderId == this.senderId &&
-          other.localCreatedAt == this.localCreatedAt &&
-          other.remoteCreatedAt == this.remoteCreatedAt &&
-          other.updatedAt == this.updatedAt);
-}
-
-class MessagesCompanion extends UpdateCompanion<MessageEntity> {
+class MessagesCompanion extends UpdateCompanion<ChatMessage> {
   final Value<int> id;
   final Value<String?> rid;
   final Value<MessageType> type;
@@ -1963,7 +1598,7 @@ class MessagesCompanion extends UpdateCompanion<MessageEntity> {
         payload = Value(payload),
         channelId = Value(channelId),
         senderId = Value(senderId);
-  static Insertable<MessageEntity> custom({
+  static Insertable<ChatMessage> custom({
     Expression<int>? id,
     Expression<String>? rid,
     Expression<String>? type,
@@ -2880,7 +2515,7 @@ typedef $$ChannelsTableUpdateCompanionBuilder = ChannelsCompanion Function({
 });
 
 final class $$ChannelsTableReferences
-    extends BaseReferences<_$ChatDatabase, $ChannelsTable, ChannelEntity> {
+    extends BaseReferences<_$ChatDatabase, $ChannelsTable, ChannelModel> {
   $$ChannelsTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
   static MultiTypedResultKey<$MembersTable, List<MemberEntity>>
@@ -2898,7 +2533,7 @@ final class $$ChannelsTableReferences
         manager.$state.copyWith(prefetchedData: cache));
   }
 
-  static MultiTypedResultKey<$MessagesTable, List<MessageEntity>>
+  static MultiTypedResultKey<$MessagesTable, List<ChatMessage>>
       _messagesRefsTable(_$ChatDatabase db) =>
           MultiTypedResultKey.fromTable(db.messages,
               aliasName:
@@ -3130,14 +2765,14 @@ class $$ChannelsTableAnnotationComposer
 class $$ChannelsTableTableManager extends RootTableManager<
     _$ChatDatabase,
     $ChannelsTable,
-    ChannelEntity,
+    ChannelModel,
     $$ChannelsTableFilterComposer,
     $$ChannelsTableOrderingComposer,
     $$ChannelsTableAnnotationComposer,
     $$ChannelsTableCreateCompanionBuilder,
     $$ChannelsTableUpdateCompanionBuilder,
-    (ChannelEntity, $$ChannelsTableReferences),
-    ChannelEntity,
+    (ChannelModel, $$ChannelsTableReferences),
+    ChannelModel,
     PrefetchHooks Function({bool membersRefs, bool messagesRefs})> {
   $$ChannelsTableTableManager(_$ChatDatabase db, $ChannelsTable table)
       : super(TableManagerState(
@@ -3212,7 +2847,7 @@ class $$ChannelsTableTableManager extends RootTableManager<
               getPrefetchedDataCallback: (items) async {
                 return [
                   if (membersRefs)
-                    await $_getPrefetchedData<ChannelEntity, $ChannelsTable,
+                    await $_getPrefetchedData<ChannelModel, $ChannelsTable,
                             MemberEntity>(
                         currentTable: table,
                         referencedTable:
@@ -3225,8 +2860,8 @@ class $$ChannelsTableTableManager extends RootTableManager<
                                 .where((e) => e.channelId == item.id),
                         typedResults: items),
                   if (messagesRefs)
-                    await $_getPrefetchedData<ChannelEntity, $ChannelsTable,
-                            MessageEntity>(
+                    await $_getPrefetchedData<ChannelModel, $ChannelsTable,
+                            ChatMessage>(
                         currentTable: table,
                         referencedTable:
                             $$ChannelsTableReferences._messagesRefsTable(db),
@@ -3247,14 +2882,14 @@ class $$ChannelsTableTableManager extends RootTableManager<
 typedef $$ChannelsTableProcessedTableManager = ProcessedTableManager<
     _$ChatDatabase,
     $ChannelsTable,
-    ChannelEntity,
+    ChannelModel,
     $$ChannelsTableFilterComposer,
     $$ChannelsTableOrderingComposer,
     $$ChannelsTableAnnotationComposer,
     $$ChannelsTableCreateCompanionBuilder,
     $$ChannelsTableUpdateCompanionBuilder,
-    (ChannelEntity, $$ChannelsTableReferences),
-    ChannelEntity,
+    (ChannelModel, $$ChannelsTableReferences),
+    ChannelModel,
     PrefetchHooks Function({bool membersRefs, bool messagesRefs})>;
 typedef $$ContactsTableCreateCompanionBuilder = ContactsCompanion Function({
   Value<int> id,
@@ -3297,7 +2932,7 @@ final class $$ContactsTableReferences
         manager.$state.copyWith(prefetchedData: cache));
   }
 
-  static MultiTypedResultKey<$MessagesTable, List<MessageEntity>>
+  static MultiTypedResultKey<$MessagesTable, List<ChatMessage>>
       _messagesRefsTable(_$ChatDatabase db) =>
           MultiTypedResultKey.fromTable(db.messages,
               aliasName:
@@ -3609,7 +3244,7 @@ class $$ContactsTableTableManager extends RootTableManager<
                         typedResults: items),
                   if (messagesRefs)
                     await $_getPrefetchedData<Contact, $ContactsTable,
-                            MessageEntity>(
+                            ChatMessage>(
                         currentTable: table,
                         referencedTable:
                             $$ContactsTableReferences._messagesRefsTable(db),
@@ -4025,7 +3660,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
 });
 
 final class $$MessagesTableReferences
-    extends BaseReferences<_$ChatDatabase, $MessagesTable, MessageEntity> {
+    extends BaseReferences<_$ChatDatabase, $MessagesTable, ChatMessage> {
   $$MessagesTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
   static $ChannelsTable _channelIdTable(_$ChatDatabase db) => db.channels
@@ -4350,14 +3985,14 @@ class $$MessagesTableAnnotationComposer
 class $$MessagesTableTableManager extends RootTableManager<
     _$ChatDatabase,
     $MessagesTable,
-    MessageEntity,
+    ChatMessage,
     $$MessagesTableFilterComposer,
     $$MessagesTableOrderingComposer,
     $$MessagesTableAnnotationComposer,
     $$MessagesTableCreateCompanionBuilder,
     $$MessagesTableUpdateCompanionBuilder,
-    (MessageEntity, $$MessagesTableReferences),
-    MessageEntity,
+    (ChatMessage, $$MessagesTableReferences),
+    ChatMessage,
     PrefetchHooks Function(
         {bool channelId, bool senderId, bool messageAssetsRefs})> {
   $$MessagesTableTableManager(_$ChatDatabase db, $MessagesTable table)
@@ -4470,7 +4105,7 @@ class $$MessagesTableTableManager extends RootTableManager<
               getPrefetchedDataCallback: (items) async {
                 return [
                   if (messageAssetsRefs)
-                    await $_getPrefetchedData<MessageEntity, $MessagesTable,
+                    await $_getPrefetchedData<ChatMessage, $MessagesTable,
                             MessageAsset>(
                         currentTable: table,
                         referencedTable: $$MessagesTableReferences
@@ -4492,14 +4127,14 @@ class $$MessagesTableTableManager extends RootTableManager<
 typedef $$MessagesTableProcessedTableManager = ProcessedTableManager<
     _$ChatDatabase,
     $MessagesTable,
-    MessageEntity,
+    ChatMessage,
     $$MessagesTableFilterComposer,
     $$MessagesTableOrderingComposer,
     $$MessagesTableAnnotationComposer,
     $$MessagesTableCreateCompanionBuilder,
     $$MessagesTableUpdateCompanionBuilder,
-    (MessageEntity, $$MessagesTableReferences),
-    MessageEntity,
+    (ChatMessage, $$MessagesTableReferences),
+    ChatMessage,
     PrefetchHooks Function(
         {bool channelId, bool senderId, bool messageAssetsRefs})>;
 typedef $$MessageAssetsTableCreateCompanionBuilder = MessageAssetsCompanion

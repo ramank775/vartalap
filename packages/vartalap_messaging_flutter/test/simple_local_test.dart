@@ -30,7 +30,7 @@ void main() {
       final contact1 = TestDataFactories.createContact();
       final contact2 = TestDataFactories.createContact();
       final channel = TestDataFactories.createChannel();
-      final message = TestDataFactories.createTextMessage();
+      final message = TestDataFactories.createChatMessage();
 
       // Assert
       expect(contact1.id, equals(1));

@@ -1,8 +1,9 @@
 import 'package:drift/drift.dart';
 import 'package:vartalap_messaging/core/models/event.dart';
 import 'package:vartalap_messaging_flutter/converter/map_converter.dart';
+import 'package:vartalap_messaging_flutter/models/channel.dart';
 
-@DataClassName('ChannelEntity')
+@UseRowClass(ChannelModel)
 class Channels extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get type => textEnum<ChannelType>()();

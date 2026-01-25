@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vartalap/models/auth_models.dart';
-import 'package:vartalap/services/otp/iotp_provider.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/auth/otp_provider.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 
@@ -10,6 +9,7 @@ class MockVartalapChatClientFlutter implements VartalapChatClientFlutter {
   String? loggedInUserId;
   bool initCalled = false;
   Profile? profile;
+  late AuthRepository auth;
 
   @override
   Future<String?> getLoggedInUser() async => loggedInUserId;
@@ -39,6 +39,11 @@ class MockVartalapChatClientFlutter implements VartalapChatClientFlutter {
   }
 
   @override
+  void initAuth(IOTPProvider otpProvider) {
+    auth = AuthRepository(this, otpProvider);
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -49,7 +54,7 @@ class MockOTPProvider implements IOTPProvider {
   OTPCredential? verifyOTPCredential;
 
   @override
-  Future<OTPResult> sendOTP(String phoneNumber, {OTPOptions? options}) async {
+  Future<OTPResult> sendOTP(String phoneNumber, {Map<String, dynamic>? options}) async {
     sendOTPCalled = true;
     return sendOTPResult;
   }
@@ -58,7 +63,7 @@ class MockOTPProvider implements IOTPProvider {
   Future<OTPCredential> verifyOTP(String otp) async {
     verifyOTPCalled = true;
     if (verifyOTPCredential == null) {
-      throw AuthError.otpVerification('Invalid OTP');
+      throw Exception('Invalid OTP');
     }
     return verifyOTPCredential!;
   }
@@ -73,33 +78,31 @@ class MockOTPProvider implements IOTPProvider {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  late VartalapAuthenticatedClient authClient;
+  late AuthRepository auth;
   late MockVartalapChatClientFlutter mockClient;
   late MockOTPProvider mockOtpProvider;
 
   setUp(() {
     mockClient = MockVartalapChatClientFlutter();
     mockOtpProvider = MockOTPProvider();
-    authClient = VartalapAuthenticatedClient(
-      client: mockClient,
-      otpProvider: mockOtpProvider,
-    );
+    mockClient.initAuth(mockOtpProvider);
+    auth = mockClient.auth;
   });
 
-  group('VartalapAuthenticatedClient Tests', () {
+  group('AuthRepository Tests', () {
     test('Initial state is unauthenticated', () {
-      expect(authClient.state, AuthState.unauthenticated);
-      expect(authClient.isAuthenticated, false);
+      expect(auth.state, AuthState.unauthenticated);
+      expect(auth.isAuthenticated, false);
     });
 
-    test('initialize() - user not logged in', () async {
+    test('checkAuth() - user not logged in', () async {
       mockClient.loggedInUserId = null;
-      await authClient.initialize();
-      expect(authClient.state, AuthState.unauthenticated);
+      await auth.checkAuth();
+      expect(auth.state, AuthState.unauthenticated);
       expect(mockClient.initCalled, false);
     });
 
-    test('initialize() - user already logged in', () async {
+    test('checkAuth() - user already logged in', () async {
       mockClient.loggedInUserId = '+1234567890';
       mockClient.profile = Profile(
         userId: '+1234567890', 
@@ -108,36 +111,37 @@ void main() {
         image: '',
       );
       
-      await authClient.initialize();
+      await auth.checkAuth();
       
-      expect(authClient.state, AuthState.authenticated);
-      expect(authClient.isAuthenticated, true);
+      expect(auth.state, AuthState.authenticated);
+      expect(auth.isAuthenticated, true);
       expect(mockClient.initCalled, true);
-      expect(authClient.currentUser?.name, 'Test User');
+      expect(auth.currentUser?.name, 'Test User');
     });
 
     test('sendOTP() success', () async {
-      await authClient.sendOTP('+1234567890');
+      await auth.sendOTP('+1234567890');
       
       expect(mockOtpProvider.sendOTPCalled, true);
-      expect(authClient.state, AuthState.otpSent);
-      expect(authClient.currentPhoneNumber, '+1234567890');
+      expect(auth.state, AuthState.otpSent);
+      expect(auth.currentPhoneNumber, '+1234567890');
     });
 
     test('sendOTP() failure', () async {
       mockOtpProvider.sendOTPResult = OTPResult.failure('Network Error');
       
-      await authClient.sendOTP('+1234567890');
+      await auth.sendOTP('+1234567890');
       
-      expect(authClient.state, AuthState.error);
-      expect(authClient.lastError, 'Network Error');
+      expect(auth.state, AuthState.error);
+      expect(auth.lastError, 'Network Error');
     });
 
-    test('verifyOTPAndLogin() success', () async {
-      mockOtpProvider.verifyOTPCredential = const OTPCredential(
+    test('verifyOTP() success', () async {
+      mockOtpProvider.verifyOTPCredential = OTPCredential(
         phoneNumber: '+1234567890',
         externalAuthToken: 'token',
       );
+      // Simulate successful login returning user ID
       mockClient.loggedInUserId = '+1234567890';
       mockClient.profile = Profile(
         userId: '+1234567890', 
@@ -146,28 +150,24 @@ void main() {
         image: '',
       );
 
-      // We need to mock the login call as well
-      // Since we use noSuchMethod, it might just work if we don't call it,
-      // but verifyOTPAndLogin calls client.login(vartalapCredential)
-      
-      await authClient.verifyOTPAndLogin('123456');
+      await auth.verifyOTP('123456');
       
       expect(mockOtpProvider.verifyOTPCalled, true);
-      expect(authClient.state, AuthState.authenticated);
-      expect(authClient.currentUser?.name, 'Verified User');
+      expect(auth.state, AuthState.authenticated);
+      expect(auth.currentUser?.name, 'Verified User');
     });
 
     test('logout() clears state', () async {
       // Setup authenticated state
       mockClient.loggedInUserId = '+1234567890';
-      await authClient.initialize();
-      expect(authClient.isAuthenticated, true);
+      await auth.checkAuth();
+      expect(auth.isAuthenticated, true);
       
-      await authClient.logout();
+      await auth.logout();
       
-      expect(authClient.isAuthenticated, false);
-      expect(authClient.state, AuthState.unauthenticated);
-      expect(authClient.currentUser, null);
+      expect(auth.isAuthenticated, false);
+      expect(auth.state, AuthState.unauthenticated);
+      expect(auth.currentUser, null);
     });
   });
 }

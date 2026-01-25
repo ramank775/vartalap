@@ -7,7 +7,6 @@ import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
-import 'package:vartalap_messaging_flutter/mapper/channel.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_testing/vartalap_testing.dart';
 import 'test_app_wrapper.dart';
@@ -24,11 +23,13 @@ void main() {
     await TestAppWrapper.setup();
 
     mockMessagingClient = MockVartalapChatClient(
+      mockUserId: 'uid_me',
       tokenManager: MockTokenManager(),
     );
     flutterClient = VartalapChatClientFlutter(
       apiKey: 'test',
       client: mockMessagingClient,
+      inMemory: true,
     );
     
     currentUser = const Contact(
@@ -38,6 +39,10 @@ void main() {
       uid: 'uid_me',
       status: ContactStatus.active,
     );
+  });
+
+  tearDown(() {
+    flutterClient.dispose();
   });
 
   Widget createChatScreen(ChatClient chatClient) {
@@ -55,7 +60,7 @@ void main() {
   group('ChatScreen Integration Tests', () {
     testWidgets('Sending a message shows pending then sent status', (tester) async {
       await tester.runAsync(() async {
-        await flutterClient.login(messaging.Credential(username: 'me', externalAuthToken: 'token')
+        await flutterClient.login(messaging.Credential(username: 'uid_me', externalAuthToken: 'token')
           ..deviceId = 'dev');
         await flutterClient.init();
 
@@ -67,7 +72,7 @@ void main() {
         
         final channelEntity = await flutterClient.db.into(flutterClient.db.channels).insertReturning(
           ChannelsCompanion.insert(type: messaging.ChannelType.individual, cid: const Value('uid_alice'), config: const Value({})));
-        testChannel = channelEntity.toModel();
+        testChannel = channelEntity;
         
         await flutterClient.db.into(flutterClient.db.members).insert(MembersCompanion.insert(channelId: testChannel.id, memberId: 1));
         await flutterClient.db.into(flutterClient.db.members).insert(MembersCompanion.insert(channelId: testChannel.id, memberId: 2));
@@ -75,8 +80,11 @@ void main() {
 
       final chatClient = await flutterClient.chat(channel: testChannel, currentUser: currentUser);
       await tester.pumpWidget(createChatScreen(chatClient));
-      await tester.pump(const Duration(milliseconds: 500));
-
+      
+      // Wait for VartalapClientManager and StreamBuilder to finish loading
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatScreen), findsOneWidget);
+      
       // 2. Type and send message
       await tester.enterText(
         find.descendant(of: find.byType(MessageInputWidget), matching: find.byType(TextField)),
@@ -85,18 +93,19 @@ void main() {
       
       await tester.runAsync(() async {
         await tester.tap(find.byIcon(Icons.send_rounded));
-        await tester.pump();
-        // Allow some time for local DB insert
-        await Future.delayed(const Duration(milliseconds: 100));
+        // Allow a tiny bit of time for local DB insert but not enough for mock ack
+        await Future.delayed(const Duration(milliseconds: 50));
       });
       await tester.pump(); 
 
       // 3. Should show pending icon (clock)
       expect(find.byIcon(Icons.access_time), findsOneWidget);
 
-      // 4. Wait for Happy Path Scenario to progress (Sent after 500ms)
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
+      // 4. Wait for Happy Path Scenario to progress (Sent after 500ms in mock)
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 600));
+      });
+      await tester.pumpAndSettle();
 
       // 5. Should show sent icon (check)
       expect(find.byIcon(Icons.check), findsOneWidget);
@@ -105,7 +114,7 @@ void main() {
     testWidgets('Receiving a message updates the UI', (tester) async {
       late ChatClient chatClient;
       await tester.runAsync(() async {
-        await flutterClient.login(messaging.Credential(username: 'me', externalAuthToken: 'token')
+        await flutterClient.login(messaging.Credential(username: 'uid_me', externalAuthToken: 'token')
           ..deviceId = 'dev');
         await flutterClient.init();
 
@@ -117,7 +126,7 @@ void main() {
         
         final channelEntity = await flutterClient.db.into(flutterClient.db.channels).insertReturning(
           ChannelsCompanion.insert(type: messaging.ChannelType.individual, cid: const Value('uid_alice'), config: const Value({})), mode: InsertMode.insertOrIgnore);
-        testChannel = channelEntity.toModel();
+        testChannel = channelEntity;
         
         await flutterClient.db.into(flutterClient.db.members).insert(MembersCompanion.insert(channelId: testChannel.id, memberId: 2), mode: InsertMode.insertOrIgnore);
         
@@ -147,7 +156,7 @@ void main() {
 
       // 2. Pump frames to update UI from DB stream
       await tester.pump(); 
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle(const Duration(milliseconds: 500));
 
       // 3. Message should appear
       expect(find.text('Hey there!'), findsOneWidget);

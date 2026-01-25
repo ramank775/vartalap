@@ -4,18 +4,18 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/app_config.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 
 /// A wrapper for widget tests that sets up all necessary dependencies.
 class TestAppWrapper extends StatelessWidget {
   final Widget child;
-  final VartalapAuthenticatedClient authClient;
+  final AuthRepository auth;
   final Map<String, WidgetBuilder>? routes;
 
   const TestAppWrapper({
     super.key,
     required this.child,
-    required this.authClient,
+    required this.auth,
     this.routes,
   });
 
@@ -43,8 +43,8 @@ class TestAppWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<VartalapAuthenticatedClient>.value(
-      value: authClient,
+    return ChangeNotifierProvider<AuthRepository>.value(
+      value: auth,
       child: MaterialApp(
         home: child,
         routes: routes ?? {},

@@ -36,7 +36,7 @@ void main() {
       });
 
       test('Message state transitions should follow business rules', () {
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           state: MessageState.pending,
         );
 
@@ -55,7 +55,7 @@ void main() {
       });
 
       test('Message models should handle different types correctly', () {
-        final textMessage = TestDataFactories.createTextMessage(
+        final textMessage = TestDataFactories.createChatMessage(
           text: "Hello World",
           senderId: 123,
         );
@@ -108,7 +108,7 @@ void main() {
         final channel = TestDataFactories.createChannel(id: 1);
         final createdChannel = await channelDao!.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           senderId: 123,
           text: "Warning-free test message",
         );
@@ -118,7 +118,7 @@ void main() {
 
         final messages = await chatDao!.getMessages(channel: createdChannel).get();
         expect(messages, hasLength(1));
-        expect((messages.first as TextMessage).text, equals("Warning-free test message"));
+        expect((messages.first).text, equals("Warning-free test message"));
       });
 
       test('should handle message state updates', () async {
@@ -130,14 +130,14 @@ void main() {
         final channel = TestDataFactories.createChannel(id: 1);
         final createdChannel = await channelDao!.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           state: MessageState.pending,
           text: "State update test",
         );
 
         final messageId = await chatDao!.sendMessage(message, createdChannel);
 
-        final updatedMessage = TestDataFactories.createTextMessage(
+        final updatedMessage = TestDataFactories.createChatMessage(
           state: MessageState.sent,
           text: "State update test",
         );
@@ -159,7 +159,7 @@ void main() {
         // Send multiple unread messages
         final messageIds = <int>[];
         for (int i = 0; i < 3; i++) {
-          final message = TestDataFactories.createTextMessage(
+          final message = TestDataFactories.createChatMessage(
             text: "Unread message $i",
             state: MessageState.delivered,
           );
@@ -186,7 +186,7 @@ void main() {
         final channel = TestDataFactories.createChannel();
         final createdChannel = await channelDao!.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           text: "Preview test message",
         );
         await chatDao!.sendMessage(message, createdChannel);
@@ -195,7 +195,7 @@ void main() {
         expect(previews, hasLength(1));
         expect(previews.first.channel.id, equals(createdChannel.id));
         expect(previews.first.lastMessage, isNotNull);
-        expect((previews.first.lastMessage as TextMessage).text, equals("Preview test message"));
+        expect((previews.first.lastMessage)!.text, equals("Preview test message"));
       });
 
       test('should handle reactive queries properly', () async {
@@ -213,7 +213,7 @@ void main() {
         await expectLater(messageStream, emits(isEmpty));
 
         // Add message
-        final message = TestDataFactories.createTextMessage(text: "Reactive test");
+        final message = TestDataFactories.createChatMessage(text: "Reactive test");
         await chatDao!.sendMessage(message, createdChannel);
 
         // Should update reactively
@@ -229,7 +229,7 @@ void main() {
         final channel = TestDataFactories.createChannel(id: 1);
         final createdChannel = await channelDao!.createChannel(channel, []);
 
-        final message = TestDataFactories.createTextMessage(
+        final message = TestDataFactories.createChatMessage(
           text: "Message to delete",
         );
 
@@ -270,7 +270,7 @@ void main() {
           // Send multiple messages concurrently
           final futures = <Future>[];
           for (int i = 0; i < 5; i++) {
-            final message = TestDataFactories.createTextMessage(
+            final message = TestDataFactories.createChatMessage(
               text: "Concurrent message $i",
             );
             futures.add(chatDao.sendMessage(message, createdChannel));

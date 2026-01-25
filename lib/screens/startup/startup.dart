@@ -4,10 +4,11 @@ import 'package:vartalap/config/app_config.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/services/connectivity_service.dart';
-import 'package:vartalap/services/vartalap_authenticated_client.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap/utils/error_types.dart';
 import 'package:vartalap/widgets/error_widgets.dart';
 
@@ -29,22 +30,23 @@ class _StartupScreenState extends State<StartupScreen> with ErrorHandlingMixin {
 
     try {
       final providerStart = DateTime.now();
-      final authClient = Provider.of<VartalapAuthenticatedClient>(context, listen: false);
-      debugPrint('⏱️ [PERF] Getting authClient from provider took: ${DateTime.now().difference(providerStart).inMilliseconds}ms');
+      final client = Provider.of<VartalapChatClientFlutter>(context, listen: false);
+      final auth = client.auth;
+      debugPrint('⏱️ [PERF] Getting client from provider took: ${DateTime.now().difference(providerStart).inMilliseconds}ms');
 
       // Auth client already initialized in main(), just initialize database and load profile
-      if (authClient.isAuthenticated) {
+      if (auth.isAuthenticated) {
         setState(() {
           _currentStep = "Loading profile...";
         });
 
         final dbInitStart = DateTime.now();
-        await authClient.client.init();
+        await client.init();
         debugPrint('⏱️ [PERF] Database initialization took: ${DateTime.now().difference(dbInitStart).inMilliseconds}ms');
 
         // Load user profile from database (offline-first)
         final profileStart = DateTime.now();
-        final profile = await authClient.client.getLoggedInUserProfile();
+        final profile = await client.getLoggedInUserProfile();
         if (profile != null) {
           // Profile loaded successfully (either from cache or server)
           debugPrint('✅ [AUTH] Profile loaded: ${profile.userId}');

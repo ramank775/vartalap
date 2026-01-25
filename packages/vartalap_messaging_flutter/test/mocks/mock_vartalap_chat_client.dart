@@ -101,6 +101,9 @@ class MockVartalapChatClient extends VartalapChatClient {
     bool sync = false,
     bool ack = true,
   }) async {
+    // Simulate network delay to allow testing pending state
+    await Future.delayed(const Duration(milliseconds: 300));
+    
     // Simulate message sending without WebSocket
     if (ack) {
       for (var message in messages) {

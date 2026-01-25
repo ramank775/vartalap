@@ -69,7 +69,7 @@ void main() {
       );
       await channelDao.createChannel(channel, []);
 
-      final message = TestDataFactories.createTextMessage(
+      final message = TestDataFactories.createChatMessage(
         text: "Hello from database!",
       );
       await chatDao.sendMessage(message, channel);
@@ -89,6 +89,10 @@ void main() {
       // Assert - Widget should display data from database
       expect(find.text('Test Channel'), findsOneWidget);
       expect(find.text('1 messages'), findsOneWidget);
+
+      // Cleanup widget tree to dispose StreamBuilders
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
   });
 }

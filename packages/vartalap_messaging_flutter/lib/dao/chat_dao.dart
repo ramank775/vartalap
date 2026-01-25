@@ -59,9 +59,9 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     ]);
 
     return query.asyncMap((row) async {
-      final channel = row.readTable(channels).toModel();
+      final channel = row.readTable(channels);
       final sender = row.readTableOrNull(contacts);
-      final lastMessage = row.readTable(messages).toModel(sender: sender);
+      final lastMessage = row.readTable(messages).copyWith(sender: sender);
       final unReadCountExp = messages.id.count().cast<int>();
       final unreadQuery = selectOnly(messages)
         ..addColumns([unReadCountExp])
@@ -166,11 +166,12 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     // Order by timestamp for consistent ordering
     query.orderBy([(tbl) => OrderingTerm.asc(tbl.createdAt)]);
 
-    return query.map((message) => message.toModel());
+    return query;
   }
 
   Future<int> sendMessage(ChatMessage message, ChannelModel channel) async {
     final companion = MessagesCompanion.insert(
+      id: Value(message.id),
       type: message.type,
       state: message.state,
       payload: message.payload,

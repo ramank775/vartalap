@@ -6,6 +6,7 @@ import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/message_task.dart';
 import 'package:vartalap_messaging_flutter/events/sync_message_task.dart';
 import 'package:vartalap_messaging_flutter/events/asset_upload_task.dart';
+import 'package:vartalap_messaging_flutter/events/sync_contact_task.dart';
 
 import '../models/channel.dart';
 import 'channel_task.dart';
@@ -24,10 +25,11 @@ class VartalapTaskFactory implements TaskFactory {
   }) {
     switch (taskType) {
       case CreateChannelTask.name:
+        final channelId = payload is ChannelModel ? payload.id : payload as int?;
         return CreateChannelTask(
           client,
           db,
-          payload: payload as ChannelModel?,
+          payload: channelId,
         );
       case SendMessageTask.name:
         return SendMessageTask(
@@ -39,6 +41,13 @@ class VartalapTaskFactory implements TaskFactory {
         );
       case SyncMessageTask.name:
         return SyncMessageTask(
+          client,
+          db,
+          id: id,
+          state: state,
+        );
+      case SyncContactsTask.name:
+        return SyncContactsTask(
           client,
           db,
           id: id,
