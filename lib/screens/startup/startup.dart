@@ -4,7 +4,6 @@ import 'package:vartalap/config/app_config.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
-import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/services/connectivity_service.dart';

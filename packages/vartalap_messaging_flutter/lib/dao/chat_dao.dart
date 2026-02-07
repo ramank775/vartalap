@@ -2,7 +2,6 @@ import 'package:drift/drift.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 
 import 'package:vartalap_messaging_flutter/entity/entity.dart';
-import 'package:vartalap_messaging_flutter/mapper/mapper.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
 part 'chat_dao.g.dart';

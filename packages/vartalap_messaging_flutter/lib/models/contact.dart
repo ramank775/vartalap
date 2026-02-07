@@ -54,6 +54,17 @@ class Contact {
           : Image.asset('user.png');
 
   bool get hasAccount => username != null;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Contact &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          uid == other.uid;
+
+  @override
+  int get hashCode => id.hashCode ^ uid.hashCode;
 }
 
 class ContactFilter {

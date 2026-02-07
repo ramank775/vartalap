@@ -71,4 +71,29 @@ class TestOTPProvider implements IOTPProvider {
 }
 
 /// Simple Mock implementation
-class MockOTPProvider extends TestOTPProvider {}
+
+class MockOTPProvider extends TestOTPProvider {
+
+  @override
+
+  Future<OTPResult> sendOTP(String phoneNumber, {Map<String, dynamic>? options}) async {
+
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    return super.sendOTP(phoneNumber, options: options);
+
+  }
+
+
+
+  @override
+
+  Future<OTPCredential> verifyOTP(String otp) async {
+
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    return super.verifyOTP(otp);
+
+  }
+
+}

@@ -1,16 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
-import 'package:vartalap_messaging_flutter/events/add_member_task.dart';
-import 'package:vartalap_messaging_flutter/events/remove_member_task.dart';
-import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
+import 'package:vartalap_messaging_flutter/events/api_request_task.dart';
 import 'package:drift/drift.dart' hide isNotNull;
 
 import '../mocks/mock_vartalap_chat_client.dart';
-import '../factories/test_data_factories.dart';
 import '../utils/database_test_utils.dart';
 
 void main() {
-  group('Member Task Tests', () {
+  group('ApiRequestTask Tests', () {
     late MockVartalapChatClient mockClient;
     late ChatDatabase database;
 
@@ -27,78 +24,51 @@ void main() {
       await database.close();
     });
 
-    test('AddMembersTask should process successfully', () async {
-      // 1. Setup local data
-      final channel = TestDataFactories.createChannel(id: 1);
-      await database.channelDao.createChannel(channel, []);
-      
-      // Update with remote ID
-      await (database.update(database.channels)..where((tbl) => tbl.id.equals(1)))
-          .write(const ChannelsCompanion(cid: Value('remote_channel_id')));
-
-      final contact = TestDataFactories.createContact(id: 1, uid: 'remote_user_id');
-      await database.channelDao.syncContacts([contact]);
-
-      final payload = AddMembersPayload(
-        localChannelId: 1,
-        localMemberIds: [1],
+    test('AddMembers via ApiRequestTask should process successfully', () async {
+      final payload = ApiRequestPayload(
+        method: VartalapApiMethod.addMembers,
+        data: {
+          'channelId': 'remote_channel_id',
+          'memberIds': ['remote_user_id'],
+        },
       );
 
-      final task = AddMembersTask(mockClient, database, payload: payload);
-
-      // 2. Process task
+      final task = VartalapApiRequestTask(mockClient, database, payload: payload);
       await task.process();
-
-      // 3. Verify (No exception means success, but we could mock client better to verify calls)
       expect(true, isTrue);
     });
 
-    test('RemoveMemberTask should process successfully', () async {
-      // 1. Setup local data
-      final channel = TestDataFactories.createChannel(id: 1);
-      await database.channelDao.createChannel(channel, []);
-      
-      // Update with remote ID
-      await (database.update(database.channels)..where((tbl) => tbl.id.equals(1)))
-          .write(const ChannelsCompanion(cid: Value('remote_channel_id')));
-
-      final contact = TestDataFactories.createContact(id: 1, uid: 'remote_user_id');
-      await database.channelDao.syncContacts([contact]);
-
-      final payload = RemoveMemberPayload(
-        localChannelId: 1,
-        localMemberId: 1,
+    test('RemoveMember via ApiRequestTask should process successfully', () async {
+      final payload = ApiRequestPayload(
+        method: VartalapApiMethod.removeMember,
+        data: {
+          'channelId': 'remote_channel_id',
+          'memberId': 'remote_user_id',
+        },
       );
 
-      final task = RemoveMemberTask(mockClient, database, payload: payload);
-
-      // 2. Process task
+      final task = VartalapApiRequestTask(mockClient, database, payload: payload);
       await task.process();
-
-      // 3. Verify
       expect(true, isTrue);
     });
 
-    test('Tasks should serialize and deserialize correctly', () {
-      final addPayload = AddMembersPayload(localChannelId: 1, localMemberIds: [1, 2]);
-      final addTask = AddMembersTask(mockClient, database, payload: addPayload);
+    test('VartalapApiRequestTask should serialize and deserialize correctly', () {
+      final payload = ApiRequestPayload(
+        method: VartalapApiMethod.addMembers,
+        data: {
+          'channelId': 'c1',
+          'memberIds': ['u1', 'u2'],
+        },
+      );
+      final task = VartalapApiRequestTask(mockClient, database, payload: payload);
       
-      final serializedAdd = addTask.serializePayload();
-      final newTaskAdd = AddMembersTask(mockClient, database);
-      newTaskAdd.deserializePayload(serializedAdd);
+      final serialized = task.serializePayload();
+      final newTask = VartalapApiRequestTask(mockClient, database);
+      newTask.deserializePayload(serialized);
       
-      expect(newTaskAdd.payload.localChannelId, 1);
-      expect(newTaskAdd.payload.localMemberIds, [1, 2]);
-
-      final removePayload = RemoveMemberPayload(localChannelId: 3, localMemberId: 4);
-      final removeTask = RemoveMemberTask(mockClient, database, payload: removePayload);
-      
-      final serializedRemove = removeTask.serializePayload();
-      final newTaskRemove = RemoveMemberTask(mockClient, database);
-      newTaskRemove.deserializePayload(serializedRemove);
-      
-      expect(newTaskRemove.payload.localChannelId, 3);
-      expect(newTaskRemove.payload.localMemberId, 4);
+      expect(newTask.payload.method, VartalapApiMethod.addMembers);
+      expect(newTask.payload.data['channelId'], 'c1');
+      expect(newTask.payload.data['memberIds'], ['u1', 'u2']);
     });
   });
 }

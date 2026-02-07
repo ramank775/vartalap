@@ -105,11 +105,13 @@ class ChatList extends StatelessWidget {
     return ValueListenableBuilder(
       valueListenable: controller,
       builder: (BuildContext context, List<ChatMessage> value, Widget? child) {
-        final displayMessages = calculateChatMessages(
+        final result = calculateChatMessages(
           value,
           currentUser,
           showUserNames: showName,
-        )[0] as List<Object>;
+        );
+        final displayMessages = result[0] as List<Object>;
+        debugPrint('[UI] ChatList rendering ${displayMessages.length} items (from ${value.length} messages)');
         return ListView.builder(
           controller: scrollController,
           itemCount: displayMessages.length,
@@ -151,7 +153,7 @@ class ChatList extends StatelessWidget {
       ChatMessage msg = object["message"];
       bool showName = object["showName"];
       bool showNip = object["showNip"];
-      bool isYou = msg.sender == currentUser;
+      bool isYou = msg.senderId == currentUser.id;
       bool showUserInfo = !isYou && this.showName && showName;
 
       final notifier = controller.getNewNotifier(msg);

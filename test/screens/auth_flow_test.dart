@@ -79,18 +79,22 @@ void main() {
       await tester.enterText(textField, '1234567890');
       await tester.pumpAndSettle();
 
-      // Tap Next
-      await tester.tap(find.text('Next'));
-
-      // Loading indicator should appear in a dialog
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('Please wait'), findsOneWidget);
-
-      // Wait for OTP to be "sent"
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-
-      // Should now be on VerifyOtpWidget
+            // Tap Next
+            await tester.tap(find.text('Next'));
+      
+            // Loading indicator should appear in a dialog
+            // Use multiple pumps to ensure we catch the dialog before it potentially closes
+            await tester.pump(); 
+            await tester.pump(const Duration(milliseconds: 100));
+            
+            expect(find.textContaining('Please wait'), findsOneWidget);
+      
+            // Wait for OTP to be "sent" (500ms delay in mock + animation)
+            await tester.runAsync(() async {
+              await Future.delayed(const Duration(seconds: 1));
+            });
+            await tester.pumpAndSettle();
+            // Should now be on VerifyOtpWidget
       expect(find.byType(VerifyOtpWidget), findsOneWidget);
     });
 

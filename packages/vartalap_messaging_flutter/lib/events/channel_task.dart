@@ -4,7 +4,6 @@ import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
-import 'package:vartalap_messaging_flutter/mapper/mapper.dart';
 
 class CreateChannelTask extends VartalapTask<int> {
   static const name = 'create-channel';

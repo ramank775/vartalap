@@ -154,16 +154,10 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                           child: Text('Error: ${snapshot.error}'),
                         );
                       }
-                      if (_readTimer != null && _readTimer!.isActive) {
-                        _readTimer!.cancel();
-                      }
-                      _readTimer = Timer(
-                          Duration(milliseconds: 200), _onReadTimerTimeout);
                       final messages = snapshot.data ?? [];
-                      // Track unread messages for read receipts
-                      _unreadMessages.addAll(messages.where((msg) =>
-                          msg.senderId != chat.currentUser.id &&
-                          msg.state != MessageState.read));
+                      // Schedule read receipt processing if there are new messages
+                      _scheduleReadReceipts(messages);
+                      
                       _messageController =
                           ChatMessageController(messages: messages);
                       final Map<String, Member> members = {};
@@ -415,6 +409,23 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       },
     );
     return [child];
+  }
+
+  void _scheduleReadReceipts(List<ChatMessage> messages) {
+    // Track unread messages for read receipts
+    final unread = messages.where((msg) =>
+        msg.senderId != chat.currentUser.id &&
+        msg.state != MessageState.read);
+    
+    if (unread.isNotEmpty) {
+      _unreadMessages.addAll(unread);
+      
+      if (_readTimer != null && _readTimer!.isActive) {
+        _readTimer!.cancel();
+      }
+      _readTimer = Timer(
+          const Duration(milliseconds: 200), _onReadTimerTimeout);
+    }
   }
 
   Future<void> _onReadTimerTimeout() async {

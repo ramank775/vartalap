@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vartalap_messaging_flutter/auth/otp_provider.dart';
-import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 
@@ -9,6 +7,7 @@ class MockVartalapChatClientFlutter implements VartalapChatClientFlutter {
   String? loggedInUserId;
   bool initCalled = false;
   Profile? profile;
+  @override
   late AuthRepository auth;
 
   @override

@@ -168,11 +168,17 @@ class ChatClient {
   Future<void> addMembers(List<Member> members) async {
     await chatDao.addMembers(members, channel);
 
+    final remoteChannelId = channel.cid;
+    if (remoteChannelId == null) return; // Will sync when channel is created
+
     final task = client.factory.create(
-      AddMembersTask.name,
-      payload: AddMembersPayload(
-        localChannelId: channel.id,
-        localMemberIds: members.map((m) => m.user.id).toList(),
+      VartalapApiRequestTask.name,
+      payload: ApiRequestPayload(
+        method: VartalapApiMethod.addMembers,
+        data: {
+          'channelId': remoteChannelId,
+          'memberIds': members.map((m) => m.user.uid).whereType<String>().toList(),
+        },
       ),
     );
     await client.scheduler.schedule(task);
@@ -193,11 +199,18 @@ class ChatClient {
     }
     await chatDao.removeMember(member, channel);
 
+    final remoteChannelId = channel.cid;
+    final memberUid = member.user.uid;
+    if (remoteChannelId == null || memberUid == null) return;
+
     final task = client.factory.create(
-      RemoveMemberTask.name,
-      payload: RemoveMemberPayload(
-        localChannelId: channel.id,
-        localMemberId: member.user.id,
+      VartalapApiRequestTask.name,
+      payload: ApiRequestPayload(
+        method: VartalapApiMethod.removeMember,
+        data: {
+          'channelId': remoteChannelId,
+          'memberId': memberUid,
+        },
       ),
     );
     await client.scheduler.schedule(task);

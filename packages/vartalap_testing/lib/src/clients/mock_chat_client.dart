@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:vartalap/config/app_config.dart';
+import 'dart:io';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_testing/src/engine/scenario.dart';
 
@@ -19,6 +19,9 @@ class MockVartalapChatClient extends VartalapChatClient
 
   // Mock data storage
   final Map<String, List<Map<String, dynamic>>> _channelMessages = {};
+  bool get _isTesting =>
+      const bool.fromEnvironment('dart.library.io') &&
+      Platform.environment.containsKey('FLUTTER_TEST');
 
   MockVartalapChatClient({
     this.mockUserId = "+1234567890",
@@ -86,7 +89,7 @@ class MockVartalapChatClient extends VartalapChatClient
   @override
   Future<void> sendMessage(List<RemoteMessage> messages,
       {bool sync = false, bool ack = true}) async {
-    if (!AppConfig.isTesting) {
+    if (!_isTesting) {
       await Future.delayed(const Duration(milliseconds: 100));
     }
     for (var message in messages) {
@@ -101,7 +104,7 @@ class MockVartalapChatClient extends VartalapChatClient
 
   @override
   Future<LoginResponse> login(Credential creds) async {
-    if (!AppConfig.isTesting) {
+    if (!_isTesting) {
       await Future.delayed(const Duration(milliseconds: 300));
     }
     return LoginResponse.fromJson({
@@ -115,7 +118,7 @@ class MockVartalapChatClient extends VartalapChatClient
 
   @override
   Future<ProfileResponse> fetchProfile(String userId) async {
-    if (!AppConfig.isTesting) {
+    if (!_isTesting) {
       await Future.delayed(const Duration(milliseconds: 200));
     }
 

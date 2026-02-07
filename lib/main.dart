@@ -17,7 +17,6 @@ import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/mock_developer_menu.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
-import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
 import 'package:vartalap_testing/vartalap_testing.dart';
 
 void main() async {
@@ -146,12 +145,12 @@ class _VartalapAppState extends State<VartalapApp> {
               darkTheme: VartalapTheme.darkTheme.appTheme,
               onGenerateRoute: _routes,
               home: _buildHomeScreen(auth),
+              builder: (context, child) {
+                final content = child ?? const SizedBox.shrink();
+                if (!AppConfig.isMockMode) return content;
+                return MockDeveloperMenu(child: content);
+              },
             );
-
-            if (AppConfig.isMockMode) {
-              app = MockDeveloperMenu(child: app);
-            }
-
             return app;
           },
         ),
