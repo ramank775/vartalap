@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
-import 'package:taskq/storage/database.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging/vartalap_messaging.dart'
@@ -13,6 +12,7 @@ import 'package:vartalap_messaging_flutter/events/events.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 import 'package:vartalap_messaging_flutter/auth/otp_provider.dart';
 import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
+import 'package:vartalap_messaging_flutter/taskq/chat_task_store.dart';
 
 /// Custom exception for VartalapChatClientFlutter initialization failures
 ///
@@ -188,8 +188,8 @@ class VartalapChatClientFlutter {
     try {
       factory = VartalapTaskFactory(client, _db);
 
-      final taskDb = TaskQDatabase.withQueryExectutor(_db.executor);
-      scheduler = TaskScheduler(factory, db: taskDb);
+      final taskStore = ChatTaskStore(_db);
+      scheduler = TaskScheduler(factory, store: taskStore);
     } catch (e) {
       if (e is VartalapInitializationException) {
         rethrow;
@@ -297,7 +297,7 @@ class VartalapChatClientFlutter {
           final newChannel = await _db.into(_db.channels).insertReturning(ChannelsCompanion.insert(
             type: messaging.ChannelType.individual,
             cid: Value(remoteMsg.head.from), // For 1-1, CID is the other person's UID
-            config: const Value({}),
+            config: Value(<String, dynamic>{}),
           ));
           
           // 3. Add members

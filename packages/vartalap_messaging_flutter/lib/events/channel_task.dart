@@ -2,7 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
-import 'package:vartalap_messaging_flutter/db/chat_db.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart' hide Task;
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 
 class CreateChannelTask extends VartalapTask<int> {

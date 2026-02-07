@@ -93,3 +93,15 @@ The project is currently implementing a **Unified Authentication Architecture** 
 - `lib/services/vartalap_authenticated_client.dart`: Unified auth logic.
 - `PROJECT_STATUS.md`: Detailed technical findings and roadmap.
 - `docs/LOCAL_DEVELOPMENT.md`: Detailed guide for mock mode and local setup.
+
+---
+
+## Coordination Notes
+
+Use `docs/AGENT_NOTES.md` as the shared handoff log between agents. Keep notes short, factual, and timestamped with the current date.
+
+Recommended format:
+```
+## AgentName Notes (YYYY-MM-DD)
+- Bullet summary of findings
+```

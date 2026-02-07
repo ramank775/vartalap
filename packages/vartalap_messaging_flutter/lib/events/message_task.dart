@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
-import 'package:vartalap_messaging_flutter/db/chat_db.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart' hide Task;
 import 'package:vartalap_messaging_flutter/events/asset_upload_task.dart';
 import 'package:vartalap_messaging_flutter/events/factory.dart';
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';

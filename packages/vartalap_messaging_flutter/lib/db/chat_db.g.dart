@@ -579,7 +579,7 @@ class $ChannelsTable extends Channels
   @override
   ChannelModel map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return ChannelModel.new(
+    return ChannelModel(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       type: $ChannelsTable.$convertertype.fromSql(attachedDatabase.typeMapping
@@ -1521,7 +1521,7 @@ class $MessagesTable extends Messages
   @override
   ChatMessage map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return ChatMessage.new(
+    return ChatMessage(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       rid: attachedDatabase.typeMapping
@@ -2106,6 +2106,505 @@ class UserProfilesCompanion extends UpdateCompanion<Profile> {
   }
 }
 
+class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TasksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+      'type', aliasedName, false,
+      additionalChecks: GeneratedColumn.checkTextLength(maxTextLength: 50),
+      type: DriftSqlType.string,
+      requiredDuringInsert: true);
+  static const VerificationMeta _payloadMeta =
+      const VerificationMeta('payload');
+  @override
+  late final GeneratedColumn<String> payload = GeneratedColumn<String>(
+      'payload', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumnWithTypeConverter<Map<String, dynamic>, String>
+      state = GeneratedColumn<String>('state', aliasedName, false,
+              type: DriftSqlType.string, requiredDuringInsert: true)
+          .withConverter<Map<String, dynamic>>($TasksTable.$converterstate);
+  @override
+  late final GeneratedColumnWithTypeConverter<TaskStatus, int> status =
+      GeneratedColumn<int>('status', aliasedName, false,
+              type: DriftSqlType.int, requiredDuringInsert: true)
+          .withConverter<TaskStatus>($TasksTable.$converterstatus);
+  @override
+  List<GeneratedColumn> get $columns => [id, type, payload, state, status];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'tasks';
+  @override
+  VerificationContext validateIntegrity(Insertable<Task> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+          _typeMeta, type.isAcceptableOrUnknown(data['type']!, _typeMeta));
+    } else if (isInserting) {
+      context.missing(_typeMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(_payloadMeta,
+          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Task map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Task(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      type: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}type'])!,
+      payload: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
+      state: $TasksTable.$converterstate.fromSql(attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}state'])!),
+      status: $TasksTable.$converterstatus.fromSql(attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}status'])!),
+    );
+  }
+
+  @override
+  $TasksTable createAlias(String alias) {
+    return $TasksTable(attachedDatabase, alias);
+  }
+
+  static TypeConverter<Map<String, dynamic>, String> $converterstate =
+      MapConverter();
+  static JsonTypeConverter2<TaskStatus, int, int> $converterstatus =
+      const EnumIndexConverter<TaskStatus>(TaskStatus.values);
+}
+
+class Task extends DataClass implements Insertable<Task> {
+  final int id;
+  final String type;
+  final String payload;
+  final Map<String, dynamic> state;
+  final TaskStatus status;
+  const Task(
+      {required this.id,
+      required this.type,
+      required this.payload,
+      required this.state,
+      required this.status});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['type'] = Variable<String>(type);
+    map['payload'] = Variable<String>(payload);
+    {
+      map['state'] = Variable<String>($TasksTable.$converterstate.toSql(state));
+    }
+    {
+      map['status'] = Variable<int>($TasksTable.$converterstatus.toSql(status));
+    }
+    return map;
+  }
+
+  TasksCompanion toCompanion(bool nullToAbsent) {
+    return TasksCompanion(
+      id: Value(id),
+      type: Value(type),
+      payload: Value(payload),
+      state: Value(state),
+      status: Value(status),
+    );
+  }
+
+  factory Task.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Task(
+      id: serializer.fromJson<int>(json['id']),
+      type: serializer.fromJson<String>(json['type']),
+      payload: serializer.fromJson<String>(json['payload']),
+      state: serializer.fromJson<Map<String, dynamic>>(json['state']),
+      status: $TasksTable.$converterstatus
+          .fromJson(serializer.fromJson<int>(json['status'])),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'type': serializer.toJson<String>(type),
+      'payload': serializer.toJson<String>(payload),
+      'state': serializer.toJson<Map<String, dynamic>>(state),
+      'status':
+          serializer.toJson<int>($TasksTable.$converterstatus.toJson(status)),
+    };
+  }
+
+  Task copyWith(
+          {int? id,
+          String? type,
+          String? payload,
+          Map<String, dynamic>? state,
+          TaskStatus? status}) =>
+      Task(
+        id: id ?? this.id,
+        type: type ?? this.type,
+        payload: payload ?? this.payload,
+        state: state ?? this.state,
+        status: status ?? this.status,
+      );
+  Task copyWithCompanion(TasksCompanion data) {
+    return Task(
+      id: data.id.present ? data.id.value : this.id,
+      type: data.type.present ? data.type.value : this.type,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      state: data.state.present ? data.state.value : this.state,
+      status: data.status.present ? data.status.value : this.status,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Task(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('payload: $payload, ')
+          ..write('state: $state, ')
+          ..write('status: $status')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, type, payload, state, status);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Task &&
+          other.id == this.id &&
+          other.type == this.type &&
+          other.payload == this.payload &&
+          other.state == this.state &&
+          other.status == this.status);
+}
+
+class TasksCompanion extends UpdateCompanion<Task> {
+  final Value<int> id;
+  final Value<String> type;
+  final Value<String> payload;
+  final Value<Map<String, dynamic>> state;
+  final Value<TaskStatus> status;
+  const TasksCompanion({
+    this.id = const Value.absent(),
+    this.type = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.state = const Value.absent(),
+    this.status = const Value.absent(),
+  });
+  TasksCompanion.insert({
+    this.id = const Value.absent(),
+    required String type,
+    required String payload,
+    required Map<String, dynamic> state,
+    required TaskStatus status,
+  })  : type = Value(type),
+        payload = Value(payload),
+        state = Value(state),
+        status = Value(status);
+  static Insertable<Task> custom({
+    Expression<int>? id,
+    Expression<String>? type,
+    Expression<String>? payload,
+    Expression<String>? state,
+    Expression<int>? status,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (type != null) 'type': type,
+      if (payload != null) 'payload': payload,
+      if (state != null) 'state': state,
+      if (status != null) 'status': status,
+    });
+  }
+
+  TasksCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? type,
+      Value<String>? payload,
+      Value<Map<String, dynamic>>? state,
+      Value<TaskStatus>? status}) {
+    return TasksCompanion(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      payload: payload ?? this.payload,
+      state: state ?? this.state,
+      status: status ?? this.status,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<String>(payload.value);
+    }
+    if (state.present) {
+      map['state'] =
+          Variable<String>($TasksTable.$converterstate.toSql(state.value));
+    }
+    if (status.present) {
+      map['status'] =
+          Variable<int>($TasksTable.$converterstatus.toSql(status.value));
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TasksCompanion(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('payload: $payload, ')
+          ..write('state: $state, ')
+          ..write('status: $status')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TaskDependenciesTable extends TaskDependencies
+    with TableInfo<$TaskDependenciesTable, TaskDependency> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TaskDependenciesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _taskIdMeta = const VerificationMeta('taskId');
+  @override
+  late final GeneratedColumn<int> taskId = GeneratedColumn<int>(
+      'task_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES tasks (id)'));
+  static const VerificationMeta _dependentTaskIdMeta =
+      const VerificationMeta('dependentTaskId');
+  @override
+  late final GeneratedColumn<int> dependentTaskId = GeneratedColumn<int>(
+      'dependent_task_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES tasks (id)'));
+  @override
+  List<GeneratedColumn> get $columns => [taskId, dependentTaskId];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'task_dependencies';
+  @override
+  VerificationContext validateIntegrity(Insertable<TaskDependency> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('task_id')) {
+      context.handle(_taskIdMeta,
+          taskId.isAcceptableOrUnknown(data['task_id']!, _taskIdMeta));
+    } else if (isInserting) {
+      context.missing(_taskIdMeta);
+    }
+    if (data.containsKey('dependent_task_id')) {
+      context.handle(
+          _dependentTaskIdMeta,
+          dependentTaskId.isAcceptableOrUnknown(
+              data['dependent_task_id']!, _dependentTaskIdMeta));
+    } else if (isInserting) {
+      context.missing(_dependentTaskIdMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => const {};
+  @override
+  TaskDependency map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TaskDependency(
+      taskId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}task_id'])!,
+      dependentTaskId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}dependent_task_id'])!,
+    );
+  }
+
+  @override
+  $TaskDependenciesTable createAlias(String alias) {
+    return $TaskDependenciesTable(attachedDatabase, alias);
+  }
+}
+
+class TaskDependency extends DataClass implements Insertable<TaskDependency> {
+  final int taskId;
+  final int dependentTaskId;
+  const TaskDependency({required this.taskId, required this.dependentTaskId});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['task_id'] = Variable<int>(taskId);
+    map['dependent_task_id'] = Variable<int>(dependentTaskId);
+    return map;
+  }
+
+  TaskDependenciesCompanion toCompanion(bool nullToAbsent) {
+    return TaskDependenciesCompanion(
+      taskId: Value(taskId),
+      dependentTaskId: Value(dependentTaskId),
+    );
+  }
+
+  factory TaskDependency.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TaskDependency(
+      taskId: serializer.fromJson<int>(json['taskId']),
+      dependentTaskId: serializer.fromJson<int>(json['dependentTaskId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'taskId': serializer.toJson<int>(taskId),
+      'dependentTaskId': serializer.toJson<int>(dependentTaskId),
+    };
+  }
+
+  TaskDependency copyWith({int? taskId, int? dependentTaskId}) =>
+      TaskDependency(
+        taskId: taskId ?? this.taskId,
+        dependentTaskId: dependentTaskId ?? this.dependentTaskId,
+      );
+  TaskDependency copyWithCompanion(TaskDependenciesCompanion data) {
+    return TaskDependency(
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      dependentTaskId: data.dependentTaskId.present
+          ? data.dependentTaskId.value
+          : this.dependentTaskId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TaskDependency(')
+          ..write('taskId: $taskId, ')
+          ..write('dependentTaskId: $dependentTaskId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(taskId, dependentTaskId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TaskDependency &&
+          other.taskId == this.taskId &&
+          other.dependentTaskId == this.dependentTaskId);
+}
+
+class TaskDependenciesCompanion extends UpdateCompanion<TaskDependency> {
+  final Value<int> taskId;
+  final Value<int> dependentTaskId;
+  final Value<int> rowid;
+  const TaskDependenciesCompanion({
+    this.taskId = const Value.absent(),
+    this.dependentTaskId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TaskDependenciesCompanion.insert({
+    required int taskId,
+    required int dependentTaskId,
+    this.rowid = const Value.absent(),
+  })  : taskId = Value(taskId),
+        dependentTaskId = Value(dependentTaskId);
+  static Insertable<TaskDependency> custom({
+    Expression<int>? taskId,
+    Expression<int>? dependentTaskId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (taskId != null) 'task_id': taskId,
+      if (dependentTaskId != null) 'dependent_task_id': dependentTaskId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TaskDependenciesCompanion copyWith(
+      {Value<int>? taskId, Value<int>? dependentTaskId, Value<int>? rowid}) {
+    return TaskDependenciesCompanion(
+      taskId: taskId ?? this.taskId,
+      dependentTaskId: dependentTaskId ?? this.dependentTaskId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (taskId.present) {
+      map['task_id'] = Variable<int>(taskId.value);
+    }
+    if (dependentTaskId.present) {
+      map['dependent_task_id'] = Variable<int>(dependentTaskId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TaskDependenciesCompanion(')
+          ..write('taskId: $taskId, ')
+          ..write('dependentTaskId: $dependentTaskId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$ChatDatabase extends GeneratedDatabase {
   _$ChatDatabase(QueryExecutor e) : super(e);
   $ChatDatabaseManager get managers => $ChatDatabaseManager(this);
@@ -2116,6 +2615,9 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
   late final $MessagesTable messages = $MessagesTable(this);
   late final $MessageAssetsTable messageAssets = $MessageAssetsTable(this);
   late final $UserProfilesTable userProfiles = $UserProfilesTable(this);
+  late final $TasksTable tasks = $TasksTable(this);
+  late final $TaskDependenciesTable taskDependencies =
+      $TaskDependenciesTable(this);
   late final ChatDao chatDao = ChatDao(this as ChatDatabase);
   late final ChannelDao channelDao = ChannelDao(this as ChatDatabase);
   late final UserProfileDao userProfileDao =
@@ -2131,7 +2633,9 @@ abstract class _$ChatDatabase extends GeneratedDatabase {
         members,
         messages,
         messageAssets,
-        userProfiles
+        userProfiles,
+        tasks,
+        taskDependencies
       ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
@@ -4611,6 +5115,643 @@ typedef $$UserProfilesTableProcessedTableManager = ProcessedTableManager<
     (Profile, BaseReferences<_$ChatDatabase, $UserProfilesTable, Profile>),
     Profile,
     PrefetchHooks Function()>;
+typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
+  Value<int> id,
+  required String type,
+  required String payload,
+  required Map<String, dynamic> state,
+  required TaskStatus status,
+});
+typedef $$TasksTableUpdateCompanionBuilder = TasksCompanion Function({
+  Value<int> id,
+  Value<String> type,
+  Value<String> payload,
+  Value<Map<String, dynamic>> state,
+  Value<TaskStatus> status,
+});
+
+final class $$TasksTableReferences
+    extends BaseReferences<_$ChatDatabase, $TasksTable, Task> {
+  $$TasksTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$TaskDependenciesTable, List<TaskDependency>>
+      _taskDependenciesRefsTable(_$ChatDatabase db) =>
+          MultiTypedResultKey.fromTable(db.taskDependencies,
+              aliasName: $_aliasNameGenerator(
+                  db.tasks.id, db.taskDependencies.taskId));
+
+  $$TaskDependenciesTableProcessedTableManager get taskDependenciesRefs {
+    final manager =
+        $$TaskDependenciesTableTableManager($_db, $_db.taskDependencies)
+            .filter((f) => f.taskId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_taskDependenciesRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$TaskDependenciesTable, List<TaskDependency>>
+      _ref_dependenct_task_idTable(_$ChatDatabase db) =>
+          MultiTypedResultKey.fromTable(db.taskDependencies,
+              aliasName: $_aliasNameGenerator(
+                  db.tasks.id, db.taskDependencies.dependentTaskId));
+
+  $$TaskDependenciesTableProcessedTableManager get ref_dependenct_task_id {
+    final manager =
+        $$TaskDependenciesTableTableManager($_db, $_db.taskDependencies).filter(
+            (f) => f.dependentTaskId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_ref_dependenct_task_idTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$TasksTableFilterComposer extends Composer<_$ChatDatabase, $TasksTable> {
+  $$TasksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnFilters(column));
+
+  ColumnWithTypeConverterFilters<Map<String, dynamic>, Map<String, dynamic>,
+          String>
+      get state => $composableBuilder(
+          column: $table.state,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
+
+  ColumnWithTypeConverterFilters<TaskStatus, TaskStatus, int> get status =>
+      $composableBuilder(
+          column: $table.status,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
+
+  Expression<bool> taskDependenciesRefs(
+      Expression<bool> Function($$TaskDependenciesTableFilterComposer f) f) {
+    final $$TaskDependenciesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.taskDependencies,
+        getReferencedColumn: (t) => t.taskId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TaskDependenciesTableFilterComposer(
+              $db: $db,
+              $table: $db.taskDependencies,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> ref_dependenct_task_id(
+      Expression<bool> Function($$TaskDependenciesTableFilterComposer f) f) {
+    final $$TaskDependenciesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.taskDependencies,
+        getReferencedColumn: (t) => t.dependentTaskId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TaskDependenciesTableFilterComposer(
+              $db: $db,
+              $table: $db.taskDependencies,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$TasksTableOrderingComposer
+    extends Composer<_$ChatDatabase, $TasksTable> {
+  $$TasksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get state => $composableBuilder(
+      column: $table.state, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnOrderings(column));
+}
+
+class $$TasksTableAnnotationComposer
+    extends Composer<_$ChatDatabase, $TasksTable> {
+  $$TasksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<Map<String, dynamic>, String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<TaskStatus, int> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  Expression<T> taskDependenciesRefs<T extends Object>(
+      Expression<T> Function($$TaskDependenciesTableAnnotationComposer a) f) {
+    final $$TaskDependenciesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.taskDependencies,
+        getReferencedColumn: (t) => t.taskId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TaskDependenciesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.taskDependencies,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<T> ref_dependenct_task_id<T extends Object>(
+      Expression<T> Function($$TaskDependenciesTableAnnotationComposer a) f) {
+    final $$TaskDependenciesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.taskDependencies,
+        getReferencedColumn: (t) => t.dependentTaskId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TaskDependenciesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.taskDependencies,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$TasksTableTableManager extends RootTableManager<
+    _$ChatDatabase,
+    $TasksTable,
+    Task,
+    $$TasksTableFilterComposer,
+    $$TasksTableOrderingComposer,
+    $$TasksTableAnnotationComposer,
+    $$TasksTableCreateCompanionBuilder,
+    $$TasksTableUpdateCompanionBuilder,
+    (Task, $$TasksTableReferences),
+    Task,
+    PrefetchHooks Function(
+        {bool taskDependenciesRefs, bool ref_dependenct_task_id})> {
+  $$TasksTableTableManager(_$ChatDatabase db, $TasksTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TasksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TasksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TasksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> type = const Value.absent(),
+            Value<String> payload = const Value.absent(),
+            Value<Map<String, dynamic>> state = const Value.absent(),
+            Value<TaskStatus> status = const Value.absent(),
+          }) =>
+              TasksCompanion(
+            id: id,
+            type: type,
+            payload: payload,
+            state: state,
+            status: status,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String type,
+            required String payload,
+            required Map<String, dynamic> state,
+            required TaskStatus status,
+          }) =>
+              TasksCompanion.insert(
+            id: id,
+            type: type,
+            payload: payload,
+            state: state,
+            status: status,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) =>
+                  (e.readTable(table), $$TasksTableReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: (
+              {taskDependenciesRefs = false, ref_dependenct_task_id = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (taskDependenciesRefs) db.taskDependencies,
+                if (ref_dependenct_task_id) db.taskDependencies
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (taskDependenciesRefs)
+                    await $_getPrefetchedData<Task, $TasksTable,
+                            TaskDependency>(
+                        currentTable: table,
+                        referencedTable: $$TasksTableReferences
+                            ._taskDependenciesRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$TasksTableReferences(db, table, p0)
+                                .taskDependenciesRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.taskId == item.id),
+                        typedResults: items),
+                  if (ref_dependenct_task_id)
+                    await $_getPrefetchedData<Task, $TasksTable,
+                            TaskDependency>(
+                        currentTable: table,
+                        referencedTable: $$TasksTableReferences
+                            ._ref_dependenct_task_idTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$TasksTableReferences(db, table, p0)
+                                .ref_dependenct_task_id,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.dependentTaskId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$TasksTableProcessedTableManager = ProcessedTableManager<
+    _$ChatDatabase,
+    $TasksTable,
+    Task,
+    $$TasksTableFilterComposer,
+    $$TasksTableOrderingComposer,
+    $$TasksTableAnnotationComposer,
+    $$TasksTableCreateCompanionBuilder,
+    $$TasksTableUpdateCompanionBuilder,
+    (Task, $$TasksTableReferences),
+    Task,
+    PrefetchHooks Function(
+        {bool taskDependenciesRefs, bool ref_dependenct_task_id})>;
+typedef $$TaskDependenciesTableCreateCompanionBuilder
+    = TaskDependenciesCompanion Function({
+  required int taskId,
+  required int dependentTaskId,
+  Value<int> rowid,
+});
+typedef $$TaskDependenciesTableUpdateCompanionBuilder
+    = TaskDependenciesCompanion Function({
+  Value<int> taskId,
+  Value<int> dependentTaskId,
+  Value<int> rowid,
+});
+
+final class $$TaskDependenciesTableReferences extends BaseReferences<
+    _$ChatDatabase, $TaskDependenciesTable, TaskDependency> {
+  $$TaskDependenciesTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $TasksTable _taskIdTable(_$ChatDatabase db) => db.tasks.createAlias(
+      $_aliasNameGenerator(db.taskDependencies.taskId, db.tasks.id));
+
+  $$TasksTableProcessedTableManager get taskId {
+    final $_column = $_itemColumn<int>('task_id')!;
+
+    final manager = $$TasksTableTableManager($_db, $_db.tasks)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_taskIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static $TasksTable _dependentTaskIdTable(_$ChatDatabase db) =>
+      db.tasks.createAlias($_aliasNameGenerator(
+          db.taskDependencies.dependentTaskId, db.tasks.id));
+
+  $$TasksTableProcessedTableManager get dependentTaskId {
+    final $_column = $_itemColumn<int>('dependent_task_id')!;
+
+    final manager = $$TasksTableTableManager($_db, $_db.tasks)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_dependentTaskIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$TaskDependenciesTableFilterComposer
+    extends Composer<_$ChatDatabase, $TaskDependenciesTable> {
+  $$TaskDependenciesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  $$TasksTableFilterComposer get taskId {
+    final $$TasksTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.taskId,
+        referencedTable: $db.tasks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TasksTableFilterComposer(
+              $db: $db,
+              $table: $db.tasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$TasksTableFilterComposer get dependentTaskId {
+    final $$TasksTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.dependentTaskId,
+        referencedTable: $db.tasks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TasksTableFilterComposer(
+              $db: $db,
+              $table: $db.tasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$TaskDependenciesTableOrderingComposer
+    extends Composer<_$ChatDatabase, $TaskDependenciesTable> {
+  $$TaskDependenciesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  $$TasksTableOrderingComposer get taskId {
+    final $$TasksTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.taskId,
+        referencedTable: $db.tasks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TasksTableOrderingComposer(
+              $db: $db,
+              $table: $db.tasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$TasksTableOrderingComposer get dependentTaskId {
+    final $$TasksTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.dependentTaskId,
+        referencedTable: $db.tasks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TasksTableOrderingComposer(
+              $db: $db,
+              $table: $db.tasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$TaskDependenciesTableAnnotationComposer
+    extends Composer<_$ChatDatabase, $TaskDependenciesTable> {
+  $$TaskDependenciesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  $$TasksTableAnnotationComposer get taskId {
+    final $$TasksTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.taskId,
+        referencedTable: $db.tasks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TasksTableAnnotationComposer(
+              $db: $db,
+              $table: $db.tasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$TasksTableAnnotationComposer get dependentTaskId {
+    final $$TasksTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.dependentTaskId,
+        referencedTable: $db.tasks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TasksTableAnnotationComposer(
+              $db: $db,
+              $table: $db.tasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$TaskDependenciesTableTableManager extends RootTableManager<
+    _$ChatDatabase,
+    $TaskDependenciesTable,
+    TaskDependency,
+    $$TaskDependenciesTableFilterComposer,
+    $$TaskDependenciesTableOrderingComposer,
+    $$TaskDependenciesTableAnnotationComposer,
+    $$TaskDependenciesTableCreateCompanionBuilder,
+    $$TaskDependenciesTableUpdateCompanionBuilder,
+    (TaskDependency, $$TaskDependenciesTableReferences),
+    TaskDependency,
+    PrefetchHooks Function({bool taskId, bool dependentTaskId})> {
+  $$TaskDependenciesTableTableManager(
+      _$ChatDatabase db, $TaskDependenciesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TaskDependenciesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TaskDependenciesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TaskDependenciesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> taskId = const Value.absent(),
+            Value<int> dependentTaskId = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              TaskDependenciesCompanion(
+            taskId: taskId,
+            dependentTaskId: dependentTaskId,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required int taskId,
+            required int dependentTaskId,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              TaskDependenciesCompanion.insert(
+            taskId: taskId,
+            dependentTaskId: dependentTaskId,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$TaskDependenciesTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({taskId = false, dependentTaskId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (taskId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.taskId,
+                    referencedTable:
+                        $$TaskDependenciesTableReferences._taskIdTable(db),
+                    referencedColumn:
+                        $$TaskDependenciesTableReferences._taskIdTable(db).id,
+                  ) as T;
+                }
+                if (dependentTaskId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.dependentTaskId,
+                    referencedTable: $$TaskDependenciesTableReferences
+                        ._dependentTaskIdTable(db),
+                    referencedColumn: $$TaskDependenciesTableReferences
+                        ._dependentTaskIdTable(db)
+                        .id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$TaskDependenciesTableProcessedTableManager = ProcessedTableManager<
+    _$ChatDatabase,
+    $TaskDependenciesTable,
+    TaskDependency,
+    $$TaskDependenciesTableFilterComposer,
+    $$TaskDependenciesTableOrderingComposer,
+    $$TaskDependenciesTableAnnotationComposer,
+    $$TaskDependenciesTableCreateCompanionBuilder,
+    $$TaskDependenciesTableUpdateCompanionBuilder,
+    (TaskDependency, $$TaskDependenciesTableReferences),
+    TaskDependency,
+    PrefetchHooks Function({bool taskId, bool dependentTaskId})>;
 
 class $ChatDatabaseManager {
   final _$ChatDatabase _db;
@@ -4629,4 +5770,8 @@ class $ChatDatabaseManager {
       $$MessageAssetsTableTableManager(_db, _db.messageAssets);
   $$UserProfilesTableTableManager get userProfiles =>
       $$UserProfilesTableTableManager(_db, _db.userProfiles);
+  $$TasksTableTableManager get tasks =>
+      $$TasksTableTableManager(_db, _db.tasks);
+  $$TaskDependenciesTableTableManager get taskDependencies =>
+      $$TaskDependenciesTableTableManager(_db, _db.taskDependencies);
 }

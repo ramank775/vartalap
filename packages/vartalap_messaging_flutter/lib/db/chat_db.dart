@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:taskq/task.dart' show TaskStatus;
 import 'package:vartalap_messaging/vartalap_messaging.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
@@ -18,6 +19,8 @@ part 'chat_db.g.dart';
   Messages,
   MessageAssets,
   UserProfiles,
+  Tasks,
+  TaskDependencies,
 ], daos: [
   ChatDao,
   ChannelDao,
@@ -31,7 +34,20 @@ class ChatDatabase extends _$ChatDatabase {
   }) : super(_openConnection(userId: userId, isMemory: inMemory));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) async {
+          await m.createAll();
+        },
+        onUpgrade: (m, from, to) async {
+          if (from < 3) {
+            await m.createTable(tasks);
+            await m.createTable(taskDependencies);
+          }
+        },
+      );
 
   static QueryExecutor _openConnection({
     required String userId,

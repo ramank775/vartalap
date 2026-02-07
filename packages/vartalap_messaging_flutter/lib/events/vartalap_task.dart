@@ -1,6 +1,6 @@
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart';
-import 'package:vartalap_messaging_flutter/db/chat_db.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart' hide Task;
 
 abstract class VartalapTask<T> extends Task<T> {
   VartalapChatClient client;

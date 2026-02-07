@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart'
     show VartalapChatClient;
-import 'package:vartalap_messaging_flutter/db/chat_db.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart' hide Task;
 import 'package:vartalap_messaging_flutter/events/message_task.dart';
 import 'package:vartalap_messaging_flutter/events/sync_message_task.dart';
 import 'package:vartalap_messaging_flutter/events/asset_upload_task.dart';

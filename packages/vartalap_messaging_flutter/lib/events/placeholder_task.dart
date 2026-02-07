@@ -1,5 +1,5 @@
 import 'package:vartalap_messaging/client/client.dart';
-import 'package:vartalap_messaging_flutter/db/chat_db.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart' hide Task;
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
 
 class PlaceholderTask extends VartalapTask {

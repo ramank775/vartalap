@@ -156,6 +156,16 @@ void main() {
       expect(auth.currentUser?.name, 'Verified User');
     });
 
+    test('verifyOTP() failure sets error state', () async {
+      mockOtpProvider.verifyOTPCredential = null; // force failure
+
+      await auth.verifyOTP('000000');
+
+      expect(mockOtpProvider.verifyOTPCalled, true);
+      expect(auth.state, AuthState.error);
+      expect(auth.lastError, isNotNull);
+    });
+
     test('logout() clears state', () async {
       // Setup authenticated state
       mockClient.loggedInUserId = '+1234567890';

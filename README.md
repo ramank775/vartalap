@@ -7,6 +7,8 @@
 - [x] Android
 - [ ] Ios
 
+**Release Target (Current):** Android + Mock Mode (offline, no server required)
+
 ## Features
 - Texts with emoji 
 - Group Chat
@@ -27,6 +29,11 @@ flutter pub get
 
 # Run in mock mode (offline, no server needed!)
 flutter run --dart-define MOCK_MODE=true
+```
+
+**Android run (explicit device):**
+```bash
+flutter run -d android --dart-define MOCK_MODE=true
 ```
 
 **Features in Mock Mode:**

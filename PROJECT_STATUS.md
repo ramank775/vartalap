@@ -3,10 +3,10 @@
 ## Project Overview
 Open source Flutter chat application with separated backend architecture for multi-UI support.
 
-**Last Updated**: 2025-09-27  
+**Last Updated**: 2026-02-07  
 **Current Branch**: feat/migration-api-path  
 **Flutter Version**: 3.35.2  
-**Status**: ✅ Ready for Development
+**Status**: ✅ Release Focus: Android + Mock Mode
 
 ---
 
@@ -56,8 +56,8 @@ Open source Flutter chat application with separated backend architecture for mul
 - Const constructors applied where applicable
 
 #### Platform Compatibility
-- ✅ Android: Fully supported
-- ✅ iOS: Supported (requires Xcode)
+- ✅ Android: Fully supported (release target)
+- ⚠️ iOS: Partially supported (requires Xcode; not current release target)
 - ✅ Linux Desktop: Supported (may need native deps)
 - ❌ Web: Not supported (SQLite FFI limitation)
 
@@ -70,17 +70,8 @@ Open source Flutter chat application with separated backend architecture for mul
 - **Config**: `android/app/google-services.json` present
 - **Providers**: Play Integrity (Android), App Attest (iOS)
 
-### API Configuration (`config.json`)
-```json
-{
-  "apiKey": "", // ⚠️ MISSING - Required for backend communication
-  "api_url": "https://vartalapapp.one9x.org",
-  "ws_url": "https://vartalapapp.one9x.org/wss",
-  "description": "...",
-  "share_message": "...",
-  "privacy_policy": "https://vartalap.one9x.org/privacy-policy"
-}
-```
+### API Configuration (Build-Time)
+Configuration is provided via `--dart-define` (see `README.md`). `config.json` and `config.local.json` are deprecated and not used by the app.
 
 ### Database Schema
 - **ORM**: Drift (SQLite)
@@ -92,9 +83,8 @@ Open source Flutter chat application with separated backend architecture for mul
 ## Known Issues & Limitations
 
 ### 🚨 Critical Issues
-1. **Missing API Key**: `config.json` has empty `apiKey` field
+1. **Release Definition**: Android + Mock Mode is the current release target; production server readiness is out of scope for this release.
 2. ~~**External Dependency**: Requires `taskq` package at specific local path~~ ✅ **RESOLVED**: taskq moved to `packages/taskq/`
-3. **Backend Services**: Endpoints may need verification/startup
 
 ### ⚠️ Build Warnings
 - Kotlin version (2.0.20) deprecation warning
@@ -110,9 +100,9 @@ Open source Flutter chat application with separated backend architecture for mul
 ## Development Roadmap
 
 ### Immediate Actions Required
-1. **API Key Setup**: Obtain and configure API key in `config.json` (or via `--dart-define`)
-2. **Backend Verification**: Ensure `vartalapapp.one9x.org` services are operational
-3. **Platform Testing**: Test builds on target platforms
+1. **Android Mock Mode Smoke Test**: Verify login, chat list, and sending messages in mock mode
+2. **Docs Alignment**: Ensure release steps are documented for Android mock mode
+3. **Test Spine**: Add the minimal auth + helper tests for refactor confidence
 
 ### Recommended Improvements
 1. **Dependency Updates**: Upgrade to newer package versions
@@ -176,12 +166,10 @@ flutter pub get                # Update dependencies
 
 ---
 
-## Next Steps for Launch
-1. Configure API key and verify backend connectivity
-2. Test authentication flow end-to-end
-3. Verify real-time messaging functionality
-4. Test on target deployment platforms
-5. Consider setting up CI/CD pipeline
-6. Update dependencies to latest stable versions
+## Next Steps for Launch (Android + Mock Mode)
+1. Run mock mode on Android and validate the core flow (login, chats, send)
+2. Add minimal tests for unified auth and UI helpers
+3. Document Android mock-mode build/run commands
+4. Tag a release candidate and create a release checklist
 
 **Project is architecturally sound and ready for active development.**
