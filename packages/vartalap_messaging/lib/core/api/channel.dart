@@ -4,7 +4,7 @@ import 'package:vartalap_messaging/core/http/http_client.dart';
 import 'package:vartalap_messaging/core/models/channel.dart';
 
 class ChannelApi extends BaseApi {
-  ChannelApi(HttpClient client) : super(client, 'channel');
+  ChannelApi(HttpClient client) : super(client, 'channels');
 
   Future<ChannelsResponse> getAll() async {
     final path = endpoint(path: '');

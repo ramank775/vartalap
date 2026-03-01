@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:vartalap_messaging/core/error/errors.dart';
 import 'package:vartalap_messaging/core/http/token_manager.dart';
@@ -18,10 +19,10 @@ class Websocket {
   final String url;
   final Duration pingInterval;
 
-  StreamController<RemoteMessage> get _messageController =>
-      StreamController<RemoteMessage>();
-  StreamController<ConnectionStatus> get _connectionStatusController =>
-      StreamController<ConnectionStatus>();
+  final StreamController<RemoteMessage> _messageController =
+      StreamController<RemoteMessage>.broadcast();
+  final StreamController<ConnectionStatus> _connectionStatusController =
+      StreamController<ConnectionStatus>.broadcast();
   Stream<ConnectionStatus> get connectionStatusStream =>
       _connectionStatusController.stream.distinct().asBroadcastStream();
 
@@ -47,7 +48,7 @@ class Websocket {
   }
 
   void _onError(dynamic error) {
-    if (_channel!.closeCode == null) {
+    if (_channel?.closeCode == null) {
       return;
     }
     _channel = null;
@@ -55,7 +56,12 @@ class Websocket {
   }
 
   void _onNewMessage(dynamic event) {
-    final rmsg = RemoteMessage.fromString(event);
+    RemoteMessage rmsg;
+    if (event is List<int>) {
+      rmsg = RemoteMessage.fromBinary(Uint8List.fromList(event));
+    } else {
+      rmsg = RemoteMessage.fromString(event.toString());
+    }
     _messageController.sink.add(rmsg);
   }
 
@@ -79,11 +85,11 @@ class Websocket {
     }
     final headers = authHeader(token);
     connectionStatus = ConnectionStatus.connecting;
-    await WebSocket.connect(url, headers: headers).then((channel) {
-      channel.pingInterval = pingInterval;
-      channel.listen(_onNewMessage, onDone: _onDone, onError: _onError);
-      connectionStatus = ConnectionStatus.connected;
-    });
+    final wsUrl = '$url/wss?format=binary&ack=true';
+    _channel = await WebSocket.connect(wsUrl, headers: headers);
+    _channel!.pingInterval = pingInterval;
+    _channel!.listen(_onNewMessage, onDone: _onDone, onError: _onError);
+    connectionStatus = ConnectionStatus.connected;
   }
 
   Future<void> connect() async {
@@ -96,7 +102,7 @@ class Websocket {
 
   Future<void> send(RemoteMessage msg) async {
     if (connectionStatus == ConnectionStatus.connected) {
-      _channel!.add(msg.toString());
+      _channel!.add(msg.toBinary());
       return;
     }
     throw const Error(
@@ -111,3 +117,4 @@ class Websocket {
     _connectionStatusController.close();
   }
 }
+

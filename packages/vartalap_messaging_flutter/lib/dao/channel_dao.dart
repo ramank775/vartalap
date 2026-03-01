@@ -190,4 +190,24 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
       });
     });
   }
+
+  /// Ensures a contact exists for the given profile
+  /// Returns the existing or newly created contact row
+  Future<Contact> ensureContact(Profile profile) async {
+    final existing = await (select(contacts)
+          ..where((tbl) => tbl.uid.equals(profile.userId)))
+        .getSingleOrNull();
+
+    if (existing != null) return existing;
+
+    return await into(contacts).insertReturning(
+      ContactsCompanion.insert(
+        uid: Value(profile.userId),
+        name: Value(profile.name),
+        username: Value(profile.userId), // Defaulting username to userId
+        photo: Value(profile.image),
+        status: ContactStatus.active,
+      ),
+    );
+  }
 }

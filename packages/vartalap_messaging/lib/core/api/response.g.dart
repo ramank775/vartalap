@@ -42,8 +42,7 @@ ChannelResponse _$ChannelResponseFromJson(Map<String, dynamic> json) =>
     ChannelResponse()
       ..channelId = json['channelId'] as String?
       ..name = json['name'] as String
-      ..members =
-          (json['members'] as List<dynamic>).map((e) => e as String).toList()
+      ..members = json['members'] as List<dynamic>
       ..profilePic = json['profilePic'] as String;
 
 CreateChannelResponse _$CreateChannelResponseFromJson(

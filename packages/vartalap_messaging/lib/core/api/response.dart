@@ -90,7 +90,7 @@ class ChannelResponse {
   late String name;
 
   @JsonKey()
-  late List<String> members;
+  late List<dynamic> members;
 
   @JsonKey()
   late String profilePic;
@@ -140,6 +140,9 @@ class RemoteMessagesResponse {
   @JsonKey(includeFromJson: false, includeToJson: false)
   late List<RemoteMessage> items;
 
-  static RemoteMessagesResponse fromJson(List jsons) => RemoteMessagesResponse()
-    ..items = jsons.map((json) => RemoteMessage.fromJson(json)).toList();
+  static RemoteMessagesResponse fromJson(Map<String, dynamic> json) =>
+      RemoteMessagesResponse()
+        ..items = (json['messages'] as List)
+            .map((msg) => RemoteMessage.fromJson(msg as Map<String, dynamic>))
+            .toList();
 }

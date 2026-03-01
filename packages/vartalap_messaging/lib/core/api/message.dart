@@ -9,15 +9,24 @@ class MessageApi extends BaseApi {
   Future<List<RemoteMessage>> send(List<RemoteMessage> messages,
       {String format = 'json', bool ack = false}) async {
     final path = endpoint();
-    final response = await client.post(path, data: messages);
-    RemoteMessagesResponse resp =
-        RemoteMessagesResponse.fromJson(response.data);
-    return resp.items;
+    final queryParams = <String, String>{};
+    if (ack) queryParams['ack'] = 'true';
+    if (format != 'json') queryParams['format'] = format;
+    final response = await client.post(path,
+        data: messages.map((m) => m.toJson()).toList(),
+        queryParams: queryParams.isEmpty ? null : queryParams);
+    if (!ack) return [];
+    final acks = (response.data['acks'] as List?)
+        ?.map(
+            (msg) => RemoteMessage.fromJson(msg as Map<String, dynamic>))
+        .toList();
+    return acks ?? [];
   }
 
   Future<RemoteMessagesResponse> fetch() async {
     final path = endpoint();
     var response = await client.get(path);
-    return RemoteMessagesResponse.fromJson(response.data);
+    return RemoteMessagesResponse.fromJson(
+        response.data as Map<String, dynamic>);
   }
 }

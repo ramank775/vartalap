@@ -443,6 +443,8 @@ class VartalapChatClientFlutter {
     // Try to get profile from local database first (offline-first)
     final cachedProfile = await _db.userProfileDao.getProfile(userId);
     if (cachedProfile != null) {
+      // Ensure contact row exists for current user
+      await _db.channelDao.ensureContact(cachedProfile);
       return cachedProfile;
     }
 
@@ -458,6 +460,9 @@ class VartalapChatClientFlutter {
 
       // Cache the profile for offline access
       await _db.userProfileDao.saveProfile(userProfile);
+      
+      // Ensure contact row exists for current user
+      await _db.channelDao.ensureContact(userProfile);
 
       return userProfile;
     } catch (e) {

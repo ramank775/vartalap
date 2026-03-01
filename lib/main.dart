@@ -148,7 +148,10 @@ class _VartalapAppState extends State<VartalapApp> {
               builder: (context, child) {
                 final content = child ?? const SizedBox.shrink();
                 if (!AppConfig.isMockMode) return content;
-                return MockDeveloperMenu(child: content);
+                return MockDeveloperMenu(
+                  child: content,
+                  navigatorKey: _navigatorKey,
+                );
               },
             );
             return app;

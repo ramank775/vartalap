@@ -9,7 +9,7 @@ class AuthApi extends BaseApi {
   Future<LoginResponse> login(Credential credentails) async {
     final path = endpoint();
 
-    final response = await client.post(path, data: Credential);
+    final response = await client.post(path, data: credentails.toJson());
     return LoginResponse.fromJson(response.data);
   }
 }

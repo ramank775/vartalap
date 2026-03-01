@@ -7,8 +7,13 @@ import 'package:vartalap_testing/vartalap_testing.dart';
 /// A developer menu that only appears in Mock Mode to trigger server events.
 class MockDeveloperMenu extends StatelessWidget {
   final Widget child;
+  final GlobalKey<NavigatorState>? navigatorKey;
 
-  const MockDeveloperMenu({super.key, required this.child});
+  const MockDeveloperMenu({
+    super.key,
+    required this.child,
+    this.navigatorKey,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -34,8 +39,11 @@ class MockDeveloperMenu extends StatelessWidget {
 
     if (chatClient is! MockVartalapChatClient) return;
 
+    final navContext = navigatorKey?.currentContext ?? context;
+
     showModalBottomSheet(
-      context: context,
+      context: navContext,
+      useRootNavigator: true,
       builder: (context) {
         return SafeArea(
           child: Column(

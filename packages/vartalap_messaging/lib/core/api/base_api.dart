@@ -6,7 +6,7 @@ abstract class BaseApi {
   final String _baseUrl;
 
   @protected
-  String version = 'v1.0';
+  String version = 'v3.0';
 
   @protected
   String endpoint({String? path}) =>

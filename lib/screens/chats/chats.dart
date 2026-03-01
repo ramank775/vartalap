@@ -200,11 +200,16 @@ class ChatsState extends State<Chats> {
 
   Future<void> navigate(String screen, {Object? data}) async {
     // Get references before async operations
-    final currentUser = CurrentUser.of(context).user!;
+    final currentUser = CurrentUser.of(context).user;
+    if (currentUser == null) {
+      debugPrint('[Chats] Current user not available, ignoring navigation');
+      return;
+    }
     final client = VartalapClientProvider.of(context).client;
     final navigator = Navigator.of(context);
 
     var result = await navigator.pushNamed(screen, arguments: data);
+    if (!mounted) return;
     if (screen == "/new-chat") {
       if (result == null) {
         return;

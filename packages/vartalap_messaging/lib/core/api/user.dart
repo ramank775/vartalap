@@ -7,7 +7,7 @@ class UserApi extends BaseApi {
 
   Future<ProfileResponse> get(String? userId) async {
     final path = endpoint(path: '');
-    final response = await client.post(path);
+    final response = await client.get(path);
     return ProfileResponse.fromJson(response.data);
   }
 }

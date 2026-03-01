@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:json_annotation/json_annotation.dart';
+import 'package:vartalap_messaging/core/proto/message.pb.dart';
 part 'event.g.dart';
 
 enum ChannelType {
@@ -98,4 +101,120 @@ class RemoteMessage {
     final map = toJson();
     return jsonEncode(map);
   }
+
+  /// Serialize this message to binary protobuf format.
+  Uint8List toBinary() {
+    final protoMsg = ProtoMessage(
+      version: version,
+      id: id,
+      type: _toProtoMessageType(head.category),
+      channel: _toProtoChannelType(head.type),
+      ephemeral: head.ephemeral,
+      source: head.from,
+      destination: head.to,
+      content: body != null
+          ? Uint8List.fromList(
+              utf8.encode(body is String ? body : jsonEncode(body)))
+          : null,
+      timestamp: Int64(meta.createdAt),
+      meta: meta.raw.map((k, v) => MapEntry(k, v.toString())),
+    );
+    return protoMsg.writeToBuffer();
+  }
+
+  /// Deserialize a message from binary protobuf format.
+  static RemoteMessage fromBinary(Uint8List data) {
+    final protoMsg = ProtoMessage.fromBuffer(data);
+    final msg = RemoteMessage();
+    msg.version = protoMsg.version != 0.0 ? protoMsg.version : 2.1;
+    msg.id = protoMsg.id;
+    msg.head = Head(
+      type: _fromProtoChannelType(protoMsg.channel),
+      to: protoMsg.destination,
+      from: protoMsg.source,
+      ephemeral: protoMsg.ephemeral,
+      category: _fromProtoMessageType(protoMsg.type),
+    );
+
+    // Decode content bytes as JSON body
+    if (protoMsg.content != null && protoMsg.content!.isNotEmpty) {
+      final contentStr = utf8.decode(protoMsg.content!);
+      try {
+        msg.body = jsonDecode(contentStr);
+      } catch (_) {
+        msg.body = {'text': contentStr};
+      }
+    } else {
+      msg.body = {};
+    }
+
+    // Build meta from proto meta map
+    msg.meta = Meta(
+      createdAt: protoMsg.timestamp != Int64.ZERO
+          ? protoMsg.timestamp.toInt()
+          : DateTime.now().millisecondsSinceEpoch,
+    );
+    for (final entry in protoMsg.meta.entries) {
+      msg.meta.raw[entry.key] = entry.value;
+    }
+
+    return msg;
+  }
+
+  // --- Proto enum mapping helpers ---
+
+  static int _toProtoChannelType(ChannelType type) {
+    switch (type) {
+      case ChannelType.individual:
+        return ProtoChannelType.INDIVIDUAL;
+      case ChannelType.group:
+        return ProtoChannelType.GROUP;
+      case ChannelType.other:
+        return ProtoChannelType.OTHER;
+      case ChannelType.none:
+        return ProtoChannelType.UNKNOWN;
+    }
+  }
+
+  static ChannelType _fromProtoChannelType(int type) {
+    switch (type) {
+      case ProtoChannelType.INDIVIDUAL:
+        return ChannelType.individual;
+      case ProtoChannelType.GROUP:
+        return ChannelType.group;
+      case ProtoChannelType.OTHER:
+        return ChannelType.other;
+      default:
+        return ChannelType.none;
+    }
+  }
+
+  static int _toProtoMessageType(String category) {
+    switch (category.toUpperCase()) {
+      case 'SERVER_ACK':
+        return ProtoMessageType.SERVER_ACK;
+      case 'CLIENT_ACK':
+        return ProtoMessageType.CLIENT_ACK;
+      case 'NOTIFICATION':
+        return ProtoMessageType.NOTIFICATION;
+      case 'CUSTOM':
+        return ProtoMessageType.CUSTOM;
+      default:
+        return ProtoMessageType.MESSAGE;
+    }
+  }
+
+  static String _fromProtoMessageType(int type) {
+    switch (type) {
+      case ProtoMessageType.SERVER_ACK:
+        return 'system';
+      case ProtoMessageType.CLIENT_ACK:
+        return 'system';
+      case ProtoMessageType.NOTIFICATION:
+        return 'system';
+      default:
+        return 'message';
+    }
+  }
 }
+
