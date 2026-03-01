@@ -35,24 +35,24 @@ class SyncContactsTask extends VartalapTask<void> {
 
     if (phoneNumbers.isEmpty) return;
 
-    // 3. Sync with backend
-    final availableUids = await client.syncContactBook(phoneNumbers);
+    // 3. Sync with backend — returns { phone: uid } for onboarded contacts
+    final phoneToUid = await client.syncContactBook(phoneNumbers);
 
-    // 4. Update local contacts with backend UIDs and account status
+    // 4. Update local contacts with real server UIDs
     await db.transaction(() async {
-      for (final uid in availableUids) {
-        // Find contact by phone number (mapping back)
-        // Note: This logic assumes UID might be same as phone or provided by backend
-        // For now, we update any contact matching the discovered UID
-        await (db.update(db.contacts)..where((tbl) => tbl.phone.equals(uid)))
+      for (final entry in phoneToUid.entries) {
+        final phone = entry.key;
+        final uid = entry.value;
+        await (db.update(db.contacts)
+              ..where((tbl) => tbl.phone.equals(phone)))
             .write(ContactsCompanion(
           uid: Value(uid),
-          username: Value(uid),
+          username: Value(uid), // username defaults to uid until profile fetch
         ));
       }
     });
 
-    debugPrint('[SYNC] Synchronized ${availableUids.length} contacts');
+    debugPrint('[SYNC] Synchronized ${phoneToUid.length} contacts with real UIDs');
   }
 
   @override

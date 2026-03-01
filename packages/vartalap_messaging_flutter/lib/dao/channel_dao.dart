@@ -123,8 +123,13 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
       // Build where conditions properly
       Expression<bool>? whereCondition;
 
+      if (filter.uid != null) {
+        whereCondition = contacts.uid.equals(filter.uid!);
+      }
+
       if (filter.name != null) {
-        whereCondition = contacts.extraData.like('%${filter.name}%');
+        final nameCondition = contacts.extraData.like('%${filter.name}%');
+        whereCondition = whereCondition == null ? nameCondition : whereCondition & nameCondition;
       }
 
       if (filter.phone != null) {

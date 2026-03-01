@@ -301,9 +301,10 @@ class _CurrentUserProviderState extends State<_CurrentUserProvider> {
         return;
       }
 
-      // Fetch the Contact for the logged-in user using their userId (phone number)
+      // Fetch the Contact for the logged-in user using their uid
+      // Note: ensureContact stores userId in the uid column, not phone
       final contacts = await widget.client
-          .getContacts(filter: ContactFilter(phone: profile.userId))
+          .getContacts(filter: ContactFilter(uid: profile.userId))
           .get();
 
       if (contacts.isNotEmpty) {

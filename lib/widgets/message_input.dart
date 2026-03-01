@@ -142,17 +142,18 @@ class MessageInputState extends State<MessageInputWidget> {
       setState(() {
         _isShowSticker = false;
       });
-    } else {
-      Navigator.pop(context);
+      // Intercepted: consumed by closing the emoji panel, don't pop
+      return Future.value(false);
     }
-
+    // Not intercepting — let the system/AppBar back button handle the pop
     return Future.value(false);
   }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false,
+      // Allow natural pops (AppBar back button); only intercept when emoji panel is open
+      canPop: !_isShowSticker,
       onPopInvokedWithResult: onBackPress,
       child: Stack(
         children: <Widget>[

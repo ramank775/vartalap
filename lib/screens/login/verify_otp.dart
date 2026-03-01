@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap_messaging_flutter/repository/auth_repository.dart';
@@ -12,6 +14,70 @@ class VerifyOtpWidget extends StatefulWidget {
 
 class _VerifyOtpState extends State<VerifyOtpWidget> {
   String _otp = '';
+
+  // Resend countdown
+  static const int _resendCooldown = 60;
+  int _resendSecondsLeft = _resendCooldown;
+  bool _isResending = false;
+  Timer? _resendTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startResendCountdown();
+  }
+
+  @override
+  void dispose() {
+    _resendTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startResendCountdown() {
+    _resendTimer?.cancel();
+    setState(() {
+      _resendSecondsLeft = _resendCooldown;
+    });
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _resendSecondsLeft--;
+      });
+      if (_resendSecondsLeft <= 0) {
+        timer.cancel();
+      }
+    });
+  }
+
+  Future<void> _resendOTP() async {
+    final auth = Provider.of<AuthRepository>(context, listen: false);
+    final phone = auth.currentPhoneNumber;
+    if (phone == null || phone.isEmpty) return;
+
+    setState(() => _isResending = true);
+    try {
+      await auth.sendOTP(phone);
+      if (mounted) {
+        _startResendCountdown();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('A new code has been sent.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showErrorDialog(context, ['Failed to resend code. Please try again.']);
+      }
+    } finally {
+      if (mounted) setState(() => _isResending = false);
+    }
+  }
+
   Widget otpNumberWidget(int position) {
     return Container(
       height: 40,
@@ -126,6 +192,8 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
                       },
                     ),
                   ),
+                  // Resend OTP row
+                  _buildResendRow(),
                   Expanded(
                     child: NumericKeyboard(
                       onKeyboardTap: _onKeyboardTap,
@@ -147,6 +215,56 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
             )
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildResendRow() {
+    if (_isResending) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: SizedBox(
+          height: 18,
+          width: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    final canResend = _resendSecondsLeft <= 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            "Didn't receive a code? ",
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey,
+            ),
+          ),
+          canResend
+              ? TextButton(
+                  onPressed: _resendOTP,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text(
+                    'Resend Code',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                )
+              : Text(
+                  'Resend in ${_resendSecondsLeft}s',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey,
+                  ),
+                ),
+        ],
       ),
     );
   }
@@ -200,9 +318,6 @@ class _VerifyOtpState extends State<VerifyOtpWidget> {
         showErrorDialog(context, [
           auth.lastError ?? 'Incorrect one time password! Try again'
         ]);
-        // AuthRepository doesn't need clearError() as setState clears it automatically 
-        // when transitioning, but if it stays in error state, we might need a way to clear.
-        // However, user can just try again which calls verifyOTP and clears error.
       }
     }
   }

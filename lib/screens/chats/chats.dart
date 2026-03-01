@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -129,11 +128,43 @@ class ChatsState extends State<Chats> {
       ));
       actions.add(IconButton(
         iconSize: 22,
-        icon: Icon(Icons.delete),
+        icon: const Icon(Icons.delete),
         onPressed: () async {
-          setState(() {
-            _selectedChats = [];
-          });
+          final chatsToDelete = List<ChatPreview>.from(_selectedChats);
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Delete chats'),
+              content: Text(
+                'Delete ${chatsToDelete.length} chat(s)? '
+                'This removes them from your device.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed == true && mounted) {
+            final client = VartalapClientProvider.of(context).client;
+            for (final chat in chatsToDelete) {
+              try {
+                await client.deleteChannel(chat.channel.id);
+              } catch (e) {
+                debugPrint('[Chats] Failed to delete channel ${chat.channel.id}: $e');
+              }
+            }
+            setState(() {
+              _selectedChats = [];
+            });
+          }
         },
       ));
     }
@@ -180,18 +211,22 @@ class ChatsState extends State<Chats> {
           }
         },
         itemBuilder: (BuildContext context) {
-          final options = [
-            PopupMenuItem(value: 'Profile', child: Text("Profile")),
-            PopupMenuItem(value: 'About Dialog', child: Text("About us")),
-            PopupMenuItem(
+          return <PopupMenuEntry<String>>[
+            const PopupMenuItem(value: 'Profile', child: Text("Profile")),
+            const PopupMenuItem(value: 'About Dialog', child: Text("About us")),
+            const PopupMenuItem(
               value: 'Privacy Policy',
               child: Text("Privacy Policy"),
             ),
+            const PopupMenuDivider(),
+            const PopupMenuItem(
+              value: 'Logout',
+              child: Text(
+                "Logout",
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
           ];
-          if (!kReleaseMode) {
-            options.add(PopupMenuItem(value: "Logout", child: Text("Logout")));
-          }
-          return options;
         },
       ),
     );
@@ -334,15 +369,15 @@ class ChatListViewState extends State<ChatListView>
 
               return ChatPreviewWidget(
                 chatWithUpdatedCount,
-                (ChannelModel channel) async {
+                (ChatPreview chatPreview) async {
                   if (widget._selectedChats.isNotEmpty) {
-                    widget._selectOrRemove(channel);
+                    widget._selectOrRemove(chatPreview);
                     return;
                   }
                   final currentUser = CurrentUser.of(context).user!;
                   final client = VartalapClientProvider.of(context).client;
                   final chatClient = await client.chat(
-                    channel: channel,
+                    channel: chatPreview.channel,
                     currentUser: currentUser,
                   );
                   widget._navigate('/chat', data: chatClient);

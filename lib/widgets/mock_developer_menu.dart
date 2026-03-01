@@ -4,7 +4,7 @@ import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_testing/vartalap_testing.dart';
 
-/// A developer menu that only appears in Mock Mode to trigger server events.
+/// A developer overlay that only appears in Mock Mode to trigger server events.
 class MockDeveloperMenu extends StatelessWidget {
   final Widget child;
   final GlobalKey<NavigatorState>? navigatorKey;
@@ -35,7 +35,7 @@ class MockDeveloperMenu extends StatelessWidget {
 
   void _showMenu(BuildContext context) {
     final client = Provider.of<VartalapChatClientFlutter>(context, listen: false);
-    final chatClient = client.client; // The VartalapChatClient
+    final chatClient = client.client;
 
     if (chatClient is! MockVartalapChatClient) return;
 
@@ -44,63 +44,237 @@ class MockDeveloperMenu extends StatelessWidget {
     showModalBottomSheet(
       context: navContext,
       useRootNavigator: true,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const ListTile(
-                title: Text('Mock Server Control', style: TextStyle(fontWeight: FontWeight.bold)),
+      isScrollControlled: true,
+      builder: (context) => _MockMenuSheet(chatClient: chatClient, client: client),
+    );
+  }
+}
+
+class _MockMenuSheet extends StatefulWidget {
+  final MockVartalapChatClient chatClient;
+  final VartalapChatClientFlutter client;
+  const _MockMenuSheet({required this.chatClient, required this.client});
+
+  @override
+  State<_MockMenuSheet> createState() => _MockMenuSheetState();
+}
+
+class _MockMenuSheetState extends State<_MockMenuSheet> {
+  String? _lastInjectedMessageId;
+
+  @override
+  Widget build(BuildContext context) {
+    final isManual = widget.chatClient.activeScenario is ManualTakeoverScenario;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Row(
+                children: [
+                  const Icon(Icons.bug_report, size: 20),
+                  const SizedBox(width: 8),
+                  Text('Mock Server Control',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          )),
+                  const Spacer(),
+                  Text(
+                    isManual ? 'MANUAL' : 'AUTO',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isManual ? Colors.orange : Colors.green,
+                    ),
+                  ),
+                ],
               ),
+            ),
+            const Divider(),
+
+            // --- Scenario switchers ---
+            _SectionHeader('Scenarios'),
+            ListTile(
+              leading: Icon(
+                Icons.auto_awesome,
+                color: !isManual ? Colors.green : null,
+              ),
+              title: const Text('Happy Path (Auto)'),
+              subtitle: const Text('Sent → Delivered → Read automatically'),
+              selected: !isManual,
+              onTap: () {
+                widget.chatClient.setScenario(DefaultHappyPathScenario());
+                setState(() {});
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.pan_tool,
+                color: isManual ? Colors.orange : null,
+              ),
+              title: const Text('Manual Takeover'),
+              subtitle: const Text('Messages stay pending until you ack'),
+              selected: isManual,
+              onTap: () {
+                widget.chatClient.setScenario(ManualTakeoverScenario());
+                setState(() {});
+              },
+            ),
+
+            const Divider(),
+
+            // --- Inject incoming message ---
+            _SectionHeader('Inject Incoming Message'),
+            ListTile(
+              leading: const Icon(Icons.message),
+              title: const Text('Message from Alice'),
+              subtitle: const Text('Creates a 1:1 chat with Alice if needed'),
+              onTap: () async {
+                // Always use the real logged-in userId as the 'to' target
+                final myUid = await widget.client.getLoggedInUser()
+                    ?? widget.chatClient.mockUserId;
+                final msgId = 'manual_${DateTime.now().millisecondsSinceEpoch}';
+                final msg = messaging.RemoteMessage()
+                  ..id = msgId
+                  ..head = messaging.Head(
+                    type: messaging.ChannelType.individual,
+                    to: myUid,
+                    from: 'alice_mock',
+                    category: 'message',
+                  )
+                  ..meta = messaging.Meta()
+                  ..body = {'text': 'Hey! This is Alice 👋'};
+
+                widget.chatClient.injectMessage(msg);
+                setState(() => _lastInjectedMessageId = msgId);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Message injected — check the chats list'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                  Navigator.pop(context);
+                }
+              },
+            ),
+
+            // --- Manual ack controls (only in Manual mode) ---
+            if (isManual) ...[
               const Divider(),
-              ListTile(
-                leading: const Icon(Icons.auto_awesome),
-                title: const Text('Scenario: Happy Path (Auto)'),
-                onTap: () {
-                  chatClient.setScenario(DefaultHappyPathScenario());
-                  Navigator.pop(context);
-                },
+              _SectionHeader('Manual Message Acks'),
+              if (_lastInjectedMessageId != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Text(
+                    'Last sent: $_lastInjectedMessageId',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(fontFamily: 'monospace'),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    _AckChip(
+                      label: '✓ Sent',
+                      color: Colors.blue,
+                      onTap: _lastInjectedMessageId == null
+                          ? null
+                          : () => widget.chatClient.simulateAck(
+                              _lastInjectedMessageId!, 'sent'),
+                    ),
+                    _AckChip(
+                      label: '✓✓ Delivered',
+                      color: Colors.teal,
+                      onTap: _lastInjectedMessageId == null
+                          ? null
+                          : () => widget.chatClient.simulateAck(
+                              _lastInjectedMessageId!, 'delivered'),
+                    ),
+                    _AckChip(
+                      label: '✓✓ Read',
+                      color: Colors.green,
+                      onTap: _lastInjectedMessageId == null
+                          ? null
+                          : () => widget.chatClient.simulateAck(
+                              _lastInjectedMessageId!, 'read'),
+                    ),
+                    _AckChip(
+                      label: '✗ Error',
+                      color: Colors.red,
+                      onTap: _lastInjectedMessageId == null
+                          ? null
+                          : () => widget.chatClient.simulateError(
+                              _lastInjectedMessageId!, 'Mock error'),
+                    ),
+                  ],
+                ),
               ),
-              ListTile(
-                leading: const Icon(Icons.pan_tool),
-                title: const Text('Scenario: Manual Takeover'),
-                onTap: () {
-                  chatClient.setScenario(ManualTakeoverScenario());
-                  Navigator.pop(context);
-                },
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.message),
-                title: const Text('Inject Message from Alice'),
-                onTap: () {
-                  final msg = messaging.RemoteMessage()
-                    ..id = 'manual_${DateTime.now().millisecondsSinceEpoch}'
-                    ..head = messaging.Head(
-                      type: messaging.ChannelType.individual,
-                      to: chatClient.mockUserId,
-                      from: '+9876543210', // Alice
-                      category: 'message',
-                    )
-                    ..meta = messaging.Meta()
-                    ..body = {'text': 'This is a manual injection!'};
-                  
-                  chatClient.injectMessage(msg);
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.error),
-                title: const Text('Inject Global Network Error'),
-                onTap: () {
-                  // TODO: Implement global error simulation
-                  Navigator.pop(context);
-                },
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Send a message from the chat screen first, then use these to manually progress its status.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.grey),
+                ),
               ),
             ],
-          ),
-        );
-      },
+
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  const _SectionHeader(this.title);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Text(
+        title.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Colors.grey,
+              letterSpacing: 1.2,
+            ),
+      ),
+    );
+  }
+}
+
+class _AckChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const _AckChip({required this.label, required this.color, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      backgroundColor: onTap == null ? Colors.grey.shade200 : color.withValues(alpha: 0.15),
+      side: BorderSide(color: onTap == null ? Colors.grey : color, width: 1),
+      labelStyle: TextStyle(color: onTap == null ? Colors.grey : color),
+      onPressed: onTap,
     );
   }
 }

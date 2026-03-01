@@ -7,7 +7,7 @@ import 'package:vartalap_testing/src/engine/scenario.dart';
 
 class MockVartalapChatClient extends VartalapChatClient
     implements SimulatorController {
-  final String mockUserId;
+  String mockUserId;
   final StreamController<RemoteMessage> _eventController =
       StreamController<RemoteMessage>.broadcast();
 
@@ -45,6 +45,14 @@ class MockVartalapChatClient extends VartalapChatClient
 
   @override
   Stream<RemoteMessage> get eventStream => _eventController.stream;
+
+  /// Read from the stored token first (matches the real client behaviour).
+  /// Falls back to [mockUserId] only in unit tests where no token is stored.
+  @override
+  Future<String?> getLoggedInUser() async {
+    final fromToken = await super.getLoggedInUser();
+    return fromToken ?? mockUserId;
+  }
 
   // --- SimulatorController Implementation ---
 
@@ -107,12 +115,14 @@ class MockVartalapChatClient extends VartalapChatClient
     if (!_isTesting) {
       await Future.delayed(const Duration(milliseconds: 300));
     }
+    // Update mockUserId to match the actual logged-in user
+    mockUserId = creds.username;
     return LoginResponse.fromJson({
       "status": true,
       "username": creds.username,
       "accesskey": "mock_access_key_${DateTime.now().millisecondsSinceEpoch}",
       "isNew": false,
-      "userId": mockUserId,
+      "userId": creds.username,
     });
   }
 

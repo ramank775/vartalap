@@ -68,12 +68,14 @@ class Contact {
 }
 
 class ContactFilter {
+  final String? uid;
   final String? username;
   final String? name;
   final String? phone;
   final ContactStatus? status;
 
   const ContactFilter({
+    this.uid,
     this.username,
     this.name,
     this.phone,

@@ -134,9 +134,10 @@ class VartalapChatClient {
     return resp.items;
   }
 
-  Future<List<String>> syncContactBook(List<String> contacts) async {
+  /// Returns a map of phone → uid for contacts who have onboarded
+  Future<Map<String, String>> syncContactBook(List<String> contacts) async {
     final resp = await _apiClient.contactbook.sync(contacts);
-    return resp.available.toList(growable: false);
+    return resp.phoneToUid;
   }
 
   Future<AssetPreSignedUrlResponse> getUploadUrl(

@@ -404,7 +404,6 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
             },
           ));
         }
-        actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
         return Row(children: actions);
       },
     );
@@ -467,14 +466,6 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                     _showSuccessSnackBar('Text copied to clipboard');
                   },
                 ),
-              ListTile(
-                leading: const Icon(Icons.forward),
-                title: const Text('Forward'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showErrorSnackBar('Forwarding is not yet implemented');
-                },
-              ),
               if (isMyMessage && isTextMessage)
                 ListTile(
                   leading: Icon(Icons.edit),

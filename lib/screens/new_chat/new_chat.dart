@@ -30,7 +30,9 @@ class NewChatState extends State<NewChatScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _fPermission = Permission.contacts.status;
+    _fPermission = Permission.contacts.status.catchError(
+      (_) => PermissionStatus.denied,
+    );
   }
 
   @override
@@ -98,12 +100,21 @@ class NewChatState extends State<NewChatScreen>
           return ContactPermissionDisclosure(onSkip: () {
             _tabController.index = 1;
           }, onAllow: () async {
-            setState(() {
-              _fPermission = Permission.contacts.status;
-            });
-            // Sync contacts as soon as permission is granted
-            final contacts = await ContactService.fetchDeviceContacts();
-            await client.syncContacts(contacts);
+            try {
+              final status = await Permission.contacts.request();
+              setState(() {
+                _fPermission = Future.value(status);
+              });
+              if (status == PermissionStatus.granted) {
+                // Sync contacts as soon as permission is granted
+                final contacts = await ContactService.fetchDeviceContacts();
+                await client.syncContacts(contacts);
+              }
+            } catch (_) {
+              // Permission plugin not supported on this platform (e.g. Linux desktop)
+              // Skip to groups tab
+              if (mounted) _tabController.index = 1;
+            }
           });
         }
       },
@@ -282,9 +293,16 @@ class ContactPermissionDisclosure extends StatelessWidget {
                   child: Text('Skip')),
               TextButton(
                   onPressed: () async {
-                    final permission = await Permission.contacts.request();
-                    if (permission == PermissionStatus.granted) {
-                      _onAllow();
+                    try {
+                      final permission = await Permission.contacts.request();
+                      if (permission == PermissionStatus.granted) {
+                        _onAllow();
+                      } else {
+                        _onSkip();
+                      }
+                    } catch (_) {
+                      // Permission plugin unsupported on this platform
+                      _onSkip();
                     }
                   },
                   child: Text('Allow'))

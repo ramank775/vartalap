@@ -125,9 +125,9 @@ class MockVartalapChatClient extends VartalapChatClient {
   }
 
   @override
-  Future<List<String>> syncContactBook(List<String> contacts) async {
-    // Simulate all contacts are available for local testing
-    return contacts;
+  Future<Map<String, String>> syncContactBook(List<String> contacts) async {
+    // In mock mode: treat each phone as the uid (no real server lookup)
+    return {for (final c in contacts) c: c};
   }
 
   @override

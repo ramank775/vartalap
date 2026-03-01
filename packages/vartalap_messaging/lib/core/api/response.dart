@@ -128,11 +128,26 @@ class AssetPreSignedUrlResponse {
 }
 
 class ContactSyncResponse {
-  @JsonKey(includeFromJson: true, includeToJson: false)
-  late Set<String> available;
+  /// Map of phone number → uid for contacts who have onboarded
+  final Map<String, String> phoneToUid;
 
-  static ContactSyncResponse fromJson(Map<String, dynamic> json) =>
-      ContactSyncResponse()..available = json.keys.toSet();
+  ContactSyncResponse({required this.phoneToUid});
+
+  /// Server response shape: `{ "<phone>": { "uid": "<uid>", ... }, ... }`
+  static ContactSyncResponse fromJson(Map<String, dynamic> json) {
+    final map = <String, String>{};
+    for (final entry in json.entries) {
+      final phone = entry.key;
+      final value = entry.value;
+      if (value is Map) {
+        final uid = value['uid'] as String?;
+        if (uid != null && uid.isNotEmpty) {
+          map[phone] = uid;
+        }
+      }
+    }
+    return ContactSyncResponse(phoneToUid: map);
+  }
 }
 
 @JsonSerializable(createToJson: false, createFactory: false)

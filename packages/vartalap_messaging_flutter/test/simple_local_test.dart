@@ -68,8 +68,8 @@ void main() {
       await mockClient.syncMessages();
       final contacts = await mockClient.syncContactBook(['contact1', 'contact2']);
 
-      // Assert
-      expect(contacts, equals(['contact1', 'contact2']));
+      // Assert — returns map of phone→uid (in mock, uid == phone)
+      expect(contacts, equals({'contact1': 'contact1', 'contact2': 'contact2'}));
 
       // Cleanup
       mockClient.dispose();
