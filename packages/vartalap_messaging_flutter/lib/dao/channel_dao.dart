@@ -6,33 +6,33 @@ import 'package:vartalap_messaging_flutter/models/models.dart';
 part 'channel_dao.g.dart';
 
 /// ChannelDao - Channel and Contact Operations
-/// 
+///
 /// RESPONSIBILITIES:
 /// - All channel CRUD operations (create, read, update, delete)
 /// - Contact management and synchronization
 /// - Channel filtering and querying
 /// - Batch operations for performance
-/// 
+///
 /// DESIGN PRINCIPLES:
 /// - NO hardcoded data - all data comes from parameters
 /// - Atomic operations with proper transaction handling
 /// - Efficient batch operations for bulk inserts
 /// - Clean separation from business logic
-/// 
+///
 /// CONTACT SYNC PATTERN:
 /// - UI layer provides contacts (from device, server, or manual input)
 /// - DAO layer handles database operations only
 /// - Supports both full sync and incremental updates
-/// 
+///
 /// USAGE EXAMPLES:
 /// ```dart
 /// // Create channel with members
 /// final channel = await channelDao.createChannel(channelModel, members);
-/// 
+///
 /// // Sync contacts from UI layer
 /// final deviceContacts = await getDeviceContacts(); // UI responsibility
 /// await channelDao.syncContacts(deviceContacts);
-/// 
+///
 /// // Watch channels reactively
 /// channelDao.getChannels().watch().listen((channels) {
 ///   // UI updates automatically
@@ -57,7 +57,9 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
 
       if (filter.name != null) {
         final nameCondition = channels.extraData.like('%${filter.name}%');
-        whereCondition = whereCondition == null ? nameCondition : whereCondition & nameCondition;
+        whereCondition = whereCondition == null
+            ? nameCondition
+            : whereCondition & nameCondition;
       }
 
       if (filter.memberIds != null && filter.memberIds!.isNotEmpty) {
@@ -67,7 +69,9 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
           ..where(members.memberId.isIn(filter.memberIds!));
 
         final memberCondition = channels.id.isInQuery(memberSubquery);
-        whereCondition = whereCondition == null ? memberCondition : whereCondition & memberCondition;
+        whereCondition = whereCondition == null
+            ? memberCondition
+            : whereCondition & memberCondition;
       }
 
       if (whereCondition != null) {
@@ -78,7 +82,8 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
     return query;
   }
 
-  Future<ChannelModel> createChannel(ChannelModel channel, List<Member> channelMembers) async {
+  Future<ChannelModel> createChannel(
+      ChannelModel channel, List<Member> channelMembers) async {
     return await transaction(() async {
       final channelComp = ChannelsCompanion.insert(
         type: channel.type,
@@ -86,7 +91,7 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
         extraData: Value(channel.extraData),
       );
       final insertedChannel = await into(channels).insertReturning(channelComp);
-      
+
       await batch((batch) {
         final rows = channelMembers.map(
           (member) => MembersCompanion.insert(
@@ -95,10 +100,10 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
           ),
         );
         if (rows.isNotEmpty) {
-          batch.insertAll(members, rows);
+          batch.insertAll(members, rows, mode: InsertMode.insertOrIgnore);
         }
       });
-      
+
       return insertedChannel;
     });
   }
@@ -129,22 +134,31 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
 
       if (filter.name != null) {
         final nameCondition = contacts.extraData.like('%${filter.name}%');
-        whereCondition = whereCondition == null ? nameCondition : whereCondition & nameCondition;
+        whereCondition = whereCondition == null
+            ? nameCondition
+            : whereCondition & nameCondition;
       }
 
       if (filter.phone != null) {
         final phoneCondition = contacts.phone.like('%${filter.phone}%');
-        whereCondition = whereCondition == null ? phoneCondition : whereCondition & phoneCondition;
+        whereCondition = whereCondition == null
+            ? phoneCondition
+            : whereCondition & phoneCondition;
       }
 
       if (filter.status != null) {
         final statusCondition = contacts.status.equals(filter.status!.name);
-        whereCondition = whereCondition == null ? statusCondition : whereCondition & statusCondition;
+        whereCondition = whereCondition == null
+            ? statusCondition
+            : whereCondition & statusCondition;
       }
 
       if (filter.username != null) {
-        final usernameCondition = contacts.username.like('%${filter.username}%');
-        whereCondition = whereCondition == null ? usernameCondition : whereCondition & usernameCondition;
+        final usernameCondition =
+            contacts.username.like('%${filter.username}%');
+        whereCondition = whereCondition == null
+            ? usernameCondition
+            : whereCondition & usernameCondition;
       }
 
       if (whereCondition != null) {

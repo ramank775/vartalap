@@ -22,14 +22,16 @@ class ContactPreviewItem extends StatelessWidget {
         SizedBox(
           height: 2,
         ),
-        SizedBox(
-          width: 60,
-          child: Text(
-            contact.displayName,
-            maxLines: 2,
-            textAlign: TextAlign.center,
-            softWrap: true,
-            overflow: TextOverflow.fade,
+        Expanded(
+          child: SizedBox(
+            width: 60,
+            child: Text(
+              contact.displayName,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              softWrap: true,
+              overflow: TextOverflow.fade,
+            ),
           ),
         )
       ],

@@ -141,6 +141,17 @@ class MockVartalapChatClient extends VartalapChatClient
   }
 
   @override
+  Future<CreateChannelResponse> createChannel(ChannelPayload channel) async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    debugPrint('[MOCK] Creating channel: ${channel.name} (${channel.type})');
+    return CreateChannelResponse.fromJson({
+      'channelId': 'mock_channel_${DateTime.now().millisecondsSinceEpoch}',
+    });
+  }
+
+  @override
   Future<void> close() async {
     await _eventController.close();
   }

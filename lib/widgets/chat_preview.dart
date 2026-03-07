@@ -33,7 +33,7 @@ class ChatPreviewWidget extends StatelessWidget {
                   Avator(
                     width: 42.0,
                     height: 42.0,
-                    text: _chat.channel.displayName,
+                    text: _chat.displayName,
                   ),
                   isSelected
                       ? Positioned(
@@ -60,7 +60,7 @@ class ChatPreviewWidget extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
                 Text(
-                  _chat.channel.displayName,
+                  _chat.displayName,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                   ),

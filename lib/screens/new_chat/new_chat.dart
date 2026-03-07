@@ -319,7 +319,7 @@ class ChannelList extends StatelessWidget {
     super.key,
     required this.channelsStream,
     required Function(ChannelModel ch) onTap,
-  })  : _onTap = onTap;
+  }) : _onTap = onTap;
 
   final Stream<List<ChannelModel>> channelsStream;
   final Function(ChannelModel) _onTap;
@@ -367,8 +367,11 @@ class ChannelList extends StatelessWidget {
                 fontSize: 18.0,
                 fontWeight: FontWeight.bold,
               )),
-          onTap: () {
-            Navigator.of(context).pushReplacementNamed('/new-group');
+          onTap: () async {
+            final result = await Navigator.of(context).pushNamed('/new-group');
+            if (result != null && context.mounted) {
+              Navigator.of(context).pop(result);
+            }
           },
         ));
 
@@ -444,7 +447,8 @@ class ContactList extends StatelessWidget {
             ),
           ),
           onTap: () async {
-            await SharePlus.instance.share(ShareParams(text: AppConfig.shareMessage));
+            await SharePlus.instance
+                .share(ShareParams(text: AppConfig.shareMessage));
           },
         ));
 
@@ -460,7 +464,7 @@ class ContactList extends StatelessWidget {
                 onTap: (Contact user) async {
                   final client = VartalapClientProvider.of(context).client;
                   final loggedInUser = CurrentUser.of(context).user;
-                  
+
                   final channels = await client
                       .getChannels(
                           filter: ChannelFilter(
@@ -468,34 +472,41 @@ class ContactList extends StatelessWidget {
                         memberIds: [user.id],
                       ))
                       .get();
-                      
+
                   if (context.mounted) {
                     if (channels.isNotEmpty) {
                       Navigator.of(context).pop(channels.first);
                       return;
                     }
-                    
-                      final channel = ChannelModel.initial(
-                        type: ChannelType.individual,
-                        extraData: {
-                          'name': user.displayName,
-                          'uid': user.uid,
-                        },
-                      );
+
+                    // For individual chats, store the other user's name
+                    // in the channel so it can be displayed without
+                    // additional member queries.
+                    final chatName = user.id == loggedInUser!.id
+                        ? 'Self'
+                        : user.displayName;
+                    final channel = ChannelModel.initial(
+                      type: ChannelType.individual,
+                      extraData: {'name': chatName},
+                    );
                     final members = [
                       Member(
                         user: user,
                         role: null,
                         since: DateTime.now(),
                       ),
-                      Member(
-                        user: loggedInUser!,
+                    ];
+
+                    if (user.id != loggedInUser.id) {
+                      members.add(Member(
+                        user: loggedInUser,
                         role: null,
                         since: DateTime.now(),
-                      ),
-                    ];
-                    
-                    final createdChannel = await client.createChannel(channel, members);
+                      ));
+                    }
+
+                    final createdChannel =
+                        await client.createChannel(channel, members);
                     if (context.mounted) {
                       Navigator.of(context).pop(createdChannel);
                     }

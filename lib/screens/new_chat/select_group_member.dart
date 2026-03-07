@@ -82,26 +82,19 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
             child: StreamBuilder<List<Contact>>(
               stream: _contacts.watch(),
               builder: (context, snapshot) {
-                switch (snapshot.connectionState) {
-                  case ConnectionState.none:
-                    return Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
-                      ),
-                    );
-                  case ConnectionState.active:
-                  case ConnectionState.waiting:
-                    return Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
-                      ),
-                    );
-                  case ConnectionState.done:
-                    if (snapshot.hasError) {
-                      return Center(
-                        child: Text('Error: ${snapshot.error}'),
-                      );
-                    }
+                if (snapshot.connectionState == ConnectionState.none ||
+                    (snapshot.connectionState == ConnectionState.waiting &&
+                        !snapshot.hasData)) {
+                  return Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
+                    ),
+                  );
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Error: ${snapshot.error}'),
+                  );
                 }
                 List<dynamic> data = snapshot.data!.toList();
                 return ListView.builder(
@@ -135,8 +128,11 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
                 if (_isUpdate) {
                   return Navigator.of(context).pop(_selectedContacts);
                 }
-                await Navigator.of(context)
+                final result = await Navigator.of(context)
                     .pushNamed('/create-group', arguments: _selectedContacts);
+                if (result != null && mounted) {
+                  Navigator.of(context).pop(result);
+                }
               },
               tooltip: 'Next',
               child: Icon(_isUpdate ? Icons.check : Icons.arrow_forward),

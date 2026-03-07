@@ -4,30 +4,31 @@ import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/entity/entity.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
+
 part 'chat_dao.g.dart';
 
 /// ChatDao - Message and Member Operations
-/// 
+///
 /// RESPONSIBILITIES:
 /// - All message CRUD operations (create, read, update, delete)
 /// - Member management within channels
 /// - Message state transitions (pending -> sent -> delivered -> read)
 /// - Chat preview generation with last message and unread counts
-/// 
+///
 /// DESIGN PRINCIPLES:
 /// - Pure database operations - no business logic
 /// - All methods are atomic (use transactions when needed)
 /// - Return Drift Selectable for reactive queries
 /// - Handle optimistic updates with proper state management
-/// 
+///
 /// MESSAGE STATE FLOW:
 /// pending -> sent -> delivered -> read
-/// 
+///
 /// USAGE PATTERN:
 /// ```dart
 /// // Send message
 /// final messageId = await chatDao.sendMessage(message, channel);
-/// 
+///
 /// // Watch messages reactively
 /// chatDao.getMessages(channel: channel).watch().listen((messages) {
 ///   // UI updates automatically
@@ -38,6 +39,7 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
   ChatDao(super.db);
 
   Selectable<ChatPreview> getChatPreviews({
+    required int currentUserId,
     ChannelFilter? filter,
   }) {
     final query = select(channels).join([
@@ -57,15 +59,23 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
       ),
     ]);
 
+    query.orderBy([
+      OrderingTerm.desc(
+          // Coalesce: Use message.createdAt if exists, else channel.createdAt
+          FunctionCallExpression(
+              'COALESCE', [messages.createdAt, channels.createdAt]))
+    ]);
+
     return query.asyncMap((row) async {
       final channel = row.readTable(channels);
       final sender = row.readTableOrNull(contacts);
-      final lastMessage = row.readTable(messages).copyWith(sender: sender);
+      final msgTable = row.readTableOrNull(messages);
+      final lastMessage = msgTable?.copyWith(sender: sender);
       final unReadCountExp = messages.id.count().cast<int>();
       final unreadQuery = selectOnly(messages)
         ..addColumns([unReadCountExp])
         ..where(messages.channelId.equals(channel.id) &
-                messages.state.isNotValue(MessageState.read.name))
+            messages.state.isNotValue(MessageState.read.name))
         ..limit(10);
       final unreadCount = await unreadQuery
               .map((row) => row.read(unReadCountExp))
@@ -117,9 +127,11 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
 
   Future<void> removeMember(Member member, ChannelModel channel) async {
     await transaction(() async {
-      await (delete(members)..where((tbl) =>
-          tbl.channelId.equals(channel.id) &
-          tbl.memberId.equals(member.user.id))).go();
+      await (delete(members)
+            ..where((tbl) =>
+                tbl.channelId.equals(channel.id) &
+                tbl.memberId.equals(member.user.id)))
+          .go();
     });
   }
 
@@ -139,22 +151,30 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     if (filter != null) {
       if (filter.type != null) {
         final typeCondition = messages.type.equals(filter.type!.name);
-        whereCondition = whereCondition == null ? typeCondition : whereCondition & typeCondition;
+        whereCondition = whereCondition == null
+            ? typeCondition
+            : whereCondition & typeCondition;
       }
 
       if (filter.state != null) {
         final stateCondition = messages.state.equals(filter.state!.name);
-        whereCondition = whereCondition == null ? stateCondition : whereCondition & stateCondition;
+        whereCondition = whereCondition == null
+            ? stateCondition
+            : whereCondition & stateCondition;
       }
 
       if (filter.senderId != null) {
         final senderCondition = messages.senderId.equals(filter.senderId!);
-        whereCondition = whereCondition == null ? senderCondition : whereCondition & senderCondition;
+        whereCondition = whereCondition == null
+            ? senderCondition
+            : whereCondition & senderCondition;
       }
 
       if (filter.messageId != null) {
         final messageIdCondition = messages.id.equals(filter.messageId!);
-        whereCondition = whereCondition == null ? messageIdCondition : whereCondition & messageIdCondition;
+        whereCondition = whereCondition == null
+            ? messageIdCondition
+            : whereCondition & messageIdCondition;
       }
     }
 
@@ -163,14 +183,14 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     }
 
     // Order by timestamp for consistent ordering
-    query.orderBy([(tbl) => OrderingTerm.asc(tbl.createdAt)]);
+    query.orderBy([(tbl) => OrderingTerm.desc(tbl.createdAt)]);
 
     return query;
   }
 
   Future<int> sendMessage(ChatMessage message, ChannelModel channel) async {
     final companion = MessagesCompanion.insert(
-      id: Value(message.id),
+      id: message.id == 0 ? const Value.absent() : Value(message.id),
       type: message.type,
       state: message.state,
       payload: message.payload,
@@ -179,7 +199,9 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
       localCreatedAt: Value(message.timestamp),
       updatedAt: Value(message.updatedAt),
     );
-    return await into(messages).insertReturning(companion).then((msg) => msg.id);
+    return await into(messages)
+        .insertReturning(companion)
+        .then((msg) => msg.id);
   }
 
   Future<void> updateMessage(int messageId, ChatMessage updatedMessage) async {
@@ -207,11 +229,17 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
   }
 
   Future<void> markChannelAsRead(int channelId) async {
-    await (update(messages)..where((tbl) => tbl.channelId.equals(channelId))).write(
+    await (update(messages)..where((tbl) => tbl.channelId.equals(channelId)))
+        .write(
       MessagesCompanion(
         state: const Value(MessageState.read),
         updatedAt: Value(DateTime.now()),
       ),
     );
+  }
+
+  Future<void> clearChannelMessages(int channelId) async {
+    await (delete(messages)..where((tbl) => tbl.channelId.equals(channelId)))
+        .go();
   }
 }

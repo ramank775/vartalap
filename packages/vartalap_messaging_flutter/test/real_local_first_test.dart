@@ -93,7 +93,7 @@ void main() {
       final createdChannel = await channelDao.createChannel(channel, []);
 
       // Act - Watch chat previews stream (real reactive behavior)
-      final previewStream = chatDao.getChatPreviews().watch();
+      final previewStream = chatDao.getChatPreviews(currentUserId: 1).watch();
 
       // Initially no previews (no messages)
       await expectLater(
@@ -116,7 +116,7 @@ void main() {
       await chatDao.sendMessage(secondMessage, createdChannel);
 
       // Should still have 1 preview but with updated last message
-      final previews = await chatDao.getChatPreviews().get();
+      final previews = await chatDao.getChatPreviews(currentUserId: 1).get();
       expect(previews, hasLength(1));
       expect((previews.first.lastMessage)!.text, equals("Latest message"));
     });

@@ -205,7 +205,7 @@ void main() {
         }
 
         // Act
-        final previews = await chatDao.getChatPreviews().get();
+        final previews = await chatDao.getChatPreviews(currentUserId: 1).get();
 
         // Assert
         expect(previews, hasLength(1));
@@ -236,7 +236,7 @@ void main() {
         }
 
         // Act
-        final previews = await chatDao.getChatPreviews().get();
+        final previews = await chatDao.getChatPreviews(currentUserId: 1).get();
 
         // Assert
         expect(previews, hasLength(1));

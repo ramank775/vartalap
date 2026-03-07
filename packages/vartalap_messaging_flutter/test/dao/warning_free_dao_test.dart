@@ -191,7 +191,7 @@ void main() {
         );
         await chatDao!.sendMessage(message, createdChannel);
 
-        final previews = await chatDao!.getChatPreviews().get();
+        final previews = await chatDao!.getChatPreviews(currentUserId: 1).get();
         expect(previews, hasLength(1));
         expect(previews.first.channel.id, equals(createdChannel.id));
         expect(previews.first.lastMessage, isNotNull);
@@ -311,7 +311,7 @@ void main() {
           // Empty queries should return empty results
           final emptyChannels = await channelDao.getChannels().get();
           final emptyContacts = await channelDao.getContacts().get();
-          final emptyPreviews = await chatDao.getChatPreviews().get();
+          final emptyPreviews = await chatDao.getChatPreviews(currentUserId: 1).get();
 
           expect(emptyChannels, isEmpty);
           expect(emptyContacts, isEmpty);

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:vartalap/screens/chat/chat_info.dart';
+import 'package:vartalap/screens/chat/individual_chat_info.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/bouncing_dots.dart';
@@ -40,7 +41,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     chat = widget.chat;
     WidgetsBinding.instance.addObserver(this);
     chat.watch();
-    
+
     _scrollController.addListener(() {
       if (_scrollController.offset > 200 && !_showScrollToBottom.value) {
         _showScrollToBottom.value = true;
@@ -52,7 +53,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     // Listen for remote typing indicators
     _newMessageSub = chat.typingStream.listen((isTyping) {
       _typing.value = isTyping;
-      
+
       // Auto-clear typing indicator after a timeout if no "stop" event received
       if (isTyping) {
         _remoteTypingTimer?.cancel();
@@ -110,11 +111,19 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
           color: Colors.transparent,
           child: InkWell(
             onTap: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => ChatInfo(chat),
-                ),
-              );
+              if (chat.channel.type == ChannelType.individual) {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => IndividualChatInfo(chat),
+                  ),
+                );
+              } else {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => ChatInfo(chat),
+                  ),
+                );
+              }
             },
             child: Row(
               mainAxisSize: MainAxisSize.max,
@@ -127,6 +136,26 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       body: Column(
         mainAxisSize: MainAxisSize.max,
         children: <Widget>[
+          if (chat.channel.cid == null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+              color: Colors.orange.shade100,
+              child: Row(
+                children: [
+                  Icon(Icons.cloud_upload_outlined,
+                      size: 16, color: Colors.orange.shade800),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Waiting to connect. Messages will be sent once you\'re back online.',
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.orange.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Flexible(
             flex: 1,
             child: StreamBuilder<List<ChatMessage>>(
@@ -157,7 +186,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                       final messages = snapshot.data ?? [];
                       // Schedule read receipt processing if there are new messages
                       _scheduleReadReceipts(messages);
-                      
+
                       _messageController =
                           ChatMessageController(messages: messages);
                       final Map<String, Member> members = {};
@@ -194,7 +223,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                                   onPressed: () {
                                     _scrollController.animateTo(
                                       0,
-                                      duration: const Duration(milliseconds: 300),
+                                      duration:
+                                          const Duration(milliseconds: 300),
                                       curve: Curves.easeOut,
                                     );
                                   },
@@ -220,7 +250,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
 
                       try {
                         // The UI simply requests to send the message.
-                        // The client/DAO handles the DB insertion, 
+                        // The client/DAO handles the DB insertion,
                         // which triggers the reactive messagesStream.
                         await chat.sendMessage([msg]);
                       } catch (e) {
@@ -238,8 +268,8 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                       if (state) {
                         if (!(_myTypingTimer?.isActive ?? false)) {
                           await chat.sendTypingIndicator(true);
-                          _myTypingTimer = Timer.periodic(const Duration(seconds: 3),
-                              (Timer timer) {
+                          _myTypingTimer = Timer.periodic(
+                              const Duration(seconds: 3), (Timer timer) {
                             chat.sendTypingIndicator(true);
                           });
                         }
@@ -279,39 +309,82 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
           ),
         ];
-        if (_selectedMessges.value.isEmpty && subtitle.isNotEmpty) {
+
+        // If subtitle is empty, it means we should handle group members dynamically
+        if (_selectedMessges.value.isEmpty) {
+          Widget subtitleWidget;
+          if (subtitle.isEmpty) {
+            subtitleWidget = StreamBuilder<List<Member>>(
+              stream: chat.membersStream,
+              builder: (context, snapshot) {
+                String subtitleText = '';
+                if (chat.channel.type == ChannelType.group) {
+                  subtitleText =
+                      snapshot.data?.map((m) => m.user.displayName).join(', ') ??
+                          'Loading members...';
+                } else if (chat.channel.type == ChannelType.individual) {
+                  if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                    final members = snapshot.data!;
+                    final otherMember = members.firstWhere(
+                        (m) => m.user.id != chat.currentUser.id,
+                        orElse: () => members.first);
+                    subtitleText =
+                        otherMember.user.phone ?? otherMember.user.username ?? '';
+                  }
+                }
+
+                if (subtitleText.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                return Text(
+                  subtitleText,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  style: const TextStyle(
+                    fontSize: 12.0,
+                    color: Colors.white,
+                  ),
+                );
+              },
+            );
+          } else {
+            subtitleWidget = Text(
+              subtitle,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
+              style: const TextStyle(
+                fontSize: 12.0,
+                color: Colors.white,
+              ),
+            );
+          }
+
           titleWidgets.add(
             SizedBox(
                 width: MediaQuery.of(context).size.width * 0.60,
                 child: ValueListenableBuilder<bool>(
                   valueListenable: _typing,
                   builder: (BuildContext context, bool state, Widget? child) {
-                    var value = subtitle;
                     if (state) {
                       return Row(
                         children: [
                           const Text(
                             "typing",
-                            style: TextStyle(fontSize: 12.0, color: Colors.white),
+                            style: TextStyle(
+                                fontSize: 12.0, color: Colors.white),
                           ),
                           const SizedBox(width: 4),
                           const BouncingDots(),
                         ],
                       );
                     }
-                    return Text(
-                      value,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: false,
-                      style: const TextStyle(
-                        fontSize: 12.0,
-                        color: Colors.white,
-                      ),
-                    );
+                    return subtitleWidget;
                   },
                 )),
           );
         }
+
         return Column(
           mainAxisSize: MainAxisSize.max,
           mainAxisAlignment: MainAxisAlignment.end,
@@ -323,7 +396,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String _getSubTitle() {
-    return chat.displayName;
+    return ''; // Handled by StreamBuilder in _getTitle instead
   }
 
   void _selectOrRemove(ChatMessage msg) {
@@ -413,17 +486,16 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   void _scheduleReadReceipts(List<ChatMessage> messages) {
     // Track unread messages for read receipts
     final unread = messages.where((msg) =>
-        msg.senderId != chat.currentUser.id &&
-        msg.state != MessageState.read);
-    
+        msg.senderId != chat.currentUser.id && msg.state != MessageState.read);
+
     if (unread.isNotEmpty) {
       _unreadMessages.addAll(unread);
-      
+
       if (_readTimer != null && _readTimer!.isActive) {
         _readTimer!.cancel();
       }
-      _readTimer = Timer(
-          const Duration(milliseconds: 200), _onReadTimerTimeout);
+      _readTimer =
+          Timer(const Duration(milliseconds: 200), _onReadTimerTimeout);
     }
   }
 

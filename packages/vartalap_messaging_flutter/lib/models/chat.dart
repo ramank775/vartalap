@@ -14,4 +14,5 @@ class ChatPreview {
 
   DateTime get lastMessageTimestamp => lastMessage?.timestamp ?? DateTime.now();
   String get previewContent => lastMessage?.previewContent ?? ' ';
+  String get displayName => channel.displayName;
 }

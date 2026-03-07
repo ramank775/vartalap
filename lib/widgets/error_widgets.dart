@@ -287,7 +287,9 @@ mixin ErrorHandlingMixin<T extends StatefulWidget> on State<T> {
       }
 
       onSuccess?.call();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[ERROR] executeWithErrorHandling caught: $e');
+      debugPrint('[ERROR] Stack trace: $stackTrace');
       if (showLoadingDialog && mounted) {
         Navigator.of(context).pop();
       }

@@ -151,7 +151,7 @@ void main() {
           // Test empty state
           final emptyChannels = await channelDao.getChannels().get();
           final emptyContacts = await channelDao.getContacts().get();
-          final emptyPreviews = await chatDao.getChatPreviews().get();
+          final emptyPreviews = await chatDao.getChatPreviews(currentUserId: 1).get();
 
           expect(emptyChannels, isEmpty);
           expect(emptyContacts, isEmpty);

@@ -70,9 +70,9 @@ class VartalapChatClientFlutter {
   bool _isInitialized = false;
   final bool _inMemory;
   StreamSubscription? _eventStreamSubscription;
-  
+
   ChatDatabase get db => _db;
-  
+
   // Internal event bus for ephemeral events (typing, status, etc.)
   final _eventBus = StreamController<messaging.RemoteMessage>.broadcast();
 
@@ -85,9 +85,8 @@ class VartalapChatClientFlutter {
     bool inMemory = false,
   }) : _inMemory = inMemory {
     // Priority: 1. Constructor param, 2. Provided client's manager, 3. Default secure storage
-    _tokenManager = tokenManager ?? 
-                    client?.tokenManager ?? 
-                    SecureStorageTokenManager();
+    _tokenManager =
+        tokenManager ?? client?.tokenManager ?? SecureStorageTokenManager();
 
     this.client = client ??
         VartalapChatClient(
@@ -226,8 +225,9 @@ class VartalapChatClientFlutter {
   /// Process incoming events from the server
   /// Translates backend RemoteMessage into local actions
   void _handleIncomingEvent(messaging.RemoteMessage msg) {
-    debugPrint('[EVENT] Received event: ${msg.head.category} (ephemeral: ${msg.head.ephemeral})');
-    
+    debugPrint(
+        '[EVENT] Received event: ${msg.head.category} (ephemeral: ${msg.head.ephemeral})');
+
     if (msg.head.ephemeral) {
       if (msg.head.category == 'typing') {
         _handleTypingEvent(msg);
@@ -249,19 +249,24 @@ class VartalapChatClientFlutter {
     try {
       // 1. Resolve local channel ID
       final myUid = await getLoggedInUser();
-      debugPrint('[EVENT] Handling new message for $myUid, from ${remoteMsg.head.from}, to ${remoteMsg.head.to}');
-      
+      debugPrint(
+          '[EVENT] Handling new message for $myUid, from ${remoteMsg.head.from}, to ${remoteMsg.head.to}');
+
       ChannelModel? channelRow;
       if (remoteMsg.head.to == myUid) {
         debugPrint('[EVENT] 1-1 message detected');
         // 1-1 message: find channel where members contain 'from'
         channelRow = await (_db.select(_db.channels).join([
-          innerJoin(_db.members, _db.members.channelId.equalsExp(_db.channels.id)),
-          innerJoin(_db.contacts, _db.contacts.id.equalsExp(_db.members.memberId)),
-        ])..where(_db.contacts.uid.equals(remoteMsg.head.from) & 
-                 _db.channels.type.equals(messaging.ChannelType.individual.name)))
-        .map((row) => row.readTable(_db.channels))
-        .getSingleOrNull();
+          innerJoin(
+              _db.members, _db.members.channelId.equalsExp(_db.channels.id)),
+          innerJoin(
+              _db.contacts, _db.contacts.id.equalsExp(_db.members.memberId)),
+        ])
+              ..where(_db.contacts.uid.equals(remoteMsg.head.from) &
+                  _db.channels.type
+                      .equals(messaging.ChannelType.individual.name)))
+            .map((row) => row.readTable(_db.channels))
+            .getSingleOrNull();
       } else {
         debugPrint('[EVENT] Group/Broadcast message detected');
         // Group message: 'to' is the Group CID
@@ -273,50 +278,81 @@ class VartalapChatClientFlutter {
       if (channelRow == null) {
         debugPrint('[EVENT] Channel Row NOT found');
         if (remoteMsg.head.type == messaging.ChannelType.individual) {
-          debugPrint('[EVENT] 1-1 Channel not found, auto-creating for sender: ${remoteMsg.head.from}');
-          // 1. Ensure sender contact exists
+          debugPrint(
+              '[EVENT] 1-1 Channel not found, auto-creating for sender: ${remoteMsg.head.from}');
+          // 1. Ensure sender contact exists (outside transaction so we can read it)
           final senderRow = await (_db.select(_db.contacts)
                 ..where((tbl) => tbl.uid.equals(remoteMsg.head.from)))
               .getSingleOrNull();
-          
+
           int contactId;
+          String senderDisplayName;
           if (senderRow == null) {
             debugPrint('[EVENT] Sender contact NOT found, creating it');
-            contactId = await _db.into(_db.contacts).insert(ContactsCompanion.insert(
-              uid: Value(remoteMsg.head.from),
-              username: Value(remoteMsg.head.from),
-              status: ContactStatus.active,
-            ));
+            contactId =
+                await _db.into(_db.contacts).insert(ContactsCompanion.insert(
+                      uid: Value(remoteMsg.head.from),
+                      username: Value(remoteMsg.head.from),
+                      status: ContactStatus.active,
+                    ));
+            // Best name we have is the UID itself
+            senderDisplayName = remoteMsg.head.from;
           } else {
             debugPrint('[EVENT] Sender contact found with ID: ${senderRow.id}');
             contactId = senderRow.id;
+            senderDisplayName = senderRow.displayName;
           }
 
-          // 2. Create the channel locally
-          debugPrint('[EVENT] Creating channel locally');
-          final newChannel = await _db.into(_db.channels).insertReturning(ChannelsCompanion.insert(
-            type: messaging.ChannelType.individual,
-            cid: Value(remoteMsg.head.from), // For 1-1, CID is the other person's UID
-            config: Value(<String, dynamic>{}),
-          ));
-          
-          // 3. Add members
-          debugPrint('[EVENT] Adding member to new channel');
-          await _db.into(_db.members).insert(MembersCompanion.insert(
-            channelId: newChannel.id,
-            memberId: contactId,
-          ));
-          
-          channelRow = newChannel;
+          // Prevent duplicates before transacting
+          final existingMsg = await (_db.select(_db.messages)
+                ..where((tbl) => tbl.rid.equals(remoteMsg.id)))
+              .getSingleOrNull();
+          if (existingMsg != null) return;
+
+          // Create channel + member + message in one transaction
+          debugPrint('[EVENT] Creating channel, member & message in transaction');
+          await _db.transaction(() async {
+            final newChannel = await _db
+                .into(_db.channels)
+                .insertReturning(ChannelsCompanion.insert(
+                  type: messaging.ChannelType.individual,
+                  cid: Value(remoteMsg.head.from),
+                  extraData: Value({'name': senderDisplayName}),
+                  config: Value(<String, dynamic>{}),
+                ));
+
+            await _db.into(_db.members).insert(MembersCompanion.insert(
+                  channelId: newChannel.id,
+                  memberId: contactId,
+                ));
+
+            await _db.into(_db.messages).insert(MessagesCompanion.insert(
+                  rid: Value(remoteMsg.id),
+                  type: remoteMsg.head.category == 'image'
+                      ? MessageType.image
+                      : MessageType.text,
+                  state: MessageState.delivered,
+                  payload: remoteMsg.body as Map<String, dynamic>,
+                  channelId: newChannel.id,
+                  senderId: contactId,
+                  remoteCreatedAt: Value(DateTime.fromMillisecondsSinceEpoch(
+                      remoteMsg.meta.createdAt)),
+                  updatedAt: Value(DateTime.now()),
+                ));
+          });
+
+          debugPrint('[EVENT] New message saved to local DB: ${remoteMsg.id}');
+          return; // Early return — message was already inserted inside the transaction
         } else {
-          debugPrint('[EVENT] Channel not found for incoming message, ignoring');
+          debugPrint(
+              '[EVENT] Channel not found for incoming message, ignoring');
           return;
         }
       } else {
         debugPrint('[EVENT] Found channel with ID: ${channelRow.id}');
       }
 
-      // 2. Resolve local sender ID (might have been created above)
+      // 2. Resolve local sender ID (channel already existed)
       final senderRow = await (_db.select(_db.contacts)
             ..where((tbl) => tbl.uid.equals(remoteMsg.head.from)))
           .getSingleOrNull();
@@ -331,16 +367,19 @@ class VartalapChatClientFlutter {
 
       // 4. Insert to DB - triggers reactive UI
       await _db.into(_db.messages).insert(MessagesCompanion.insert(
-        rid: Value(remoteMsg.id),
-        type: remoteMsg.head.category == 'image' ? MessageType.image : MessageType.text,
-        state: MessageState.delivered,
-        payload: remoteMsg.body as Map<String, dynamic>,
-        channelId: channelRow.id,
-        senderId: localSenderId,
-        remoteCreatedAt: Value(DateTime.fromMillisecondsSinceEpoch(remoteMsg.meta.createdAt)),
-        updatedAt: Value(DateTime.now()),
-      ));
-      
+            rid: Value(remoteMsg.id),
+            type: remoteMsg.head.category == 'image'
+                ? MessageType.image
+                : MessageType.text,
+            state: MessageState.delivered,
+            payload: remoteMsg.body as Map<String, dynamic>,
+            channelId: channelRow.id,
+            senderId: localSenderId,
+            remoteCreatedAt: Value(
+                DateTime.fromMillisecondsSinceEpoch(remoteMsg.meta.createdAt)),
+            updatedAt: Value(DateTime.now()),
+          ));
+
       debugPrint('[EVENT] New message saved to local DB: ${remoteMsg.id}');
     } catch (e) {
       debugPrint('[EVENT] Error handling incoming message: $e');
@@ -352,13 +391,20 @@ class VartalapChatClientFlutter {
     try {
       final messageId = ackMsg.id; // Correlation ID
       final status = ackMsg.meta.raw['status'] as String?;
-      
+
       MessageState newState;
       switch (status) {
-        case 'delivered': newState = MessageState.delivered; break;
-        case 'read': newState = MessageState.read; break;
-        case 'sent': newState = MessageState.sent; break;
-        default: newState = MessageState.sent;
+        case 'delivered':
+          newState = MessageState.delivered;
+          break;
+        case 'read':
+          newState = MessageState.read;
+          break;
+        case 'sent':
+          newState = MessageState.sent;
+          break;
+        default:
+          newState = MessageState.sent;
       }
 
       // Update local message state by RID
@@ -368,7 +414,7 @@ class VartalapChatClientFlutter {
         state: Value(newState),
         updatedAt: Value(DateTime.now()),
       ));
-      
+
       debugPrint('[EVENT] Updated message $messageId status to $newState');
     } catch (e) {
       debugPrint('[EVENT] Error handling ack: $e');
@@ -460,7 +506,7 @@ class VartalapChatClientFlutter {
 
       // Cache the profile for offline access
       await _db.userProfileDao.saveProfile(userProfile);
-      
+
       // Ensure contact row exists for current user
       await _db.channelDao.ensureContact(userProfile);
 
@@ -480,9 +526,11 @@ class VartalapChatClientFlutter {
   }
 
   Selectable<ChatPreview> getChatPreviews({
+    required int currentUserId,
     ChannelFilter? filter,
   }) {
-    return _db.chatDao.getChatPreviews(filter: filter);
+    return _db.chatDao
+        .getChatPreviews(currentUserId: currentUserId, filter: filter);
   }
 
   /// Watch all channels with real-time updates
@@ -523,10 +571,13 @@ class VartalapChatClientFlutter {
   /// - [filter]: Optional filter to apply to channels
   ///
   /// Returns: Stream&lt;List&lt;ChatPreview&gt;&gt; - Reactive stream for UI binding
-  Stream<List<ChatPreview>> watchChatPreviews({
+  Stream<List<ChatPreview>> watchChatPreviews(
+    int currentUserId, {
     ChannelFilter? filter,
   }) {
-    return _db.chatDao.getChatPreviews(filter: filter).watch();
+    return _db.chatDao
+        .getChatPreviews(currentUserId: currentUserId, filter: filter)
+        .watch();
   }
 
   /// Watch unread message counts for all channels
@@ -543,9 +594,12 @@ class VartalapChatClientFlutter {
   /// ```
   ///
   /// Returns: Stream&lt;Map&lt;int, int&gt;&gt; - Map of channelId to unreadCount
-  Stream<Map<int, int>> watchUnreadCounts() {
+  Stream<Map<int, int>> watchUnreadCounts(int currentUserId) {
     // Use chat previews stream to extract unread counts efficiently
-    return _db.chatDao.getChatPreviews().watch().map((previews) {
+    return _db.chatDao
+        .getChatPreviews(currentUserId: currentUserId)
+        .watch()
+        .map((previews) {
       return Map.fromEntries(
         previews.map(
             (preview) => MapEntry(preview.channel.id, preview.unreadCount)),
@@ -598,14 +652,14 @@ class VartalapChatClientFlutter {
   Future<ChannelModel> createChannel(
       ChannelModel channel, List<Member> members) async {
     final localChannel = await _db.channelDao.createChannel(channel, members);
-    
+
     // Schedule remote creation task
     final task = factory.create(
       CreateChannelTask.name,
       payload: localChannel.id,
     );
     await scheduler.schedule(task);
-    
+
     return localChannel;
   }
 
@@ -615,6 +669,10 @@ class VartalapChatClientFlutter {
 
   Future<void> deleteChannel(int channelId) async {
     return await _db.channelDao.deleteChannel(channelId);
+  }
+
+  Future<void> clearChat(int channelId) async {
+    return await _db.chatDao.clearChannelMessages(channelId);
   }
 
   Selectable<Contact> getContacts({
@@ -634,7 +692,7 @@ class VartalapChatClientFlutter {
     // 2. Sync Messages
     final messageTask = factory.create(SyncMessageTask.name);
     await scheduler.schedule(messageTask);
-    
+
     debugPrint('[CLIENT] Sync tasks scheduled');
   }
 
@@ -681,24 +739,30 @@ class VartalapChatClientFlutter {
 
     await _db.transaction(() async {
       // 1. Create Local Asset
-      final assetId = await _db.into(_db.assests).insert(AssestsCompanion.insert(
-            type: Value(category),
-            path: Value(path),
-            mimeType: Value(extension), // Simplified
-            createdAt: Value(DateTime.now()),
-            updatedAt: Value(DateTime.now()),
-          ));
+      final assetId =
+          await _db.into(_db.assests).insert(AssestsCompanion.insert(
+                type: Value(category),
+                path: Value(path),
+                mimeType: Value(extension), // Simplified
+                createdAt: Value(DateTime.now()),
+                updatedAt: Value(DateTime.now()),
+              ));
 
       // 2. Create local message
-      final msgId = await _db.into(_db.messages).insert(MessagesCompanion.insert(
-            type: category == 'image' ? MessageType.image : category == 'video' ? MessageType.video : MessageType.attachment,
-            state: MessageState.pending,
-            payload: {'name': fileName, 'path': path},
-            channelId: channelId,
-            senderId: currentUser.id,
-            localCreatedAt: Value(DateTime.now()),
-            updatedAt: Value(DateTime.now()),
-          ));
+      final msgId =
+          await _db.into(_db.messages).insert(MessagesCompanion.insert(
+                type: category == 'image'
+                    ? MessageType.image
+                    : category == 'video'
+                        ? MessageType.video
+                        : MessageType.attachment,
+                state: MessageState.pending,
+                payload: {'name': fileName, 'path': path},
+                channelId: channelId,
+                senderId: currentUser.id,
+                localCreatedAt: Value(DateTime.now()),
+                updatedAt: Value(DateTime.now()),
+              ));
 
       // 3. Link Asset to Message
       await _db.into(_db.messageAssets).insert(MessageAssetsCompanion.insert(

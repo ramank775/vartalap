@@ -4,7 +4,6 @@ import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/contact_preview_item.dart';
 import 'package:vartalap/widgets/loading_indicator.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
-import 'package:vartalap/services/connectivity_service.dart';
 import 'package:vartalap/utils/error_types.dart';
 import 'package:vartalap/widgets/error_widgets.dart';
 
@@ -36,19 +35,11 @@ class _CreateGroupState extends State<CreateGroup> with ErrorHandlingMixin {
       return;
     }
 
-    // Check connectivity before proceeding
-    if (!ConnectivityService().isConnected) {
-      showErrorSnackBar(
-        const NetworkError(
-            'No internet connection. Please connect and try again.'),
-        onRetry: () => _onGroupNameConfirm(name),
-      );
-      return;
-    }
-
     setState(() {
       _isCreatingGroup = true;
     });
+
+    ChannelModel? createdChannel;
 
     await executeWithErrorHandling(
       () async {
@@ -62,19 +53,20 @@ class _CreateGroupState extends State<CreateGroup> with ErrorHandlingMixin {
                     ))
                 .toList();
 
-                      final channel = ChannelModel.initial(
-                        type: ChannelType.group,
-                        extraData: {
-                          'name': name.trim(),
-                        },
-                      );
+            final channel = ChannelModel.initial(
+              type: ChannelType.group,
+              extraData: {
+                'name': name.trim(),
+              },
+            );
 
-            await client.createChannel(channel, channelMembers).timeout(
-                  const Duration(seconds: 30),
-                  onTimeout: () => throw TimeoutError(
-                    'Group creation timed out. Please try again.',
-                  ),
-                );
+            createdChannel =
+                await client.createChannel(channel, channelMembers).timeout(
+                      const Duration(seconds: 30),
+                      onTimeout: () => throw TimeoutError(
+                        'Group creation timed out. Please try again.',
+                      ),
+                    );
           },
           maxRetries: 2,
         );
@@ -82,9 +74,9 @@ class _CreateGroupState extends State<CreateGroup> with ErrorHandlingMixin {
       loadingMessage: "Creating your group...",
       showLoadingDialog: true,
       onSuccess: () {
-        if (mounted) {
-          Navigator.of(context).pop();
-          Navigator.of(context).pop();
+        if (mounted && createdChannel != null) {
+          // Pop back to chats with the created channel as result
+          Navigator.of(context).pop(createdChannel);
         }
       },
       onError: (error) {

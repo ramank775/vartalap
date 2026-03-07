@@ -201,7 +201,7 @@ void main() {
         await chatDao!.sendMessage(message, createdChannel);
 
         // Test real chat preview generation
-        final previews = await chatDao!.getChatPreviews().get();
+        final previews = await chatDao!.getChatPreviews(currentUserId: 1).get();
         expect(previews, hasLength(1));
         expect(previews.first.channel.id, equals(createdChannel.id));
         expect(previews.first.lastMessage, isNotNull);

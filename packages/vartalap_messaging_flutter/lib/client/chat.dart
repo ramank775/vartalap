@@ -58,9 +58,17 @@ class ChatClient {
     required this.currentUser,
   });
 
+  String? get targetUid {
+    if (channel.type != ChannelType.individual || _members.isEmpty) return null;
+    final otherMember = _members.firstWhere((m) => m.user.id != currentUser.id,
+        orElse: () => _members.first);
+    return otherMember.user.uid;
+  }
+
   String get displayName {
     if (channel.type == ChannelType.individual) {
-      final member = _members.firstWhere((m) => m.user.id != currentUser.id, orElse: () => _members.first);
+      final member = _members.firstWhere((m) => m.user.id != currentUser.id,
+          orElse: () => _members.first);
       return member.user.displayName;
     }
     if (channel.extraData != null && channel.extraData!['name'] != null) {
@@ -72,19 +80,27 @@ class ChatClient {
 
   Future<void> init() async {
     _members = await chatDao.getMembers(channelId: channel.id).get();
-    
+
     // Fallback if no members in DB yet (e.g. newly created channel)
-    if (_members.isEmpty && channel.extraData != null && channel.extraData!['members'] != null) {
+    if (_members.isEmpty &&
+        channel.extraData != null &&
+        channel.extraData!['members'] != null) {
       final memberUids = channel.extraData!['members'] as List;
       // Note: This is a shallow mock for the UI to not crash
-      _members = memberUids.map((uid) => Member(
-        user: Contact(id: 0, username: uid.toString(), status: ContactStatus.active, uid: uid.toString()),
-        role: 'member',
-        since: DateTime.now(),
-        updatedAt: DateTime.now(),
-      )).toList();
+      _members = memberUids
+          .map((uid) => Member(
+                user: Contact(
+                    id: 0,
+                    username: uid.toString(),
+                    status: ContactStatus.active,
+                    uid: uid.toString()),
+                role: 'member',
+                since: DateTime.now(),
+                updatedAt: DateTime.now(),
+              ))
+          .toList();
     }
-    
+
     // Listen for ephemeral events filtered for this channel
     _ephemeralSub = client.ephemeralEvents.listen((event) {
       if (event.head.category == 'typing') {
@@ -95,7 +111,7 @@ class ChatClient {
         // Check if event is for this channel
         bool relevant = false;
         if (channel.type == ChannelType.individual) {
-          relevant = (channel.extraData != null && from == channel.extraData!['uid']); 
+          relevant = (targetUid != null && from == targetUid);
         } else {
           relevant = (event.head.to == channel.cid);
         }
@@ -134,9 +150,8 @@ class ChatClient {
     final myUid = currentUser.uid;
     if (myUid == null) return;
 
-    final target = channel.type == ChannelType.individual
-        ? (channel.extraData?['uid'] as String?)
-        : channel.cid;
+    final target =
+        channel.type == ChannelType.individual ? targetUid : channel.cid;
 
     if (target == null) return;
 
@@ -177,7 +192,8 @@ class ChatClient {
         method: VartalapApiMethod.addMembers,
         data: {
           'channelId': remoteChannelId,
-          'memberIds': members.map((m) => m.user.uid).whereType<String>().toList(),
+          'memberIds':
+              members.map((m) => m.user.uid).whereType<String>().toList(),
         },
       ),
     );
@@ -291,9 +307,8 @@ class ChatClient {
     final myUid = currentUser.uid;
     if (myUid == null) return;
 
-    final target = channel.type == ChannelType.individual
-        ? (channel.extraData?['uid'] as String?)
-        : channel.cid;
+    final target =
+        channel.type == ChannelType.individual ? targetUid : channel.cid;
 
     if (target == null) return;
 
@@ -301,7 +316,10 @@ class ChatClient {
     // Otherwise, send ack for the channel (server handles resolving latest).
     String? remoteId;
     if (messageId != null) {
-      final msg = await chatDao.getMessages(channel: channel, filter: MessageFilter(messageId: messageId)).getSingleOrNull();
+      final msg = await chatDao
+          .getMessages(
+              channel: channel, filter: MessageFilter(messageId: messageId))
+          .getSingleOrNull();
       remoteId = msg?.rid;
     }
 

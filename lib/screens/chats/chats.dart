@@ -31,6 +31,7 @@ class ChatsState extends State<Chats> {
   @override
   Widget build(BuildContext context) {
     final client = VartalapClientProvider.of(context).client;
+    final currentUser = CurrentUser.of(context).user!;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -45,7 +46,7 @@ class ChatsState extends State<Chats> {
       body: Container(
         padding: EdgeInsets.fromLTRB(5, 5, 5, 0),
         child: StreamBuilder<List<ChatPreview>>(
-          stream: client.watchChatPreviews(),
+          stream: client.watchChatPreviews(currentUser.id),
           builder: (context, chatSnapshot) {
             switch (chatSnapshot.connectionState) {
               case ConnectionState.none:
@@ -74,11 +75,12 @@ class ChatsState extends State<Chats> {
                 }
             }
             return StreamBuilder<Map<int, int>>(
-              stream: client.watchUnreadCounts(),
+              stream: client.watchUnreadCounts(currentUser.id),
               builder: (context, unreadSnapshot) {
                 if (unreadSnapshot.hasError) {
                   // Don't show error if it's due to logout (database closed)
-                  debugPrint('Unread counts stream error: ${unreadSnapshot.error}');
+                  debugPrint(
+                      'Unread counts stream error: ${unreadSnapshot.error}');
                   return Center(
                     child: CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
@@ -134,10 +136,9 @@ class ChatsState extends State<Chats> {
           final confirmed = await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: const Text('Delete chats'),
+              title: const Text('Clear chats'),
               content: Text(
-                'Delete ${chatsToDelete.length} chat(s)? '
-                'This removes them from your device.',
+                'Clear messages from ${chatsToDelete.length} chat(s)? ',
               ),
               actions: [
                 TextButton(
@@ -147,7 +148,7 @@ class ChatsState extends State<Chats> {
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, true),
                   style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  child: const Text('Delete'),
+                  child: const Text('Clear'),
                 ),
               ],
             ),
@@ -156,9 +157,10 @@ class ChatsState extends State<Chats> {
             final client = VartalapClientProvider.of(context).client;
             for (final chat in chatsToDelete) {
               try {
-                await client.deleteChannel(chat.channel.id);
+                await client.clearChat(chat.channel.id);
               } catch (e) {
-                debugPrint('[Chats] Failed to delete channel ${chat.channel.id}: $e');
+                debugPrint(
+                    '[Chats] Failed to clear chat ${chat.channel.id}: $e');
               }
             }
             setState(() {
@@ -205,8 +207,7 @@ class ChatsState extends State<Chats> {
           } else if (value == "Profile") {
             Navigator.of(context).pushNamed('/profile');
           } else if (value == "Logout") {
-            final auth = Provider.of<AuthRepository>(context,
-                listen: false);
+            final auth = Provider.of<AuthRepository>(context, listen: false);
             await auth.logout();
           }
         },
@@ -292,12 +293,10 @@ class ChatListView extends StatefulWidget {
 
 class ChatListViewState extends State<ChatListView>
     with WidgetsBindingObserver {
-  late List<ChatPreview> _chats;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _chats = widget._chats;
   }
 
   @override
@@ -315,7 +314,8 @@ class ChatListViewState extends State<ChatListView>
 
   @override
   Widget build(BuildContext context) {
-    return _chats.isEmpty
+    final chats = widget._chats;
+    return chats.isEmpty
         ? Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -350,9 +350,9 @@ class ChatListViewState extends State<ChatListView>
             ),
           )
         : ListView.builder(
-            itemCount: _chats.length,
+            itemCount: chats.length,
             itemBuilder: (context, i) {
-              final chat = _chats[i];
+              final chat = chats[i];
               // Use unread count from the stream if available, otherwise use the one from ChatPreview
               final effectiveUnreadCount =
                   widget._unreadCounts[chat.channel.id] ?? chat.unreadCount;
@@ -383,7 +383,7 @@ class ChatListViewState extends State<ChatListView>
                   widget._navigate('/chat', data: chatClient);
                 },
                 widget._selectOrRemove,
-                isSelected: widget._selectedChats.contains(widget._chats[i]),
+                isSelected: widget._selectedChats.contains(chats[i]),
               );
             },
           );

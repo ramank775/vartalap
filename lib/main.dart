@@ -21,29 +21,35 @@ import 'package:vartalap_testing/vartalap_testing.dart';
 
 void main() async {
   final startTime = DateTime.now();
-  debugPrint('🚀 [PERF] App main() started at: ${startTime.millisecondsSinceEpoch}');
+  debugPrint(
+      '🚀 [PERF] App main() started at: ${startTime.millisecondsSinceEpoch}');
 
   final bindingStart = DateTime.now();
   WidgetsFlutterBinding.ensureInitialized();
-  debugPrint('⏱️ [PERF] WidgetsFlutterBinding took: ${DateTime.now().difference(bindingStart).inMilliseconds}ms');
+  debugPrint(
+      '⏱️ [PERF] WidgetsFlutterBinding took: ${DateTime.now().difference(bindingStart).inMilliseconds}ms');
 
   final configStart = DateTime.now();
   await AppConfig.initialize();
-  debugPrint('⏱️ [PERF] AppConfig.initialize took: ${DateTime.now().difference(configStart).inMilliseconds}ms');
+  debugPrint(
+      '⏱️ [PERF] AppConfig.initialize took: ${DateTime.now().difference(configStart).inMilliseconds}ms');
 
   // Create and initialize auth client before running the app
   final authClientStart = DateTime.now();
   final client = _createClient();
-  
+
   // Restore session
   await client.auth.checkAuth();
-  
-  debugPrint('⏱️ [PERF] AuthClient initialization took: ${DateTime.now().difference(authClientStart).inMilliseconds}ms');
+
+  debugPrint(
+      '⏱️ [PERF] AuthClient initialization took: ${DateTime.now().difference(authClientStart).inMilliseconds}ms');
 
   final runAppStart = DateTime.now();
   runApp(VartalapApp(client: client));
-  debugPrint('⏱️ [PERF] runApp() took: ${DateTime.now().difference(runAppStart).inMilliseconds}ms');
-  debugPrint('🎯 [PERF] Total main() time: ${DateTime.now().difference(startTime).inMilliseconds}ms');
+  debugPrint(
+      '⏱️ [PERF] runApp() took: ${DateTime.now().difference(runAppStart).inMilliseconds}ms');
+  debugPrint(
+      '🎯 [PERF] Total main() time: ${DateTime.now().difference(startTime).inMilliseconds}ms');
 
   // Analytics will initialize lazily when first used - no Firebase blocking!
   debugPrint('✅ [PERF] Firebase deferred to lazy initialization');
@@ -62,9 +68,8 @@ VartalapChatClientFlutter _createClient() {
         );
 
   // Create appropriate OTP provider based on MOCK_MODE flag
-  final otpProvider = AppConfig.isMockMode
-      ? MockOTPProvider()
-      : FirebaseOTPProvider();
+  final otpProvider =
+      AppConfig.isMockMode ? MockOTPProvider() : FirebaseOTPProvider();
 
   final client = VartalapChatClientFlutter(
     apiKey: AppConfig.apiKey,
@@ -72,7 +77,7 @@ VartalapChatClientFlutter _createClient() {
     wsUrl: AppConfig.wsUrl,
     client: chatClient,
   );
-  
+
   client.initAuth(otpProvider);
 
   if (AppConfig.isMockMode) {
@@ -81,7 +86,6 @@ VartalapChatClientFlutter _createClient() {
 
   return client;
 }
-
 
 /// Main App Widget with Unified Authentication
 class VartalapApp extends StatefulWidget {
@@ -149,8 +153,8 @@ class _VartalapAppState extends State<VartalapApp> {
                 final content = child ?? const SizedBox.shrink();
                 if (!AppConfig.isMockMode) return content;
                 return MockDeveloperMenu(
-                  child: content,
                   navigatorKey: _navigatorKey,
+                  child: content,
                 );
               },
             );
@@ -182,15 +186,24 @@ class _VartalapAppState extends State<VartalapApp> {
     return MaterialPageRoute(
       settings: settings,
       builder: (BuildContext context) {
-        final client = Provider.of<VartalapChatClientFlutter>(context, listen: false);
+        final client =
+            Provider.of<VartalapChatClientFlutter>(context, listen: false);
         final auth = client.auth;
 
         // Define protected routes that require authentication
-        final protectedRoutes = {'/chats', '/chat', '/new-chat', '/new-group', '/create-group', '/profile'};
+        final protectedRoutes = {
+          '/chats',
+          '/chat',
+          '/new-chat',
+          '/new-group',
+          '/create-group',
+          '/profile'
+        };
 
         // Check if route requires authentication
         if (protectedRoutes.contains(settings.name) && !auth.isAuthenticated) {
-          debugPrint('[ROUTE] Attempted to access ${settings.name} without authentication, redirecting to login');
+          debugPrint(
+              '[ROUTE] Attempted to access ${settings.name} without authentication, redirecting to login');
           return IntroductionScreen();
         }
 
@@ -312,9 +325,11 @@ class _CurrentUserProviderState extends State<_CurrentUserProvider> {
           _currentContact = contacts.first;
           _isLoading = false;
         });
-        debugPrint('[CurrentUser] Loaded contact: ${_currentContact?.username}');
+        debugPrint(
+            '[CurrentUser] Loaded contact: ${_currentContact?.username}');
       } else {
-        debugPrint('[CurrentUser] No contact found for userId: ${profile.userId}');
+        debugPrint(
+            '[CurrentUser] No contact found for userId: ${profile.userId}');
         setState(() => _isLoading = false);
       }
     } catch (e) {

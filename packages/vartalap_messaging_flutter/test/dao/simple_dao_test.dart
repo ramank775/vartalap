@@ -41,7 +41,7 @@ void main() {
       // Act - Query empty database
       final channels = await channelDao.getChannels().get();
       final contacts = await channelDao.getContacts().get();
-      final chatPreviews = await chatDao.getChatPreviews().get();
+      final chatPreviews = await chatDao.getChatPreviews(currentUserId: 1).get();
 
       // Assert - Should return empty lists, not throw errors
       expect(channels, isEmpty);

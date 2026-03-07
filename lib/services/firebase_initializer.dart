@@ -16,14 +16,16 @@ class FirebaseInitializer {
     debugPrint('🔥 [PERF] Lazy Firebase initialization started');
 
     await Firebase.initializeApp();
-    debugPrint('⏱️ [PERF] Firebase.initializeApp took: ${DateTime.now().difference(firebaseStart).inMilliseconds}ms');
+    debugPrint(
+        '⏱️ [PERF] Firebase.initializeApp took: ${DateTime.now().difference(firebaseStart).inMilliseconds}ms');
 
     final appCheckStart = DateTime.now();
     await FirebaseAppCheck.instance.activate(
-      androidProvider: AndroidProvider.playIntegrity,
-      appleProvider: AppleProvider.appAttestWithDeviceCheckFallback,
+      providerAndroid: AndroidPlayIntegrityProvider(),
+      providerApple: AppleAppAttestProvider(),
     );
-    debugPrint('⏱️ [PERF] FirebaseAppCheck.activate took: ${DateTime.now().difference(appCheckStart).inMilliseconds}ms');
+    debugPrint(
+        '⏱️ [PERF] FirebaseAppCheck.activate took: ${DateTime.now().difference(appCheckStart).inMilliseconds}ms');
 
     _initialized = true;
     debugPrint('✅ [PERF] Firebase lazy initialization completed');
