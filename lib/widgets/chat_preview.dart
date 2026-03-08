@@ -128,7 +128,12 @@ class ChatPreviewWidget extends StatelessWidget {
                     ],
                   ),
                 ),
-                getWidget(context)
+                if (_chat.isPinned)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8.0, left: 4.0),
+                    child: Icon(Icons.push_pin, size: 16, color: Colors.grey),
+                  ),
+                getWidget(context),
               ],
             ),
             onTap: () => _onTap(_chat),

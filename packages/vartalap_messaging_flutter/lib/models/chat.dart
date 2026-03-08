@@ -26,4 +26,6 @@ class ChatPreview {
   bool get isIndividual => channel.type == ChannelType.individual;
   MessageState? get lastMessageState => lastMessage?.state;
   bool get lastMessageIsFromMe => _isMe;
+  bool get isPinned => channel.isPinned;
+  bool get isArchived => channel.isArchived;
 }

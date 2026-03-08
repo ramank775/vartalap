@@ -83,6 +83,9 @@ class ChannelModel {
   }
 
   ChannelConfig get channelConfig => ChannelConfig.fromJson(config);
+
+  bool get isPinned => channelConfig.isPinned;
+  bool get isArchived => channelConfig.isArchived;
 }
 
 class ChannelFilter {

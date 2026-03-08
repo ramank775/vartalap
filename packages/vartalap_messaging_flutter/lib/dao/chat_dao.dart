@@ -58,7 +58,96 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
         contacts,
         contacts.id.equalsExp(messages.senderId),
       ),
+    ])
+      ..where(
+        FunctionCallExpression(
+            "json_extract", [channels.config, const Constant('\$.isArchived')]).isNull() |
+            FunctionCallExpression(
+                "json_extract", [channels.config, const Constant('\$.isArchived')]).equals(false) |
+            FunctionCallExpression(
+                "json_extract", [channels.config, const Constant('\$.isArchived')]).equalsExp(const Constant(0)),
+      );
+
+    query.orderBy([
+      OrderingTerm(
+        expression: FunctionCallExpression(
+            "json_extract", [channels.config, const Constant('\$.isPinned')]),
+        mode: OrderingMode.desc,
+      ),
+      OrderingTerm.desc(
+          // Coalesce: Use message.createdAt if exists, else channel.createdAt
+          FunctionCallExpression(
+              'COALESCE', [messages.createdAt, channels.createdAt]))
     ]);
+
+    return query.asyncMap((row) async {
+      final channel = row.readTable(channels);
+      final sender = row.readTableOrNull(contacts);
+      final msgTable = row.readTableOrNull(messages);
+      final lastMessage = msgTable?.copyWith(sender: sender);
+      final unReadCountExp = messages.id.count().cast<int>();
+      final unreadQuery = selectOnly(messages)
+        ..addColumns([unReadCountExp])
+        ..where(messages.channelId.equals(channel.id) &
+            messages.state.isNotValue(MessageState.read.name))
+        ..limit(10);
+      final unreadCount = await unreadQuery
+              .map((row) => row.read(unReadCountExp))
+              .getSingleOrNull() ??
+          0;
+
+      String? displayImage = channel.displayImage;
+      if (channel.type == ChannelType.individual) {
+        final membersQuery = select(members).join([
+          innerJoin(contacts, contacts.id.equalsExp(members.memberId)),
+        ])
+          ..where(members.channelId.equals(channel.id) &
+              members.memberId.isNotValue(currentUserId))
+          ..limit(1);
+
+        final otherMemberRow = await membersQuery.getSingleOrNull();
+        if (otherMemberRow != null) {
+          final otherContact = otherMemberRow.readTable(contacts);
+          displayImage = otherContact.photo;
+        }
+      }
+
+      return ChatPreview(
+        channel: channel,
+        unreadCount: unreadCount,
+        lastMessage: lastMessage,
+        displayImage: displayImage,
+        isMe: lastMessage?.senderId == currentUserId,
+      );
+    });
+  }
+
+  Selectable<ChatPreview> getArchivedChatPreviews({
+    required int currentUserId,
+    ChannelFilter? filter,
+  }) {
+    final query = select(channels).join([
+      innerJoin(
+        messages,
+        messages.id.isInQuery(selectOnly(messages)
+          ..addColumns([messages.id])
+          ..where(messages.channelId.equalsExp(channels.id))
+          ..orderBy([
+            OrderingTerm.desc(messages.createdAt),
+          ])
+          ..limit(1)),
+      ),
+      leftOuterJoin(
+        contacts,
+        contacts.id.equalsExp(messages.senderId),
+      ),
+    ])
+      ..where(
+        FunctionCallExpression(
+            "json_extract", [channels.config, const Constant('\$.isArchived')]).equalsExp(const Constant(1)) |
+            FunctionCallExpression(
+                "json_extract", [channels.config, const Constant('\$.isArchived')]).equals(true),
+      );
 
     query.orderBy([
       OrderingTerm.desc(

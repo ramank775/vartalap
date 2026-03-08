@@ -690,6 +690,14 @@ class VartalapChatClientFlutter {
     return await _db.channelDao.updateChannel(channel);
   }
 
+  Future<void> setChannelPinned(int channelId, bool isPinned) async {
+    return await _db.channelDao.updateChannelConfig(channelId, {'isPinned': isPinned});
+  }
+
+  Future<void> setChannelArchived(int channelId, bool isArchived) async {
+    return await _db.channelDao.updateChannelConfig(channelId, {'isArchived': isArchived});
+  }
+
   Future<void> deleteChannel(int channelId) async {
     return await _db.channelDao.deleteChannel(channelId);
   }

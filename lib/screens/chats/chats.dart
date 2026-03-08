@@ -128,6 +128,39 @@ class ChatsState extends State<Chats> {
           });
         },
       ));
+
+      if (_selectedChats.length == 1) {
+        final chat = _selectedChats.first;
+        final isPinned = chat.isPinned;
+        final isArchived = chat.isArchived;
+
+        actions.add(IconButton(
+          iconSize: 22,
+          icon: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined),
+          tooltip: isPinned ? 'Unpin chat' : 'Pin chat',
+          onPressed: () async {
+            final client = VartalapClientProvider.of(context).client;
+            await client.setChannelPinned(chat.channel.id, !isPinned);
+            setState(() {
+              _selectedChats = [];
+            });
+          },
+        ));
+
+        actions.add(IconButton(
+          iconSize: 22,
+          icon: Icon(isArchived ? Icons.unarchive : Icons.archive),
+          tooltip: isArchived ? 'Unarchive chat' : 'Archive chat',
+          onPressed: () async {
+            final client = VartalapClientProvider.of(context).client;
+            await client.setChannelArchived(chat.channel.id, !isArchived);
+            setState(() {
+              _selectedChats = [];
+            });
+          },
+        ));
+      }
+
       actions.add(IconButton(
         iconSize: 22,
         icon: const Icon(Icons.delete),
@@ -214,6 +247,8 @@ class ChatsState extends State<Chats> {
             launchUrl(link);
           } else if (value == "Profile") {
             Navigator.of(context).pushNamed('/profile');
+          } else if (value == "Archived Chats") {
+            Navigator.of(context).pushNamed('/archived');
           } else if (value == "Settings") {
             Navigator.of(context).pushNamed('/settings');
           } else if (value == "Logout") {
@@ -224,6 +259,7 @@ class ChatsState extends State<Chats> {
         itemBuilder: (BuildContext context) {
           return <PopupMenuEntry<String>>[
             const PopupMenuItem(value: 'Profile', child: Text("Profile")),
+            const PopupMenuItem(value: 'Archived Chats', child: Text("Archived Chats")),
             const PopupMenuItem(value: 'Settings', child: Text("Settings")),
             const PopupMenuItem(value: 'About Dialog', child: Text("About us")),
             const PopupMenuItem(

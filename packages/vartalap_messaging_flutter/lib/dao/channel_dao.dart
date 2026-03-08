@@ -117,6 +117,23 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
     );
   }
 
+  Future<void> updateChannelConfig(int channelId, Map<String, dynamic> configOverrides) async {
+    return transaction(() async {
+      final query = select(channels)..where((tbl) => tbl.id.equals(channelId));
+      final record = await query.getSingleOrNull();
+      if (record == null) return;
+      
+      final currentConfig = Map<String, dynamic>.from(record.config);
+      currentConfig.addAll(configOverrides);
+      
+      await (update(channels)..where((tbl) => tbl.id.equals(channelId))).write(
+        ChannelsCompanion(
+          config: Value(currentConfig),
+        ),
+      );
+    });
+  }
+
   Future<void> deleteChannel(int channelId) async {
     await (delete(channels)..where((tbl) => tbl.id.equals(channelId))).go();
   }

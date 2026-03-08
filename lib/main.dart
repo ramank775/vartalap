@@ -11,6 +11,7 @@ import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/chat/forward_messages.dart';
 import 'package:vartalap/screens/search/global_search.dart';
+import 'package:vartalap/screens/chats/archived_chats.dart';
 import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/screens/settings/privacy_settings.dart';
 import 'package:vartalap/screens/settings/notification_settings.dart';
@@ -275,6 +276,12 @@ class _VartalapAppState extends State<VartalapApp> {
             widget = _buildAuthenticatedScreen(
               client: client,
               child: const GlobalSearchScreen(),
+            );
+            break;
+          case '/archived':
+            widget = _buildAuthenticatedScreen(
+              client: client,
+              child: const ArchivedChatsScreen(),
             );
             break;
           case '/settings':
