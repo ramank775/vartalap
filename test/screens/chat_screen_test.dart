@@ -172,6 +172,8 @@ void main() {
       // 3. Message should appear
       expect(find.text('Hey there!', findRichText: true), findsOneWidget);
 
+      await tester.pump(const Duration(milliseconds: 300));
+
       // Cleanup
       await tester.pumpWidget(const SizedBox());
       await tester.pumpAndSettle();

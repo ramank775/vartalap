@@ -5,6 +5,7 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/color_helper.dart';
 import 'package:vartalap/utils/date_time_format.dart';
 import 'package:vartalap/widgets/rich_message.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
 class MessageWidget extends StatelessWidget {
@@ -17,6 +18,7 @@ class MessageWidget extends StatelessWidget {
   final Function? onLongPress;
   final bool showUserInfo;
   final bool showNip;
+  final ChatMessage? replyToMessage;
   MessageWidget(
     this._msg,
     this._isYou, {
@@ -27,6 +29,7 @@ class MessageWidget extends StatelessWidget {
     this.onLongPress,
     this.showUserInfo = false,
     this.showNip = true,
+    this.replyToMessage,
   }) : super(key: Key(_msg.id.toString()));
 
   @override
@@ -119,6 +122,53 @@ class MessageWidget extends StatelessWidget {
         ),
       );
     }
+    
+    // Display the replied message
+    if (_msg.replyTo != null && replyToMessage != null) {
+      widgets.add(
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(4),
+            border: Border(
+              left: BorderSide(
+                color: _isYou ? Colors.white : Theme.of(context).primaryColor,
+                width: 4,
+              ),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                replyToMessage!.senderId == CurrentUser.of(context).user?.id
+                    ? 'You'
+                    : replyToMessage!.sender?.displayName ?? 'Unknown',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: _isYou ? Colors.white70 : Theme.of(context).primaryColor,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                replyToMessage!.previewContent,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _isYou ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        )
+      );
+    }
+
     widgets.add(
       Wrap(
         alignment: WrapAlignment.end,

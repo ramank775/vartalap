@@ -1,11 +1,18 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
+import 'package:vartalap/tasks/workmanager_tasks.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
+import 'package:vartalap/screens/chat/forward_messages.dart';
+import 'package:vartalap/screens/settings/settings.dart';
+import 'package:vartalap/screens/settings/privacy_settings.dart';
+import 'package:vartalap/screens/settings/notification_settings.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/profile/profile.dart';
@@ -19,6 +26,8 @@ import 'package:vartalap/widgets/mock_developer_menu.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap_testing/vartalap_testing.dart';
 
+
+
 void main() async {
   final startTime = DateTime.now();
   debugPrint(
@@ -28,6 +37,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint(
       '⏱️ [PERF] WidgetsFlutterBinding took: ${DateTime.now().difference(bindingStart).inMilliseconds}ms');
+
+  // Initialize Workmanager
+  WorkmanagerTasks.initialize();
 
   final configStart = DateTime.now();
   await AppConfig.initialize();
@@ -76,6 +88,7 @@ VartalapChatClientFlutter _createClient() {
     apiBaseUrl: AppConfig.apiUrl,
     wsUrl: AppConfig.wsUrl,
     client: chatClient,
+    onBackgroundTaskRequested: WorkmanagerTasks.registerSyncTask,
   );
 
   client.initAuth(otpProvider);
@@ -247,6 +260,32 @@ class _VartalapAppState extends State<VartalapApp> {
             widget = _buildAuthenticatedScreen(
               client: client,
               child: CreateGroup(settings.arguments as List<Contact>),
+            );
+            break;
+          case '/forward_messages':
+            widget = _buildAuthenticatedScreen(
+              client: client,
+              child: ForwardMessagesScreen(
+                messagesToForward: settings.arguments as List<ChatMessage>,
+              ),
+            );
+            break;
+          case '/settings':
+            widget = _buildAuthenticatedScreen(
+              client: client,
+              child: const SettingsScreen(),
+            );
+            break;
+          case '/settings/privacy':
+            widget = _buildAuthenticatedScreen(
+              client: client,
+              child: const PrivacySettingsScreen(),
+            );
+            break;
+          case '/settings/notifications':
+            widget = _buildAuthenticatedScreen(
+              client: client,
+              child: const NotificationSettingsScreen(),
             );
             break;
           default:

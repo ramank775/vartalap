@@ -4,16 +4,23 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class MessageInputWidget extends StatefulWidget {
   final Function sendMessage;
   final Function(String path, String category)? sendAttachment;
   final Function(bool state)? onTyping;
+  final ChatMessage? replyingTo;
+  final VoidCallback? onCancelReply;
+  
   const MessageInputWidget({
     super.key,
     required this.sendMessage,
     this.sendAttachment,
     this.onTyping,
+    this.replyingTo,
+    this.onCancelReply,
   });
 
   @override
@@ -155,10 +162,54 @@ class MessageInputState extends State<MessageInputWidget> {
       // Allow natural pops (AppBar back button); only intercept when emoji panel is open
       canPop: !_isShowSticker,
       onPopInvokedWithResult: onBackPress,
-      child: Stack(
+      child: Column(
         children: <Widget>[
-          Column(
-            children: <Widget>[buildInput(context), buildSticker(context)],
+          if (widget.replyingTo != null) _buildReplyPreview(),
+          buildInput(context), 
+          buildSticker(context)
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyPreview() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).primaryColorLight,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+          left: BorderSide(color: Theme.of(context).primaryColor, width: 4),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.replyingTo?.senderId == CurrentUser.of(context).user?.id
+                      ? 'You'
+                      : widget.replyingTo?.sender?.displayName ?? 'Unknown',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                ),
+                Text(
+                  widget.replyingTo?.previewContent ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 20),
+            onPressed: widget.onCancelReply,
           ),
         ],
       ),

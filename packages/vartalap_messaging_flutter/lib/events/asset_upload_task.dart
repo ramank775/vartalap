@@ -4,6 +4,7 @@ import 'package:taskq/taskq.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart' hide Task;
 import 'package:vartalap_messaging_flutter/events/vartalap_task.dart';
+import 'package:workmanager/workmanager.dart' hide TaskStatus;
 
 class AssetUploadTask extends VartalapTask<int> {
   static const name = 'asset-upload';
@@ -21,6 +22,19 @@ class AssetUploadTask extends VartalapTask<int> {
           id: id,
           state: state,
         );
+
+  @override
+  Future<void> onStateChange(TaskStatus newState) async {
+    super.onStateChange(newState);
+    if (newState == TaskStatus.scheduled) {
+      // Trigger true background execution via Workmanager
+      Workmanager().registerOneOffTask(
+        "taskq_asset_upload_${DateTime.now().millisecondsSinceEpoch}",
+        "taskq_background_sync", // Using the same sync worker name for now
+        existingWorkPolicy: ExistingWorkPolicy.replace,
+      );
+    }
+  }
 
   @override
   Future<void> process() async {

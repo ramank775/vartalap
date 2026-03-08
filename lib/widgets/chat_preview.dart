@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/date_time_format.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/Inherited/current_user.dart';
+import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ChatPreviewWidget extends StatelessWidget {
@@ -34,6 +36,7 @@ class ChatPreviewWidget extends StatelessWidget {
                     width: 42.0,
                     height: 42.0,
                     text: _chat.displayName,
+                    image: _chat.displayImage,
                   ),
                   isSelected
                       ? Positioned(
@@ -75,11 +78,54 @@ class ChatPreviewWidget extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Text(
-                    _chat.previewContent,
-                    softWrap: false,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 15.0),
+                  child: Row(
+                    children: [
+                      if (_chat.lastMessageIsFromMe) ...[
+                        _buildMessageStatus(),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: Builder(
+                          builder: (context) {
+                            final currentUserIdStr = CurrentUser.of(context).user?.id.toString();
+                            return StreamBuilder<Map<String, dynamic>>(
+                              stream: VartalapClientProvider.of(context)
+                                  .client
+                                  .watchTypingEvents()
+                                  .where((event) {
+                                if (_chat.channel.type == ChannelType.individual) {
+                                  return event['from'] != currentUserIdStr;
+                                } else {
+                                  return event['to'] == _chat.channel.cid &&
+                                      event['from'] != currentUserIdStr;
+                                }
+                              }),
+                              builder: (context, snapshot) {
+                                final isTyping = snapshot.data?['typing'] == true;
+                                if (isTyping) {
+                                  return Text(
+                                    "Typing...",
+                                    softWrap: false,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 15.0,
+                                      color: Theme.of(context).primaryColor,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  );
+                                }
+                                return Text(
+                                  _chat.previewContent,
+                                  softWrap: false,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 15.0),
+                                );
+                              },
+                            );
+                          }
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 getWidget(context)
@@ -126,5 +172,38 @@ class ChatPreviewWidget extends StatelessWidget {
       return "9+";
     }
     return _chat.unreadCount.toString();
+  }
+
+  Widget _buildMessageStatus() {
+    IconData icon;
+    Color color = Colors.grey;
+
+    switch (_chat.lastMessageState) {
+      case MessageState.pending:
+        icon = Icons.access_time;
+        break;
+      case MessageState.sent:
+        icon = Icons.check;
+        break;
+      case MessageState.delivered:
+        icon = Icons.done_all;
+        break;
+      case MessageState.read:
+        icon = Icons.done_all;
+        color = Colors.blue;
+        break;
+      case MessageState.error:
+        icon = Icons.error_outline;
+        color = Colors.red;
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return Icon(
+      icon,
+      size: 16,
+      color: color,
+    );
   }
 }

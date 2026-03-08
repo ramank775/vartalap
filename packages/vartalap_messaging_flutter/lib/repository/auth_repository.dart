@@ -142,6 +142,9 @@ class AuthRepository extends ChangeNotifier {
           payload: assetId,
         );
         await _client.scheduler.schedule(task);
+        
+        // 3. Trigger true background execution via callback
+        _client.onBackgroundTaskRequested?.call();
 
         // 3. Update local state (optimistic)
         final updatedProfile = Profile(

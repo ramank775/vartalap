@@ -60,6 +60,7 @@ dependencies:
     path: ./packages/vartalap_messaging_flutter
   vartalap_messaging:
     path: ./packages/vartalap_messaging
+  workmanager: ^0.9.0+3
 
 dev_dependencies:
   flutter_test:

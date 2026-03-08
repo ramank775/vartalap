@@ -70,6 +70,18 @@ class ChannelModel {
     return "Unknown";
   }
 
+  String? get displayImage {
+    if (extraData != null) {
+      if (extraData!['photo'] != null && extraData!['photo'].toString().isNotEmpty) {
+        return extraData!['photo'] as String;
+      }
+      if (extraData!['image'] != null && extraData!['image'].toString().isNotEmpty) {
+        return extraData!['image'] as String;
+      }
+    }
+    return null;
+  }
+
   ChannelConfig get channelConfig => ChannelConfig.fromJson(config);
 }
 

@@ -37,6 +37,7 @@ class ContactItem extends StatelessWidget {
                 width: 45.0,
                 height: 45.0,
                 text: contact.displayName,
+                image: contact.photo,
               ),
               isSelected
                   ? Positioned(

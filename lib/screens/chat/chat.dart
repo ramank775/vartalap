@@ -34,6 +34,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   final _typing = ValueNotifier<bool>(false);
   Set<ChatMessage> _unreadMessages = <ChatMessage>{};
   final Set<int> _loadingMessages = <int>{};
+  ChatMessage? _replyingTo;
 
   @override
   void initState() {
@@ -99,6 +100,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               Avator(
                 text: chat.displayName,
+                image: chat.channel.displayImage,
                 width: 30.0,
                 height: 30.0,
               )
@@ -204,6 +206,11 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                                 _selectOrRemove(msg);
                               }
                             },
+                            onReply: (ChatMessage msg) {
+                              setState(() {
+                                _replyingTo = msg;
+                              });
+                            },
                             onLongPress: (ChatMessage msg) {
                               if (_selectedMessges.value.isNotEmpty) {
                                 _selectOrRemove(msg);
@@ -241,12 +248,26 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
           ...chat.hasSendMessagePermission()
               ? [
                   MessageInputWidget(
+                    replyingTo: _replyingTo,
+                    onCancelReply: () {
+                      setState(() {
+                        _replyingTo = null;
+                      });
+                    },
                     sendMessage: (String text) async {
                       final msg = ChatMessage.text(
                         channelId: chat.channel.id,
                         senderId: chat.currentUser.id,
                         text: text,
+                        replyToMessageId: _replyingTo?.id,
                       ).copyWith(sender: chat.currentUser);
+
+                      // Clear replying state immediately on send
+                      if (_replyingTo != null) {
+                        setState(() {
+                          _replyingTo = null;
+                        });
+                      }
 
                       try {
                         // The UI simply requests to send the message.
@@ -259,7 +280,13 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                     },
                     sendAttachment: (String path, String category) async {
                       try {
-                        await chat.sendAttachment(path, category);
+                        // Clear replying state 
+                        if (_replyingTo != null) {
+                          setState(() {
+                            _replyingTo = null;
+                          });
+                        }
+                        await chat.sendAttachment(path, category); // Note: attachment replies not yet supported by sendAttachment
                       } catch (e) {
                         _showErrorSnackBar('Failed to send attachment: $e');
                       }
@@ -431,6 +458,23 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
             },
           ));
           actions.add(IconButton(
+            icon: Icon(Icons.reply), // Used as a forward icon (right-pointing arrow context) in many cases but let's use shortcut
+            onPressed: () {
+              // Get selected messages using _messageController
+              final selectedMsgs = _selectedMessges.value
+                  .map((id) => _messageController.messageChangeNotifier[id]?.value)
+                  .where((msg) => msg != null)
+                  .cast<ChatMessage>()
+                  .toList();
+                  
+              // Sort them sequentially by timestamp if needed
+              selectedMsgs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+              // Navigate to a forwarding screen
+              Navigator.of(context).pushNamed('/forward_messages', arguments: selectedMsgs);
+            },
+          ));
+          actions.add(IconButton(
             icon: Icon(Icons.delete),
             onPressed: () async {
               final selectedIds = _selectedMessges.value.toList();
@@ -500,6 +544,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _onReadTimerTimeout() async {
+    if (!mounted) return;
     if (_unreadMessages.isEmpty) return;
     _unreadMessages = <ChatMessage>{};
 
@@ -511,6 +556,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       debugPrint('Failed to mark messages as read: $e');
     }
 
+    if (!mounted) return;
     if (_unreadMessages.isNotEmpty &&
         (_readTimer == null || !_readTimer!.isActive)) {
       _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);

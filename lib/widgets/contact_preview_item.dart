@@ -18,6 +18,7 @@ class ContactPreviewItem extends StatelessWidget {
           height: 45,
           width: 45,
           text: contact.displayName,
+          image: contact.photo,
         ),
         SizedBox(
           height: 2,

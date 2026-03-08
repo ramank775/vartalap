@@ -46,6 +46,7 @@ class IndividualChatInfo extends StatelessWidget {
                           height: 140,
                           width: 140,
                           text: contact.displayName,
+                          image: contact.photo,
                         ),
                       ),
                       const SizedBox(height: 20),

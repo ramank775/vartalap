@@ -3,6 +3,7 @@ import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 
 import 'package:vartalap_messaging_flutter/entity/entity.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
+import 'package:vartalap_messaging/vartalap_messaging.dart' show ChannelType;
 
 
 part 'chat_dao.g.dart';
@@ -82,10 +83,28 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
               .getSingleOrNull() ??
           0;
 
+      String? displayImage = channel.displayImage;
+      if (channel.type == ChannelType.individual) {
+        final membersQuery = select(members).join([
+          innerJoin(contacts, contacts.id.equalsExp(members.memberId)),
+        ])
+          ..where(members.channelId.equals(channel.id) &
+              members.memberId.isNotValue(currentUserId))
+          ..limit(1);
+
+        final otherMemberRow = await membersQuery.getSingleOrNull();
+        if (otherMemberRow != null) {
+          final otherContact = otherMemberRow.readTable(contacts);
+          displayImage = otherContact.photo;
+        }
+      }
+
       return ChatPreview(
         channel: channel,
         unreadCount: unreadCount,
         lastMessage: lastMessage,
+        displayImage: displayImage,
+        isMe: lastMessage?.senderId == currentUserId,
       );
     });
   }

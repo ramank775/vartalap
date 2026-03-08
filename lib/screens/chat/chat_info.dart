@@ -46,6 +46,7 @@ class _ChatInfoState extends State<ChatInfo> with ErrorHandlingMixin {
                             height: 50,
                             width: 50,
                             text: widget.chat.displayName,
+                            image: widget.chat.channel.displayImage,
                           ),
                         ),
                         title: Text(

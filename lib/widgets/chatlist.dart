@@ -82,6 +82,7 @@ class ChatList extends StatelessWidget {
   final bool showName;
   final MessageTapCallback? onTab;
   final MessageLongPressCallback? onLongPress;
+  final Function(ChatMessage)? onReply;
   final Map<String, Member> members;
   final Set<int>? loadingMessages;
   final Contact? currentUser;
@@ -94,6 +95,7 @@ class ChatList extends StatelessWidget {
     this.showName = false,
     this.onLongPress,
     this.onTab,
+    this.onReply,
     this.loadingMessages,
     this.currentUser,
     this.scrollController,
@@ -158,17 +160,47 @@ class ChatList extends StatelessWidget {
 
       final notifier = controller.getNewNotifier(msg);
       final isLoading = loadingMessages?.contains(msg.id) ?? false;
+      
+      ChatMessage? replyToMessage;
+      if (msg.replyTo != null) {
+        final idx = controller.value.indexWhere((m) => m.id == msg.replyTo);
+        if (idx != -1) {
+          replyToMessage = controller.value[idx];
+        } else {
+          // If it's not in the current list, try fetching it from DB later 
+          // (For now will just not render reply content if not loaded)
+        }
+      }
+
       Widget child = ValueListenableBuilder<ChatMessage>(
         builder: (context, key, child) {
-          return MessageWidget(
-            msg,
-            isYou,
-            showUserInfo: showUserInfo,
-            isSelected: msg.isSelected,
-            showNip: showNip,
-            isLoading: isLoading,
-            onTab: onTab,
-            onLongPress: onLongPress,
+          return Dismissible(
+            key: Key('msg_${msg.id}'),
+            direction: DismissDirection.startToEnd,
+            confirmDismiss: (direction) async {
+              // Trigger reply callback if defined
+              if (onReply != null) {
+                onReply!(msg);
+              }
+              return false; // Never actually dismiss the widget
+            },
+            background: Container(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 20.0),
+              color: Colors.transparent,
+              child: const Icon(Icons.reply, color: Colors.grey),
+            ),
+            child: MessageWidget(
+              msg,
+              isYou,
+              showUserInfo: showUserInfo,
+              isSelected: msg.isSelected,
+              showNip: showNip,
+              isLoading: isLoading,
+              onTab: onTab,
+              onLongPress: onLongPress,
+              replyToMessage: replyToMessage,
+            ),
           );
         },
         valueListenable: notifier,

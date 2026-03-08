@@ -77,12 +77,16 @@ class ChatMessage {
     int id = 0,
     MessageState state = MessageState.pending,
     DateTime? timestamp,
+    int? replyToMessageId,
   }) {
     return ChatMessage(
       id: id,
       type: MessageType.text,
       state: state,
-      payload: {'text': text},
+      payload: {
+        'text': text,
+        if (replyToMessageId != null) 'replyTo': replyToMessageId,
+      },
       channelId: channelId,
       senderId: senderId,
       localCreatedAt: timestamp ?? DateTime.now(),
@@ -99,12 +103,17 @@ class ChatMessage {
     MessageState state = MessageState.pending,
     DateTime? timestamp,
     List<Attachment> attachments = const [],
+    int? replyToMessageId,
   }) {
     return ChatMessage(
       id: id,
       type: MessageType.image,
       state: state,
-      payload: {'path': path, 'name': name},
+      payload: {
+        'path': path, 
+        'name': name,
+        if (replyToMessageId != null) 'replyTo': replyToMessageId,
+      },
       channelId: channelId,
       senderId: senderId,
       localCreatedAt: timestamp ?? DateTime.now(),
@@ -118,13 +127,19 @@ class ChatMessage {
     List<Attachment>? attachments,
     MessageState? state,
     Map<String, dynamic>? payload,
+    int? replyToMessageId,
   }) {
+    final newPayload = Map<String, dynamic>.from(payload ?? this.payload);
+    if (replyToMessageId != null) {
+      newPayload['replyTo'] = replyToMessageId;
+    }
+
     return ChatMessage(
       id: id,
       rid: rid,
       type: type,
       state: state ?? this.state,
-      payload: payload ?? this.payload,
+      payload: newPayload,
       channelId: channelId,
       senderId: senderId,
       localCreatedAt: localCreatedAt,
@@ -148,20 +163,27 @@ class ChatMessage {
     }
   }
 
+
+
+  String get text => payload['text'] ?? '';
+  String get assetPath => payload['path'] ?? '';
+  String get assetName => payload['name'] ?? '';
+  int? get replyTo => payload['replyTo'] as int?;
+
   String get previewContent {
     switch (type) {
       case MessageType.text:
         return text;
       case MessageType.image:
-        return 'Image';
+        return '📷 Image';
+      case MessageType.video:
+        return '📹 Video';
+      case MessageType.attachment:
+        return '📎 Attachment';
       default:
-        return '';
+        return 'Message';
     }
   }
-
-  String get text => payload['text'] ?? '';
-  String get assetPath => payload['path'] ?? '';
-  String get assetName => payload['name'] ?? '';
 
   // UI helper
   bool isSelected = false;

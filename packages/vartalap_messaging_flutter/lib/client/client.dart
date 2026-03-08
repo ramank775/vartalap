@@ -70,6 +70,7 @@ class VartalapChatClientFlutter {
   bool _isInitialized = false;
   final bool _inMemory;
   StreamSubscription? _eventStreamSubscription;
+  final void Function()? onBackgroundTaskRequested;
 
   ChatDatabase get db => _db;
 
@@ -83,6 +84,7 @@ class VartalapChatClientFlutter {
     VartalapChatClient? client,
     TokenManager? tokenManager,
     bool inMemory = false,
+    this.onBackgroundTaskRequested,
   }) : _inMemory = inMemory {
     // Priority: 1. Constructor param, 2. Provided client's manager, 3. Default secure storage
     _tokenManager =
@@ -430,6 +432,27 @@ class VartalapChatClientFlutter {
   /// Getter for the ephemeral event bus
   Stream<messaging.RemoteMessage> get ephemeralEvents => _eventBus.stream;
 
+  /// Watch global typing events
+  /// Emits Map containing channelId and a boolean indicating if someone is typing
+  Stream<Map<String, dynamic>> watchTypingEvents() {
+    return _eventBus.stream
+        .where((event) => event.head.category == 'typing')
+        .map((event) {
+      final from = event.head.from;
+      final to = event.head.to; // This is the channel ID for groups
+      
+      final isTyping = event.body is Map
+          ? event.body['typing'] as bool? ?? false
+          : false;
+          
+      return {
+        'from': from,
+        'to': to,
+        'typing': isTyping,
+      };
+    });
+  }
+
   /// Dispose resources
   void dispose() {
     _eventStreamSubscription?.cancel();
@@ -776,6 +799,9 @@ class VartalapChatClientFlutter {
         payload: SendMessage(channelId, [msgId]),
       );
       await scheduler.schedule(task);
+
+      // 5. Trigger true background execution via callback
+      onBackgroundTaskRequested?.call();
     });
   }
 

@@ -206,6 +206,8 @@ class ChatsState extends State<Chats> {
             launchUrl(link);
           } else if (value == "Profile") {
             Navigator.of(context).pushNamed('/profile');
+          } else if (value == "Settings") {
+            Navigator.of(context).pushNamed('/settings');
           } else if (value == "Logout") {
             final auth = Provider.of<AuthRepository>(context, listen: false);
             await auth.logout();
@@ -214,6 +216,7 @@ class ChatsState extends State<Chats> {
         itemBuilder: (BuildContext context) {
           return <PopupMenuEntry<String>>[
             const PopupMenuItem(value: 'Profile', child: Text("Profile")),
+            const PopupMenuItem(value: 'Settings', child: Text("Settings")),
             const PopupMenuItem(value: 'About Dialog', child: Text("About us")),
             const PopupMenuItem(
               value: 'Privacy Policy',

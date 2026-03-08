@@ -232,6 +232,7 @@ class __CreateGroupFormState extends State<_CreateGroupForm> {
               width: 55,
               height: 55,
               text: value.isEmpty ? "Group Icon" : value,
+              image: null, // Note: Group creation image selection is not yet implemented
             ),
             title: Padding(
               padding: EdgeInsets.symmetric(horizontal: 10),
