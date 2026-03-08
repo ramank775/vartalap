@@ -169,6 +169,14 @@ class ChatsState extends State<Chats> {
           }
         },
       ));
+    } else {
+      actions.add(IconButton(
+        iconSize: 22,
+        icon: const Icon(Icons.search),
+        onPressed: () {
+          Navigator.of(context).pushNamed('/search');
+        },
+      ));
     }
     actions.add(
       PopupMenuButton(

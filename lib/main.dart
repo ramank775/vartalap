@@ -10,6 +10,7 @@ import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/verify_otp.dart';
 import 'package:vartalap/screens/new_chat/create_group.dart';
 import 'package:vartalap/screens/chat/forward_messages.dart';
+import 'package:vartalap/screens/search/global_search.dart';
 import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/screens/settings/privacy_settings.dart';
 import 'package:vartalap/screens/settings/notification_settings.dart';
@@ -268,6 +269,12 @@ class _VartalapAppState extends State<VartalapApp> {
               child: ForwardMessagesScreen(
                 messagesToForward: settings.arguments as List<ChatMessage>,
               ),
+            );
+            break;
+          case '/search':
+            widget = _buildAuthenticatedScreen(
+              client: client,
+              child: const GlobalSearchScreen(),
             );
             break;
           case '/settings':

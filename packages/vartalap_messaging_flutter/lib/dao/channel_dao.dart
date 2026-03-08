@@ -229,4 +229,12 @@ class ChannelDao extends DatabaseAccessor<ChatDatabase> with _$ChannelDaoMixin {
       ),
     );
   }
+
+  Selectable<Contact> searchContacts(String query) {
+    return select(contacts)
+      ..where((tbl) =>
+          tbl.name.like('%$query%') |
+          tbl.username.like('%$query%') |
+          tbl.phone.like('%$query%'));
+  }
 }

@@ -261,4 +261,10 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     await (delete(messages)..where((tbl) => tbl.channelId.equals(channelId)))
         .go();
   }
+
+  Selectable<ChatMessage> searchMessages(String query) {
+    return select(messages)
+      ..where((tbl) => tbl.payload.like('%$query%'))
+      ..orderBy([(tbl) => OrderingTerm.desc(tbl.createdAt)]);
+  }
 }
