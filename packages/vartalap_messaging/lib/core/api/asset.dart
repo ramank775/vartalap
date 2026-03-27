@@ -36,7 +36,7 @@ class AssetApi extends BaseApi {
       path: '$assetId/status',
     );
 
-    final response = await client.post(path, data: {'status': true});
+    final response = await client.put(path, data: {'status': true});
     return EmptyResponse.fromJson(response.data);
   }
 }

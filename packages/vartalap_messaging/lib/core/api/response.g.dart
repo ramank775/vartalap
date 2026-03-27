@@ -53,4 +53,4 @@ AssetPreSignedUrlResponse _$AssetPreSignedUrlResponseFromJson(
         Map<String, dynamic> json) =>
     AssetPreSignedUrlResponse()
       ..url = json['url'] as String
-      ..assetId = json['assetId'] as String?;
+      ..assetId = json['fileId'] as String?;

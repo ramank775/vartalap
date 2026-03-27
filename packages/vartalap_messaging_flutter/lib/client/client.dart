@@ -137,6 +137,9 @@ class VartalapChatClientFlutter {
       await _initializeEventStreaming();
 
       _isInitialized = true;
+
+      // Step 5: Sync missed messages and contacts in background
+      triggerSync();
     } catch (e) {
       if (e is VartalapInitializationException) {
         rethrow;
@@ -720,7 +723,10 @@ class VartalapChatClientFlutter {
     final contactTask = factory.create(SyncContactsTask.name);
     await scheduler.schedule(contactTask);
 
-    // 2. Sync Messages
+    // 2. Sync Channels
+    syncChannels();
+
+    // 3. Sync Messages
     final messageTask = factory.create(SyncMessageTask.name);
     await scheduler.schedule(messageTask);
 
@@ -728,26 +734,64 @@ class VartalapChatClientFlutter {
   }
 
   Future<void> syncChannels() async {
-    return;
-    // final channels = await client.queryChannels();
-    // await _db.transaction(() async {
-    //   await _db.delete(_db.channels).go();
-    //   await _db.batch((batch) {
-    //     batch.insertAll(
-    //       _db.channels,
-    //       channels.items
-    //           .map((channel) => ChannelsCompanion.insert(
-    //                 type: ChannelType.values.byName(channel.type),
-    //                 config: Value(Map<String, dynamic>.from({})),
-    //                 extraData: Value({
-    //                   "name": channel.name,
-    //                   "image": channel.profilePic,
-    //                 }),
-    //               ))
-    //           .toList(),
-    //     );
-    //   });
-    // });
+    try {
+      final channels = await client.queryChannels();
+
+      for (final remote in channels.items) {
+        if (remote.channelId == null) continue;
+
+        // Check if channel already exists locally
+        final existing = await (_db.select(_db.channels)
+              ..where((tbl) => tbl.cid.equals(remote.channelId!)))
+            .getSingleOrNull();
+
+        if (existing != null) {
+          // Update extraData if changed
+          await (_db.update(_db.channels)
+                ..where((tbl) => tbl.id.equals(existing.id)))
+              .write(ChannelsCompanion(
+            extraData: Value({
+              'name': remote.name,
+              'image': remote.profilePic,
+            }),
+            updatedAt: Value(DateTime.now()),
+          ));
+        } else {
+          // Create new channel locally
+          final channelType = messaging.ChannelType.values
+              .byName(remote.type);
+          final newChannel = await _db
+              .into(_db.channels)
+              .insertReturning(ChannelsCompanion.insert(
+                type: channelType,
+                cid: Value(remote.channelId!),
+                extraData: Value({
+                  'name': remote.name,
+                  'image': remote.profilePic,
+                }),
+                config: Value(<String, dynamic>{}),
+              ));
+
+          // Add members
+          for (final memberUid in remote.members) {
+            final contact = await (_db.select(_db.contacts)
+                  ..where((tbl) => tbl.uid.equals(memberUid)))
+                .getSingleOrNull();
+
+            if (contact != null) {
+              await _db
+                  .into(_db.members)
+                  .insert(MembersCompanion.insert(
+                    channelId: newChannel.id,
+                    memberId: contact.id,
+                  ));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[CLIENT] Channel sync failed: $e');
+    }
   }
 
   Future<void> syncContacts(List<Contact> contacts) async {
@@ -816,11 +860,8 @@ class VartalapChatClientFlutter {
   }
 
   Future<void> syncMessages() async {
-    await _db.transaction(() async {
-      // SyncMessageTask task =
-      //     factory.create(SyncMessageTask.name) as SyncMessageTask;
-      // await scheduler.schedule(task);
-    });
+    final task = factory.create(SyncMessageTask.name);
+    await scheduler.schedule(task);
   }
 
   /// Logout and clear all data

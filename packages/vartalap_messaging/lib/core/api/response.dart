@@ -120,7 +120,7 @@ class AssetPreSignedUrlResponse {
   @JsonKey()
   late String url;
 
-  @JsonKey()
+  @JsonKey(name: 'fileId')
   late String? assetId;
 
   static AssetPreSignedUrlResponse fromJson(Map<String, dynamic> json) =>

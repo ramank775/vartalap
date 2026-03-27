@@ -24,61 +24,97 @@ class SyncMessageTask extends VartalapTask<void> {
 
   @override
   Future<void> process() async {
-    // 1. Fetch missed messages from server
     final remoteMessages = await client.syncMessages();
     if (remoteMessages.isEmpty) return;
 
-    await db.transaction(() async {
-      for (final remoteMsg in remoteMessages) {
-        // 2. Resolve local channel ID
-        final channelRow = await (db.select(db.channels)
+    final myUid = await client.getLoggedInUser();
+
+    for (final remoteMsg in remoteMessages) {
+      // Skip duplicates
+      final existingMsg = await (db.select(db.messages)
+            ..where((tbl) => tbl.rid.equals(remoteMsg.id)))
+          .getSingleOrNull();
+      if (existingMsg != null) continue;
+
+      // Resolve channel
+      ChannelModel? channelRow;
+      final isIndividual =
+          remoteMsg.head.type == messaging.ChannelType.individual;
+
+      if (isIndividual && remoteMsg.head.to == myUid) {
+        // Incoming 1-1: find channel by sender's UID in members
+        channelRow = await (db.select(db.channels).join([
+          innerJoin(db.members, db.members.channelId.equalsExp(db.channels.id)),
+          innerJoin(db.contacts, db.contacts.id.equalsExp(db.members.memberId)),
+        ])
+              ..where(db.contacts.uid.equals(remoteMsg.head.from) &
+                  db.channels.type
+                      .equals(messaging.ChannelType.individual.name)))
+            .map((row) => row.readTable(db.channels))
+            .getSingleOrNull();
+      } else {
+        // Group message or outgoing 1-1: channel CID matches 'to'
+        channelRow = await (db.select(db.channels)
               ..where((tbl) => tbl.cid.equals(remoteMsg.head.to)))
             .getSingleOrNull();
-        
-        if (channelRow == null) {
-          // TODO: If channel doesn't exist, we might need to fetch channel info
-          // and create it locally first. For now, skip.
-          debugPrint('[SYNC] Channel ${remoteMsg.head.to} not found locally, skipping message');
-          continue;
-        }
-
-        // 3. Resolve local sender ID (Contact)
-        final senderRow = await (db.select(db.contacts)
-              ..where((tbl) => tbl.uid.equals(remoteMsg.head.from)))
-            .getSingleOrNull();
-
-        int localSenderId;
-        if (senderRow == null) {
-          // Create a placeholder contact if not found
-          localSenderId = await db.into(db.contacts).insert(ContactsCompanion.insert(
-            uid: Value(remoteMsg.head.from),
-            username: Value(remoteMsg.head.from),
-            status: ContactStatus.active,
-          ));
-        } else {
-          localSenderId = senderRow.id;
-        }
-
-        // 4. Check if message already exists (prevent duplicates)
-        final existingMsg = await (db.select(db.messages)
-              ..where((tbl) => tbl.rid.equals(remoteMsg.id)))
-            .getSingleOrNull();
-        
-        if (existingMsg != null) continue;
-
-        // 5. Insert message locally
-        await db.into(db.messages).insert(MessagesCompanion.insert(
-          rid: Value(remoteMsg.id),
-          type: _mapRemoteTypeToLocal(remoteMsg.head.category),
-          state: MessageState.delivered, // Already on server, so delivered
-          payload: remoteMsg.body as Map<String, dynamic>,
-          channelId: channelRow.id,
-          senderId: localSenderId,
-          remoteCreatedAt: Value(DateTime.fromMillisecondsSinceEpoch(remoteMsg.meta.createdAt)),
-          updatedAt: Value(DateTime.now()),
-        ));
       }
-    });
+
+      // Ensure sender contact exists
+      var senderRow = await (db.select(db.contacts)
+            ..where((tbl) => tbl.uid.equals(remoteMsg.head.from)))
+          .getSingleOrNull();
+
+      int localSenderId;
+      if (senderRow == null) {
+        localSenderId =
+            await db.into(db.contacts).insert(ContactsCompanion.insert(
+                  uid: Value(remoteMsg.head.from),
+                  username: Value(remoteMsg.head.from),
+                  status: ContactStatus.active,
+                ));
+      } else {
+        localSenderId = senderRow.id;
+      }
+
+      // Auto-create 1-1 channel if missing
+      if (channelRow == null && isIndividual) {
+        channelRow = await db.into(db.channels).insertReturning(
+              ChannelsCompanion.insert(
+                type: messaging.ChannelType.individual,
+                cid: Value(remoteMsg.head.from),
+                extraData: Value({
+                  'name': senderRow?.displayName ?? remoteMsg.head.from
+                }),
+                config: Value(<String, dynamic>{}),
+              ),
+            );
+        await db.into(db.members).insert(MembersCompanion.insert(
+              channelId: channelRow.id,
+              memberId: localSenderId,
+            ));
+        debugPrint(
+            '[SYNC] Auto-created channel for ${remoteMsg.head.from}');
+      }
+
+      if (channelRow == null) {
+        debugPrint(
+            '[SYNC] Channel not found for message ${remoteMsg.id}, skipping');
+        continue;
+      }
+
+      // Insert message
+      await db.into(db.messages).insert(MessagesCompanion.insert(
+            rid: Value(remoteMsg.id),
+            type: _mapRemoteTypeToLocal(remoteMsg.head.category),
+            state: MessageState.delivered,
+            payload: remoteMsg.body as Map<String, dynamic>,
+            channelId: channelRow.id,
+            senderId: localSenderId,
+            remoteCreatedAt: Value(DateTime.fromMillisecondsSinceEpoch(
+                remoteMsg.meta.createdAt)),
+            updatedAt: Value(DateTime.now()),
+          ));
+    }
   }
 
   MessageType _mapRemoteTypeToLocal(String category) {
