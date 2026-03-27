@@ -66,10 +66,13 @@ class VartalapApiRequestTask extends VartalapTask<ApiRequestPayload> {
         await client.removeChannelMember(channelId, memberId);
         break;
       case VartalapApiMethod.updateProfile:
-        // Placeholder for future profile update implementation
+        await client.updateProfile(payload.data);
         break;
       case VartalapApiMethod.updateChannel:
-        // Placeholder for future channel update implementation
+        final channelId = payload.data['channelId'] as String;
+        final updates = Map<String, dynamic>.from(payload.data)
+          ..remove('channelId');
+        await client.updateChannel(channelId, updates);
         break;
     }
   }

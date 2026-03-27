@@ -79,6 +79,10 @@ class VartalapChatClient {
     return await _apiClient.user.get(userId);
   }
 
+  Future<ProfileResponse> updateProfile(Map<String, dynamic> updates) async {
+    return await _apiClient.user.update(updates);
+  }
+
   Future<CreateChannelResponse> createChannel(ChannelPayload channel) async {
     return await _apiClient.channel.create(channel);
   }
@@ -89,6 +93,11 @@ class VartalapChatClient {
 
   Future<ChannelResponse> getChannelInfo(String channelId) async {
     return await _apiClient.channel.getInfo(channelId);
+  }
+
+  Future<ChannelResponse> updateChannel(
+      String channelId, Map<String, dynamic> updates) async {
+    return await _apiClient.channel.update(channelId, updates);
   }
 
   Future<void> addChannelMembers(

@@ -113,7 +113,22 @@ class AuthRepository extends ChangeNotifier {
     await _client.saveUserProfile(updated);
     _currentUser = updated;
     notifyListeners();
-    // Todo: sync
+
+    // Sync to server in background
+    final updates = <String, dynamic>{};
+    if (name != null) updates['name'] = name;
+    if (image != null) updates['image'] = image;
+    if (updates.isNotEmpty) {
+      final task = _client.factory.create(
+        VartalapApiRequestTask.name,
+        payload: ApiRequestPayload(
+          method: VartalapApiMethod.updateProfile,
+          data: updates,
+        ),
+      );
+      await _client.scheduler.schedule(task);
+      _client.onBackgroundTaskRequested?.call();
+    }
   }
 
   /// Update the current user profile image

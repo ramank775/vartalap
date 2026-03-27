@@ -24,6 +24,13 @@ class ChannelApi extends BaseApi {
     return ChannelResponse.fromJson(response.data);
   }
 
+  Future<ChannelResponse> update(
+      String channelId, Map<String, dynamic> updates) async {
+    final path = endpoint(path: '/$channelId');
+    final response = await client.put(path, data: updates);
+    return ChannelResponse.fromJson(response.data);
+  }
+
   Future<EmptyResponse> addMembers(
       String channelId, List<String> members) async {
     final path = endpoint(path: '$channelId/members');

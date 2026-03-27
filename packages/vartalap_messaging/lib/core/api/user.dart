@@ -10,4 +10,10 @@ class UserApi extends BaseApi {
     final response = await client.get(path);
     return ProfileResponse.fromJson(response.data);
   }
+
+  Future<ProfileResponse> update(Map<String, dynamic> updates) async {
+    final path = endpoint(path: '');
+    final response = await client.put(path, data: updates);
+    return ProfileResponse.fromJson(response.data);
+  }
 }
