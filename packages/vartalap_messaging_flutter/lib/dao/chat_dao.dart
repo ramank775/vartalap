@@ -63,8 +63,6 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
         FunctionCallExpression(
             "json_extract", [channels.config, const Constant('\$.isArchived')]).isNull() |
             FunctionCallExpression(
-                "json_extract", [channels.config, const Constant('\$.isArchived')]).equals(false) |
-            FunctionCallExpression(
                 "json_extract", [channels.config, const Constant('\$.isArchived')]).equalsExp(const Constant(0)),
       );
 
@@ -144,9 +142,7 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
     ])
       ..where(
         FunctionCallExpression(
-            "json_extract", [channels.config, const Constant('\$.isArchived')]).equalsExp(const Constant(1)) |
-            FunctionCallExpression(
-                "json_extract", [channels.config, const Constant('\$.isArchived')]).equals(true),
+            "json_extract", [channels.config, const Constant('\$.isArchived')]).equalsExp(const Constant(1)),
       );
 
     query.orderBy([
