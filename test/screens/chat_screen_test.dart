@@ -4,7 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/widgets/message_input.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
@@ -47,9 +47,8 @@ void main() {
 
   Widget createChatScreen(ChatClient chatClient) {
     return MaterialApp(
-      home: VartalapClientProvider(
-        client: flutterClient,
-        connectionState: ClientConnectionState.connected,
+      home: Provider<VartalapChatClientFlutter>.value(
+        value: flutterClient,
         child: CurrentUser(
           user: currentUser,
           child: ChatScreen(chatClient),

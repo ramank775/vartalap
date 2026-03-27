@@ -2,7 +2,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/contact.dart';
@@ -38,7 +38,7 @@ class NewChatState extends State<NewChatScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    client = VartalapClientProvider.of(context).client;
+    client = context.read<VartalapChatClientFlutter>();
     _updateStreams();
   }
 
@@ -462,7 +462,7 @@ class ContactList extends StatelessWidget {
                 contact: data.elementAt(i),
                 onProfileTap: () => {},
                 onTap: (Contact user) async {
-                  final client = VartalapClientProvider.of(context).client;
+                  final client = context.read<VartalapChatClientFlutter>();
                   final loggedInUser = CurrentUser.of(context).user;
 
                   final channels = await client

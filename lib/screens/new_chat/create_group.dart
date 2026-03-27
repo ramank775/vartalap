@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/contact_preview_item.dart';
 import 'package:vartalap/widgets/loading_indicator.dart';
@@ -19,7 +19,7 @@ class _CreateGroupState extends State<CreateGroup> with ErrorHandlingMixin {
   bool _isCreatingGroup = false;
 
   Future<void> _onGroupNameConfirm(String name) async {
-    final client = VartalapClientProvider.of(context).client;
+    final client = context.read<VartalapChatClientFlutter>();
 
     if (name.trim().isEmpty) {
       showErrorSnackBar(

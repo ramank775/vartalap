@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/widgets/contact_preview_item.dart';
 import 'package:vartalap/widgets/contact.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
@@ -35,7 +35,7 @@ class SelectGroupMemberState extends State<SelectGroupMemberScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    client = VartalapClientProvider.of(context).client;
+    client = context.read<VartalapChatClientFlutter>();
     _contacts = client.getContacts(
       filter: ContactFilter(
         status: ContactStatus.active,

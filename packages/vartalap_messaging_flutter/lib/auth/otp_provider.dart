@@ -61,27 +61,6 @@ class OTPCredential {
   }
 }
 
-class OTPOptions {
-  final int? timeoutSeconds;
-  final bool useVoiceCall;
-  final String? customTemplate;
-  final Map<String, dynamic>? providerOptions;
-
-  const OTPOptions({
-    this.timeoutSeconds,
-    this.useVoiceCall = false,
-    this.customTemplate,
-    this.providerOptions,
-  });
-
-  factory OTPOptions.defaults() {
-    return const OTPOptions(
-      timeoutSeconds: 60,
-      useVoiceCall: false,
-    );
-  }
-}
-
 enum AuthErrorType {
   otpDelivery,
   otpVerification,
@@ -136,16 +115,4 @@ class AuthError implements Exception {
 
   @override
   String toString() => 'AuthError($type): $message';
-}
-
-class OTPProviderCapabilities {
-  final bool canResend;
-  final bool supportsVoice;
-  final bool supportsEmail;
-
-  const OTPProviderCapabilities({
-    this.canResend = true,
-    this.supportsVoice = false,
-    this.supportsEmail = false,
-  });
 }

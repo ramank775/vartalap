@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
@@ -19,14 +18,13 @@ import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/new_chat/select_group_member.dart';
 import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/screens/startup/startup.dart';
-import 'package:vartalap/services/otp/firebase_otp_provider.dart';
-import 'package:vartalap/services/otp/iotp_provider.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:vartalap/config/client_factory.dart';
+import 'package:vartalap/services/firebase_initializer.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/mock_developer_menu.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
-import 'package:vartalap_testing/vartalap_testing.dart';
 
 
 
@@ -50,7 +48,7 @@ void main() async {
 
   // Create and initialize auth client before running the app
   final authClientStart = DateTime.now();
-  final client = _createClient();
+  final client = _createAppClient();
 
   // Restore session
   await client.auth.checkAuth();
@@ -69,37 +67,28 @@ void main() async {
   debugPrint('✅ [PERF] Firebase deferred to lazy initialization');
 }
 
-VartalapChatClientFlutter _createClient() {
-  // Create appropriate client based on MOCK_MODE flag
-  final tokenManager = SecureStorageTokenManager();
-  final chatClient = AppConfig.isMockMode
-      ? MockVartalapChatClient(tokenManager: tokenManager)
-      : VartalapChatClient(
-          apiKey: AppConfig.apiKey,
-          apiBaseUrl: AppConfig.apiUrl,
-          wsUrl: AppConfig.wsUrl,
-          tokenManager: tokenManager,
-        );
-
-  // Create appropriate OTP provider based on MOCK_MODE flag
-  final otpProvider =
-      AppConfig.isMockMode ? MockOTPProvider() : FirebaseOTPProvider();
-
-  final client = VartalapChatClientFlutter(
-    apiKey: AppConfig.apiKey,
-    apiBaseUrl: AppConfig.apiUrl,
-    wsUrl: AppConfig.wsUrl,
-    client: chatClient,
+VartalapChatClientFlutter _createAppClient() {
+  final client = createClient(
+    reportError: _reportError,
     onBackgroundTaskRequested: WorkmanagerTasks.registerSyncTask,
   );
 
-  client.initAuth(otpProvider);
-
   if (AppConfig.isMockMode) {
-    debugPrint('🎭 [MOCK] Running in MOCK MODE - no server required!');
+    debugPrint('[MOCK] Running in MOCK MODE - no server required!');
   }
 
   return client;
+}
+
+Future<void> _reportError(dynamic exception, StackTrace stack,
+    {String? reason}) async {
+  try {
+    await FirebaseInitializer.ensureInitialized();
+    await FirebaseCrashlytics.instance
+        .recordError(exception, stack, reason: reason, printDetails: false);
+  } catch (e) {
+    debugPrint('Failed to report error: $e');
+  }
 }
 
 /// Main App Widget with Unified Authentication
@@ -323,13 +312,9 @@ class _VartalapAppState extends State<VartalapApp> {
     required VartalapChatClientFlutter client,
     required Widget child,
   }) {
-    // Wrap with VartalapClientManager and CurrentUser provider
-    return VartalapClientManager(
+    return _CurrentUserProvider(
       client: client,
-      child: _CurrentUserProvider(
-        client: client,
-        child: child,
-      ),
+      child: child,
     );
   }
 }

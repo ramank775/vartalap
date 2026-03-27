@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap/widgets/avator.dart';
-import 'package:vartalap_messaging/vartalap_messaging.dart';
-import 'package:vartalap_messaging_flutter/models/models.dart';
 
 class GlobalSearchScreen extends StatefulWidget {
   const GlobalSearchScreen({super.key});
@@ -51,7 +50,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen>
       });
     }
 
-    final clientFlutter = VartalapClientProvider.of(context).client;
+    final clientFlutter = context.read<VartalapChatClientFlutter>();
     
     final contacts = await clientFlutter.db.channelDao.searchContacts(query).get();
     final messages = await clientFlutter.db.chatDao.searchMessages(query).get();
@@ -132,7 +131,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen>
           subtitle: Text(contact.phone ?? contact.username ?? ''),
           onTap: () async {
             final currentUser = CurrentUser.of(context).user!;
-            final clientFlutter = VartalapClientProvider.of(context).client;
+            final clientFlutter = context.read<VartalapChatClientFlutter>();
             
             final channels = await clientFlutter.getChannels(
                 filter: ChannelFilter(
@@ -194,7 +193,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen>
           subtitle: Text(message.timestamp.toString().substring(0, 16)),
           onTap: () async {
             final currentUser = CurrentUser.of(context).user!;
-            final clientFlutter = VartalapClientProvider.of(context).client;
+            final clientFlutter = context.read<VartalapChatClientFlutter>();
             
             // Look up the channel for this message
             final channelRecord = await (clientFlutter.db.select(clientFlutter.db.channels)

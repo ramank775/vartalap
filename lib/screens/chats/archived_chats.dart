@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 
 class ArchivedChatsScreen extends StatefulWidget {
@@ -15,7 +14,7 @@ class ArchivedChatsScreen extends StatefulWidget {
 class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
   @override
   Widget build(BuildContext context) {
-    final client = VartalapClientProvider.of(context).client;
+    final client = context.read<VartalapChatClientFlutter>();
     final currentUser = Provider.of<CurrentUser>(context).user;
 
     return Scaffold(

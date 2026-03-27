@@ -10,37 +10,28 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 import 'package:vartalap/services/otp/iotp_provider.dart';
-import 'package:vartalap/services/crashlystics.dart';
 import 'package:vartalap/services/firebase_initializer.dart';
-// Push notifications are handled separately from authentication
 
-/// Firebase implementation of IOTPProvider with lazy initialization
-///
-/// This provider handles OTP delivery and verification using Firebase Phone Authentication.
-/// It's responsible ONLY for OTP-related operations, not for authentication state management.
-///
-/// Key responsibilities:
-/// - Send OTP via Firebase Phone Auth
-/// - Verify OTP and generate Firebase ID token
-/// - Handle Firebase-specific errors and edge cases
-/// - Manage verification sessions and resend tokens
+typedef ErrorReporter = Future<void> Function(dynamic exception, StackTrace stack, {String? reason});
+
 class FirebaseOTPProvider implements IOTPProvider {
   FirebaseAuth? _auth;
   final FlutterSecureStorage _storage;
+  final ErrorReporter? _reportError;
 
-  // Firebase-specific state for OTP verification
   String? _currentVerificationId;
   int? _resendToken;
   String? _currentPhoneNumber;
 
-  // Completers for async operations
   final Map<String, Completer<OTPResult>> _sendOtpCompleters = {};
 
   FirebaseOTPProvider({
     FirebaseAuth? auth,
     FlutterSecureStorage? storage,
+    ErrorReporter? reportError,
   })  : _auth = auth,
-        _storage = storage ?? const FlutterSecureStorage();
+        _storage = storage ?? const FlutterSecureStorage(),
+        _reportError = reportError;
 
   /// Lazy getter for FirebaseAuth that ensures Firebase is initialized
   Future<FirebaseAuth> get _lazyAuth async {
@@ -157,8 +148,7 @@ class FirebaseOTPProvider implements IOTPProvider {
 
       return await completer.future;
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace,
-          reason: "Firebase OTP send failed");
+      _reportError?.call(e, stackTrace, reason: "Firebase OTP send failed");
 
       throw AuthError.otpDelivery(
         'Failed to send OTP: ${e.toString()}',
@@ -229,14 +219,12 @@ class FirebaseOTPProvider implements IOTPProvider {
         },
       );
     } on FirebaseAuthException catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace,
-          reason: "Firebase OTP verification failed");
+      _reportError?.call(e, stackTrace, reason: "Firebase OTP verification failed");
 
       final authError = _mapFirebaseError(e, 'OTP verification failed');
       throw authError;
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace,
-          reason: "OTP verification unexpected error");
+      _reportError?.call(e, stackTrace, reason: "OTP verification unexpected error");
 
       throw AuthError.otpVerification(
         'Unexpected error during OTP verification: ${e.toString()}',
@@ -278,8 +266,7 @@ class FirebaseOTPProvider implements IOTPProvider {
     try {
       await _storage.deleteAll();
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace,
-          reason: "Error cleaning up secure storage");
+      _reportError?.call(e, stackTrace, reason: "Error cleaning up secure storage");
     }
   }
 
@@ -291,8 +278,7 @@ class FirebaseOTPProvider implements IOTPProvider {
         await _storage.write(key: 'resendToken', value: resendToken.toString());
       }
     } catch (e, stackTrace) {
-      Crashlytics.recordError(e, stackTrace,
-          reason: "Error persisting session data");
+      _reportError?.call(e, stackTrace, reason: "Error persisting session data");
     }
   }
 

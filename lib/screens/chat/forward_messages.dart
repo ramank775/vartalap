@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
@@ -45,7 +45,7 @@ class _ForwardMessagesScreenState extends State<ForwardMessagesScreen> {
       _isForwarding = true;
     });
 
-    final client = VartalapClientProvider.of(context).client;
+    final client = context.read<VartalapChatClientFlutter>();
     final currentUser = CurrentUser.of(context).user!;
     int successCount = 0;
 
@@ -92,7 +92,7 @@ class _ForwardMessagesScreenState extends State<ForwardMessagesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final client = VartalapClientProvider.of(context).client;
+    final client = context.read<VartalapChatClientFlutter>();
     final currentUser = CurrentUser.of(context).user!;
 
     return Scaffold(

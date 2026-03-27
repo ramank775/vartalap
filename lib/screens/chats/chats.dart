@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
 import 'package:vartalap/widgets/chat_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/utils/url_helper.dart';
@@ -30,7 +29,7 @@ class ChatsState extends State<Chats> {
 
   @override
   Widget build(BuildContext context) {
-    final client = VartalapClientProvider.of(context).client;
+    final client = context.read<VartalapChatClientFlutter>();
     final currentUser = CurrentUser.of(context).user!;
     return Scaffold(
       appBar: AppBar(
@@ -139,7 +138,7 @@ class ChatsState extends State<Chats> {
           icon: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined),
           tooltip: isPinned ? 'Unpin chat' : 'Pin chat',
           onPressed: () async {
-            final client = VartalapClientProvider.of(context).client;
+            final client = context.read<VartalapChatClientFlutter>();
             await client.setChannelPinned(chat.channel.id, !isPinned);
             setState(() {
               _selectedChats = [];
@@ -152,7 +151,7 @@ class ChatsState extends State<Chats> {
           icon: Icon(isArchived ? Icons.unarchive : Icons.archive),
           tooltip: isArchived ? 'Unarchive chat' : 'Archive chat',
           onPressed: () async {
-            final client = VartalapClientProvider.of(context).client;
+            final client = context.read<VartalapChatClientFlutter>();
             await client.setChannelArchived(chat.channel.id, !isArchived);
             setState(() {
               _selectedChats = [];
@@ -187,7 +186,7 @@ class ChatsState extends State<Chats> {
             ),
           );
           if (confirmed == true && mounted) {
-            final client = VartalapClientProvider.of(context).client;
+            final client = context.read<VartalapChatClientFlutter>();
             for (final chat in chatsToDelete) {
               try {
                 await client.clearChat(chat.channel.id);
@@ -288,7 +287,7 @@ class ChatsState extends State<Chats> {
       debugPrint('[Chats] Current user not available, ignoring navigation');
       return;
     }
-    final client = VartalapClientProvider.of(context).client;
+    final client = context.read<VartalapChatClientFlutter>();
     final navigator = Navigator.of(context);
 
     var result = await navigator.pushNamed(screen, arguments: data);
@@ -422,7 +421,7 @@ class ChatListViewState extends State<ChatListView>
                     return;
                   }
                   final currentUser = CurrentUser.of(context).user!;
-                  final client = VartalapClientProvider.of(context).client;
+                  final client = context.read<VartalapChatClientFlutter>();
                   final chatClient = await client.chat(
                     channel: chatPreview.channel,
                     currentUser: currentUser,

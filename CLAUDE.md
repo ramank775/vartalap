@@ -4,31 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Vartalap is an open-source Flutter chat application structured as a modular monorepo. Web platform is **not supported** (SQLite FFI limitation).
+Vartalap is an open-source personal messaging app built with Flutter, structured as a modular monorepo. The v3 migration is in progress — goal is to encapsulate all offline-first logic in `packages/vartalap_messaging_flutter/` so the UI layer can be swapped. Web platform is **not supported** (SQLite FFI limitation).
+
+The chat server lives at `../chat-server` (microservice architecture with nginx gateway). Client uses v3.0 API paths; nginx strips version prefixes and routes to backend services.
 
 ## Build & Run Commands
 
 ```bash
-# Install dependencies
-flutter pub get
-
-# Run in mock mode (no server/Firebase needed — best for UI dev)
-flutter run --dart-define MOCK_MODE=true
-
-# Run with local server
-./scripts/dev.sh
-
-# Static analysis
-flutter analyze
-
-# Run all tests
-flutter test
-
-# Run a single test file
-flutter test test/utils/chat_message_helper_test.dart
-
-# Build production APK
-./scripts/build-prod.sh
+flutter pub get                                          # Install dependencies
+flutter run --dart-define MOCK_MODE=true                 # Mock mode (no server/Firebase needed)
+./scripts/dev.sh                                         # Run with local server
+flutter analyze                                          # Static analysis
+flutter test                                             # Run all tests
+flutter test test/utils/chat_message_helper_test.dart     # Run a single test
+./scripts/build-prod.sh                                  # Production APK
 ```
 
 VS Code: press F5 to use preconfigured launch configs in `.vscode/launch.json` (Mock Mode is the default).
@@ -37,7 +26,7 @@ VS Code: press F5 to use preconfigured launch configs in `.vscode/launch.json` (
 
 ```
 UI (lib/screens/, lib/widgets/)
-  └─ VartalapClientManager (Provider)
+  └─ Provider<VartalapChatClientFlutter> (from main.dart)
        └─ VartalapChatClientFlutter (packages/vartalap_messaging_flutter/)
             ├─ DAOs → Drift/SQLite database
             ├─ Event system
@@ -51,18 +40,19 @@ UI (lib/screens/, lib/widgets/)
 
 ### Package breakdown
 
-- **`packages/vartalap_messaging/`** — Core messaging client, models, API definitions (pure Dart, no Flutter dependency)
-- **`packages/vartalap_messaging_flutter/`** — Flutter-specific: Drift database, DAOs, repositories, auth, entity-to-model mappers, task queue integration
+- **`packages/vartalap_messaging/`** — Core server client, models, API definitions (pure Dart, no Flutter dependency)
+- **`packages/vartalap_messaging_flutter/`** — Flutter offline-first wrapper: Drift database, DAOs, repositories, auth, entity-to-model mappers, task queue integration. All business logic should live here.
 - **`packages/taskq/`** — Dependency-aware task queue for reliable message delivery
 - **`packages/vartalap_testing/`** — Mock client and scenario engine for offline development and testing
 
 ### Key patterns
 
-- **State management**: Provider pattern + Inherited Widgets (`VartalapClientProvider`, `CurrentUser`)
+- **Client access**: `context.read<VartalapChatClientFlutter>()` via Provider package
+- **Client creation**: Shared factory in `lib/config/client_factory.dart` (used by both app and background tasks)
 - **Database access**: Always through DAO classes, never direct table queries
 - **Configuration**: Build-time via `--dart-define` flags (`API_URL`, `WS_URL`, `API_KEY`, `MOCK_MODE`), managed in `lib/config/app_config.dart`
-- **Mock mode**: Dependency injection at app boundary (`main.dart`) swaps real implementations for mocks; rest of app is unaware. Mock OTP code is `123456`.
-- **Internal packages**: Use `path` dependencies in `pubspec.yaml`
+- **Mock mode**: Dependency injection at app boundary (`client_factory.dart`) swaps real implementations for mocks; rest of app is unaware. Mock OTP code is `123456`.
+- **Two build variants needed**: Play Store (with Firebase) and open source (without Google dependencies). Interfaces like `IOTPProvider` exist to support this.
 
 ### Database
 

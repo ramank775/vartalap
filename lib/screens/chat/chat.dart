@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/bouncing_dots.dart';
 import 'package:vartalap/widgets/chatlist.dart';
-import 'package:vartalap/widgets/notifier/iterable_notifier.dart';
 import 'package:vartalap/widgets/message_input.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
@@ -23,7 +22,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   late final ChatClient chat;
   ChatMessageController _messageController =
       ChatMessageController(messages: []);
-  final _selectedMessges = SetNotifier<int>(<int>{});
+  final _selectedMessges = ValueNotifier<Set<int>>(<int>{});
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<bool> _showScrollToBottom = ValueNotifier<bool>(false);
   StreamSubscription? _notificationSub;
@@ -432,7 +431,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     msg.isSelected = !msg.isSelected;
     _messageController.update(msg);
-    _selectedMessges.update();
+    _selectedMessges.value = Set.of(_selectedMessges.value);
   }
 
   List<Widget> _getActions() {
@@ -454,7 +453,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
               }
               _messageController.updateAll(msgs);
               _selectedMessges.value.clear();
-              _selectedMessges.update();
+              _selectedMessges.value = Set.of(_selectedMessges.value);
             },
           ));
           actions.add(IconButton(
@@ -511,7 +510,7 @@ class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                   // Remove from UI
                   _messageController.deleteAll(selectedIds);
                   _selectedMessges.value.clear();
-                  _selectedMessges.update();
+                  _selectedMessges.value = Set.of(_selectedMessges.value);
                   _showSuccessSnackBar(
                       '${selectedIds.length} message(s) deleted successfully');
                 } catch (e) {

@@ -3,7 +3,7 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/date_time_format.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:vartalap/widgets/Inherited/vartalap_client_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
 class ChatPreviewWidget extends StatelessWidget {
@@ -89,8 +89,7 @@ class ChatPreviewWidget extends StatelessWidget {
                           builder: (context) {
                             final currentUserIdStr = CurrentUser.of(context).user?.id.toString();
                             return StreamBuilder<Map<String, dynamic>>(
-                              stream: VartalapClientProvider.of(context)
-                                  .client
+                              stream: context.read<VartalapChatClientFlutter>()
                                   .watchTypingEvents()
                                   .where((event) {
                                 if (_chat.channel.type == ChannelType.individual) {
