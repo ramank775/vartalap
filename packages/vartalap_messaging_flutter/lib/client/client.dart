@@ -298,8 +298,6 @@ class VartalapChatClientFlutter {
             contactId =
                 await _db.into(_db.contacts).insert(ContactsCompanion.insert(
                       uid: Value(senderUid),
-                      username: Value(senderUid),
-                      phone: Value(senderUid),
                       status: ContactStatus.active,
                     ));
             senderDisplayName = senderUid;
@@ -395,19 +393,19 @@ class VartalapChatClientFlutter {
     }
   }
 
-  /// Fetch profile from server and update the placeholder contact with real name
+  /// Fetch profile from server and update the placeholder contact
   void _fetchAndUpdateContact(String uid, int contactId) async {
     try {
       final profile = await client.fetchProfile(uid);
-      final name = profile.name;
-      if (name.isNotEmpty) {
-        await (_db.update(_db.contacts)
-              ..where((tbl) => tbl.id.equals(contactId)))
-            .write(ContactsCompanion(
-          name: Value(name),
-        ));
-        debugPrint('[EVENT] Updated contact $uid with name: $name');
-      }
+      await (_db.update(_db.contacts)
+            ..where((tbl) => tbl.id.equals(contactId)))
+          .write(ContactsCompanion(
+        name: profile.name.isNotEmpty
+            ? Value(profile.name)
+            : const Value.absent(),
+        username: Value(profile.username),
+      ));
+      debugPrint('[EVENT] Updated contact $uid from profile');
     } catch (e) {
       debugPrint('[EVENT] Could not fetch profile for $uid: $e');
     }
