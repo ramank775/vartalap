@@ -78,46 +78,63 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
               'COALESCE', [messages.createdAt, channels.createdAt]))
     ]);
 
-    return query.asyncMap((row) async {
-      final channel = row.readTable(channels);
-      final sender = row.readTableOrNull(contacts);
-      final msgTable = row.readTableOrNull(messages);
-      final lastMessage = msgTable?.copyWith(sender: sender);
-      final unReadCountExp = messages.id.count().cast<int>();
-      final unreadQuery = selectOnly(messages)
-        ..addColumns([unReadCountExp])
-        ..where(messages.channelId.equals(channel.id) &
-            messages.state.isNotValue(MessageState.read.name))
-        ..limit(10);
-      final unreadCount = await unreadQuery
-              .map((row) => row.read(unReadCountExp))
-              .getSingleOrNull() ??
-          0;
+    return query.asyncMap((row) => _buildChatPreview(row, currentUserId));
+  }
 
-      String? displayImage = channel.displayImage;
-      if (channel.type == ChannelType.individual) {
-        final membersQuery = select(members).join([
-          innerJoin(contacts, contacts.id.equalsExp(members.memberId)),
-        ])
-          ..where(members.channelId.equals(channel.id) &
-              members.memberId.isNotValue(currentUserId))
-          ..limit(1);
+  Future<ChatPreview> _buildChatPreview(TypedResult row, int currentUserId) async {
+    final channel = row.readTable(channels);
+    final sender = row.readTableOrNull(contacts);
+    final msgTable = row.readTableOrNull(messages);
+    final lastMessage = msgTable?.copyWith(sender: sender);
+    final unReadCountExp = messages.id.count().cast<int>();
+    final unreadQuery = selectOnly(messages)
+      ..addColumns([unReadCountExp])
+      ..where(messages.channelId.equals(channel.id) &
+          messages.state.isNotValue(MessageState.read.name))
+      ..limit(10);
+    final unreadCount = await unreadQuery
+            .map((row) => row.read(unReadCountExp))
+            .getSingleOrNull() ??
+        0;
 
-        final otherMemberRow = await membersQuery.getSingleOrNull();
-        if (otherMemberRow != null) {
-          final otherContact = otherMemberRow.readTable(contacts);
-          displayImage = otherContact.photo;
+    String? displayImage = channel.displayImage;
+    ChannelModel displayChannel = channel;
+    if (channel.type == ChannelType.individual) {
+      final membersQuery = select(members).join([
+        innerJoin(contacts, contacts.id.equalsExp(members.memberId)),
+      ])
+        ..where(members.channelId.equals(channel.id) &
+            members.memberId.isNotValue(currentUserId))
+        ..limit(1);
+
+      final otherMemberRow = await membersQuery.getSingleOrNull();
+      if (otherMemberRow != null) {
+        final otherContact = otherMemberRow.readTable(contacts);
+        displayImage = otherContact.photo;
+        if (otherContact.displayName.isNotEmpty) {
+          displayChannel = ChannelModel(
+            id: channel.id,
+            type: channel.type,
+            cid: channel.cid,
+            taskId: channel.taskId,
+            extraData: {...?channel.extraData, 'name': otherContact.displayName},
+            config: channel.config,
+            muted: channel.muted,
+            createdAt: channel.createdAt,
+            updatedAt: channel.updatedAt,
+            deletedAt: channel.deletedAt,
+          );
         }
       }
+    }
 
-      return ChatPreview(
-        channel: channel,
-        unreadCount: unreadCount,
-        lastMessage: lastMessage,
-        displayImage: displayImage,
-        isMe: lastMessage?.senderId == currentUserId,
-      );
-    });
+    return ChatPreview(
+      channel: displayChannel,
+      unreadCount: unreadCount,
+      lastMessage: lastMessage,
+      displayImage: displayImage,
+      isMe: lastMessage?.senderId == currentUserId,
+    );
   }
 
   Selectable<ChatPreview> getArchivedChatPreviews({
@@ -152,46 +169,7 @@ class ChatDao extends DatabaseAccessor<ChatDatabase> with _$ChatDaoMixin {
               'COALESCE', [messages.createdAt, channels.createdAt]))
     ]);
 
-    return query.asyncMap((row) async {
-      final channel = row.readTable(channels);
-      final sender = row.readTableOrNull(contacts);
-      final msgTable = row.readTableOrNull(messages);
-      final lastMessage = msgTable?.copyWith(sender: sender);
-      final unReadCountExp = messages.id.count().cast<int>();
-      final unreadQuery = selectOnly(messages)
-        ..addColumns([unReadCountExp])
-        ..where(messages.channelId.equals(channel.id) &
-            messages.state.isNotValue(MessageState.read.name))
-        ..limit(10);
-      final unreadCount = await unreadQuery
-              .map((row) => row.read(unReadCountExp))
-              .getSingleOrNull() ??
-          0;
-
-      String? displayImage = channel.displayImage;
-      if (channel.type == ChannelType.individual) {
-        final membersQuery = select(members).join([
-          innerJoin(contacts, contacts.id.equalsExp(members.memberId)),
-        ])
-          ..where(members.channelId.equals(channel.id) &
-              members.memberId.isNotValue(currentUserId))
-          ..limit(1);
-
-        final otherMemberRow = await membersQuery.getSingleOrNull();
-        if (otherMemberRow != null) {
-          final otherContact = otherMemberRow.readTable(contacts);
-          displayImage = otherContact.photo;
-        }
-      }
-
-      return ChatPreview(
-        channel: channel,
-        unreadCount: unreadCount,
-        lastMessage: lastMessage,
-        displayImage: displayImage,
-        isMe: lastMessage?.senderId == currentUserId,
-      );
-    });
+    return query.asyncMap((row) => _buildChatPreview(row, currentUserId));
   }
 
   Selectable<Member> getMembers({
