@@ -20,6 +20,10 @@ class MockVartalapChatClient extends VartalapChatClient
   final List<ChannelPayload> _channels = [];
   final Map<String, Map<String, dynamic>> _profiles = {};
 
+  /// IDs of messages sent via sendMessage(), most recent last.
+  /// The developer menu uses this to ack messages sent from the chat UI.
+  final List<String> sentMessageIds = [];
+
   bool get _isTesting =>
       const bool.fromEnvironment('dart.library.io') &&
       Platform.environment.containsKey('FLUTTER_TEST');
@@ -101,6 +105,7 @@ class MockVartalapChatClient extends VartalapChatClient
       final channelId = message.head.to;
       _channelMessages.putIfAbsent(channelId, () => []);
       _channelMessages[channelId]!.add(message.toJson());
+      sentMessageIds.add(message.id);
       unawaited(_scenario.onMessageSent(this, message));
     }
   }

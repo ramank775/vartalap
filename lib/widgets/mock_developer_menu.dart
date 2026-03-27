@@ -62,6 +62,13 @@ class _MockMenuSheet extends StatefulWidget {
 class _MockMenuSheetState extends State<_MockMenuSheet> {
   String? _lastInjectedMessageId;
 
+  /// Returns the most recent message ID — either manually injected or sent from chat UI
+  String? get _activeMessageId =>
+      _lastInjectedMessageId ??
+      (widget.chatClient.sentMessageIds.isNotEmpty
+          ? widget.chatClient.sentMessageIds.last
+          : null);
+
   @override
   Widget build(BuildContext context) {
     final isManual = widget.chatClient.activeScenario is ManualTakeoverScenario;
@@ -125,6 +132,32 @@ class _MockMenuSheetState extends State<_MockMenuSheet> {
                 setState(() {});
               },
             ),
+            ListTile(
+              leading: Icon(
+                Icons.wifi_off,
+                color: widget.chatClient.activeScenario is OfflineScenario ? Colors.red : null,
+              ),
+              title: const Text('Offline'),
+              subtitle: const Text('No acks — messages stay pending forever'),
+              selected: widget.chatClient.activeScenario is OfflineScenario,
+              onTap: () {
+                widget.chatClient.setScenario(OfflineScenario());
+                setState(() {});
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.error_outline,
+                color: widget.chatClient.activeScenario is NetworkErrorScenario ? Colors.red : null,
+              ),
+              title: const Text('Network Error'),
+              subtitle: const Text('All messages fail with error'),
+              selected: widget.chatClient.activeScenario is NetworkErrorScenario,
+              onTap: () {
+                widget.chatClient.setScenario(NetworkErrorScenario());
+                setState(() {});
+              },
+            ),
 
             const Divider(),
 
@@ -168,11 +201,11 @@ class _MockMenuSheetState extends State<_MockMenuSheet> {
             if (isManual) ...[
               const Divider(),
               _SectionHeader('Manual Message Acks'),
-              if (_lastInjectedMessageId != null)
+              if (_activeMessageId != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Text(
-                    'Last sent: $_lastInjectedMessageId',
+                    'Last message: $_activeMessageId',
                     style: Theme.of(context)
                         .textTheme
                         .bodySmall
@@ -188,34 +221,34 @@ class _MockMenuSheetState extends State<_MockMenuSheet> {
                     _AckChip(
                       label: '✓ Sent',
                       color: Colors.blue,
-                      onTap: _lastInjectedMessageId == null
+                      onTap: _activeMessageId == null
                           ? null
                           : () => widget.chatClient.simulateAck(
-                              _lastInjectedMessageId!, 'sent'),
+                              _activeMessageId!, 'sent'),
                     ),
                     _AckChip(
                       label: '✓✓ Delivered',
                       color: Colors.teal,
-                      onTap: _lastInjectedMessageId == null
+                      onTap: _activeMessageId == null
                           ? null
                           : () => widget.chatClient.simulateAck(
-                              _lastInjectedMessageId!, 'delivered'),
+                              _activeMessageId!, 'delivered'),
                     ),
                     _AckChip(
                       label: '✓✓ Read',
                       color: Colors.green,
-                      onTap: _lastInjectedMessageId == null
+                      onTap: _activeMessageId == null
                           ? null
                           : () => widget.chatClient.simulateAck(
-                              _lastInjectedMessageId!, 'read'),
+                              _activeMessageId!, 'read'),
                     ),
                     _AckChip(
                       label: '✗ Error',
                       color: Colors.red,
-                      onTap: _lastInjectedMessageId == null
+                      onTap: _activeMessageId == null
                           ? null
                           : () => widget.chatClient.simulateError(
-                              _lastInjectedMessageId!, 'Mock error'),
+                              _activeMessageId!, 'Mock error'),
                     ),
                   ],
                 ),
@@ -224,7 +257,7 @@ class _MockMenuSheetState extends State<_MockMenuSheet> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Send a message from the chat screen first, then use these to manually progress its status.',
+                  'Send a message from the chat screen, then use these buttons to progress its status.',
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
