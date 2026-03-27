@@ -274,13 +274,18 @@ class ChatClient {
     }
 
     if (existingMessage.type == MessageType.text) {
-      final updatedMessage = ChatMessage.text(
+      final updatedPayload = Map<String, dynamic>.from(existingMessage.payload);
+      updatedPayload['text'] = newText;
+      updatedPayload['isEdited'] = true;
+      final updatedMessage = ChatMessage(
+        id: existingMessage.id,
+        type: existingMessage.type,
+        state: existingMessage.state,
+        payload: updatedPayload,
         channelId: channel.id,
         senderId: existingMessage.senderId,
-        text: newText,
-        id: existingMessage.id,
-        state: existingMessage.state,
-        timestamp: existingMessage.timestamp,
+        localCreatedAt: existingMessage.localCreatedAt,
+        updatedAt: DateTime.now(),
       ).copyWith(sender: existingMessage.sender);
       await chatDao.updateMessage(messageId, updatedMessage);
     } else {

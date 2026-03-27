@@ -442,7 +442,6 @@ class VartalapChatClientFlutter {
             ..where((tbl) => tbl.rid.equals(messageId)))
           .write(MessagesCompanion(
         state: Value(newState),
-        updatedAt: Value(DateTime.now()),
       ));
 
       debugPrint('[EVENT] Updated message $messageId status to $newState');

@@ -189,7 +189,7 @@ class MessageWidget extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.ideographic,
               children: <Widget>[
-                if (_msg.updatedAt != _msg.timestamp)
+                if (_msg.payload['isEdited'] == true)
                   Container(
                     margin: EdgeInsets.only(right: 4),
                     child: Text(

@@ -121,6 +121,14 @@ class SendMessageTask extends VartalapTask<SendMessage> {
     }
 
     try {
+      // Set rid before sending so ack handler can match by rid
+      for (final remoteMsg in remoteMessages) {
+        final localId = int.parse(remoteMsg.id);
+        await (db.update(db.messages)
+              ..where((tbl) => tbl.id.equals(localId)))
+            .write(MessagesCompanion(rid: Value(remoteMsg.id)));
+      }
+
       // Send to server
       await client.sendMessage(remoteMessages, sync: true);
 
@@ -129,7 +137,6 @@ class SendMessageTask extends VartalapTask<SendMessage> {
             ..where((tbl) => tbl.id.isIn(payload.messageIds)))
           .write(MessagesCompanion(
         state: Value(MessageState.sent),
-        updatedAt: Value(DateTime.now()),
       ));
     } catch (e) {
       // Update local state to 'error'
@@ -137,7 +144,6 @@ class SendMessageTask extends VartalapTask<SendMessage> {
             ..where((tbl) => tbl.id.isIn(payload.messageIds)))
           .write(MessagesCompanion(
         state: Value(MessageState.error),
-        updatedAt: Value(DateTime.now()),
       ));
       rethrow;
     }
