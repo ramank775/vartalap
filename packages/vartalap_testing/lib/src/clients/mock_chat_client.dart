@@ -11,14 +11,15 @@ class MockVartalapChatClient extends VartalapChatClient
   final StreamController<RemoteMessage> _eventController =
       StreamController<RemoteMessage>.broadcast();
 
-  // Active Scenario
   MockScenario _scenario;
 
-  // Public getter for the current scenario
   MockScenario get activeScenario => _scenario;
 
   // Mock data storage
   final Map<String, List<Map<String, dynamic>>> _channelMessages = {};
+  final List<ChannelPayload> _channels = [];
+  final Map<String, Map<String, dynamic>> _profiles = {};
+
   bool get _isTesting =>
       const bool.fromEnvironment('dart.library.io') &&
       Platform.environment.containsKey('FLUTTER_TEST');
@@ -34,7 +35,6 @@ class MockVartalapChatClient extends VartalapChatClient
           wsUrl: "ws://localhost:3000",
         );
 
-  /// Change the active scenario at runtime
   void setScenario(MockScenario scenario) {
     _scenario = scenario;
     debugPrint('[MOCK] Switched to scenario: ${scenario.runtimeType}');
@@ -46,8 +46,6 @@ class MockVartalapChatClient extends VartalapChatClient
   @override
   Stream<RemoteMessage> get eventStream => _eventController.stream;
 
-  /// Read from the stored token first (matches the real client behaviour).
-  /// Falls back to [mockUserId] only in unit tests where no token is stored.
   @override
   Future<String?> getLoggedInUser() async {
     final fromToken = await super.getLoggedInUser();
@@ -87,8 +85,7 @@ class MockVartalapChatClient extends VartalapChatClient
 
   @override
   void simulateError(String messageId, String errorMessage) {
-    debugPrint('[MOCK] Injecting manual error for $messageId: $errorMessage');
-    // Error is handled by not sending an ack or sending a failure ack
+    debugPrint('[MOCK] Injecting error for $messageId: $errorMessage');
     simulateAck(messageId, 'error');
   }
 
@@ -104,8 +101,6 @@ class MockVartalapChatClient extends VartalapChatClient
       final channelId = message.head.to;
       _channelMessages.putIfAbsent(channelId, () => []);
       _channelMessages[channelId]!.add(message.toJson());
-
-      // Delegate to the current scenario
       unawaited(_scenario.onMessageSent(this, message));
     }
   }
@@ -115,7 +110,6 @@ class MockVartalapChatClient extends VartalapChatClient
     if (!_isTesting) {
       await Future.delayed(const Duration(milliseconds: 300));
     }
-    // Update mockUserId to match the actual logged-in user
     mockUserId = creds.username;
     return LoginResponse.fromJson({
       "status": true,
@@ -131,8 +125,10 @@ class MockVartalapChatClient extends VartalapChatClient
     if (!_isTesting) {
       await Future.delayed(const Duration(milliseconds: 200));
     }
+    await _scenario.onProfileRequested(this, userId);
 
-    return ProfileResponse.fromJson({
+    final stored = _profiles[userId];
+    return ProfileResponse.fromJson(stored ?? {
       "name": "Mock User",
       "username": userId,
       "email": "mock@example.com",
@@ -141,15 +137,128 @@ class MockVartalapChatClient extends VartalapChatClient
   }
 
   @override
+  Future<ProfileResponse> updateProfile(Map<String, dynamic> updates) async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    _profiles.putIfAbsent(mockUserId, () => {
+      "name": "Mock User",
+      "username": mockUserId,
+      "email": "mock@example.com",
+      "image": "",
+    });
+    _profiles[mockUserId]!.addAll(updates);
+    await _scenario.onProfileUpdated(this, updates);
+    return ProfileResponse.fromJson(_profiles[mockUserId]!);
+  }
+
+  @override
   Future<CreateChannelResponse> createChannel(ChannelPayload channel) async {
     if (!_isTesting) {
       await Future.delayed(const Duration(milliseconds: 200));
     }
-    debugPrint('[MOCK] Creating channel: ${channel.name} (${channel.type})');
-    return CreateChannelResponse.fromJson({
-      'channelId': 'mock_channel_${DateTime.now().millisecondsSinceEpoch}',
+    final channelId = 'mock_channel_${DateTime.now().millisecondsSinceEpoch}';
+    channel.channelId = channelId;
+    _channels.add(channel);
+    await _scenario.onChannelCreated(this, channel);
+    return CreateChannelResponse.fromJson({'channelId': channelId});
+  }
+
+  @override
+  Future<ChannelsResponse> queryChannels() async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    return ChannelsResponse.fromJson(
+        _channels.map((c) => c.toJson()).toList());
+  }
+
+  @override
+  Future<ChannelResponse> getChannelInfo(String channelId) async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    final channel = _channels.cast<ChannelPayload?>().firstWhere(
+        (c) => c?.channelId == channelId,
+        orElse: () => null);
+    if (channel == null) {
+      throw Exception('Channel $channelId not found');
+    }
+    return ChannelResponse.fromJson({
+      'channelId': channel.channelId,
+      'name': channel.name,
+      'members': channel.members,
+      'profilePic': channel.profilePic,
     });
   }
+
+  @override
+  Future<ChannelResponse> updateChannel(
+      String channelId, Map<String, dynamic> updates) async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    await _scenario.onChannelUpdated(this, channelId, updates);
+    return ChannelResponse.fromJson({
+      'channelId': channelId,
+      'name': updates['name'] ?? 'Updated Channel',
+      'members': [],
+      'profilePic': updates['profilePic'] ?? '',
+    });
+  }
+
+  @override
+  Future<void> addChannelMembers(
+      String channelId, List<String> memberIds) async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    await _scenario.onMembersAdded(this, channelId, memberIds);
+  }
+
+  @override
+  Future<void> removeChannelMember(String channelId, String member) async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    await _scenario.onMemberRemoved(this, channelId, member);
+  }
+
+  @override
+  Future<List<RemoteMessage>> syncMessages({bool stream = false}) async {
+    return [];
+  }
+
+  @override
+  Future<Map<String, String>> syncContactBook(List<String> contacts) async {
+    return {for (var c in contacts) c: c};
+  }
+
+  @override
+  Future<AssetPreSignedUrlResponse> getUploadUrl(
+      String ext, String category) async {
+    if (!_isTesting) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    return AssetPreSignedUrlResponse.fromJson({
+      "url": "https://mock-storage.example.com/upload/${DateTime.now().millisecondsSinceEpoch}.$ext",
+      "fileId": "mock_asset_${DateTime.now().millisecondsSinceEpoch}",
+    });
+  }
+
+  @override
+  Future<AssetPreSignedUrlResponse> getDownloadUrl(String assetId) async {
+    return AssetPreSignedUrlResponse.fromJson({
+      "url": "https://mock-storage.example.com/download/$assetId",
+      "fileId": assetId,
+    });
+  }
+
+  @override
+  Future<void> markAssetAsUploaded(String assetId) async {}
+
+  @override
+  Future<void> uploadAsset(String url, File file) async {}
 
   @override
   Future<void> close() async {
@@ -157,18 +266,32 @@ class MockVartalapChatClient extends VartalapChatClient
   }
 }
 
-/// The default "Happy Path" behavior
+/// Configurable happy path scenario with adjustable delays
 class DefaultHappyPathScenario extends MockScenario {
+  final Duration sentDelay;
+  final Duration deliveredDelay;
+  final Duration readDelay;
+
+  DefaultHappyPathScenario({
+    this.sentDelay = const Duration(milliseconds: 500),
+    this.deliveredDelay = const Duration(seconds: 2),
+    this.readDelay = const Duration(seconds: 5),
+  });
+
+  /// Fast variant for unit tests — minimal delays
+  factory DefaultHappyPathScenario.fast() => DefaultHappyPathScenario(
+        sentDelay: const Duration(milliseconds: 10),
+        deliveredDelay: const Duration(milliseconds: 50),
+        readDelay: const Duration(milliseconds: 100),
+      );
+
   @override
   Future<void> onMessageSent(
       SimulatorController controller, RemoteMessage message) async {
-    // Progress: Sent -> Delivered -> Read
-    await controller.simulateAck(message.id, 'sent',
-        delay: const Duration(milliseconds: 500));
+    await controller.simulateAck(message.id, 'sent', delay: sentDelay);
     await controller.simulateAck(message.id, 'delivered',
-        delay: const Duration(seconds: 2));
-    await controller.simulateAck(message.id, 'read',
-        delay: const Duration(seconds: 5));
+        delay: deliveredDelay);
+    await controller.simulateAck(message.id, 'read', delay: readDelay);
   }
 }
 

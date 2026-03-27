@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:drift/drift.dart';
+import 'package:provider/provider.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/widgets/message_input.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
-import 'package:provider/provider.dart';
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_messaging_flutter/db/chat_db.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
@@ -25,13 +25,14 @@ void main() {
     mockMessagingClient = MockVartalapChatClient(
       mockUserId: 'uid_me',
       tokenManager: MockTokenManager(),
+      initialScenario: ManualTakeoverScenario(),
     );
     flutterClient = VartalapChatClientFlutter(
       apiKey: 'test',
       client: mockMessagingClient,
       inMemory: true,
     );
-    
+
     currentUser = const Contact(
       id: 1,
       name: 'Me',
@@ -57,64 +58,73 @@ void main() {
     );
   }
 
+  Future<void> setupChannelData(WidgetTester tester) async {
+    await tester.runAsync(() async {
+      await flutterClient.login(
+          messaging.Credential(username: 'uid_me', externalAuthToken: 'token')
+            ..deviceId = 'dev');
+      await flutterClient.init();
+
+      await flutterClient.db.into(flutterClient.db.contacts).insert(
+          ContactsCompanion.insert(
+              id: const Value(1),
+              uid: const Value('uid_me'),
+              username: const Value('me'),
+              status: ContactStatus.active),
+          mode: InsertMode.insertOrIgnore);
+      await flutterClient.db.into(flutterClient.db.contacts).insert(
+          ContactsCompanion.insert(
+              id: const Value(2),
+              uid: const Value('uid_alice'),
+              username: const Value('alice'),
+              status: ContactStatus.active),
+          mode: InsertMode.insertOrIgnore);
+
+      final channelEntity = await flutterClient.db
+          .into(flutterClient.db.channels)
+          .insertReturning(ChannelsCompanion.insert(
+              type: messaging.ChannelType.individual,
+              cid: const Value('uid_alice'),
+              config: const Value({})),
+          mode: InsertMode.insertOrIgnore);
+      testChannel = channelEntity;
+
+      await flutterClient.db.into(flutterClient.db.members).insert(
+          MembersCompanion.insert(
+              channelId: testChannel.id, memberId: 1),
+          mode: InsertMode.insertOrIgnore);
+      await flutterClient.db.into(flutterClient.db.members).insert(
+          MembersCompanion.insert(
+              channelId: testChannel.id, memberId: 2),
+          mode: InsertMode.insertOrIgnore);
+    });
+  }
+
   group('ChatScreen Integration Tests', () {
-    testWidgets('Sending a message shows pending then sent status', (tester) async {
-      await tester.runAsync(() async {
-        await flutterClient.login(messaging.Credential(username: 'uid_me', externalAuthToken: 'token')
-          ..deviceId = 'dev');
-        await flutterClient.init();
+    testWidgets('Sending a message shows pending status', (tester) async {
+      await setupChannelData(tester);
 
-        // 1. Setup channel and users in DB
-        await flutterClient.db.into(flutterClient.db.contacts).insert(
-          ContactsCompanion.insert(id: const Value(1), uid: const Value('uid_me'), username: const Value('me'), status: ContactStatus.active));
-        await flutterClient.db.into(flutterClient.db.contacts).insert(
-          ContactsCompanion.insert(id: const Value(2), uid: const Value('uid_alice'), username: const Value('alice'), status: ContactStatus.active));
-        
-        final channelEntity = await flutterClient.db.into(flutterClient.db.channels).insertReturning(
-          ChannelsCompanion.insert(type: messaging.ChannelType.individual, cid: const Value('uid_alice'), config: const Value({})));
-        testChannel = channelEntity;
-        
-        await flutterClient.db.into(flutterClient.db.members).insert(MembersCompanion.insert(channelId: testChannel.id, memberId: 1));
-        await flutterClient.db.into(flutterClient.db.members).insert(MembersCompanion.insert(channelId: testChannel.id, memberId: 2));
-      });
-
-      final chatClient = await flutterClient.chat(channel: testChannel, currentUser: currentUser);
+      final chatClient = await flutterClient.chat(
+          channel: testChannel, currentUser: currentUser);
       await tester.pumpWidget(createChatScreen(chatClient));
-      
-      // Wait for VartalapClientManager and StreamBuilder to finish loading
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(ChatScreen), findsOneWidget);
-      
-      // 2. Type and send message
+
+      // Type and send message
       await tester.enterText(
-        find.descendant(of: find.byType(MessageInputWidget), matching: find.byType(TextField)),
+        find.descendant(
+            of: find.byType(MessageInputWidget),
+            matching: find.byType(TextField)),
         'Hello Alice',
       );
-      
+      await tester.pump(); // Let the icon switch from mic to send
       await tester.tap(find.byIcon(Icons.send_rounded));
-      
-      // Allow time for local DB insert and UI update
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump(const Duration(milliseconds: 200));
 
-      // 3. Should show message and pending or sent icon (clock/check)
+      // Message should appear with pending icon (no auto-ack from ManualTakeoverScenario)
       expect(find.text('Hello Alice', findRichText: true), findsOneWidget);
-      final hasPendingIcon = find.byIcon(Icons.access_time).evaluate().isNotEmpty;
-      final hasSentIcon = find.byIcon(Icons.check).evaluate().isNotEmpty;
-      expect(hasPendingIcon || hasSentIcon, isTrue);
-
-      // 4. Wait for Happy Path Scenario to progress (Sent after 500ms in mock)
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(seconds: 1));
-      });
-      await tester.pump(const Duration(milliseconds: 500));
-
-      // 5. Should show a status icon (pending/sent/delivered/read)
-      final hasPending = find.byIcon(Icons.access_time).evaluate().isNotEmpty;
-      final hasSent = find.byIcon(Icons.check).evaluate().isNotEmpty;
-      final hasDelivered = find.byIcon(Icons.done_all).evaluate().isNotEmpty;
-      final hasRead = find.byIcon(Icons.done_all_sharp).evaluate().isNotEmpty;
-      expect(hasPending || hasSent || hasDelivered || hasRead, isTrue);
+      expect(find.byIcon(Icons.access_time), findsWidgets);
 
       // Cleanup
       await tester.pumpWidget(const SizedBox());
@@ -122,31 +132,14 @@ void main() {
     });
 
     testWidgets('Receiving a message updates the UI', (tester) async {
-      late ChatClient chatClient;
-      await tester.runAsync(() async {
-        await flutterClient.login(messaging.Credential(username: 'uid_me', externalAuthToken: 'token')
-          ..deviceId = 'dev');
-        await flutterClient.init();
+      await setupChannelData(tester);
 
-        // Ensure channel exists with Alice
-        await flutterClient.db.into(flutterClient.db.contacts).insert(
-          ContactsCompanion.insert(id: const Value(1), uid: const Value('uid_me'), username: const Value('me'), status: ContactStatus.active), mode: InsertMode.insertOrIgnore);
-        await flutterClient.db.into(flutterClient.db.contacts).insert(
-          ContactsCompanion.insert(id: const Value(2), uid: const Value('uid_alice'), username: const Value('alice'), status: ContactStatus.active), mode: InsertMode.insertOrIgnore);
-        
-        final channelEntity = await flutterClient.db.into(flutterClient.db.channels).insertReturning(
-          ChannelsCompanion.insert(type: messaging.ChannelType.individual, cid: const Value('uid_alice'), config: const Value({})), mode: InsertMode.insertOrIgnore);
-        testChannel = channelEntity;
-        
-        await flutterClient.db.into(flutterClient.db.members).insert(MembersCompanion.insert(channelId: testChannel.id, memberId: 2), mode: InsertMode.insertOrIgnore);
-        
-        chatClient = await flutterClient.chat(channel: testChannel, currentUser: currentUser);
-      });
-
+      final chatClient = await flutterClient.chat(
+          channel: testChannel, currentUser: currentUser);
       await tester.pumpWidget(createChatScreen(chatClient));
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 300));
 
-      // 1. Inject a message from Alice
+      // Inject a message from Alice
       await tester.runAsync(() async {
         mockMessagingClient.injectMessage(messaging.RemoteMessage()
           ..id = 'in_123'
@@ -157,21 +150,17 @@ void main() {
             category: 'message',
           )
           ..meta = messaging.Meta()
-          ..body = {'text': 'Hey there!'}
-        );
-        
-        // Wait for event bridge and DB
-        await Future.delayed(const Duration(seconds: 1));
+          ..body = {'text': 'Hey there!'});
+
+        await Future.delayed(const Duration(milliseconds: 500));
       });
 
-      // 2. Pump frames to update UI from DB stream
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.pump(const Duration(milliseconds: 500));
-
-      // 3. Message should appear
-      expect(find.text('Hey there!', findRichText: true), findsOneWidget);
-
+      // Pump frames to update UI from DB stream
       await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Message should appear
+      expect(find.text('Hey there!', findRichText: true), findsOneWidget);
 
       // Cleanup
       await tester.pumpWidget(const SizedBox());
