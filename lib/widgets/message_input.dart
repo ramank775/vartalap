@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io' as dart_io;
 
+import 'package:audio_waveforms/audio_waveforms.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart' as path_provider;
 import 'package:vartalap/widgets/Inherited/current_user.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
 
@@ -102,6 +105,34 @@ class MessageInputState extends State<MessageInputWidget> {
       },
     );
   }
+  void sendMessage() {
+    var text = _controller.text;
+    if (text.isEmpty && !_isRecording) {
+      _startRecording();
+      return;
+    }
+    
+    if (text.isNotEmpty) {
+      _sendMessage(text);
+      _controller.text = "";
+      setState(() {
+        _isTextFieldEmpty = true;
+      });
+      if (_isShowSticker) {
+        setState(() {
+          _isShowSticker = false;
+        });
+      }
+    }
+  }
+
+  // --- Voice Recording Logic ---
+  
+  RecorderController recorderController = RecorderController();
+  bool _isTextFieldEmpty = true;
+  bool _isRecording = false;
+  String? _audioPath;
+
   @override
   void initState() {
     super.initState();
@@ -110,17 +141,86 @@ class MessageInputState extends State<MessageInputWidget> {
     _inputFocus = FocusNode();
     _inputFocus.addListener(onFocusListener);
     _controller.addListener(onTypingListener);
+    _controller.addListener(() {
+      if (_controller.text.isEmpty != _isTextFieldEmpty) {
+        setState(() {
+          _isTextFieldEmpty = _controller.text.isEmpty;
+        });
+      }
+    });
+
+    _initialiseControllers();
+  }
+
+  void _initialiseControllers() {
+    recorderController = RecorderController();
   }
 
   @override
   void dispose() {
     super.dispose();
+    recorderController.dispose();
     if (_typingTimer?.isActive ?? false) _typingTimer!.cancel();
     _inputFocus.removeListener(onFocusListener);
     _controller.removeListener(onTypingListener);
     _inputFocus.dispose();
     _controller.dispose();
   }
+
+  void _startRecording() async {
+    try {
+      final hasPermission = await recorderController.checkPermission();
+      if (!hasPermission) {
+        debugPrint("No microphone permission");
+        return;
+      }
+
+      final directory = await path_provider.getApplicationDocumentsDirectory();
+      _audioPath = '${directory.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await recorderController.record(path: _audioPath!);
+      setState(() {
+        _isRecording = true;
+      });
+    } catch (e) {
+      debugPrint("Failed to start recording: $e");
+    }
+  }
+
+  void _stopAndSendRecording() async {
+    try {
+      final path = await recorderController.stop();
+      setState(() {
+        _isRecording = false;
+      });
+      if (path != null && widget.sendAttachment != null) {
+        // Send as an audio note instead of generic document
+        widget.sendAttachment!(path, 'audio');
+      }
+    } catch (e) {
+      debugPrint("Failed to stop/send recording: $e");
+    }
+  }
+
+  void _cancelRecording() async {
+    try {
+      await recorderController.stop();
+      setState(() {
+        _isRecording = false;
+      });
+      // Optionally delete the file if path exists
+      if (_audioPath != null) {
+         final file = dart_io.File(_audioPath!);
+         if (await file.exists()) {
+           await file.delete();
+         }
+      }
+    } catch (e) {
+      debugPrint("Failed to cancel recording: $e");
+    }
+  }
+
+  // --- End Voice Recording Logic ---
 
   void onTypingListener() {
     if (_controller.text.isEmpty) return;
@@ -149,23 +249,20 @@ class MessageInputState extends State<MessageInputWidget> {
       setState(() {
         _isShowSticker = false;
       });
-      // Intercepted: consumed by closing the emoji panel, don't pop
       return Future.value(false);
     }
-    // Not intercepting — let the system/AppBar back button handle the pop
     return Future.value(false);
   }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // Allow natural pops (AppBar back button); only intercept when emoji panel is open
       canPop: !_isShowSticker,
       onPopInvokedWithResult: onBackPress,
       child: Column(
         children: <Widget>[
           if (widget.replyingTo != null) _buildReplyPreview(),
-          buildInput(context), 
+          _isRecording ? buildRecordingInput(context) : buildInput(context), 
           buildSticker(context)
         ],
       ),
@@ -216,6 +313,48 @@ class MessageInputState extends State<MessageInputWidget> {
     );
   }
 
+  Widget buildRecordingInput(BuildContext context) {
+     var theme = Theme.of(context);
+     return Row(
+       mainAxisSize: MainAxisSize.max,
+       children: [
+         Flexible(
+           flex: 1,
+           child: Container(
+             padding: const EdgeInsets.symmetric(horizontal: 10),
+             decoration: BoxDecoration(
+               color: theme.primaryColorLight,
+             ),
+             child: Row(
+               children: [
+                 IconButton(
+                   icon: const Icon(Icons.delete, color: Colors.grey),
+                   onPressed: _cancelRecording,
+                 ),
+                 Expanded(
+                   child: AudioWaveforms(
+                     size: Size(MediaQuery.of(context).size.width, 45),
+                     recorderController: recorderController,
+                     enableGesture: true,
+                     waveStyle: WaveStyle(
+                       waveColor: theme.primaryColor,
+                       extendWaveform: true,
+                       showMiddleLine: false,
+                     ),
+                   ),
+                 ),
+                 IconButton(
+                   icon: Icon(Icons.send_rounded, color: theme.primaryColor),
+                   onPressed: _stopAndSendRecording,
+                 )
+               ]
+             )
+           )
+         )
+       ]
+     );
+  }
+
   Widget buildInput(BuildContext context) {
     var theme = Theme.of(context);
     return Row(
@@ -226,7 +365,6 @@ class MessageInputState extends State<MessageInputWidget> {
           child: Container(
             decoration: BoxDecoration(
               color: theme.primaryColorLight,
-              //borderRadius: BorderRadius.all(const Radius.circular(30.0)),
             ),
             child: Row(
               children: <Widget>[
@@ -276,7 +414,9 @@ class MessageInputState extends State<MessageInputWidget> {
                 ),
                 IconButton(
                   onPressed: sendMessage,
-                  icon: const Icon(Icons.send_rounded),
+                  icon: Icon(
+                    _isTextFieldEmpty ? Icons.mic : Icons.send_rounded,
+                  ),
                 ),
               ],
             ),
@@ -299,19 +439,5 @@ class MessageInputState extends State<MessageInputWidget> {
         ),
       ),
     );
-  }
-
-  void sendMessage() {
-    var text = _controller.text;
-    if (text.isEmpty) {
-      return;
-    }
-    _sendMessage(text);
-    _controller.text = "";
-    if (_isShowSticker) {
-      setState(() {
-        _isShowSticker = false;
-      });
-    }
   }
 }

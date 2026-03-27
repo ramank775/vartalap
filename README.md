@@ -109,36 +109,6 @@ You can customize these scripts with your own server URLs and API keys.
 The old `config.json` and `config.local.json` files are no longer used. Please migrate to `--dart-define` for better performance.
 
 
-### Setup with Gitpod
-Click on the Gitpod badge to start cloud IDE 
-
-[![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/ramank775/vartalap) 
-
-Localhost command
-- Feel free to use your own ports configuration
-
-    `SMARTPHONE_INTERNAL_IP = 192.168.0.10`
-
-    `SMARTPHONE_INTERNAL_PORT = 5555`
-
--  To switch adb on your device to work over the network using port 5555
-
-    `adb tcpip SMARTPHONE_INTERNAL_PORT`
-
-- Check connection from localhost
-
-    `adb connect SMARTPHONE_INTERNAL_IP:SMARTPHONE_INTERNAL_PORT`
-
--  Ngrok tcp forward to your mobile or Forward a chosen port on your router
-
-    `ngrok tcp SMARTPHONE_INTERNAL_IP:SMARTPHONE_INTERNAL_PORT`
-
-Gitpod command
-- Connect from your Gitpod to your localhost for debugging
-    `adb connect NGROK_ADDRESS:NGROK_PORT`
-
-    `flutter run`
-
 Chat Server
 - Start chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
 - Use the `--dart-define` configuration method as described above to set your server URLs

@@ -6,6 +6,7 @@ import 'package:vartalap/utils/color_helper.dart';
 import 'package:vartalap/utils/date_time_format.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 import 'package:vartalap/widgets/Inherited/current_user.dart';
+import 'package:vartalap/widgets/audio_message_bubble.dart';
 import 'package:vartalap_messaging_flutter/models/models.dart';
 
 class MessageWidget extends StatelessWidget {
@@ -237,11 +238,22 @@ class MessageWidget extends StatelessWidget {
         return _buildImageMessage(context);
       case MessageType.video:
         return _buildVideoMessage(context);
+      case MessageType.audio:
+        return _buildAudioMessage(context);
       case MessageType.attachment:
         return _buildFileMessage(context);
       default:
         return SizedBox();
     }
+  }
+
+  Widget _buildAudioMessage(BuildContext context) {
+    if (_msg.attachments.isEmpty) return const Text("Audio missing");
+    final attachment = _msg.attachments.first;
+    return AudioMessageBubble(
+      attachment: attachment,
+      isMe: _isYou,
+    );
   }
 
   Widget _buildImageMessage(BuildContext context) {

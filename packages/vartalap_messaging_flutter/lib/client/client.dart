@@ -786,7 +786,9 @@ class VartalapChatClientFlutter {
                     ? MessageType.image
                     : category == 'video'
                         ? MessageType.video
-                        : MessageType.attachment,
+                        : category == 'audio'
+                            ? MessageType.audio
+                            : MessageType.attachment,
                 state: MessageState.pending,
                 payload: {'name': fileName, 'path': path},
                 channelId: channelId,
