@@ -102,6 +102,9 @@ class MockVartalapChatClient extends VartalapChatClient
       await Future.delayed(const Duration(milliseconds: 100));
     }
     for (var message in messages) {
+      // Skip ephemeral messages (typing indicators etc.)
+      if (message.head.ephemeral) continue;
+
       final channelId = message.head.to;
       _channelMessages.putIfAbsent(channelId, () => []);
       _channelMessages[channelId]!.add(message.toJson());
