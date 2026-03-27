@@ -1,8 +1,26 @@
+import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vartalap_messaging_flutter/vartalap_messaging_flutter.dart';
+import 'package:vartalap_messaging_flutter/db/chat_db.dart' show ContactsCompanion;
 import 'package:vartalap_messaging/vartalap_messaging.dart' as messaging;
 import 'package:vartalap_testing/vartalap_testing.dart';
+
+/// Ensure a mock contact exists in the DB with a proper name
+Future<void> _ensureMockContact(
+    VartalapChatClientFlutter client, String uid, String name, String phone) async {
+  final existing = await (client.db.select(client.db.contacts)
+        ..where((tbl) => tbl.uid.equals(uid)))
+      .getSingleOrNull();
+  if (existing != null) return;
+  await client.db.into(client.db.contacts).insert(ContactsCompanion.insert(
+        uid: Value(uid),
+        username: Value(uid),
+        name: Value(name),
+        phone: Value(phone),
+        status: ContactStatus.active,
+      ));
+}
 
 /// A developer overlay that only appears in Mock Mode to trigger server events.
 class MockDeveloperMenu extends StatelessWidget {
@@ -172,6 +190,8 @@ class _MockMenuSheetState extends State<_MockMenuSheet> {
                 final myUid = await widget.client.getLoggedInUser()
                     ?? widget.chatClient.mockUserId;
                 final msgId = 'manual_${DateTime.now().millisecondsSinceEpoch}';
+                // Ensure Alice contact exists with a proper name
+                await _ensureMockContact(widget.client, 'alice_mock', 'Alice', '+1987654321');
                 final msg = messaging.RemoteMessage()
                   ..id = msgId
                   ..head = messaging.Head(
