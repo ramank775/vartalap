@@ -70,6 +70,7 @@ class SyncMessageTask extends VartalapTask<void> {
             await db.into(db.contacts).insert(ContactsCompanion.insert(
                   uid: Value(remoteMsg.head.from),
                   username: Value(remoteMsg.head.from),
+                  phone: Value(remoteMsg.head.from),
                   status: ContactStatus.active,
                 ));
       } else {

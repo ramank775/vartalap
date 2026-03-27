@@ -294,13 +294,15 @@ class VartalapChatClientFlutter {
           String senderDisplayName;
           if (senderRow == null) {
             debugPrint('[EVENT] Sender contact NOT found, creating it');
+            final senderUid = remoteMsg.head.from;
             contactId =
                 await _db.into(_db.contacts).insert(ContactsCompanion.insert(
-                      uid: Value(remoteMsg.head.from),
-                      username: Value(remoteMsg.head.from),
+                      uid: Value(senderUid),
+                      username: Value(senderUid),
+                      phone: Value(senderUid),
                       status: ContactStatus.active,
                     ));
-            senderDisplayName = remoteMsg.head.from;
+            senderDisplayName = senderUid;
 
             // Fetch profile from server in background to get real name
             _fetchAndUpdateContact(remoteMsg.head.from, contactId);
