@@ -1,12 +1,16 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:vartalap/config/app_config.dart';
 import 'package:vartalap/config/client_factory.dart';
 
+bool get _isWorkmanagerSupported => Platform.isAndroid || Platform.isIOS;
+
 class WorkmanagerTasks {
   static const String syncTaskName = 'taskq_background_sync';
 
   static void initialize() {
+    if (!_isWorkmanagerSupported) return;
     Workmanager().initialize(
       callbackDispatcher,
       isInDebugMode: kDebugMode,
@@ -14,6 +18,7 @@ class WorkmanagerTasks {
   }
 
   static void registerSyncTask() {
+    if (!_isWorkmanagerSupported) return;
     Workmanager().registerOneOffTask(
       "${syncTaskName}_${DateTime.now().millisecondsSinceEpoch}",
       syncTaskName,
