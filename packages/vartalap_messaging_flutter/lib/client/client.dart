@@ -300,8 +300,10 @@ class VartalapChatClientFlutter {
                       username: Value(remoteMsg.head.from),
                       status: ContactStatus.active,
                     ));
-            // Best name we have is the UID itself
             senderDisplayName = remoteMsg.head.from;
+
+            // Fetch profile from server in background to get real name
+            _fetchAndUpdateContact(remoteMsg.head.from, contactId);
           } else {
             debugPrint('[EVENT] Sender contact found with ID: ${senderRow.id}');
             contactId = senderRow.id;
@@ -388,6 +390,24 @@ class VartalapChatClientFlutter {
       debugPrint('[EVENT] New message saved to local DB: ${remoteMsg.id}');
     } catch (e) {
       debugPrint('[EVENT] Error handling incoming message: $e');
+    }
+  }
+
+  /// Fetch profile from server and update the placeholder contact with real name
+  void _fetchAndUpdateContact(String uid, int contactId) async {
+    try {
+      final profile = await client.fetchProfile(uid);
+      final name = profile.name;
+      if (name.isNotEmpty) {
+        await (_db.update(_db.contacts)
+              ..where((tbl) => tbl.id.equals(contactId)))
+            .write(ContactsCompanion(
+          name: Value(name),
+        ));
+        debugPrint('[EVENT] Updated contact $uid with name: $name');
+      }
+    } catch (e) {
+      debugPrint('[EVENT] Could not fetch profile for $uid: $e');
     }
   }
 
