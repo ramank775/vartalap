@@ -138,7 +138,12 @@ class VartalapChatClientFlutter {
 
       _isInitialized = true;
 
-      // Step 5: Sync missed messages and contacts in background
+      // Step 5: Start processing scheduled tasks in foreground
+      unawaited(scheduler.run().catchError((e) {
+        debugPrint('[CLIENT] Task scheduler error: $e');
+      }));
+
+      // Step 6: Sync missed messages and contacts in background
       triggerSync();
     } catch (e) {
       if (e is VartalapInitializationException) {
