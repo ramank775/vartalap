@@ -30,6 +30,9 @@
 .pub-cache/
 .pub/
 /build/
+android/app/.cxx/
+ios/Flutter/ephemeral/
+linux/
 
 # Web related
 lib/generated_plugin_registrant.dart
@@ -48,3 +51,7 @@ config.json
 *.local.*
 GoogleService-Info.plist
 firebase_*.json
+
+# Local tooling
+.claude/
+.codex
