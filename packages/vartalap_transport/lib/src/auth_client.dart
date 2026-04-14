@@ -11,6 +11,12 @@ import 'auth_token_provider.dart';
 /// The scaffold surfaces the method signatures and implements
 /// [AuthTokenProvider] so transport adapters can consume it. Wire
 /// impls land with step 7 of the V3_ARCHITECTURE roadmap.
+///
+/// **Surface lock (2026-04-15).** Method signatures here are the
+/// contract that step 8 (transports) and step 10 (UI) build against
+/// in parallel. Adding methods is fine; changing existing signatures
+/// requires deliberate cross-track coordination — the scheduler,
+/// transport adapters, and UI all assume these shapes.
 class AuthClient implements AuthTokenProvider {
   final Uri baseUrl;
 
@@ -18,6 +24,25 @@ class AuthClient implements AuthTokenProvider {
   String? _userId;
 
   AuthClient({required this.baseUrl});
+
+  /// Seed in-memory session from persisted secure-storage values on app
+  /// boot. UI calls this once at startup if the user has a saved
+  /// session. Triggers no network. The transport adapters can call
+  /// [refresh] later if the accesskey is rejected.
+  void restoreSession({
+    required String accesskey,
+    required String userId,
+  }) {
+    _accesskey = accesskey;
+    _userId = userId;
+  }
+
+  /// Drops in-memory session state. Caller is responsible for clearing
+  /// `flutter_secure_storage` and the local store.
+  void clearSession() {
+    _accesskey = null;
+    _userId = null;
+  }
 
   // ---- AuthTokenProvider ------------------------------------------------
 
@@ -57,6 +82,22 @@ class AuthClient implements AuthTokenProvider {
   /// `GET /v3.0/users/me` — AUTH_CONTRACT §4.5.
   Future<Map<String, dynamic>> getOwnProfile() =>
       throw UnimplementedError('AuthClient.getOwnProfile — wired in step 7');
+
+  /// `PATCH /v3.0/users/me` — AUTH_CONTRACT §4.5.
+  ///
+  /// The UI calls this directly for username / display name / avatar
+  /// edits AS the actual REST call dispatched by the `edit_profile`
+  /// outbound_ops kind. Setting `username = null` clears it. Server
+  /// enforces the 1-change-per-90-days rate limit
+  /// (AUTH_CONTRACT §10.6).
+  Future<Map<String, dynamic>> patchOwnProfile({
+    String? username,
+    String? displayName,
+    String? avatarUrl,
+    String? statusText,
+  }) =>
+      throw UnimplementedError(
+          'AuthClient.patchOwnProfile — wired in step 7');
 
   /// `GET /v3.0/users/<user_id>` — AUTH_CONTRACT §7.5.
   Future<Map<String, dynamic>> getUser(String userId) =>
