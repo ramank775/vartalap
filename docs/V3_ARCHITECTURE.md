@@ -220,67 +220,82 @@ Android is stable (see Out of scope).
 ---
 
 ### 7. Auth contract already exists
-Server-side OTP auth contract is drafted at
-`../chat-server/docs/AUTH_CONTRACT.md` (v0.1 Draft). It defines:
+Server-side OTP auth contract is in `AUTH_CONTRACT.md` (v1.0 as of
+2026-04-14, mirrored from chat-server). It defines:
 - `POST /v3.0/auth/otp/send`
 - `POST /v3.0/auth/otp/verify`
 - Request/response shapes, error codes, token format, TTLs, rate limits
 - Pluggable `SmsSender` interface so gateway choice (Twilio vs sms-gate.app
   vs SMPP) stays deferred
 
-**Must be rewritten for v3 greenfield framing.** Drop §12 (migration
-strategy) and any Firebase-compat text. **Keep the `/v3.0/` URL prefix** —
-chat-server's nginx gateway already strips version prefixes and routes by
-prefix; changing to unversioned routes is a gateway-and-all-handlers
-rewrite. Promote from v0.1 Draft toward v1.0 once rewritten.
-
-**Auth contract scope extension.** OTP send/verify is not the whole auth
-surface. The rewritten contract must also specify:
-- **Device registration:** ties a device-generated device id to the user's
-  accesskey; used for push topic routing and session scoping
-- **Session refresh / revocation:** accesskey rotation policy, server-side
-  revocation on logout, behavior on server-side force-expire
-- **Push topic registration:** endpoint the client calls post-OTP to tell
-  the server "my ntfy topic is X, push to this on new messages"
-- **WebSocket auth:** how WS connections are authenticated with the
-  accesskey, what happens on accesskey expiry during a live WS connection
-- **Logout / account deletion:** endpoints, server-side cleanup semantics,
-  ntfy topic deregistration
-- **Rate limit behavior:** user-visible error surfaces, backoff guidance,
-  distinct codes for "too many attempts on this number" vs "too many from
-  this IP"
+The contract now covers (per AUTH_CONTRACT.md v1.0):
+- **Identity model:** `user_id` canonical, `username` optional
+  discovery handle, `phone` login handle (AUTH_CONTRACT §2).
+- **Session management:** accesskey (30d TTL) + refreshToken (90d,
+  single-use rotation), `/v3.0/auth/session/refresh`,
+  `/v3.0/auth/session/revoke` (AUTH_CONTRACT §4).
+- **Push topic registration:** `POST /v3.0/push/topic`, keyed by
+  `(user_id, deviceId)` (AUTH_CONTRACT §5).
+- **WebSocket auth:** `Sec-WebSocket-Protocol: accesskey.<token>`
+  pre-upgrade validation, close code 4001 (expired) / 4002
+  (revoked) / 4003 (phone rebind) (AUTH_CONTRACT §6).
+- **Contact discovery:** SHA-256 hashed phone lookup, 500/day/user
+  (AUTH_CONTRACT §7).
+- **Logout / account deletion:** including phone-rebind
+  (AUTH_CONTRACT §8-9).
+- **Rate limits and error envelope:** structured
+  `{error: {code, message, retryAfterSec?, scope?}}`
+  (AUTH_CONTRACT §10-11).
 
 SMS gateway pick is still a product decision. Server's
 `SelfHostedOtpAuthProvider` builds against the `ISmsSender` interface with
 a `MockSmsSender` for dev; real gateway slotted in at deployment.
 
-**Identity model: username is the identifier, phone number is the login
-handle (Telegram-style).**
+**Identity model: `user_id` is the canonical identifier; `username`
+is the discovery handle; `phone` is the login handle.**
 
-- The **username** is the canonical, immutable (or user-changeable with
-  careful collision semantics) identifier for a user across the system.
-  All references in messages, groups, and contacts resolve to username, not
-  phone number.
-- The **phone number** is the login handle used during OTP. It is a lookup
-  key into "which username owns this number right now," not the identity
-  itself.
-- Phone number **can change** (user moves to a new number) without losing
-  identity, history, contacts, or group memberships. The OTP flow for the
-  new number re-binds it to the existing username after verification.
-- Contact discovery works by phone lookup → username. The lookup is gated
-  and privacy-preserving: contact-discovery protocol (hashed phone lookup,
-  bloom filter, or private-set-intersection) is an open design question
-  for the `AUTH_CONTRACT.md` rewrite, but the identity model itself is
-  settled here.
-- This mirrors Telegram's identity model and addresses Codex P2's
-  enumeration risk: an attacker scraping phone numbers gets at most "a
-  username is associated with this phone right now," not a stable user
-  handle or historical linkage.
+Three independent identifiers, three independent roles. See
+`AUTH_CONTRACT.md` §2 for the full contract; the
+load-bearing claims:
 
-**Implication for v3 spec work:** the `AUTH_CONTRACT.md` rewrite must
-define username creation flow (at first OTP, server assigns or user picks),
-username change semantics, and phone-rebind flow (OTP on new number while
-signed in on old number, or via account-recovery path).
+- The **`user_id`** is the canonical user identity AND the UUIDv7
+  partition (one token, both jobs — see `SPIKE_B_SYNC.md` §4). 36
+  bits, server-assigned at signup with random + duplication-check,
+  immutable. Encoded on the wire as 9 lowercase hex chars (e.g.,
+  `"a3f2e8c5d"`). **All references on the sync wire — message
+  authorship, group membership, ACK targets, fanout recipients,
+  compensating events — resolve to `user_id`.**
+- The **`username`** is the **optional** discovery handle: 3-32
+  ASCII chars, `[a-zA-Z0-9_]`, case-sensitive, mutable (1 change
+  per 90 days; first-ever set is exempt — AUTH_CONTRACT §10.6). Set/changed/cleared via
+  `PATCH /v3.0/users/me`, NOT picked at OTP signup — the OTP flow
+  is purely a phone-ownership proof. A user can sign up, send and
+  receive messages, and never set a username; identity is `user_id`
+  throughout. Username is never used as a wire identifier — it can
+  change or disappear at any moment without breaking any reference,
+  because nothing references it. Display in the UI uses contact-book
+  name first, username second, phone third (AUTH_CONTRACT §2.4).
+- The **`phone`** is the login handle used during OTP. Bound to one
+  `user_id` at a time. Rebindable via the AUTH_CONTRACT §9
+  phone-rebind flow (OTP-on-new-number while authenticated on old)
+  without losing identity, history, contacts, or group memberships.
+  Account recovery on lost-phone is manual (out-of-band email to
+  admin) for v3.0.
+- Contact discovery (AUTH_CONTRACT §7) uses SHA-256 hashed phone
+  lookup with a 500/day/user quota. Hashing is a soft privacy
+  guarantee against casual log/breach exposure; the rate limit is
+  the actual defense. PSI is deferred to v4.
+- Enumeration resistance: an attacker scraping phone hashes gets at
+  most `(username, user_id)` for a phone *right now*. Username
+  can change, so this is not a stable historical handle. The
+  `user_id` IS stable — but it is not derivable from the phone
+  without a successful contact-lookup hit.
+
+**Breaking change from v2:** the `x-user` HTTP header now carries
+`user_id` (9 hex chars), not the phone number. v3 is a clean
+break — no parallel-run window. v2 clients hitting v3 endpoints
+fail authentication; this is surfaced via the destructive-reset
+consent screen on first launch.
 
 ---
 
@@ -356,6 +371,90 @@ The user is notified with a clear error toast.
 This rule covers: delete message, edit message, delete chat, clear chat
 history, remove member from group. It does not cover non-destructive ops
 (send, react, forward).
+
+### 12. Two-transport sync surface, one outbound queue
+
+The sync wire is split into two transports with deliberately different
+jobs:
+
+- **WebSocket** carries opaque chat-content payload bytes. The server
+  validates routing — session, channel membership, per-resource
+  sequencing, op_id dedup — and **never parses the inner payload**.
+  Adding a new chat-content type (pinned messages, polls, ephemeral
+  messages, reactions of new shapes) does not touch chat-server code
+  or proto.
+- **REST** handles operations the server has to interpret because they
+  mutate server-owned state: channel CRUD, membership changes, profile
+  edits (incl. username), push topic registration, contact discovery,
+  auth.
+
+**One client-side outbound queue spans both.** `outbound_ops` (per
+`SPIKE_B_SYNC.md`) holds WS envelopes AND mutating REST writes. The
+scheduler dispatches each op via the matching transport adapter; both
+adapters normalize their outcomes (WS Ack, HTTP response) into the same
+internal `AckOutcome` shape. Offline queueing, retry with backoff,
+per-resource ordering, op_id dedup work uniformly across transports.
+
+**Reads are not queued.** GET endpoints (own profile, other-user
+profile, contact lookup) and auth endpoints block on network and fail
+clearly when offline. There is nothing to retry idempotently for "show
+me a profile right now" — if you can't reach the server, you can't do
+the lookup.
+
+**REST writes produce WS fanout.** When a REST write mutates server-
+owned state that other channel members care about (a new channel,
+member added/removed, channel edited, profile field changed), the
+server emits a synthetic `Envelope` with a `ServerEventPayload` body
+(distinguished from chat-content payloads by `payload[0] == 0x53`) to
+all affected recipients on their active WS connections. Recipients
+apply server-event payloads unconditionally (server-authored). This
+bridges the two transports: a sender on REST, recipients on WS, no
+client-visible seam.
+
+**Recipient-enforced authorization for chat content.** Because the
+server doesn't parse `Envelope.payload`, it can't enforce who is
+allowed to "edit message X" or "delete message Y." Each recipient
+enforces these checks against its local event log: a `MESSAGE_DELETE`
+payload is applied only if the recipient's local store shows the
+sender as the original author. Failed checks are silently dropped. A
+malicious sender that emits unauthorized chat-content payloads gets
+`ACK_SUCCESS` from the server but every recipient drops the payload —
+the malicious view diverges from the canonical view, no other user
+is affected. See `SYNC_PROTOCOL.md` §6a for the full model.
+
+**Why this works:** decision 3 (server is a relay, not a store) holds
+strictly. The server's universe is sessions, channels, sequencing,
+dedup, fanout, queueing — no chat semantics. Adding chat features is
+a client-only effort. Server cost stays bounded to active-user count,
+not feature count or message count.
+
+**Wire schemas:**
+- `proto/v3-envelope.proto` — server's wire schema
+  (Envelope, Ack, WsEnvelope). Server's authoritative format.
+- `proto/v3-chat-payload.proto` — reference client-to-
+  client payload schema. Server NEVER imports.
+
+**Deferred to v3.1: unified WS transport with system-channel message
+bus.** A future evolution collapses the client to a single WS
+transport. REST writes become envelopes targeting a reserved
+`channel_id = "system"`. Connection-gateway inspects the target:
+real channel ids → normal fanout; `"system"` → publish to a NATS
+(or Kafka) topic that a new **system consumer** service subscribes
+to. The system consumer decodes the payload, dispatches to the
+right internal service (channel-ms / profile-ms / notification-ms)
+via the same internal APIs that REST endpoints use today,
+publishes ACKs on a reply topic, and produces fanout envelopes for
+affected recipients through the existing delivery-manager path.
+Upsides: client has one transport, one connection, one dispatch
+path; connection-gateway stays pure opaque routing (single-line
+conditional on `channel_id`); system consumer scales and fails
+independently; backpressure handled by the bus; operational
+visibility preserved at the internal-service boundary. Downsides
+deferred to v3.1: coupling of background-drain reliability to WS
+availability, designing the auth-refresh bootstrap path (refresh
+still needs a REST channel to exist before WS is open), and
+writing the system-ops proto schema. v3.0 ships with the
+dual-transport model; v3.1 migrates.
 
 ---
 
@@ -492,7 +591,8 @@ numbers across commits and fails on >20% regression.
   CRDT / LWW conflict resolution is removed from scope (consequence of
   one-device rule).
 - QR-pairing-based identity (Signal model). Phone-number login +
-  username-based identity stays.
+  `user_id`-based identity (with `username` as discovery handle)
+  stays.
 - Web platform. SQLite FFI limitation, unchanged from v2.
 - iOS. Android-first launch; iOS when Android is stable.
 - Voice / video calls.
@@ -522,10 +622,13 @@ Step numbers are the canonical reference (no "Phase N" shorthand).
    per-resource sequence, op id dedup, receiver-side dedup, tombstones,
    undelivered-queue TTL, push-topic auth, WS reauth. This is the Codex
    P0 "real prerequisite" that must exist before scaffold.
-4. **Rewrite `AUTH_CONTRACT.md` for v3 greenfield, promote to v1.0.**
-   Includes device registration, session refresh/revocation, push topic
-   registration, WS auth, logout/account deletion, rate-limit UX,
-   contact-discovery privacy, username identity model.
+4. ~~**Rewrite `AUTH_CONTRACT.md` for v3 greenfield, promote to v1.0.**~~
+   **Done 2026-04-14.** v1.0 lives at
+   `AUTH_CONTRACT.md` — covers session refresh/
+   revocation, push topic registration, WS subprotocol auth,
+   logout/account deletion/phone-rebind, rate limits, contact
+   discovery, and the `(user_id, username, phone)` identity
+   model.
 5. **Degoogle proof build** — first implementation milestone is a clean
    build of the current app with Firebase / Google plugins / `google-services.json`
    removed. Produces a zero-Firebase APK before any v3 scaffold work.
@@ -558,11 +661,28 @@ Spike A picks event-sourced log, steps 6 and 9 merge.
 
 Decisions, contract, and test plan files referenced by v3 implementation:
 
-- `V3_ARCHITECTURE.md` (this file) — decisions, committed on
+- `docs/V3_ARCHITECTURE.md` (this file) — decisions, committed on
   `feat/v3-foundation`
-- `../chat-server/docs/AUTH_CONTRACT.md` — server integration contract,
-  needs rewrite per decision 7 (v3-greenfield framing, auth scope extension,
-  username identity model, contact-discovery privacy)
+- `docs/SPIKE_A_LOCAL_STORE.md` — local store decision (event-sourced log
+  on single SQLite, Option C)
+- `docs/SPIKE_A_RESULTS_emulator_2026-04-14.md` — benchmark numbers
+  backing the Spike A decision
+- `docs/SPIKE_B_SYNC.md` — sync package design (replaces `packages/taskq/`)
+- `docs/SYNC_PROTOCOL.md` — wire protocol between v3 client and
+  chat-server (outbound ops, ACKs, fanout, undelivered queue, push
+  integration, WS reauth, rate limits)
+- `AUTH_CONTRACT.md` — v1.0, v3-greenfield
+  contract: identity model (`user_id` canonical, `username`
+  discovery, `phone` login), session management, push topic
+  registration, WS subprotocol auth, contact discovery,
+  logout/account-delete/phone-rebind, rate limits, error envelope
+- `proto/v3-envelope.proto` — server's wire schema
+  (Envelope, Ack, WsEnvelope, AckOutcome, WsType). Canonical for all
+  v3 sync wire shape.
+- `proto/v3-chat-payload.proto` — reference client-
+  to-client payload schema (ChatPayload, ChatPayloadType,
+  Attachment, ForwardSource). Server never imports; clients agree
+  among themselves.
 - The most recent `/plan-eng-review` test plan under
   `~/.gstack/projects/ramank775-vartalap/` — refer to it by latest mtime,
   not a pinned filename (previous drafts pinned a branch-specific path
@@ -579,7 +699,13 @@ list against the v3 architecture.
 Questions resolved in this revision are struck through; only genuinely
 open questions remain.
 
-1. Which local store wins Spike A?
+1. ~~Which local store wins Spike A?~~ **Resolved 2026-04-14: event-sourced
+   log on a single SQLite database (Option C — shared DB with explicit
+   event retention protocol). See `docs/SPIKE_A_LOCAL_STORE.md`.
+   Sqflite is the runner-up. Drift rejected on watch-amplification
+   (`.watch()` re-runs on any write to a watched table; measured 100/100
+   wasted re-emits). Isar/ObjectBox rejected pre-benchmark on maintenance
+   and F-Droid licensing.**
 2. What does the Spike B taskq-replacement design look like concretely?
 3. ~~Push: UnifiedPush, ntfy, WS-only?~~ **Resolved: ntfy-direct, ntfy
    Android app as pinned distributor. UnifiedPush is v3.1.**
@@ -592,17 +718,27 @@ open questions remain.
    consent on first launch.**
 8. ~~What's the v3 launch criterion?~~ **Resolved: v2 golden path on Android
    without Firebase, plus opt-in Sentry. See decision 9.**
-9. **Contact-discovery privacy protocol.** Hashed phone lookup, bloom
-   filter, private-set-intersection, or rate-limited plain lookup? Resolve
-   in the `AUTH_CONTRACT.md` rewrite.
-10. **Username creation flow at first OTP.** Server-assigned from phone,
-    user-picked at signup, or random-with-user-edit? Resolve in the
-    `AUTH_CONTRACT.md` rewrite.
-11. **Phone-rebind flow.** OTP on new number while signed in on old number,
-    or via account-recovery path? Resolve in the `AUTH_CONTRACT.md` rewrite.
-12. **Undelivered-queue TTL on chat-server.** How long does the server hold
-    undelivered ops for an offline user? 7 days, 30 days, forever? Resolve
-    in the sync protocol spec (step 3 of roadmap).
+9. ~~**Contact-discovery privacy protocol.**~~ **Resolved: SHA-256
+   hashed phone lookup with 500/day/user, 100/request, 5,000/day/IP
+   quotas. PSI deferred to v4. See AUTH_CONTRACT.md §7.**
+10. ~~**Username creation flow at first OTP.**~~ **Resolved:
+    username is optional, NOT picked at OTP. The OTP flow is
+    purely phone-ownership proof. Users set/change/clear username
+    via `PATCH /v3.0/users/me` (AUTH_CONTRACT §4.5); they may
+    skip indefinitely. The 1-change-per-90-days rate limit
+    applies (first-ever set is exempt). Display falls back to
+    contact-book name → username → phone → empty per
+    AUTH_CONTRACT §2.4.**
+11. ~~**Phone-rebind flow.**~~ **Resolved: OTP-on-new-number while
+    authenticated on the old session, via
+    `POST /v3.0/auth/phone/rebind/start` and `…/verify`. The
+    `user_id` is unchanged across rebind, so all references
+    keep working. Account recovery on lost-phone is manual
+    (out-of-band email) for v3.0; self-service recovery is v3.1+.
+    See AUTH_CONTRACT.md §9.**
+12. ~~**Undelivered-queue TTL on chat-server.**~~ **Resolved: 30
+    days rolling per user, 10,000 frames cap, drop-oldest on
+    overflow. See `docs/SYNC_PROTOCOL.md` §11.2.**
 
 ---
 

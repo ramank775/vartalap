@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package vartalap.v3.payload;
+
+// =============================================================================
+// Vartalap v3 — Client-to-client chat payload schema (REFERENCE)
+// =============================================================================
+//
+// Status: v1.0 (2026-04-14)
+//
+// MIRROR: This file is a copy of the canonical version intended to live in
+//         the chat-server repo at `proto/v3-chat-payload.proto`. During the
+//         v3 design phase the file is mirrored here in the vartalap repo
+//         for self-contained review; keep the two copies in sync manually.
+//
+// Spec:   ../SYNC_PROTOCOL.md §6a
+//
+// THIS FILE IS NOT IMPORTED BY THE SERVER.
+//
+// The chat-server treats Envelope.payload (see v3-envelope.proto) as
+// opaque bytes — it routes, sequences, dedupes, and fans out, but it
+// never parses these bytes. This file documents the payload schema
+// that v3.0 clients agree on among themselves so they can interoperate.
+//
+// Clients MAY evolve this schema independently of the server. Adding a
+// new ChatPayloadType, adding fields, adding new top-level oneof
+// branches — none of those require a server change. Clients negotiate
+// compatibility among themselves via the `version` field and standard
+// proto forward-compat rules (unknown fields tolerated, unknown enum
+// values fall back to UNSPECIFIED).
+//
+// A client that receives a payload with a ChatPayloadType it does not
+// understand SHOULD ignore the payload and (optionally) surface a
+// "this client is out of date" hint in the UI for that conversation.
+//
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// ChatPayload — what clients put inside Envelope.payload bytes.
+// -----------------------------------------------------------------------------
+//
+// Every chat-content event the user takes (send a message, edit one,
+// delete one, react, unreact, forward) serializes to a ChatPayload,
+// which is then encoded as bytes and stuffed into Envelope.payload.
+//
+// The server sees only the encoded bytes. Recipients decode and
+// dispatch on `type`.
+//
+message ChatPayload {
+  // Client-to-client schema version. Allows clients to evolve this
+  // file and detect peers that don't speak the new version.
+  uint32 version = 1;
+
+  // What kind of chat-content event this is.
+  ChatPayloadType type = 2;
+
+  // The message this payload acts on. For TYPE_MESSAGE_CREATE and
+  // TYPE_MESSAGE_FORWARD, this is the new message's id (client-
+  // generated UUIDv7). For UPDATE / DELETE / REACTION_*, this is
+  // the existing message being targeted.
+  string message_id = 3;
+
+  // Fields populated per `type`. Recipients MUST validate the
+  // expected fields are present for the given `type` and ignore
+  // fields irrelevant to the type.
+
+  // For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_UPDATE, TYPE_MESSAGE_FORWARD.
+  string body = 10;
+  string content_type = 11;        // MIME-style; defaults to "text/plain"
+  repeated Attachment attachments = 12;
+
+  // For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_FORWARD.
+  string reply_to_message_id = 20;
+
+  // For TYPE_REACTION_ADD, TYPE_REACTION_REMOVE.
+  string emoji = 30;
+
+  // For TYPE_MESSAGE_FORWARD.
+  ForwardSource forward_source = 40;
+
+  // Free-form client metadata. Other clients MAY ignore unknown keys.
+  // Reserved keys:
+  //   "client_version"  — UI hint about sender's client (advisory)
+  //   "edit_reason"     — optional reason for an UPDATE
+  map<string, string> meta = 100;
+}
+
+enum ChatPayloadType {
+  TYPE_UNSPECIFIED = 0;
+
+  // A new message in the channel.
+  TYPE_MESSAGE_CREATE = 1;
+
+  // Replace the body / content_type / attachments of an existing
+  // message. Recipient enforces "sender is the original author"
+  // (per SYNC_PROTOCOL.md §6a.3); silently dropped otherwise.
+  TYPE_MESSAGE_UPDATE = 2;
+
+  // Tombstone an existing message. Recipient enforces author check;
+  // silently dropped otherwise.
+  TYPE_MESSAGE_DELETE = 3;
+
+  // Add the named emoji as a reaction from the sender on the target
+  // message. Idempotent — duplicate adds are no-ops on recipients.
+  TYPE_REACTION_ADD = 4;
+
+  // Remove the named emoji reaction from the sender on the target
+  // message. Idempotent — removes for non-existent reactions are
+  // no-ops on recipients.
+  TYPE_REACTION_REMOVE = 5;
+
+  // Forward an existing message into this channel as a new message.
+  // Identical to TYPE_MESSAGE_CREATE plus `forward_source` metadata
+  // for recipient UI ("Forwarded from …").
+  TYPE_MESSAGE_FORWARD = 6;
+
+  // Future client-defined types: pinned messages, polls, replies-as-
+  // first-class, ephemeral messages, etc. Adding a new value here
+  // requires NO server change — only client coordination on what
+  // the value means.
+}
+
+message Attachment {
+  string url = 1;            // canonical resource locator
+  string mime_type = 2;
+  uint64 size_bytes = 3;
+  string sha256 = 4;         // hex; recipient may verify integrity
+  string filename = 5;       // optional, advisory
+  uint32 width = 10;         // images / videos only
+  uint32 height = 11;
+  uint32 duration_ms = 12;   // audio / video only
+}
+
+message ForwardSource {
+  string source_channel_id = 1;
+  string source_message_id = 2;
+}
