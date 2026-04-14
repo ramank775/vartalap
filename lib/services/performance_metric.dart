@@ -1,84 +1,72 @@
-import 'package:firebase_performance/firebase_performance.dart';
-import 'package:vartalap/utils/enum_helper.dart';
+// Stub: Firebase removed per V3_ARCHITECTURE.md decision 1. Replacement pending v3 auth/push/crash work.
 
 class PerformanceTrace {
-  final Trace _trace;
-  PerformanceTrace(this._trace);
+  PerformanceTrace();
 
   Future<void> start() {
-    return _trace.start();
+    return Future.value();
   }
 
   Future<void> stop() {
-    return _trace.stop();
+    return Future.value();
   }
 
-  void putAttribute(String name, dynamic value) {
-    return _trace.putAttribute(name, value.toString());
-  }
+  void putAttribute(String name, dynamic value) {}
 
-  void setMetric(String name, int value) {
-    return _trace.setMetric(name, value);
-  }
+  void setMetric(String name, int value) {}
 
-  void incrementMetric(String name) {
-    return _trace.incrementMetric(name, 1);
-  }
+  void incrementMetric(String name) {}
 }
 
 class HttpPerformanceTrace {
-  final HttpMetric _metric;
+  int _httpResponseCode = 0;
+  int _requestPayloadSize = 0;
+  String _responseContentType = '';
+  int _responsePayloadSize = 0;
 
-  HttpPerformanceTrace(this._metric);
+  HttpPerformanceTrace();
 
   Future<void> start() {
-    return _metric.start();
+    return Future.value();
   }
 
   Future<void> stop() {
-    return _metric.stop();
+    return Future.value();
   }
 
-  int get httpResponseCode => _metric.httpResponseCode!;
+  int get httpResponseCode => _httpResponseCode;
 
-  int get requestPayloadSize => _metric.requestPayloadSize ?? 0;
+  int get requestPayloadSize => _requestPayloadSize;
 
-  String get responseContentType => _metric.responseContentType ?? '';
+  String get responseContentType => _responseContentType;
 
-  int get responsePayloadSize => _metric.responsePayloadSize ?? 0;
+  int get responsePayloadSize => _responsePayloadSize;
 
   set httpResponseCode(int httpResponseCode) {
-    _metric.httpResponseCode = httpResponseCode;
+    _httpResponseCode = httpResponseCode;
   }
 
   set requestPayloadSize(int requestPayloadSize) {
-    _metric.requestPayloadSize = requestPayloadSize;
+    _requestPayloadSize = requestPayloadSize;
   }
 
   set responseContentType(String responseContentType) {
-    _metric.responseContentType = responseContentType;
+    _responseContentType = responseContentType;
   }
 
   set responsePayloadSize(int responsePayloadSize) {
-    _metric.responsePayloadSize = responsePayloadSize;
+    _responsePayloadSize = responsePayloadSize;
   }
 }
 
 class PerformanceMetric {
-  static FirebasePerformance _firebasePerformance =
-      FirebasePerformance.instance;
-
-  static init() {
-    _firebasePerformance.setPerformanceCollectionEnabled(true);
-  }
+  static init() {}
 
   static PerformanceTrace newTrace(String name) {
-    return PerformanceTrace(_firebasePerformance.newTrace(name));
+    return PerformanceTrace();
   }
 
   static HttpPerformanceTrace newHttpMetric(String url, String method) {
-    var httpMethod = stringToEnum(method, HttpMethod.values);
-    return HttpPerformanceTrace(
-        _firebasePerformance.newHttpMetric(url, httpMethod));
+    return HttpPerformanceTrace();
   }
 }

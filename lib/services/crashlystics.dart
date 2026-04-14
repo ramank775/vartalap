@@ -1,18 +1,8 @@
+// Stub: Firebase removed per V3_ARCHITECTURE.md decision 1. Replacement pending v3 auth/push/crash work.
 import 'package:flutter/foundation.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 class Crashlytics {
-  static FirebaseCrashlytics _crashlytics = FirebaseCrashlytics.instance;
-
-  static init() {
-    _crashlytics.setCrashlyticsCollectionEnabled(kReleaseMode);
-    Function? originalOnError = FlutterError.onError;
-    FlutterError.onError = (FlutterErrorDetails errorDetails) async {
-      await FirebaseCrashlytics.instance.recordFlutterError(errorDetails);
-      // Forward to original handler.
-      originalOnError!(errorDetails);
-    };
-  }
+  static init() {}
 
   static Future<void> recordError(
     dynamic exception,
@@ -20,21 +10,20 @@ class Crashlytics {
     dynamic reason,
     Iterable<DiagnosticsNode> information = const [],
   }) async {
-    return _crashlytics.recordError(exception, stack,
-        reason: reason, information: information, printDetails: false);
+    return Future.value();
   }
 
   static Future<void> recordFlutterError(
       FlutterErrorDetails flutterErrorDetails) {
-    return _crashlytics.recordFlutterError(flutterErrorDetails);
+    return Future.value();
   }
 
   static Future<void> log(String message) async {
-    return _crashlytics.log(message);
+    return Future.value();
   }
 
   /// The value can only be a type [int], [num], [String] or [bool].
   static Future<void> setCustomKey(String key, dynamic value) async {
-    return _crashlytics.setCustomKey(key, value);
+    return Future.value();
   }
 }

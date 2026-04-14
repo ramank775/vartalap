@@ -1,8 +1,7 @@
+// Stub: Firebase removed per V3_ARCHITECTURE.md decision 1. Replacement pending v3 auth/push/crash work.
 import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:vartalap/services/api_service.dart';
 import 'package:vartalap/services/crashlystics.dart';
 
 class AuthResponse {
@@ -13,119 +12,47 @@ class AuthResponse {
 }
 
 class AuthService {
-  FirebaseAuth _auth = FirebaseAuth.instance;
   String? _phoneNumber;
+  // ignore: unused_field
   int? _resendToken;
-  late String _verificationId;
-  User? _user;
+  // ignore: unused_field
+  String? _verificationId;
   static FlutterSecureStorage _storage = new FlutterSecureStorage();
   static AuthService? _instance;
 
   StreamController<bool> authStateController =
       StreamController<bool>.broadcast();
   Stream<bool> get authStateChange => authStateController.stream;
-  AuthService() {
-    _auth.authStateChanges().listen((event) {
-      _user = event;
-    });
-  }
+  AuthService();
 
   Future<bool> sendOtp(String phonenumber) async {
-    Completer<bool> _promise = Completer<bool>();
-    if (phonenumber != _phoneNumber) {
-      _resendToken = null;
-      try {
-        await _storage.deleteAll();
-      } catch (e, stack) {
-        Crashlytics.recordError(e, stack,
-            reason: "Error while access secure storage");
-      }
-    }
-    _phoneNumber = phonenumber;
-    _auth.verifyPhoneNumber(
-      timeout: Duration(seconds: 0),
-      phoneNumber: _phoneNumber!,
-      forceResendingToken: _resendToken,
-      codeSent: (String verificationId, int? resendToken) async {
-        _resendToken = resendToken;
-        _verificationId = verificationId;
-        try {
-          await _storage.write(
-              key: 'resendToken', value: resendToken.toString());
-          await _storage.write(key: 'phoneNumber', value: _phoneNumber);
-        } catch (e, stack) {
-          Crashlytics.recordError(e, stack,
-              reason: "Error while access secure storage");
-        }
-
-        _promise.complete(true);
-      },
-      codeAutoRetrievalTimeout: (verificationId) {},
-      verificationCompleted: (phoneAuthCredential) {},
-      verificationFailed: (error) {
-        _promise.complete(false);
-      },
-    );
-    return _promise.future;
+    throw UnimplementedError(
+        'Firebase auth removed; self-hosted OTP pending per docs/AUTH_CONTRACT.md');
   }
 
   Future<bool> reSendOtp() {
-    return sendOtp(_phoneNumber!);
+    throw UnimplementedError(
+        'Firebase auth removed; self-hosted OTP pending per docs/AUTH_CONTRACT.md');
   }
 
   Future<AuthResponse> verify(String otp) async {
-    PhoneAuthCredential credential = PhoneAuthProvider.credential(
-        verificationId: _verificationId, smsCode: otp);
-    AuthResponse _resp = AuthResponse();
-    try {
-      var result = await _auth.signInWithCredential(credential);
-      _resp.phoneNumber = _phoneNumber!;
-      _user = result.user;
-      var idTokenResult = await result.user!.getIdTokenResult();
-      _resp.token = idTokenResult.token!;
-      _resp.status = true;
-    } catch (e, stack) {
-      _resp.error = e;
-      _resp.status = false;
-      _resp.phoneNumber = _phoneNumber!;
-      Crashlytics.recordError(e, stack,
-          reason: "Error while authentication with firebase");
-    }
-    if (_resp.status) {
-      try {
-        await ApiService.login(_phoneNumber!);
-        this.authStateController.sink.add(true);
-      } catch (e, stack) {
-        Crashlytics.recordError(e, stack, reason: "Login api service failed");
-        await _auth.signOut();
-        _resp.error = e;
-        _resp.status = false;
-      }
-    }
-
-    return _resp;
+    throw UnimplementedError(
+        'Firebase auth removed; self-hosted OTP pending per docs/AUTH_CONTRACT.md');
   }
 
   bool isLoggedIn() {
-    return _user != null;
+    return false;
   }
 
   Future<void> signout() async {
-    await this._auth.signOut();
     authStateController.sink.add(false);
   }
 
   String? get phoneNumber {
-    if (isLoggedIn()) {
-      return _user!.phoneNumber;
-    }
-    return null;
+    return _phoneNumber;
   }
 
   Future<String?> get idToken {
-    if (isLoggedIn()) {
-      return _user!.getIdToken();
-    }
     return Future.value(null);
   }
 
@@ -150,7 +77,6 @@ class AuthService {
       if (_resendToken != null) {
         instance._resendToken = int.parse(_resendToken);
       }
-      instance._user = _instance!._auth.currentUser;
     } catch (e, stack) {
       Crashlytics.recordError(e, stack,
           reason: "Error while initializing auth service");

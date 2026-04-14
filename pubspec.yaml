@@ -28,24 +28,18 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.5
   sqflite: ^2.3.0
-  flutter_contacts: ^1.1.7+1
-  permission_handler: ^10.4.3
-  emoji_picker_flutter: ^1.6.1
-  flutter_secure_storage: ^8.0.0
-  firebase_core: ^2.15.1
-  firebase_auth: ^4.7.3
-  firebase_messaging: ^14.6.6
+  flutter_contacts: ^2.0.2
+  permission_handler: ^12.0.1
+  emoji_picker_flutter: ^4.4.0
+  flutter_secure_storage: ^10.0.0
   http: ^1.1.0
-  connectivity_plus: ^4.0.2
-  package_info_plus: ^4.1.0
-  flutter_local_notifications: ^15.1.0+1
-  firebase_performance: ^0.9.2+5
-  firebase_crashlytics: ^3.3.5
+  connectivity_plus: ^7.1.1
+  package_info_plus: ^9.0.1
+  flutter_local_notifications: ^21.0.0
   url_launcher: ^6.1.12
-  share_plus: ^7.1.0
+  share_plus: ^12.0.2
   crypto: ^3.0.3
   bubble: ^1.2.1
-  firebase_app_check: ^0.1.5+2
 
 dev_dependencies:
   flutter_test:

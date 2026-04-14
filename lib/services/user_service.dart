@@ -191,16 +191,18 @@ class UserService {
   static Future<List<User>> _getContacts() async {
     final permission = await Permission.contacts.status;
     if (!permission.isGranted) return [];
-    Iterable<Contact> contacts = await FlutterContacts.getContacts(
-        withProperties: true, withThumbnail: false, withPhoto: false);
+    Iterable<Contact> contacts = await FlutterContacts.getAll(
+        properties: {ContactProperty.phone});
     List<User> users = [];
     contacts.forEach((contact) {
       (contact.phones).forEach((phone) {
-        String? phoneNumber = normalizePhoneNumber(phone.normalizedNumber);
+        final rawNumber = phone.normalizedNumber ?? phone.number;
+        String? phoneNumber = normalizePhoneNumber(rawNumber);
         if (phoneNumber != null) {
+          final displayName = contact.displayName;
           users.add(User(
-              contact.displayName.isNotEmpty
-                  ? contact.displayName
+              (displayName != null && displayName.isNotEmpty)
+                  ? displayName
                   : phoneNumber,
               phoneNumber,
               null));

@@ -1,8 +1,5 @@
 import 'dart:async';
 
-import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/login/introduction.dart';
@@ -28,23 +25,17 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final homescreen = await initializeApp();
   FlutterError.onError = (errorDetails) {
-    FirebaseCrashlytics.instance.recordFlutterFatalError(errorDetails);
+    Crashlytics.recordFlutterError(errorDetails);
   };
   // Pass all uncaught asynchronous errors that aren't handled by the Flutter framework to Crashlytics
   PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    Crashlytics.recordError(error, stack);
     return true;
   };
   runApp(Home(configStore.packageInfo.appName, homescreen));
 }
 
 Future<Widget> initializeApp() async {
-  await Firebase.initializeApp();
-  await FirebaseAppCheck.instance.activate(
-    webRecaptchaSiteKey: 'recaptcha-v3-site-key',
-    androidProvider: AndroidProvider.playIntegrity,
-    appleProvider: AppleProvider.appAttestWithDeviceCheckFallback,
-  );
   await configStore.loadConfig();
   await AuthService.init();
   Crashlytics.init();
