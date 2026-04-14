@@ -41,6 +41,16 @@ dependencies:
   crypto: ^3.0.3
   bubble: ^1.2.1
 
+  # v3 packages (scaffolded, not yet wired into UI).
+  vartalap_proto:
+    path: packages/vartalap_proto
+  vartalap_store:
+    path: packages/vartalap_store
+  vartalap_transport:
+    path: packages/vartalap_transport
+  vartalap_sync:
+    path: packages/vartalap_sync
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

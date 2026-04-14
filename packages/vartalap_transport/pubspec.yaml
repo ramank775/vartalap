@@ -1,0 +1,17 @@
+name: vartalap_transport
+description: WS + REST transport adapters, auth client, and error classification for Vartalap v3.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  http: ^1.1.0
+  web_socket_channel: ^3.0.0
+  vartalap_proto:
+    path: ../vartalap_proto
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.24.0
