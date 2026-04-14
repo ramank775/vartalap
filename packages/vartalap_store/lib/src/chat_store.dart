@@ -16,7 +16,27 @@ import 'types.dart';
 class ChatStore {
   final Database db;
 
+  /// Per-table change notification. Every mutating write in this class
+  /// calls [_notify] for the affected tables; watchers filter by name.
+  ///
+  /// Hand-rolled over sqflite because (a) sqflite has no built-in
+  /// `.watch()` and (b) `drift.watch()` was rejected on
+  /// watch-amplification in Spike A. The contract here is deliberate:
+  /// a write that touches a row in table T pokes T once; watchers
+  /// re-query themselves. No row-level diffing, no attempt to filter
+  /// "only emit if the watched rows changed" at the store layer —
+  /// watchers handle that by applying `.distinct()` where it matters.
+  final _changes = StreamController<Set<String>>.broadcast();
+
   ChatStore._(this.db);
+
+  /// Emits the set of table names touched by the most recent write.
+  /// Callers typically `stream.where((tables) => tables.contains('x'))`.
+  Stream<Set<String>> get tableChanges => _changes.stream;
+
+  void _notify(Set<String> tables) {
+    if (!_changes.isClosed) _changes.add(tables);
+  }
 
   /// Opens (or creates) a database at [path]. Pass `inMemoryDatabasePath`
   /// for tests.
@@ -42,7 +62,10 @@ class ChatStore {
     return ChatStore._(db);
   }
 
-  Future<void> close() => db.close();
+  Future<void> close() async {
+    await _changes.close();
+    await db.close();
+  }
 
   /// §5.3 — optimistic send. Inserts the message row in `pending`,
   /// enqueues the outbound op, bumps the channel's activity marker.
@@ -62,6 +85,7 @@ class ChatStore {
         whereArgs: [message.channelId],
       );
     });
+    _notify(const {'messages', 'outbound_ops', 'channels'});
   }
 
   /// Flow A — dispatcher flip. Op row → `in_flight`, message → `sending`.
@@ -87,6 +111,7 @@ class ChatStore {
         whereArgs: [messageId],
       );
     });
+    _notify(const {'outbound_ops', 'messages'});
   }
 
   /// Flow B — ACK success. Op row deleted, message promoted to `sent`
@@ -112,6 +137,7 @@ class ChatStore {
         whereArgs: [messageId],
       );
     });
+    _notify(const {'outbound_ops', 'messages'});
   }
 
   /// Convenience read for the smoke test and any single-row fetch.
@@ -135,6 +161,246 @@ class ChatStore {
     );
     if (rows.isEmpty) return null;
     return _rowToOutboundOp(rows.single);
+  }
+
+  /// Transient reject or timeout → retry later with backoff.
+  /// SPIKE_B_SYNC.md §5 Flow B / §6.
+  Future<void> markOpRetrying({
+    required String opId,
+    required int nextRetryAt,
+    required String reason,
+  }) async {
+    await db.update(
+      'outbound_ops',
+      {
+        'status': OpStatus.retrying.wire,
+        'next_retry_at': nextRetryAt,
+        'last_error': reason,
+        'dispatched_at': null,
+      },
+      where: 'op_id = ?',
+      whereArgs: [opId],
+    );
+    _notify(const {'outbound_ops'});
+  }
+
+  /// Soft/hard retry limit exceeded → dead_letter. SPIKE_B_SYNC.md §6.
+  /// Row stays until user acknowledges it from the UI (§10).
+  Future<void> markOpDeadLetter({
+    required String opId,
+    required String reason,
+    required String? messageId,
+    required int nowMs,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.update(
+        'outbound_ops',
+        {
+          'status': OpStatus.deadLetter.wire,
+          'last_error': reason,
+          'dispatched_at': null,
+        },
+        where: 'op_id = ?',
+        whereArgs: [opId],
+      );
+      if (messageId != null) {
+        await txn.update(
+          'messages',
+          {
+            'message_state': MessageState.rejected.wire,
+            'state_updated_at': nowMs,
+          },
+          where: 'message_id = ?',
+          whereArgs: [messageId],
+        );
+      }
+    });
+    _notify(
+      messageId != null ? {'outbound_ops', 'messages'} : {'outbound_ops'},
+    );
+  }
+
+  /// Permanent reject. Roll back message projection, mark op rejected,
+  /// cascade subsequent same-resource ops.
+  /// SPIKE_B_SYNC.md §5 Flow B / §8.
+  Future<void> applyPermanentReject({
+    required String opId,
+    required String resourceId,
+    required int rejectedSeq,
+    required String reason,
+    required String? messageId,
+    required int nowMs,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.update(
+        'outbound_ops',
+        {
+          'status': OpStatus.rejected.wire,
+          'last_error': reason,
+          'dispatched_at': null,
+        },
+        where: 'op_id = ?',
+        whereArgs: [opId],
+      );
+
+      // Projection rollback — for v3.0 we only implement the
+      // chat_payload new-message path: flip the optimistic message to
+      // `rejected` so the UI can show a retry affordance. Edit/delete
+      // rollback (restoring pre-edit body, clearing tombstone) lands
+      // with the tombstone+undo work.
+      if (messageId != null) {
+        await txn.update(
+          'messages',
+          {
+            'message_state': MessageState.rejected.wire,
+            'state_updated_at': nowMs,
+          },
+          where: 'message_id = ?',
+          whereArgs: [messageId],
+        );
+      }
+
+      // Cascade: any later-sequenced op on the same resource is
+      // guaranteed to fail because the parent failed. Mark them so the
+      // UI shows one coherent error instead of N.
+      await txn.rawUpdate(
+        '''
+        UPDATE outbound_ops
+        SET status = 'cascaded_rejection',
+            last_error = ?,
+            dispatched_at = NULL
+        WHERE resource_id = ?
+          AND resource_seq > ?
+          AND status IN ('pending', 'retrying', 'in_flight')
+        ''',
+        ['parent_rejected:$reason', resourceId, rejectedSeq],
+      );
+    });
+    _notify(const {'outbound_ops', 'messages'});
+  }
+
+  /// User tapped "dismiss" on a failure toast. Marks the terminal op
+  /// acknowledged; GC removes it after 24h per SPIKE_B §11.
+  Future<void> acknowledgeFailure({
+    required String opId,
+    required int nowMs,
+  }) async {
+    await db.update(
+      'outbound_ops',
+      {'acknowledged_at': nowMs},
+      where: 'op_id = ?',
+      whereArgs: [opId],
+    );
+    _notify(const {'outbound_ops'});
+  }
+
+  /// Manual retry: clone a terminal outbound_ops row into a brand-new
+  /// pending op (new op_id, next resource_seq, attempts=0). The old
+  /// terminal row is acknowledged so it stops showing in [fetchFailures].
+  ///
+  /// This is NOT a state transition on the failed row — terminal states
+  /// (rejected / dead_letter / cascaded_rejection) don't un-terminate.
+  /// Server dedup is by op_id, so the fresh id means the server treats
+  /// it as a new intent even if the original actually reached it.
+  ///
+  /// For `chat_payload` ops, the linked message row is flipped back to
+  /// `pending` and re-pointed at the new op.
+  Future<void> manualRetry({
+    required String failedOpId,
+    required String newOpId,
+    required int nowMs,
+  }) async {
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'outbound_ops',
+        where: 'op_id = ?',
+        whereArgs: [failedOpId],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw StateError('manualRetry: op $failedOpId not found');
+      }
+      final old = _rowToOutboundOp(rows.single);
+
+      // Next resource_seq for the resource. Correctness note: the
+      // scheduler only dispatches ops in `(resource_id, resource_seq)`
+      // order (SPIKE_B §5 Flow A). A retry gets a seq strictly greater
+      // than every prior op on the resource so that in-flight/queued
+      // siblings drain first — otherwise a retry could jump ahead of
+      // pending follow-ups and reorder user intent on the wire.
+      final seqRow = await txn.rawQuery(
+        'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
+        [old.resourceId],
+      );
+      final maxSeq = seqRow.single['m'] as int?;
+      final nextSeq = (maxSeq ?? 0) + 1;
+
+      await txn.insert('outbound_ops', {
+        'op_id': newOpId,
+        'transport': old.transport.wire,
+        'kind': old.kind,
+        'rest_method': old.restMethod,
+        'rest_path': old.restPath,
+        'resource_id': old.resourceId,
+        'resource_seq': nextSeq,
+        'payload': Uint8List.fromList(old.payload),
+        'status': OpStatus.pending.wire,
+        'attempts': 0,
+        'next_retry_at': nowMs,
+        'dispatched_at': null,
+        'last_error': null,
+        'acknowledged_at': null,
+        'created_at': nowMs,
+        'target_message_id': old.targetMessageId,
+        'target_channel_id': old.targetChannelId,
+      });
+
+      // Dismiss the failed row so the UI stops showing it.
+      await txn.update(
+        'outbound_ops',
+        {'acknowledged_at': nowMs},
+        where: 'op_id = ?',
+        whereArgs: [failedOpId],
+      );
+
+      if (old.targetMessageId != null) {
+        await txn.update(
+          'messages',
+          {
+            'message_state': MessageState.pending.wire,
+            'state_updated_at': nowMs,
+          },
+          where: 'message_id = ?',
+          whereArgs: [old.targetMessageId],
+        );
+      }
+    });
+    _notify(const {'outbound_ops', 'messages'});
+  }
+
+  /// User-visible failures: rejected / dead_letter / cascaded_rejection
+  /// with no acknowledged_at yet. SPIKE_B_SYNC.md §10.
+  Future<List<OutboundOpRow>> fetchFailures() async {
+    final rows = await db.rawQuery('''
+      SELECT * FROM outbound_ops
+      WHERE status IN ('rejected', 'dead_letter', 'cascaded_rejection')
+        AND acknowledged_at IS NULL
+      ORDER BY created_at DESC
+    ''');
+    return rows.map(_rowToOutboundOp).toList();
+  }
+
+  /// Flow C — in-flight rows whose ACK is overdue.
+  /// SPIKE_B_SYNC.md §5 Flow C.
+  Future<List<OutboundOpRow>> selectInFlightOlderThan({
+    required int cutoffMs,
+  }) async {
+    final rows = await db.query(
+      'outbound_ops',
+      where: "status = 'in_flight' AND dispatched_at < ?",
+      whereArgs: [cutoffMs],
+    );
+    return rows.map(_rowToOutboundOp).toList();
   }
 
   /// For the Flow A dispatcher query — returns up to one op per resource
@@ -180,6 +446,7 @@ class ChatStore {
       'last_read_message_id': null,
       'tombstoned': 0,
     });
+    _notify(const {'channels'});
   }
 
   // --- row marshalling ---------------------------------------------------

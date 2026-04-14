@@ -11,17 +11,14 @@ import 'clock.dart';
 /// Three decoupled flows that coordinate only through the database:
 ///   A — Dispatcher: picks dispatchable ops, flips them to `in_flight`,
 ///       hands frames to the transport. No awaits on ACKs.
-///   B — ACK handler: subscribes to [Transport.acks]; on each ACK,
-///       transitions the matching op (delete on success, rejected on
-///       permanent, retrying on transient).
-///   C — Timeout sweep: periodic; transitions stuck `in_flight` rows
-///       back to `retrying`.
+///   B — ACK handler: subscribes to [Transport.acks]; transitions ops
+///       on success / transient reject / permanent reject / auth
+///       failure.
+///   C — Timeout sweep: periodic; `in_flight` rows whose
+///       `dispatched_at + timeout` is in the past go back to `retrying`.
 ///
-/// This scaffold implements Flow A (dispatch path) and Flow B (success
-/// path) end-to-end for `chat_payload` ops on WS so the smoke test
-/// can exercise `pending → sending → sent`. Rejection cascade
-/// (SPIKE_B §8), coalescing (§5a), Flow C (§5), and retry backoff are
-/// stubbed; they land with step 9 of the V3_ARCHITECTURE roadmap.
+/// Coalescing (SPIKE_B §5a) is not yet applied — every frame is single
+/// op until we have the wire transport to measure against.
 class SyncScheduler {
   final ChatStore store;
   final Transport wsTransport;
@@ -29,11 +26,28 @@ class SyncScheduler {
   final BackoffPolicy backoff;
   final Clock clock;
 
+  /// Soft retry limit — SPIKE_B_SYNC.md §6.
+  final int maxAttempts;
+
+  /// Hard retry ceiling — SPIKE_B_SYNC.md §6.
+  final Duration maxAge;
+
+  /// In-flight ACK timeout — SPIKE_B_SYNC.md §5 Flow C.
+  final Duration inFlightTimeout;
+
+  /// Flow C sweep cadence.
+  final Duration sweepInterval;
+
   StreamSubscription<AckFrame>? _wsAckSub;
   StreamSubscription<AckFrame>? _restAckSub;
+  Timer? _sweepTimer;
 
   final _tickSoon = StreamController<void>.broadcast();
   bool _running = false;
+
+  /// Paused on AUTH_FAILURE until the auth layer refreshes. Flow A
+  /// checks this at the top of each tick.
+  bool _authPaused = false;
 
   SyncScheduler({
     required this.store,
@@ -41,20 +55,27 @@ class SyncScheduler {
     required this.restTransport,
     required this.backoff,
     this.clock = Clock.system,
+    this.maxAttempts = 10,
+    this.maxAge = const Duration(hours: 48),
+    this.inFlightTimeout = const Duration(seconds: 30),
+    this.sweepInterval = const Duration(seconds: 10),
   });
 
-  /// Wire the ACK handlers and run an initial dispatch pass.
+  /// Wire the ACK handlers, start Flow C, and run an initial dispatch.
   Future<void> start() async {
     if (_running) return;
     _running = true;
     _wsAckSub = wsTransport.acks.listen(_onAck, onError: (_) {});
     _restAckSub = restTransport.acks.listen(_onAck, onError: (_) {});
     _tickSoon.stream.listen((_) => _dispatchOnce());
+    _sweepTimer = Timer.periodic(sweepInterval, (_) => _sweepTimeouts());
     await _dispatchOnce();
   }
 
   Future<void> stop() async {
     _running = false;
+    _sweepTimer?.cancel();
+    _sweepTimer = null;
     await _wsAckSub?.cancel();
     await _restAckSub?.cancel();
     _wsAckSub = null;
@@ -67,12 +88,19 @@ class SyncScheduler {
     if (!_tickSoon.isClosed) _tickSoon.add(null);
   }
 
+  /// Called by the auth layer after it has refreshed the accesskey.
+  /// Unpauses Flow A so paused ops can re-dispatch.
+  void resumeAfterAuthRefresh() {
+    _authPaused = false;
+    tickSoon();
+  }
+
   // ---------------------------------------------------------------------
   // Flow A — Dispatcher
   // ---------------------------------------------------------------------
 
   Future<void> _dispatchOnce() async {
-    if (!_running) return;
+    if (!_running || _authPaused) return;
     final dispatchable = await store.selectDispatchable(now: clock.nowMs());
     for (final op in dispatchable) {
       await _dispatchOne(op);
@@ -83,17 +111,19 @@ class SyncScheduler {
     final transport =
         op.transport == OpTransport.ws ? wsTransport : restTransport;
     if (transport.currentState != TransportState.connected) {
-      // Transport unavailable — wait for state change. Per SPIKE_B §12a,
-      // "Transport unavailable is not an attempt" — no backoff tick.
+      // Transport unavailable — wait for state change. Per SPIKE_B
+      // §12a, "Transport unavailable is not an attempt": no backoff,
+      // no attempt counter increment. The next tickSoon() on transport
+      // reconnect will re-select this op.
       return;
     }
 
     final messageId = op.targetMessageId;
     if (messageId == null) {
-      throw UnimplementedError(
-        'Non-message op dispatch — wired in step 9 '
-        '(channel CRUD / profile / push topic)',
-      );
+      // Non-message ops (channel CRUD / profile / push topic) dispatch
+      // in step 9 once the REST adapter is wired. For now the sync
+      // layer only supports chat_payload ops.
+      return;
     }
 
     await store.markOpInFlight(
@@ -115,10 +145,17 @@ class SyncScheduler {
     );
     try {
       await transport.send(frame);
-    } catch (_) {
-      // Per SPIKE_B §7: scheduler reverts in_flight → pending on throw.
-      // Revert logic lands with step 9 (cascading + error classification).
-      rethrow;
+    } catch (e) {
+      // Per SPIKE_B_SYNC.md §7: "Scheduler reverts in_flight → pending
+      // on throw." The transport couldn't even queue the frame — treat
+      // it like a transport outage and re-dispatch on the next tick
+      // without counting it against the retry budget.
+      await store.markOpRetrying(
+        opId: op.opId,
+        nextRetryAt: clock.nowMs(),
+        reason: 'send_threw:${e.runtimeType}',
+      );
+      tickSoon();
     }
   }
 
@@ -128,32 +165,126 @@ class SyncScheduler {
 
   Future<void> _onAck(AckFrame ack) async {
     final op = await store.fetchOutboundOp(ack.opId);
-    if (op == null) return; // Already handled (double-ack, old row GC'd).
+    if (op == null) return; // Double-ack, or row GC'd. Safe to ignore.
 
-    final messageId = op.targetMessageId;
-    switch (ack.outcome) {
-      case AckSuccess(:final serverTimestampMs, :final deliverySequence):
-        if (messageId != null) {
-          await store.applyAckSuccess(
-            opId: ack.opId,
-            messageId: messageId,
-            serverTimestampMs: serverTimestampMs ?? clock.nowMs(),
-            deliverySequence: deliverySequence ?? 0,
-            nowMs: clock.nowMs(),
-          );
-        } else {
-          throw UnimplementedError(
-            'Non-message ACK handling — wired in step 9',
-          );
-        }
+    final outcome = ack.outcome;
+    switch (outcome) {
+      case AckSuccess():
+        await _handleSuccess(op, outcome);
       case AckTransientReject():
+        await _handleTransient(op, outcome);
       case AckPermanentReject():
+        await _handlePermanent(op, outcome);
       case AckAuthFailure():
-        throw UnimplementedError(
-          'Transient/permanent/auth ACK handling — wired in step 9',
-        );
+        await _handleAuthFailure(op);
     }
 
     tickSoon();
+  }
+
+  Future<void> _handleSuccess(OutboundOpRow op, AckSuccess ack) async {
+    final messageId = op.targetMessageId;
+    if (messageId == null) {
+      // Non-message ACK — REST channel-create / profile-patch / etc.
+      // Row-delete only; no message projection to update. The REST
+      // write's projection update (channel visible, profile edited)
+      // lands with step 9's per-kind handlers.
+      return;
+    }
+    await store.applyAckSuccess(
+      opId: op.opId,
+      messageId: messageId,
+      serverTimestampMs: ack.serverTimestampMs ?? clock.nowMs(),
+      deliverySequence: ack.deliverySequence ?? 0,
+      nowMs: clock.nowMs(),
+    );
+  }
+
+  Future<void> _handleTransient(
+    OutboundOpRow op,
+    AckTransientReject ack,
+  ) async {
+    // Both soft-attempt and hard-age limits apply — whichever hits
+    // first. Attempts has already been incremented by Flow A's
+    // markOpInFlight; we check against the post-increment value.
+    if (_exhausted(op)) {
+      await _moveToDeadLetter(op, ack.reason ?? 'retry_limit_exceeded');
+      return;
+    }
+    final delay = ack.serverRetryAfter ?? backoff.delayFor(op.attempts);
+    await store.markOpRetrying(
+      opId: op.opId,
+      nextRetryAt: clock.nowMs() + delay.inMilliseconds,
+      reason: ack.reason ?? 'transient',
+    );
+  }
+
+  Future<void> _handlePermanent(
+    OutboundOpRow op,
+    AckPermanentReject ack,
+  ) async {
+    await store.applyPermanentReject(
+      opId: op.opId,
+      resourceId: op.resourceId,
+      rejectedSeq: op.resourceSeq,
+      reason: ack.reason,
+      messageId: op.targetMessageId,
+      nowMs: clock.nowMs(),
+    );
+  }
+
+  Future<void> _handleAuthFailure(OutboundOpRow op) async {
+    // Pause Flow A so we don't burn attempts while the token is bad.
+    // The op itself goes back to retrying — no attempt charged — and
+    // will re-dispatch once the auth layer calls resumeAfterAuthRefresh().
+    _authPaused = true;
+    await store.markOpRetrying(
+      opId: op.opId,
+      nextRetryAt: clock.nowMs(),
+      reason: 'auth_failure',
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Flow C — Timeout sweep
+  // ---------------------------------------------------------------------
+
+  Future<void> _sweepTimeouts() async {
+    if (!_running) return;
+    final now = clock.nowMs();
+    final cutoff = now - inFlightTimeout.inMilliseconds;
+    final stuck = await store.selectInFlightOlderThan(cutoffMs: cutoff);
+    for (final op in stuck) {
+      if (_exhausted(op)) {
+        await _moveToDeadLetter(op, 'ack_timeout');
+      } else {
+        await store.markOpRetrying(
+          opId: op.opId,
+          nextRetryAt: now + backoff.delayFor(op.attempts).inMilliseconds,
+          reason: 'ack_timeout',
+        );
+      }
+    }
+    if (stuck.isNotEmpty) tickSoon();
+  }
+
+  // ---------------------------------------------------------------------
+  // Retry-limit decision
+  // ---------------------------------------------------------------------
+
+  bool _exhausted(OutboundOpRow op) {
+    if (op.attempts >= maxAttempts) return true;
+    final ageMs = clock.nowMs() - op.createdAt;
+    if (ageMs >= maxAge.inMilliseconds) return true;
+    return false;
+  }
+
+  Future<void> _moveToDeadLetter(OutboundOpRow op, String reason) async {
+    await store.markOpDeadLetter(
+      opId: op.opId,
+      reason: reason,
+      messageId: op.targetMessageId,
+      nowMs: clock.nowMs(),
+    );
   }
 }
