@@ -27,11 +27,22 @@ class FramedOp {
   final List<int> payload;
   final int? clientTimestampMs;
 
+  /// REST-only. Populated by the scheduler for ops whose transport is
+  /// [OpTransport.rest]. `RestTransport.send` uses these to issue the
+  /// HTTPS request; `WsTransport` ignores them.
+  ///
+  /// For WS ops these are null — the envelope is routed entirely by
+  /// `channel_id` on the wire (see SYNC_PROTOCOL.md §5.4).
+  final String? restMethod;
+  final String? restPath;
+
   const FramedOp({
     required this.opId,
     required this.resourceSeq,
     required this.payload,
     this.clientTimestampMs,
+    this.restMethod,
+    this.restPath,
   });
 }
 

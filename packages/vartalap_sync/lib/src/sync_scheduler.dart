@@ -140,6 +140,9 @@ class SyncScheduler {
           opId: op.opId,
           resourceSeq: op.resourceSeq,
           payload: op.payload,
+          clientTimestampMs: clock.nowMs(),
+          restMethod: op.restMethod,
+          restPath: op.restPath,
         ),
       ],
     );
