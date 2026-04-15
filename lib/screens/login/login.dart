@@ -1,78 +1,115 @@
+/// Phone-number entry → OTP send.
+///
+/// Keeps the visual shape of v2. Wiring swapped to
+/// [AuthService.sendOtp] (AUTH_CONTRACT §3.1). While the server-side
+/// OTP provider is unwired (step 7), sendOtp throws
+/// `UnimplementedError`; the catch block surfaces it as a network
+/// failure dialog, which is the exact UX we want once the server is
+/// online but temporarily unreachable. No code changes needed when
+/// step 7 lands.
+library vartalap.screens.login.login;
+
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/login/verifyOtp.dart';
-import 'package:vartalap/services/user_service.dart';
+import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/loadingIndicator.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
+  final AuthService authService;
+  const LoginScreen({super.key, required this.authService});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _phoneController =
-      TextEditingController(text: "+91");
-  final config = ConfigStore();
+      TextEditingController(text: '+91');
+  final ConfigStore _config = ConfigStore();
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onSend() async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) {
+      _showError(['Please enter a phone number.']);
+      return;
+    }
+    _showLoading('While we send you a one-time password');
+    try {
+      await widget.authService.sendOtp(phone);
+      if (!mounted) return;
+      Navigator.of(context).pop(); // dismiss loader
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => VerifyOtpScreen(authService: widget.authService),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // dismiss loader
+      _showError([
+        'Unable to send one-time password.',
+        'Please verify the phone number and try again.',
+        e.toString(),
+      ]);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Padding(
-        padding: const EdgeInsets.all(10.0),
+        padding: const EdgeInsets.all(10),
         child: Column(
-          children: <Widget>[
+          children: [
             Expanded(
               flex: 5,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
+                children: [
+                  const AppLogo(size: 45),
                   Container(
-                    child: Center(
-                      child: Container(
-                        constraints: const BoxConstraints(maxHeight: 340),
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        child: AppLogo(
-                          size: 45,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    margin: EdgeInsets.only(top: 10),
+                    margin: const EdgeInsets.only(top: 10),
                     child: Text(
-                      config.packageInfo.appName,
+                      _config.packageInfo.appName,
                       style: VartalapTheme.theme.appTitleStyle.copyWith(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                  )
+                  ),
                 ],
               ),
             ),
             Expanded(
               flex: 4,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
+                children: [
                   Container(
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: RichText(
                       textAlign: TextAlign.center,
                       text: TextSpan(
-                        children: <TextSpan>[
-                          TextSpan(
-                            text: 'We will send you an ',
-                          ),
+                        style: TextStyle(
+                          color: Theme.of(context).iconTheme.color,
+                        ),
+                        children: const [
+                          TextSpan(text: 'We will send you a '),
                           TextSpan(
                             text: 'One Time Password ',
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
-                          TextSpan(
-                            text: 'on this mobile number',
-                          ),
+                          TextSpan(text: 'on this mobile number'),
                         ],
-                        style: TextStyle(
-                          color: Theme.of(context).iconTheme.color,
-                        ),
                       ),
                     ),
                   ),
@@ -82,19 +119,16 @@ class LoginScreen extends StatelessWidget {
                       horizontal: 20,
                       vertical: 10,
                     ),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: TextField(
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: "+91...",
-                          icon: Icon(Icons.phone),
-                        ),
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        maxLines: 1,
-                        autofocus: true,
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: '+91...',
+                        icon: Icon(Icons.phone),
                       ),
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      maxLines: 1,
+                      autofocus: true,
                     ),
                   ),
                   Container(
@@ -104,61 +138,22 @@ class LoginScreen extends StatelessWidget {
                     ),
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: ElevatedButton(
-                      onPressed: () async {
-                        List<String> errors = [];
-                        if (_phoneController.text.isNotEmpty) {
-                          showLoadingIndicator(
-                              context, "While we send you one time password");
-                          bool status =
-                              await UserService.sendOTP(_phoneController.text);
-                          Navigator.of(context).pop(); // close the loaded;
-                          if (status) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (ctx) => VerifyOtpWidget(),
-                              ),
-                            );
-                            return;
-                          }
-                          errors = [
-                            'Unable to send one time password.',
-                            'Please verify the phone number and try again.'
-                          ];
-                        } else {
-                          errors.add('Plese enter a phone numer.');
-                        }
-                        showErrorDialog(context, errors);
-                      },
+                      onPressed: _onSend,
                       style: ElevatedButton.styleFrom(
                         shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.all(
-                            Radius.circular(14),
-                          ),
+                          borderRadius: BorderRadius.all(Radius.circular(14)),
                         ),
                       ),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(
                           vertical: 8,
                           horizontal: 8,
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: <Widget>[
-                            Text(
-                              'Next',
-                            ),
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.all(
-                                  Radius.circular(16),
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.arrow_forward_ios,
-                                size: 16,
-                              ),
-                            )
+                          children: [
+                            Text('Next'),
+                            Icon(Icons.arrow_forward_ios, size: 16),
                           ],
                         ),
                       ),
@@ -166,50 +161,39 @@ class LoginScreen extends StatelessWidget {
                   ),
                 ],
               ),
-            )
+            ),
           ],
         ),
       ),
     );
   }
 
-  void showLoadingIndicator(BuildContext context, String message) {
+  void _showLoading(String message) {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return WillPopScope(
-          onWillPop: () async => false,
-          child: AlertDialog(
-            content: LoadingIndicator(
-              text: message,
-            ),
-          ),
-        );
-      },
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(content: LoadingIndicator(text: message)),
+      ),
     );
   }
 
-  void showErrorDialog(BuildContext context, List<String> messages) {
-    var contents = messages.map((e) => Text(e)).toList();
-    var dialog = AlertDialog(
-      title: Text("Error"),
-      content: SingleChildScrollView(
-        child: ListBody(children: contents),
-      ),
-      actions: [
-        TextButton(
-          child: Text('OK'),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
-        ),
-      ],
-    );
-
+  void _showError(List<String> messages) {
     showDialog(
       context: context,
-      builder: (context) => dialog,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Error'),
+        content: SingleChildScrollView(
+          child: ListBody(children: messages.map((m) => Text(m)).toList()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
   }
 }

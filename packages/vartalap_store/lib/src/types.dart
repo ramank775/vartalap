@@ -161,3 +161,43 @@ class MessageRow {
     required this.tombstonePendingUntil,
   });
 }
+
+/// Denormalized chat-list row — SPIKE_A_SCHEMA.md §13.1.
+///
+/// Result shape of the JOIN between `channels` and the latest
+/// `messages` row pointed at by `channels.last_message_id`. The UI
+/// renders one `ChannelListEntry` per row in the chat list with no
+/// further lookups.
+class ChannelListEntry {
+  final String channelId;
+  final String kind; // 'one_to_one' | 'group'
+  final String? name;
+  final String? avatarUrl;
+  final int lastActivityMs;
+  final int unreadCount;
+
+  /// Body text of the last non-tombstoned message. `null` if the
+  /// channel has no messages yet (or the last message row is missing).
+  final String? lastMessagePreview;
+
+  /// Author of the preview-bearing message. Caller resolves the
+  /// display name against its own contacts cache.
+  final String? lastMessageAuthor;
+
+  /// `true` if the channel's `last_message_id` points at a tombstoned
+  /// row (e.g., the last message was deleted while still the newest).
+  /// UI renders as "message deleted" rather than empty.
+  final bool lastMessageTombstoned;
+
+  const ChannelListEntry({
+    required this.channelId,
+    required this.kind,
+    required this.name,
+    required this.avatarUrl,
+    required this.lastActivityMs,
+    required this.unreadCount,
+    required this.lastMessagePreview,
+    required this.lastMessageAuthor,
+    required this.lastMessageTombstoned,
+  });
+}

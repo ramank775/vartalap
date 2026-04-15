@@ -449,6 +449,173 @@ class ChatStore {
     _notify(const {'channels'});
   }
 
+  // --- UI reactive queries ----------------------------------------------
+  //
+  // These power the chat-list and chat-screen reactive streams
+  // (`watchChannelList` / `watchChannelMessages`). They run the queries
+  // in SPIKE_A_SCHEMA.md §13.1 and §13.2 verbatim. Watchers re-select
+  // on every write to the relevant tables; coalescing/filtering is
+  // deliberately pushed to the caller (`.distinct()` in Flutter land).
+
+  /// §13.1 — Chat list hot path.
+  ///
+  /// Newest-first by `last_activity_ms`. LEFT JOIN picks up the preview
+  /// body from the `last_message_id` row; `tombstoned` is surfaced so
+  /// the UI can render "message deleted" without a second query.
+  Future<List<ChannelListEntry>> fetchChannelList({int limit = 100}) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT c.channel_id, c.kind, c.name, c.avatar_url,
+             c.last_activity_ms, c.unread_count,
+             m.body AS last_message_preview,
+             m.author_user_id AS last_message_author,
+             m.tombstoned AS last_message_tombstoned
+      FROM channels c
+      LEFT JOIN messages m ON m.message_id = c.last_message_id
+      WHERE c.tombstoned = 0
+      ORDER BY c.last_activity_ms DESC
+      LIMIT ?
+      ''',
+      [limit],
+    );
+    return rows.map(_rowToChannelListEntry).toList();
+  }
+
+  /// Reactive wrapper over [fetchChannelList]. Emits on subscribe and
+  /// every time the `channels` or `messages` tables change.
+  ///
+  /// Uses an explicit StreamController rather than `async*` so that
+  /// `cancel()` on the subscription promptly tears down the
+  /// [tableChanges] listener. The async-generator shape has known
+  /// cancel-hang issues that bit `watchFailures` earlier in the spike.
+  Stream<List<ChannelListEntry>> watchChannelList({int limit = 100}) {
+    late StreamController<List<ChannelListEntry>> controller;
+    StreamSubscription<Set<String>>? changeSub;
+
+    Future<void> emit() async {
+      if (controller.isClosed) return;
+      controller.add(await fetchChannelList(limit: limit));
+    }
+
+    controller = StreamController<List<ChannelListEntry>>(
+      onListen: () {
+        changeSub = tableChanges.listen((tables) {
+          if (tables.contains('channels') || tables.contains('messages')) {
+            emit();
+          }
+        });
+        emit();
+      },
+      onCancel: () async {
+        await changeSub?.cancel();
+        changeSub = null;
+      },
+    );
+    return controller.stream;
+  }
+
+  /// §13.2 — Channel chat view, newest-first, non-tombstoned only.
+  ///
+  /// `COALESCE(delivery_sequence, INT64_MAX)` sorts locally pending
+  /// rows (null `delivery_sequence`) to the top, matching
+  /// WhatsApp/Signal UX.
+  Future<List<MessageRow>> fetchChannelMessages(
+    String channelId, {
+    int limit = 200,
+    int offset = 0,
+  }) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT m.*
+      FROM messages m
+      WHERE m.channel_id = ? AND m.tombstoned = 0
+      ORDER BY COALESCE(m.delivery_sequence, 9223372036854775807) DESC,
+               m.client_timestamp_ms DESC
+      LIMIT ? OFFSET ?
+      ''',
+      [channelId, limit, offset],
+    );
+    return rows.map(_rowToMessage).toList();
+  }
+
+  /// Reactive wrapper over [fetchChannelMessages]. Emits on subscribe
+  /// and every time the `messages` table changes.
+  Stream<List<MessageRow>> watchChannelMessages(
+    String channelId, {
+    int limit = 200,
+  }) {
+    late StreamController<List<MessageRow>> controller;
+    StreamSubscription<Set<String>>? changeSub;
+
+    Future<void> emit() async {
+      if (controller.isClosed) return;
+      controller.add(await fetchChannelMessages(channelId, limit: limit));
+    }
+
+    controller = StreamController<List<MessageRow>>(
+      onListen: () {
+        changeSub = tableChanges.listen((tables) {
+          if (tables.contains('messages')) emit();
+        });
+        emit();
+      },
+      onCancel: () async {
+        await changeSub?.cancel();
+        changeSub = null;
+      },
+    );
+    return controller.stream;
+  }
+
+  /// §10 — local read marker advance on channel open.
+  ///
+  /// Resets `unread_count` to 0 and parks `last_read_message_id` at
+  /// the newest non-tombstoned message in the channel. Both writes in
+  /// a single transaction so a crash mid-update doesn't leave a stale
+  /// read marker pointing at a message that's now behind the visible
+  /// window.
+  Future<void> markChannelRead(String channelId, int nowMs) async {
+    await db.transaction((txn) async {
+      final latest = await txn.rawQuery(
+        '''
+        SELECT message_id FROM messages
+        WHERE channel_id = ? AND tombstoned = 0
+        ORDER BY COALESCE(delivery_sequence, 9223372036854775807) DESC,
+                 client_timestamp_ms DESC
+        LIMIT 1
+        ''',
+        [channelId],
+      );
+      final latestId =
+          latest.isEmpty ? null : latest.single['message_id'] as String?;
+
+      await txn.update(
+        'channels',
+        {
+          'unread_count': 0,
+          if (latestId != null) 'last_read_message_id': latestId,
+        },
+        where: 'channel_id = ?',
+        whereArgs: [channelId],
+      );
+    });
+    _notify(const {'channels'});
+  }
+
+  static ChannelListEntry _rowToChannelListEntry(Map<String, Object?> r) =>
+      ChannelListEntry(
+        channelId: r['channel_id'] as String,
+        kind: r['kind'] as String,
+        name: r['name'] as String?,
+        avatarUrl: r['avatar_url'] as String?,
+        lastActivityMs: r['last_activity_ms'] as int,
+        unreadCount: r['unread_count'] as int,
+        lastMessagePreview: r['last_message_preview'] as String?,
+        lastMessageAuthor: r['last_message_author'] as String?,
+        lastMessageTombstoned:
+            ((r['last_message_tombstoned'] as int?) ?? 0) != 0,
+      );
+
   // --- row marshalling ---------------------------------------------------
 
   static Map<String, Object?> _messageToRow(MessageRow m) => {

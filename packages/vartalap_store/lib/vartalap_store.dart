@@ -13,4 +13,11 @@ library vartalap_store;
 export 'src/chat_store.dart' show ChatStore;
 export 'src/schema.dart' show schemaVersion;
 export 'src/types.dart'
-    show MessageRow, MessageState, OpKind, OpStatus, OpTransport, OutboundOpRow;
+    show
+        ChannelListEntry,
+        MessageRow,
+        MessageState,
+        OpKind,
+        OpStatus,
+        OpTransport,
+        OutboundOpRow;

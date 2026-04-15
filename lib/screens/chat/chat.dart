@@ -1,438 +1,228 @@
-import 'dart:async';
+/// Chat screen — reactive over `chatService.watchMessages(channelId)`.
+///
+/// Bare-bones: one reversed ListView for the message log, a TextField
+/// + send button below. On entry the screen calls
+/// `chatService.markRead(channelId)` (§10 local read marker). On send,
+/// `chatService.sendMessage(...)` enqueues the outbound op and the
+/// store stream surfaces the new pending row automatically.
+///
+/// v2's rich features (reactions, typing indicator, read receipts,
+/// message selection + delete) are intentionally left out — they
+/// re-land as the corresponding op kinds are added to `vartalap_sync`.
+library vartalap.screens.chat.chat;
 
-import 'package:vartalap/models/chat.dart';
-import 'package:vartalap/models/message.dart';
-import 'package:vartalap/models/remoteMessage.dart';
-import 'package:vartalap/models/user.dart';
-import 'package:vartalap/screens/chat/chat_info.dart';
-import 'package:vartalap/services/chat_service.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/utils/chat_message_helper.dart';
-import 'package:vartalap/widgets/Inherited/current_user.dart';
+import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/widgets/avator.dart';
-import 'package:vartalap/widgets/chatlist.dart';
-import 'package:vartalap/widgets/notifier/iterable_notifier.dart';
-import 'package:vartalap/widgets/message_input.dart';
+import 'package:vartalap_store/vartalap_store.dart';
 
 class ChatScreen extends StatefulWidget {
-  final Chat chat;
-  ChatScreen(this.chat) : super(key: Key(chat.id));
+  final String channelId;
+  final String channelName;
+  final ChatService chatService;
+  final AuthService authService;
+
+  const ChatScreen({
+    super.key,
+    required this.channelId,
+    required this.channelName,
+    required this.chatService,
+    required this.authService,
+  });
 
   @override
-  ChatState createState() => ChatState(chat);
+  State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class ChatState extends State<ChatScreen> with WidgetsBindingObserver {
-  Chat _chat;
-  late User _currentUser;
-  late Future<List<ChatMessage>> _fMessages;
-  ChatMessageController _messageController =
-      new ChatMessageController(messages: []);
-  final _selectedMessges = SetNotifier<String>(Set<String>());
-  StreamSubscription? _notificationSub;
-  StreamSubscription? _newMessageSub;
-  Timer? _readTimer;
-  Timer? _myTypingTimer;
-  Timer? _remoteTypingTimer;
-  var _typing = ValueNotifier<bool>(false);
-  Set<ChatMessage> _unreadMessages = Set<ChatMessage>();
-
-  ChatState(this._chat);
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _input = TextEditingController();
+  bool _sending = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    this._fMessages = ChatService.getChatMessages(this._chat.id);
-    this._fMessages.then((messages) {
-      final unread = messages.where((msg) =>
-          (msg.senderId != this._currentUser.username &&
-              (msg.state == MessageState.NEW ||
-                  msg.state == MessageState.DELIVERED)));
-      _unreadMessages.addAll(unread);
-    });
-
-    this._notificationSub = ChatService.onNotificationMessagStream.where((msg) {
-      final msgInfo = msg.head;
-      if (msgInfo.chatid != null && msgInfo.chatid == _chat.id) {
-        return true;
-      } else if (msgInfo.type == ChatType.GROUP && msgInfo.to == _chat.id) {
-        return true;
-      }
-      return false;
-    }).listen(
-      _onNotification,
-      onError: (error) {},
-      onDone: () {},
-      cancelOnError: false,
-    );
-    this._newMessageSub = ChatService.onNewMessageStream
-        .where((msg) => msg.head.chatid == this._chat.id)
-        .listen(_onNewMessage, cancelOnError: false);
-
-    _notificationSub!.resume();
-    _newMessageSub!.resume();
+    // Fire-and-forget: the read-marker write is a cheap single-row
+    // transaction. If it fails (rare), unread_count stays stale until
+    // the next open — acceptable.
+    widget.chatService.markRead(widget.channelId);
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
 
-    // These are the callbacks
-    switch (state) {
-      case AppLifecycleState.resumed:
-        this._newMessageSub?.resume();
-        this._notificationSub?.resume();
-        break;
-      default:
-        break;
+  Future<void> _onSend() async {
+    final body = _input.text.trim();
+    if (body.isEmpty) return;
+    final userId = widget.authService.currentUserId;
+    if (userId == null) {
+      // Session vanished mid-session (token revoked, logged out in
+      // another tab). main.dart's authStateChange listener will swap
+      // the route; in the meantime don't attempt the send.
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await widget.chatService.sendMessage(
+        channelId: widget.channelId,
+        body: body,
+        authorUserId: userId,
+      );
+      _input.clear();
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    this._currentUser = CurrentUser.of(context).user!;
+    final currentUserId = widget.authService.currentUserId ?? '';
     return Scaffold(
       appBar: AppBar(
-        leading: TextButton(
-          style: TextButton.styleFrom(
-            shape: CircleBorder(),
-            padding: const EdgeInsets.only(left: 1.0),
-          ),
-          onPressed: () {
-            Navigator.of(context).pop(true);
-          },
-          child: Row(
-            children: <Widget>[
-              Icon(
-                Icons.arrow_back,
-                size: 24.0,
-                color: Colors.white,
+        title: Row(
+          children: [
+            Avator(text: widget.channelName, width: 32, height: 32),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.channelName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              Avator(
-                text: this._chat.title,
-                width: 30.0,
-                height: 30.0,
-              )
-              // new ProfileImg(this._chat.pic ?? 'assets/images/default-user.png',
-              //     ProfileImgSize.SM),
-            ],
-          ),
-        ),
-        title: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () async {
-              if (this._chat.type == ChatType.GROUP &&
-                  this._hasSendPermission()) {
-                Chat? result = await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => ChatInfo(this._chat),
-                  ),
-                );
-                if (result != null) {
-                  setState(() {
-                    this._chat = result;
-                  });
-                }
-              }
-            },
-            child: Row(
-              mainAxisSize: MainAxisSize.max,
-              children: <Widget>[this._getTitle(context)],
             ),
-          ),
+          ],
         ),
-        actions: this._getActions(),
       ),
       body: Column(
-        mainAxisSize: MainAxisSize.max,
-        children: <Widget>[
-          Flexible(
-            flex: 1,
-            child: FutureBuilder<List<ChatMessage>>(
-                future: _fMessages,
-                builder: (context, snapshot) {
-                  switch (snapshot.connectionState) {
-                    case ConnectionState.none:
-                      return Center(
-                        child: CircularProgressIndicator(
-                          valueColor:
-                              new AlwaysStoppedAnimation<Color>(Colors.grey),
-                        ),
-                      );
-                    case ConnectionState.active:
-                    case ConnectionState.waiting:
-                      return Center(
-                        child: CircularProgressIndicator(
-                          valueColor:
-                              new AlwaysStoppedAnimation<Color>(Colors.grey),
-                        ),
-                      );
-                    case ConnectionState.done:
-                      if (snapshot.hasError) {
-                        return Center(
-                          child: Text('Error: ${snapshot.error}'),
-                        );
-                      }
-                      if (_readTimer != null && _readTimer!.isActive) {
-                        _readTimer!.cancel();
-                      }
-                      _readTimer = Timer(
-                          Duration(milliseconds: 200), _onReadTimerTimeout);
-                      final messages = snapshot.data ?? [];
-                      this._messageController =
-                          ChatMessageController(messages: messages);
-                      final Map<String, ChatUser> users = {};
-                      this._chat.users.forEach((u) => users[u.username] = u);
-                      return ChatList(
-                        controller: this._messageController,
-                        users: users,
-                        showName: this._chat.type == ChatType.GROUP,
-                        onTab: (ChatMessage msg) {
-                          if (this._selectedMessges.value.length > 0) {
-                            this._selectOrRemove(msg);
-                          }
-                        },
-                        onLongPress: _selectOrRemove,
-                      );
-                  }
-                }),
+        children: [
+          Expanded(
+            child: StreamBuilder<List<MessageRow>>(
+              stream: widget.chatService.watchMessages(widget.channelId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final messages = snapshot.data ?? const [];
+                if (messages.isEmpty) {
+                  return const Center(child: Text('No messages yet'));
+                }
+                // fetchChannelMessages returns newest-first; use reverse
+                // on the ListView so the first element renders at the
+                // bottom of the scroll view.
+                return ListView.builder(
+                  reverse: true,
+                  padding: const EdgeInsets.all(8),
+                  itemCount: messages.length,
+                  itemBuilder: (ctx, i) => _MessageBubble(
+                    message: messages[i],
+                    isMine: messages[i].authorUserId == currentUserId,
+                  ),
+                );
+              },
+            ),
           ),
-          ...this._hasSendPermission()
-              ? [
-                  MessageInputWidget(
-                    sendMessage: (String text) async {
-                      final msg = TextMessage.chatMessage(this._chat.id,
-                          this._currentUser.username, text, MessageType.TEXT);
-                      msg.sender = this._currentUser;
-                      await ChatService.sendMessage(msg, this._chat);
-                      this._messageController.add(msg);
-                    },
-                    onTyping: (bool state) async {
-                      if (state) {
-                        if (!(_myTypingTimer?.isActive ?? false)) {
-                          ChatService.sendSystemMessage(
-                              TypingMessage(
-                                this._chat.id,
-                                this._currentUser.username,
-                                true,
-                              ),
-                              this._chat);
-                          _myTypingTimer = Timer.periodic(Duration(seconds: 2),
-                              (Timer timer) {
-                            ChatService.sendSystemMessage(
-                                TypingMessage(
-                                  this._chat.id,
-                                  this._currentUser.username,
-                                  true,
-                                ),
-                                this._chat);
-                          });
-                        }
-                      } else {
-                        await ChatService.sendSystemMessage(
-                            TypingMessage(
-                              this._chat.id,
-                              this._currentUser.username,
-                              false,
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      minLines: 1,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Message',
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: _sending
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
                             ),
-                            this._chat);
-                        if (_myTypingTimer?.isActive ?? false)
-                          _myTypingTimer!.cancel();
-                        _myTypingTimer = null;
-                      }
-                    },
-                  )
-                ]
-              : [],
+                          )
+                        : const Icon(Icons.send),
+                    onPressed: _sending ? null : _onSend,
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _getTitle(BuildContext context) {
-    return ValueListenableBuilder<Iterable<String>>(
-      valueListenable: this._selectedMessges,
-      builder: (BuildContext context, Iterable<String> selectedMessages,
-          Widget? child) {
-        final subtitle = this._getSubTitle();
-        final titleWidgets = <Widget>[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2.0),
-            child: Text(
-              this._selectedMessges.value.isNotEmpty
-                  ? _selectedMessges.value.length.toString() + " selected"
-                  : _chat.title,
-              style: TextStyle(
-                fontSize: 18.0,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ];
-        if (this._selectedMessges.value.isEmpty && subtitle.isNotEmpty) {
-          titleWidgets.add(
-            SizedBox(
-                width: MediaQuery.of(context).size.width * 0.60,
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: _typing,
-                  builder: (BuildContext context, bool state, Widget? child) {
-                    var _value = subtitle;
-                    if (state) {
-                      _value = "typing...";
-                    }
-                    return Text(
-                      _value,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: false,
-                      style: TextStyle(
-                        fontSize: 12.0,
-                        color: Colors.white,
-                      ),
-                    );
-                  },
-                )),
-          );
-        }
-        return Column(
-          mainAxisSize: MainAxisSize.max,
-          mainAxisAlignment: MainAxisAlignment.end,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: titleWidgets,
-        );
-      },
-    );
-  }
-
-  String _getSubTitle() {
-    if (this._chat.type == ChatType.GROUP) {
-      return this._chat.users.map((u) => u.name).join(", ");
-    }
-    return this
-        ._chat
-        .users
-        .firstWhere(
-          (u) => this._currentUser != u,
-          orElse: () => ChatUser("", "", null),
-        )
-        .username;
-  }
-
-  void _selectOrRemove(ChatMessage msg) {
-    if (!_selectedMessges.value.remove(msg.id)) {
-      _selectedMessges.value.add(msg.id);
-    }
-    msg.isSelected = !msg.isSelected;
-    this._messageController.update(msg);
-    this._selectedMessges.update();
-  }
-
-  List<Widget> _getActions() {
-    Widget child = ValueListenableBuilder(
-      valueListenable: this._selectedMessges,
-      builder: (context, key, child) {
-        List<Widget> actions = [];
-        if (this._selectedMessges.value.isNotEmpty) {
-          actions.add(IconButton(
-            icon: Icon(Icons.clear),
-            onPressed: () {
-              List<ChatMessage> msgs = [];
-              this._selectedMessges.value.forEach((id) {
-                final notifier =
-                    this._messageController.messageChangeNotifier[id];
-                if (notifier != null) {
-                  notifier.value.isSelected = false;
-                  msgs.add(notifier.value);
-                }
-              });
-              this._messageController.updateAll(msgs);
-              this._selectedMessges.value.clear();
-              this._selectedMessges.update();
-            },
-          ));
-          actions.add(IconButton(
-            icon: Icon(Icons.delete),
-            onPressed: () async {
-              await ChatService.deleteMessages(
-                  this._selectedMessges.value.toList());
-              this._messageController.deleteAll(this._selectedMessges.value);
-              this._selectedMessges.value.clear();
-              this._selectedMessges.update();
-            },
-          ));
-        }
-        actions.add(PopupMenuButton(itemBuilder: (BuildContext context) => []));
-        return Row(children: actions);
-      },
-    );
-    return [child];
-  }
-
-  void _onNotification(RemoteMessage msg) async {
-    final msgInfo = msg.head;
-    if (msgInfo.action == "state") {
-      StateMessge state = toChatMessage(msg) as StateMessge;
-      state.msgIds.forEach((id) {
-        final notifier = this._messageController.messageChangeNotifier[id];
-        if (notifier != null) {
-          final message = notifier.value;
-          if (message.updateState(state.state))
-            this._messageController.update(message);
-        }
-      });
-    } else if (msgInfo.type == ChatType.GROUP) {
-      var users = await ChatService.getChatUserByid(this._chat.id);
-      setState(() {
-        this._chat.resetUsers();
-        users.forEach((u) => this._chat.addUser(u));
-      });
-    } else if (msgInfo.action == "typing") {
-      TypingMessage typingMsg = toChatMessage(msg) as TypingMessage;
-      if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();
-      this._typing.value = typingMsg.isTyping;
-      if (typingMsg.isTyping) {
-        _remoteTypingTimer = Timer(Duration(seconds: 5), () {
-          this._typing.value = false;
-        });
-      }
-    }
-  }
-
-  void _onNewMessage(RemoteMessage msg) {
-    final message = toChatMessage(msg);
-    this._unreadMessages.add(message);
-    this._messageController.add(message);
-    if (_readTimer == null || !_readTimer!.isActive) {
-      _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
-    }
-  }
-
-  _onReadTimerTimeout() {
-    if (_unreadMessages.isEmpty) return;
-    final unreadMessages = _unreadMessages.toList();
-    _unreadMessages = Set<ChatMessage>();
-    final future = ChatService.markAsRead(unreadMessages, this._chat);
-    unawaited(future);
-    if (_unreadMessages.isNotEmpty && _readTimer == null ||
-        !_readTimer!.isActive) {
-      _readTimer = Timer(Duration(milliseconds: 100), _onReadTimerTimeout);
-    }
-  }
-
-  bool _hasSendPermission() {
-    return this._chat.users.contains(this._currentUser);
-  }
+class _MessageBubble extends StatelessWidget {
+  final MessageRow message;
+  final bool isMine;
+  const _MessageBubble({required this.message, required this.isMine});
 
   @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    if (_readTimer?.isActive ?? false) _readTimer!.cancel();
-    if (_myTypingTimer?.isActive ?? false) _myTypingTimer!.cancel();
-    if (_remoteTypingTimer?.isActive ?? false) _remoteTypingTimer!.cancel();
-    _notificationSub?.cancel();
-    _newMessageSub?.cancel();
-    this._messageController.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    final bg = isMine
+        ? Theme.of(context).iconTheme.color
+        : Theme.of(context).dividerColor;
+    final fg = isMine ? Colors.white : null;
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message.body ?? '',
+              style: TextStyle(color: fg),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _stateLabel(message.state),
+              style: TextStyle(
+                fontSize: 10,
+                color: fg?.withValues(alpha: 0.7) ??
+                    Theme.of(context).textTheme.bodySmall?.color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _stateLabel(MessageState state) {
+    switch (state) {
+      case MessageState.pending:
+        return 'pending';
+      case MessageState.sending:
+        return 'sending…';
+      case MessageState.sent:
+        return 'sent';
+      case MessageState.delivered:
+        return 'delivered';
+      case MessageState.read:
+        return 'read';
+      case MessageState.rejected:
+        return 'failed';
+    }
   }
 }

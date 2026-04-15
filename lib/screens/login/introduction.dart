@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/url_helper.dart';
 import 'package:vartalap/widgets/app_logo.dart';
@@ -8,7 +9,9 @@ import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/screens/login/login.dart';
 
 class IntroductionScreen extends StatelessWidget {
+  final AuthService authService;
   final config = ConfigStore();
+  IntroductionScreen({super.key, required this.authService});
   @override
   Widget build(BuildContext context) {
     final theme = VartalapTheme.theme;
@@ -103,7 +106,8 @@ class IntroductionScreen extends StatelessWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (ctx) => LoginScreen(),
+                            builder: (ctx) =>
+                                LoginScreen(authService: authService),
                           ),
                         );
                       },
