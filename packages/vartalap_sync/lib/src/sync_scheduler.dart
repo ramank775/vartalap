@@ -40,6 +40,7 @@ class SyncScheduler {
 
   StreamSubscription<AckFrame>? _wsAckSub;
   StreamSubscription<AckFrame>? _restAckSub;
+  StreamSubscription<void>? _tickSub;
   Timer? _sweepTimer;
 
   final _tickSoon = StreamController<void>.broadcast();
@@ -48,6 +49,13 @@ class SyncScheduler {
   /// Paused on AUTH_FAILURE until the auth layer refreshes. Flow A
   /// checks this at the top of each tick.
   bool _authPaused = false;
+
+  /// Futures for every async work item kicked off by the flows
+  /// (dispatch passes, ack-handler invocations, timeout sweeps). [stop]
+  /// awaits them all so a caller that does
+  /// `await scheduler.stop(); await store.close();` never races a
+  /// dispatch mid-transaction against a closed DB.
+  final Set<Future<void>> _inFlight = <Future<void>>{};
 
   SyncScheduler({
     required this.store,
@@ -65,21 +73,51 @@ class SyncScheduler {
   Future<void> start() async {
     if (_running) return;
     _running = true;
-    _wsAckSub = wsTransport.acks.listen(_onAck, onError: (_) {});
-    _restAckSub = restTransport.acks.listen(_onAck, onError: (_) {});
-    _tickSoon.stream.listen((_) => _dispatchOnce());
-    _sweepTimer = Timer.periodic(sweepInterval, (_) => _sweepTimeouts());
+    _wsAckSub = wsTransport.acks.listen(
+      (ack) => _track(_onAck(ack)),
+      onError: (_) {},
+    );
+    _restAckSub = restTransport.acks.listen(
+      (ack) => _track(_onAck(ack)),
+      onError: (_) {},
+    );
+    _tickSub = _tickSoon.stream.listen((_) => _track(_dispatchOnce()));
+    _sweepTimer = Timer.periodic(
+      sweepInterval,
+      (_) => _track(_sweepTimeouts()),
+    );
     await _dispatchOnce();
   }
 
+  /// Stops the scheduler and waits for every work item kicked off by
+  /// any flow to finish. After this completes the caller can safely
+  /// close the [ChatStore] without racing a mid-transaction dispatch.
   Future<void> stop() async {
     _running = false;
     _sweepTimer?.cancel();
     _sweepTimer = null;
+    await _tickSub?.cancel();
+    _tickSub = null;
     await _wsAckSub?.cancel();
     await _restAckSub?.cancel();
     _wsAckSub = null;
     _restAckSub = null;
+    // Drain whatever was in flight when the flip happened. We snapshot
+    // because a completing item removes itself from [_inFlight] via
+    // the whenComplete in [_track], so the set mutates as we await.
+    while (_inFlight.isNotEmpty) {
+      await Future.wait(_inFlight.toList());
+    }
+  }
+
+  /// Adds [future] to [_inFlight] and removes it on completion. The
+  /// returned Future is the same as the argument — callers usually
+  /// ignore the return value (fire-and-forget pattern used by the
+  /// tickSoon listener and the sweep timer).
+  Future<void> _track(Future<void> future) {
+    _inFlight.add(future);
+    future.whenComplete(() => _inFlight.remove(future));
+    return future;
   }
 
   /// Debounced signal that the dispatchable set may have changed.
@@ -102,7 +140,14 @@ class SyncScheduler {
   Future<void> _dispatchOnce() async {
     if (!_running || _authPaused) return;
     final dispatchable = await store.selectDispatchable(now: clock.nowMs());
+    // Re-check after the await — stop() may have fired while we were
+    // suspended on the DB read. Hitting the store below with
+    // `_running == false` can still succeed if it hasn't been closed
+    // yet, but the guard keeps intent crisp: once stopped, do no more
+    // work.
+    if (!_running) return;
     for (final op in dispatchable) {
+      if (!_running) return;
       await _dispatchOne(op);
     }
   }
@@ -167,7 +212,9 @@ class SyncScheduler {
   // ---------------------------------------------------------------------
 
   Future<void> _onAck(AckFrame ack) async {
+    if (!_running) return;
     final op = await store.fetchOutboundOp(ack.opId);
+    if (!_running) return;
     if (op == null) return; // Double-ack, or row GC'd. Safe to ignore.
 
     final outcome = ack.outcome;
@@ -257,7 +304,9 @@ class SyncScheduler {
     final now = clock.nowMs();
     final cutoff = now - inFlightTimeout.inMilliseconds;
     final stuck = await store.selectInFlightOlderThan(cutoffMs: cutoff);
+    if (!_running) return;
     for (final op in stuck) {
+      if (!_running) return;
       if (_exhausted(op)) {
         await _moveToDeadLetter(op, 'ack_timeout');
       } else {

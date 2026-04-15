@@ -92,15 +92,9 @@ void main() {
     expect(latestMessages.single.state, MessageState.pending);
     expect(latestMessages.single.authorUserId, userId);
 
-    // Let any in-flight dispatch task complete before we cancel subs
-    // and close the db. scheduler.stop() flips _running but doesn't
-    // await an in-progress _dispatchOnce; closing the store under it
-    // raises "database_closed".
-    await _pumpEventQueue();
     await chatListSub.cancel();
     await messagesSub.cancel();
     await scheduler.stop();
-    await _pumpEventQueue();
     await store.close();
   });
 
@@ -171,9 +165,7 @@ void main() {
     expect(_extractUserIdBits(postOpId),
         Uuid7Gen.parseUserIdHex(userIdHex));
 
-    await _pumpEventQueue();
     await scheduler.stop();
-    await _pumpEventQueue();
     await store.close();
   });
 }
