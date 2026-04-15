@@ -38,14 +38,18 @@ List<int> _encodeChatPayload({
 class ChatService {
   final ChatStore _store;
   final SyncScheduler _scheduler;
-  final Uuid7Gen _uuidGen;
   final Clock _clock;
 
+  /// Current op_id generator. Swapped via [reseedForUser] when the
+  /// authenticated user changes — see the class doc on [reseedForUser]
+  /// for why the `userIdBits` embedded in every op_id must match the
+  /// signed-in session.
+  Uuid7Gen _uuidGen;
+
   /// [uuidGen] must be seeded with the authenticated user's 36-bit
-  /// user_id (SPIKE_B_SYNC.md §4). Constructing this service before
-  /// auth is complete is a bug — the op_ids embed the user_id the
-  /// server validates, so an unauthenticated ChatService would produce
-  /// ops that the server rejects with `prefix_mismatch`.
+  /// user_id (SPIKE_B_SYNC.md §4). Before login `main.dart` passes a
+  /// 0-seeded gen; the UI must not call [sendMessage] until
+  /// [reseedForUser] has run with the real user_id from OTP verify.
   ChatService({
     required ChatStore store,
     required SyncScheduler scheduler,
@@ -55,6 +59,21 @@ class ChatService {
         _scheduler = scheduler,
         _uuidGen = uuidGen,
         _clock = clock;
+
+  /// Replace the internal op_id generator after login / phone rebind.
+  ///
+  /// Every outbound op embeds the signed-in user's 36-bit user_id in
+  /// the UUIDv7 (SPIKE_B_SYNC.md §4) and the server rejects anything
+  /// else as `prefix_mismatch` (SYNC_PROTOCOL.md §3). If a user logs
+  /// in mid-session, the generator constructed at app boot still
+  /// carries the pre-login zero bits; without this reseed the first
+  /// send after login would be rejected.
+  ///
+  /// `main.dart` calls this on every `AuthService.authStateChange`
+  /// emission where the user is now logged in.
+  void reseedForUser(String userIdHex) {
+    _uuidGen = Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(userIdHex));
+  }
 
   /// Chat list hot path — SPIKE_A_SCHEMA.md §13.1 via
   /// [ChatStore.watchChannelList].

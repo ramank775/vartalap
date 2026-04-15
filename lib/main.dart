@@ -185,9 +185,20 @@ class _AppState extends State<App> {
     super.initState();
     _consentAccepted = widget.services.consentAccepted;
     _isLogin = widget.services.authService.isLoggedIn;
-    _authSub = widget.services.authService.authStateChange.listen(
-      (loggedIn) => setState(() => _isLogin = loggedIn),
-    );
+    _authSub = widget.services.authService.authStateChange.listen((loggedIn) {
+      if (loggedIn) {
+        // Reseed the op_id generator with the just-authenticated
+        // user's user_id. Before this point main.dart constructed the
+        // gen with zero bits; the first sendMessage after login would
+        // otherwise embed those zeros and be rejected server-side as
+        // prefix_mismatch (SYNC_PROTOCOL.md §3).
+        final userId = widget.services.authService.currentUserId;
+        if (userId != null) {
+          widget.services.chatService.reseedForUser(userId);
+        }
+      }
+      setState(() => _isLogin = loggedIn);
+    });
   }
 
   void _onConsentAccepted() {
