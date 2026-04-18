@@ -15,6 +15,7 @@ export 'src/schema.dart' show schemaVersion;
 export 'src/types.dart'
     show
         ChannelListEntry,
+        ContactRow,
         MessageRow,
         MessageState,
         OpKind,

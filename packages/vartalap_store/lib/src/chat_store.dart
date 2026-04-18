@@ -735,6 +735,97 @@ class ChatStore {
     return applied;
   }
 
+  // --- Contacts ----------------------------------------------------------
+
+  /// Upsert a contact row (INSERT OR REPLACE).
+  Future<void> upsertContact({
+    required String userId,
+    String? username,
+    String? displayName,
+    String? avatarUrl,
+    String? statusText,
+    String? phoneHash,
+    String? contactBookName,
+    required int nowMs,
+  }) async {
+    await db.insert(
+      'contacts',
+      {
+        'user_id': userId,
+        'username': username,
+        'display_name': displayName,
+        'avatar_url': avatarUrl,
+        'status_text': statusText,
+        'phone_hash': phoneHash,
+        'contact_book_name': contactBookName,
+        'last_refreshed_ms': nowMs,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    _notify(const {'contacts'});
+  }
+
+  /// All contacts, sorted by display name.
+  Future<List<ContactRow>> fetchContacts() async {
+    final rows = await db.query(
+      'contacts',
+      orderBy: 'COALESCE(contact_book_name, display_name, username, user_id)',
+    );
+    return rows
+        .map((r) => ContactRow(
+              userId: r['user_id'] as String,
+              username: r['username'] as String?,
+              displayName: r['display_name'] as String?,
+              avatarUrl: r['avatar_url'] as String?,
+              statusText: r['status_text'] as String?,
+              phoneHash: r['phone_hash'] as String?,
+              contactBookName: r['contact_book_name'] as String?,
+              lastRefreshedMs: r['last_refreshed_ms'] as int,
+            ))
+        .toList();
+  }
+
+  /// Check if a DM channel already exists between two users.
+  /// Returns the channel_id if found, null otherwise.
+  Future<String?> findExistingDmChannel(
+      String userId, String peerUserId) async {
+    // A DM channel has kind='dm' and both users as members.
+    final rows = await db.rawQuery(
+      '''
+      SELECT c.channel_id FROM channels c
+      JOIN channel_members m1 ON c.channel_id = m1.channel_id
+        AND m1.user_id = ? AND m1.removed_at IS NULL
+      JOIN channel_members m2 ON c.channel_id = m2.channel_id
+        AND m2.user_id = ? AND m2.removed_at IS NULL
+      WHERE c.kind = 'dm' AND c.tombstoned = 0
+      LIMIT 1
+      ''',
+      [userId, peerUserId],
+    );
+    if (rows.isEmpty) return null;
+    return rows.single['channel_id'] as String;
+  }
+
+  /// Insert a channel member row.
+  Future<void> insertChannelMember({
+    required String channelId,
+    required String userId,
+    required String role,
+    required int joinedAt,
+  }) async {
+    await db.insert(
+      'channel_members',
+      {
+        'channel_id': channelId,
+        'user_id': userId,
+        'role': role,
+        'joined_at': joinedAt,
+        'removed_at': null,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
   // --- UI reactive queries ----------------------------------------------
   //
   // These power the chat-list and chat-screen reactive streams

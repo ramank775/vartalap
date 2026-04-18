@@ -162,6 +162,34 @@ class MessageRow {
   });
 }
 
+/// Row from the `contacts` table — §7.
+class ContactRow {
+  final String userId;
+  final String? username;
+  final String? displayName;
+  final String? avatarUrl;
+  final String? statusText;
+  final String? phoneHash;
+  final String? contactBookName;
+  final int lastRefreshedMs;
+
+  const ContactRow({
+    required this.userId,
+    this.username,
+    this.displayName,
+    this.avatarUrl,
+    this.statusText,
+    this.phoneHash,
+    this.contactBookName,
+    required this.lastRefreshedMs,
+  });
+
+  /// Display name resolution per AUTH_CONTRACT §2.4:
+  /// contact-book name → username → userId fallback.
+  String get resolvedName =>
+      contactBookName ?? displayName ?? username ?? userId;
+}
+
 /// Denormalized chat-list row — SPIKE_A_SCHEMA.md §13.1.
 ///
 /// Result shape of the JOIN between `channels` and the latest

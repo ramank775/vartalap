@@ -142,6 +142,7 @@ Future<AppServices> initializeApp() async {
   final chatService = ChatService(
     store: store,
     scheduler: scheduler,
+    authClient: authClient,
     uuidGen: uuidGen,
     clock: Clock.system,
   );

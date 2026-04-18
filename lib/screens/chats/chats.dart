@@ -1,14 +1,10 @@
 /// Chat list — reactive over `chatService.watchChannels()`.
-///
-/// One StreamBuilder, one ListView. Tapping a row pushes the chat
-/// screen; there's no longer a /new-chat flow (contact discovery and
-/// new-chat UX re-land with the REST channel CRUD ops in later steps,
-/// V3_ARCHITECTURE.md roadmap step 9).
 library vartalap.screens.chats.chats;
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -80,6 +76,21 @@ class ChatsScreen extends StatelessWidget {
             },
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _newChat(context),
+        child: const Icon(Icons.chat),
+      ),
+    );
+  }
+
+  void _newChat(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NewChatScreen(
+          chatService: chatService,
+          authService: authService,
+        ),
       ),
     );
   }

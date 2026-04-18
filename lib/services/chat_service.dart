@@ -17,6 +17,7 @@ import 'dart:convert';
 
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
+import 'package:vartalap_transport/vartalap_transport.dart';
 
 /// Encoding used for the outbound_ops.payload bytes when the
 /// `ChatPayload` proto isn't wired yet (step 9). Once `vartalap_proto`
@@ -38,6 +39,7 @@ List<int> _encodeChatPayload({
 class ChatService {
   final ChatStore _store;
   final SyncScheduler _scheduler;
+  final AuthClient _authClient;
   final Clock _clock;
 
   /// Current op_id generator. Swapped via [reseedForUser] when the
@@ -53,10 +55,12 @@ class ChatService {
   ChatService({
     required ChatStore store,
     required SyncScheduler scheduler,
+    required AuthClient authClient,
     required Uuid7Gen uuidGen,
     required Clock clock,
   })  : _store = store,
         _scheduler = scheduler,
+        _authClient = authClient,
         _uuidGen = uuidGen,
         _clock = clock;
 
@@ -237,6 +241,66 @@ class ChatService {
   /// outbound read-receipt op.
   Future<void> markRead(String channelId) =>
       _store.markChannelRead(channelId, _clock.nowMs());
+
+  /// Discover contacts from the server and cache locally.
+  ///
+  /// Calls `POST /v3.0/contacts/lookup` (AUTH_CONTRACT §7.2) then
+  /// upserts each match into the local `contacts` table. Returns the
+  /// full local contact list (may include previously cached contacts).
+  Future<List<ContactRow>> discoverContacts() async {
+    final matches = await _authClient.lookupContacts([]);
+    final now = _clock.nowMs();
+    for (final m in matches) {
+      await _store.upsertContact(
+        userId: m.userId,
+        username: m.username,
+        displayName: m.username, // best we have from lookup
+        nowMs: now,
+      );
+    }
+    return _store.fetchContacts();
+  }
+
+  /// Start or resume a DM with [peerUserId]. Returns the channel_id.
+  ///
+  /// If a DM channel already exists between the current user and the
+  /// peer, returns it. Otherwise creates a new one locally and enqueues
+  /// the REST op to `POST /v3.0/channels`.
+  Future<String> startDirectMessage({
+    required String localUserId,
+    required String peerUserId,
+    required String peerName,
+  }) async {
+    // Check for existing DM.
+    final existing =
+        await _store.findExistingDmChannel(localUserId, peerUserId);
+    if (existing != null) return existing;
+
+    // Create new channel.
+    final channelId = await createChannel(
+      kind: 'dm',
+      ownerUserId: localUserId,
+      memberUserIds: [peerUserId],
+      name: peerName,
+    );
+
+    // Record both members locally.
+    final now = _clock.nowMs();
+    await _store.insertChannelMember(
+      channelId: channelId,
+      userId: localUserId,
+      role: 'owner',
+      joinedAt: now,
+    );
+    await _store.insertChannelMember(
+      channelId: channelId,
+      userId: peerUserId,
+      role: 'member',
+      joinedAt: now,
+    );
+
+    return channelId;
+  }
 
   /// Reactive failure surface — SPIKE_B_SYNC.md §10. The UI can bind a
   /// toast or inline retry affordance to this.
