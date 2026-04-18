@@ -170,6 +170,68 @@ class ChatService {
     _scheduler.tickSoon();
   }
 
+  /// Create a channel locally and enqueue a REST op to POST /v3.0/channels.
+  ///
+  /// The local channel row appears in [watchChannels] immediately; the
+  /// REST op confirms it server-side. If the server rejects, the channel
+  /// stays local (acceptable for v3.0 — no server-side delete yet).
+  Future<String> createChannel({
+    required String kind,
+    required String ownerUserId,
+    required List<String> memberUserIds,
+    String? name,
+  }) async {
+    final now = _clock.nowMs();
+    final channelId = _uuidGen.next(nowMs: now);
+    final opId = _uuidGen.next(nowMs: now);
+
+    await _store.insertChannel(
+      channelId: channelId,
+      kind: kind,
+      ownerUserId: ownerUserId,
+      createdAt: now,
+      name: name,
+    );
+
+    final seqRow = await _store.db.rawQuery(
+      'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
+      [channelId],
+    );
+    final maxSeq = seqRow.single['m'] as int?;
+    final nextSeq = (maxSeq ?? 0) + 1;
+
+    final payload = utf8.encode(jsonEncode({
+      'channel_id': channelId,
+      'kind': kind,
+      'name': name,
+      'members': memberUserIds,
+    }));
+
+    final op = OutboundOpRow(
+      opId: opId,
+      transport: OpTransport.rest,
+      kind: OpKind.createChannel,
+      restMethod: 'POST',
+      restPath: '/v3.0/channels',
+      resourceId: channelId,
+      resourceSeq: nextSeq,
+      payload: payload,
+      status: OpStatus.pending,
+      attempts: 0,
+      nextRetryAt: now,
+      dispatchedAt: null,
+      lastError: null,
+      acknowledgedAt: null,
+      createdAt: now,
+      targetMessageId: null,
+      targetChannelId: channelId,
+    );
+
+    await _store.enqueueOutboundOp(op);
+    _scheduler.tickSoon();
+    return channelId;
+  }
+
   /// §10 — advances the local read marker and zeroes `unread_count`.
   /// Called on ChatScreen entry. v3.0 is local-only; v3.1 adds an
   /// outbound read-receipt op.

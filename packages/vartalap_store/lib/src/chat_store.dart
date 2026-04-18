@@ -88,6 +88,13 @@ class ChatStore {
     _notify(const {'messages', 'outbound_ops', 'channels'});
   }
 
+  /// Enqueue a standalone outbound op (no associated message row).
+  /// Used for channel creation and other REST-only ops.
+  Future<void> enqueueOutboundOp(OutboundOpRow op) async {
+    await db.insert('outbound_ops', _outboundOpToRow(op));
+    _notify(const {'outbound_ops'});
+  }
+
   /// Flow A — dispatcher flip. Op row → `in_flight`, message → `sending`.
   Future<void> markOpInFlight({
     required String opId,

@@ -1,0 +1,12 @@
+name: vartalap_mock_server
+description: Dev/test mock server for Vartalap v3 golden path.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  vartalap_proto:
+    path: ../packages/vartalap_proto
+  fixnum: ^1.1.0
