@@ -449,6 +449,285 @@ class ChatStore {
     _notify(const {'channels'});
   }
 
+  // --- Inbound writers --------------------------------------------------
+  //
+  // Per SPIKE_A_SCHEMA.md §5.4: receiver-side application of WS_PUSH
+  // fanout. Every mutating writer is paired with an `op_id_seen` INSERT
+  // inside a single transaction — on gate failure the seen row is still
+  // written so a re-fanout of the same op_id does not re-evaluate
+  // (SYNC_PROTOCOL.md §7.2).
+  //
+  // Authorship and existence gates (§6a.4) are silent: a rejected payload
+  // leaves no user-visible trace, only a flag on the returned future for
+  // caller-side observability if wanted. Each method returns whether the
+  // payload was applied (true) or dropped by the gate (false).
+
+  /// Recipient-side dedup check (SYNC_PROTOCOL.md §7.2). Called before
+  /// applying a push so the receiver can skip decode entirely on hits.
+  Future<bool> hasSeenOpId(String channelId, String opId) async {
+    final rows = await db.query(
+      'op_id_seen',
+      columns: const ['op_id'],
+      where: 'channel_id = ? AND op_id = ?',
+      whereArgs: [channelId, opId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// §5.4 — TYPE_MESSAGE_CREATE / TYPE_MESSAGE_FORWARD apply.
+  ///
+  /// Inserts the message row, advances the channel's activity marker,
+  /// bumps `unread_count` iff the sender is not the local user, and
+  /// records `op_id_seen`. All in one transaction.
+  ///
+  /// Throws `DatabaseException` on duplicate `message_id` — §10.3 rule 4
+  /// forbids self-fanout on v3.0, so a create echo for the local user's
+  /// own optimistic row is a server-protocol violation we surface loudly
+  /// rather than swallowing.
+  Future<void> applyInboundMessage({
+    required String localUserId,
+    required String channelId,
+    required String opId,
+    required String messageId,
+    required String senderUserId,
+    required String? body,
+    required String? contentType,
+    required Uint8List? attachments,
+    required Uint8List? forwardSource,
+    required String? replyToMessageId,
+    required int clientTimestampMs,
+    required int serverTimestampMs,
+    required int deliverySequence,
+    required int nowMs,
+  }) async {
+    final bumpUnread = senderUserId != localUserId;
+    await db.transaction((txn) async {
+      await txn.insert('messages', {
+        'message_id': messageId,
+        'channel_id': channelId,
+        'author_user_id': senderUserId,
+        'body': body,
+        'content_type': contentType,
+        'reply_to_message_id': replyToMessageId,
+        'attachments': attachments,
+        'forward_source': forwardSource,
+        'client_timestamp_ms': clientTimestampMs,
+        'server_timestamp_ms': serverTimestampMs,
+        'delivery_sequence': deliverySequence,
+        'message_state': MessageState.sent.wire,
+        'state_updated_at': nowMs,
+        'is_edited': 0,
+        'last_edit_ms': null,
+        'tombstoned': 0,
+        'tombstone_pending_until': null,
+      });
+      await txn.rawUpdate(
+        bumpUnread
+            ? 'UPDATE channels '
+                'SET last_activity_ms = ?, last_message_id = ?, '
+                '    unread_count = unread_count + 1 '
+                'WHERE channel_id = ?'
+            : 'UPDATE channels '
+                'SET last_activity_ms = ?, last_message_id = ? '
+                'WHERE channel_id = ?',
+        [serverTimestampMs, messageId, channelId],
+      );
+      await txn.insert('op_id_seen', {
+        'channel_id': channelId,
+        'op_id': opId,
+        'seen_at': nowMs,
+      });
+    });
+    _notify(const {'messages', 'channels', 'op_id_seen'});
+  }
+
+  /// §5.4 — TYPE_MESSAGE_UPDATE apply with §6a.4 authorship gate.
+  ///
+  /// Gate: local row must exist, be authored by [senderUserId], and not
+  /// be tombstoned. Gate miss → silent drop; `op_id_seen` still written
+  /// so re-fanout is a no-op. Returns `true` iff the update applied.
+  Future<bool> applyInboundMessageUpdate({
+    required String channelId,
+    required String opId,
+    required String messageId,
+    required String senderUserId,
+    required String? body,
+    required String? contentType,
+    required Uint8List? attachments,
+    required int serverTimestampMs,
+    required int nowMs,
+  }) async {
+    var applied = false;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'messages',
+        columns: const ['author_user_id', 'tombstoned'],
+        where: 'message_id = ?',
+        whereArgs: [messageId],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        final author = rows.single['author_user_id'] as String;
+        final tomb = (rows.single['tombstoned'] as int) != 0;
+        if (!tomb && author == senderUserId) {
+          await txn.update(
+            'messages',
+            {
+              'body': body,
+              'content_type': contentType,
+              'attachments': attachments,
+              'is_edited': 1,
+              'last_edit_ms': serverTimestampMs,
+              'state_updated_at': nowMs,
+            },
+            where: 'message_id = ?',
+            whereArgs: [messageId],
+          );
+          applied = true;
+        }
+      }
+      await txn.insert('op_id_seen', {
+        'channel_id': channelId,
+        'op_id': opId,
+        'seen_at': nowMs,
+      });
+    });
+    _notify(applied
+        ? const {'messages', 'op_id_seen'}
+        : const {'op_id_seen'});
+    return applied;
+  }
+
+  /// §5.4 — TYPE_MESSAGE_DELETE apply with §6a.4 authorship gate.
+  ///
+  /// Gate: local row exists and is authored by [senderUserId]. Gate miss
+  /// → silent drop; `op_id_seen` still written. Returns `true` iff the
+  /// tombstone applied.
+  Future<bool> applyInboundMessageDelete({
+    required String channelId,
+    required String opId,
+    required String messageId,
+    required String senderUserId,
+    required int nowMs,
+  }) async {
+    var applied = false;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'messages',
+        columns: const ['author_user_id'],
+        where: 'message_id = ?',
+        whereArgs: [messageId],
+        limit: 1,
+      );
+      if (rows.isNotEmpty &&
+          (rows.single['author_user_id'] as String) == senderUserId) {
+        await txn.update(
+          'messages',
+          {
+            'tombstoned': 1,
+            'body': null,
+            'content_type': null,
+            'attachments': null,
+            'state_updated_at': nowMs,
+          },
+          where: 'message_id = ?',
+          whereArgs: [messageId],
+        );
+        applied = true;
+      }
+      await txn.insert('op_id_seen', {
+        'channel_id': channelId,
+        'op_id': opId,
+        'seen_at': nowMs,
+      });
+    });
+    _notify(applied
+        ? const {'messages', 'op_id_seen'}
+        : const {'op_id_seen'});
+    return applied;
+  }
+
+  /// §5.4 — TYPE_REACTION_ADD apply. Target message must exist and not
+  /// be tombstoned; duplicate (message_id, user_id, emoji) is a no-op
+  /// via INSERT OR IGNORE.
+  Future<bool> applyInboundReactionAdd({
+    required String channelId,
+    required String opId,
+    required String messageId,
+    required String senderUserId,
+    required String emoji,
+    required int nowMs,
+  }) async {
+    var applied = false;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'messages',
+        columns: const ['message_id'],
+        where: 'message_id = ? AND tombstoned = 0',
+        whereArgs: [messageId],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        await txn.rawInsert(
+          'INSERT OR IGNORE INTO reactions '
+          '(message_id, user_id, emoji, added_at) VALUES (?, ?, ?, ?)',
+          [messageId, senderUserId, emoji, nowMs],
+        );
+        applied = true;
+      }
+      await txn.insert('op_id_seen', {
+        'channel_id': channelId,
+        'op_id': opId,
+        'seen_at': nowMs,
+      });
+    });
+    _notify(applied
+        ? const {'reactions', 'op_id_seen'}
+        : const {'op_id_seen'});
+    return applied;
+  }
+
+  /// §5.4 — TYPE_REACTION_REMOVE apply. Gate: target message must exist
+  /// (tombstone state irrelevant — removing a reaction on a deleted
+  /// message is a legitimate no-op). Missing row → silent drop.
+  Future<bool> applyInboundReactionRemove({
+    required String channelId,
+    required String opId,
+    required String messageId,
+    required String senderUserId,
+    required String emoji,
+    required int nowMs,
+  }) async {
+    var applied = false;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'messages',
+        columns: const ['message_id'],
+        where: 'message_id = ?',
+        whereArgs: [messageId],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        await txn.delete(
+          'reactions',
+          where: 'message_id = ? AND user_id = ? AND emoji = ?',
+          whereArgs: [messageId, senderUserId, emoji],
+        );
+        applied = true;
+      }
+      await txn.insert('op_id_seen', {
+        'channel_id': channelId,
+        'op_id': opId,
+        'seen_at': nowMs,
+      });
+    });
+    _notify(applied
+        ? const {'reactions', 'op_id_seen'}
+        : const {'op_id_seen'});
+    return applied;
+  }
+
   // --- UI reactive queries ----------------------------------------------
   //
   // These power the chat-list and chat-screen reactive streams

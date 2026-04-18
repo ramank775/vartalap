@@ -63,7 +63,16 @@ class AppServices {
   final AuthService authService;
   final ChatService chatService;
   final SyncScheduler scheduler;
+  final WsTransport wsTransport;
   final bool consentAccepted;
+
+  /// Inbound WS_PUSH fanout applier. Null pre-login: it's constructed
+  /// by [rebuildInboundReceiverForUser] on [AuthService.authStateChange]
+  /// because it needs the authenticated `user_id` for the §5.4 "don't
+  /// bump unread on own message" rule. Pre-login push frames would
+  /// have no session to target anyway (WS can't connect without a
+  /// token), so we drop the window.
+  InboundReceiver? inboundReceiver;
 
   AppServices({
     required this.store,
@@ -71,8 +80,29 @@ class AppServices {
     required this.authService,
     required this.chatService,
     required this.scheduler,
+    required this.wsTransport,
     required this.consentAccepted,
+    this.inboundReceiver,
   });
+
+  /// Stop any previous receiver and construct + start a fresh one
+  /// bound to [userIdHex]. Called on every login so the new session's
+  /// user_id flows into [InboundReceiver.localUserId] before any push
+  /// frame can apply.
+  Future<void> rebuildInboundReceiverForUser(String userIdHex) async {
+    final prev = inboundReceiver;
+    inboundReceiver = null;
+    if (prev != null) {
+      await prev.stop();
+    }
+    final next = InboundReceiver(
+      store: store,
+      pushes: wsTransport.pushes,
+      localUserId: userIdHex,
+    );
+    await next.start();
+    inboundReceiver = next;
+  }
 }
 
 Future<AppServices> initializeApp() async {
@@ -140,14 +170,25 @@ Future<AppServices> initializeApp() async {
     clock: Clock.system,
   );
 
-  return AppServices(
+  final services = AppServices(
     store: store,
     authClient: authClient,
     authService: authService,
     chatService: chatService,
     scheduler: scheduler,
+    wsTransport: wsTransport,
     consentAccepted: consentAccepted,
   );
+
+  // If we already have a signed-in session (restoreSession populated
+  // currentUserId), stand up the inbound receiver now so push frames
+  // apply from first WS connection. Otherwise it lands on authStateChange.
+  final restoredUserId = authClient.currentUserId;
+  if (restoredUserId != null) {
+    await services.rebuildInboundReceiverForUser(restoredUserId);
+  }
+
+  return services;
 }
 
 /// The 9-hex user_id lives in `AuthClient.currentUserId` after
@@ -195,6 +236,14 @@ class _AppState extends State<App> {
         final userId = widget.services.authService.currentUserId;
         if (userId != null) {
           widget.services.chatService.reseedForUser(userId);
+          // Rebuild the inbound receiver so localUserId reflects the
+          // new session. Fire-and-forget: setState below flips the UI
+          // into the chat list; the receiver coming up a few ticks
+          // later just means the first push frame arrives against the
+          // already-visible shell.
+          unawaited(
+            widget.services.rebuildInboundReceiverForUser(userId),
+          );
         }
       }
       setState(() => _isLogin = loggedIn);
@@ -267,6 +316,7 @@ class _AppState extends State<App> {
   @override
   void dispose() {
     _authSub.cancel();
+    unawaited(widget.services.inboundReceiver?.stop());
     unawaited(widget.services.scheduler.stop());
     unawaited(widget.services.authService.dispose());
     unawaited(widget.services.store.close());
