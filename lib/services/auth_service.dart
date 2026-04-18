@@ -17,6 +17,8 @@ const String _keyAccesskey = 'v3.accesskey';
 const String _keyUserId = 'v3.user_id';
 const String _keyRefreshToken = 'v3.refreshToken';
 const String _keyDeviceId = 'v3.deviceId';
+const String _keyOtpSessionId = 'v3.otpSessionId';
+const String _keyOtpPhone = 'v3.otpPhone';
 
 class AuthService {
   final AuthClient _client;
@@ -33,6 +35,11 @@ class AuthService {
   /// Held between [sendOtp] and [verifyOtp] — the server's session
   /// identifier for the OTP attempt (AUTH_CONTRACT §3.1).
   String? _otpSessionId;
+
+  /// Set after a successful [verifyOtp] if the server returned a
+  /// default channel (mock-server seed-peer feature). Consumed once
+  /// by the post-login bootstrap in `main.dart`.
+  String? lastDefaultChannelId;
 
   AuthService({
     required AuthClient client,
@@ -72,6 +79,10 @@ class AuthService {
         deviceId: deviceId,
       );
     }
+
+    // Restore in-flight OTP session (survives hot restart).
+    _otpSessionId = await _storage.read(key: _keyOtpSessionId);
+    _phoneNumber = await _storage.read(key: _keyOtpPhone);
   }
 
   /// True iff the [AuthClient] has an in-memory session. Synchronous —
@@ -95,6 +106,8 @@ class AuthService {
     _phoneNumber = phone;
     final result = await _client.sendOtp(phone: phone);
     _otpSessionId = result.sessionId;
+    await _storage.write(key: _keyOtpSessionId, value: result.sessionId);
+    await _storage.write(key: _keyOtpPhone, value: phone);
     return result;
   }
 
@@ -122,6 +135,10 @@ class AuthService {
     await _storage.write(key: _keyUserId, value: result.userId);
     await _storage.write(key: _keyRefreshToken, value: result.refreshToken);
     _otpSessionId = null;
+    _phoneNumber = null;
+    lastDefaultChannelId = result.defaultChannelId;
+    await _storage.delete(key: _keyOtpSessionId);
+    await _storage.delete(key: _keyOtpPhone);
     _authState.add(true);
     return result;
   }

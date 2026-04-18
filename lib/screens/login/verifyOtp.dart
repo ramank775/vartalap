@@ -49,8 +49,12 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     setState(() => _working = true);
     try {
       await widget.authService.verifyOtp(phone, _otp);
-      // Root-level auth listener in main.dart handles the route swap
-      // on success. No navigation needed here.
+      // Pop all pushed login routes so the root widget's _home() rebuild
+      // (triggered by authStateChange → setState) becomes visible.
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+      return;
     } catch (e) {
       _showError(['Incorrect or expired OTP. Try again.', e.toString()]);
     } finally {

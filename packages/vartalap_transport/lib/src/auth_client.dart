@@ -154,6 +154,7 @@ class AuthClient implements AuthTokenProvider {
             (json['refreshTokenExpiresAt'] as int) - DateTime.now().millisecondsSinceEpoch,
       ),
       isNewUser: json['isNew'] as bool? ?? false,
+      defaultChannelId: json['defaultChannelId'] as String?,
     );
   }
 
@@ -429,6 +430,11 @@ class OtpVerifyResult {
   final Duration refreshTokenTtl;
   final bool isNewUser;
 
+  /// Server-provided default channel (mock-server seed-peer feature).
+  /// Null on production servers. Client uses this to bootstrap a local
+  /// channel row on first login against the mock server.
+  final String? defaultChannelId;
+
   const OtpVerifyResult({
     required this.accesskey,
     required this.refreshToken,
@@ -436,6 +442,7 @@ class OtpVerifyResult {
     required this.accesskeyTtl,
     required this.refreshTokenTtl,
     required this.isNewUser,
+    this.defaultChannelId,
   });
 }
 
