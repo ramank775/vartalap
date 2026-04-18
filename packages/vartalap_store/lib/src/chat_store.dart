@@ -95,10 +95,16 @@ class ChatStore {
     _notify(const {'outbound_ops'});
   }
 
+  /// Delete an outbound op row (e.g. after ACK success for non-message ops).
+  Future<void> deleteOp(String opId) async {
+    await db.delete('outbound_ops', where: 'op_id = ?', whereArgs: [opId]);
+    _notify(const {'outbound_ops'});
+  }
+
   /// Flow A — dispatcher flip. Op row → `in_flight`, message → `sending`.
   Future<void> markOpInFlight({
     required String opId,
-    required String messageId,
+    required String? messageId,
     required int nowMs,
   }) async {
     await db.transaction((txn) async {
@@ -108,15 +114,17 @@ class ChatStore {
         'WHERE op_id = ?',
         [nowMs, opId],
       );
-      await txn.update(
-        'messages',
-        {
-          'message_state': MessageState.sending.wire,
-          'state_updated_at': nowMs,
-        },
-        where: 'message_id = ?',
-        whereArgs: [messageId],
-      );
+      if (messageId != null) {
+        await txn.update(
+          'messages',
+          {
+            'message_state': MessageState.sending.wire,
+            'state_updated_at': nowMs,
+          },
+          where: 'message_id = ?',
+          whereArgs: [messageId],
+        );
+      }
     });
     _notify(const {'outbound_ops', 'messages'});
   }

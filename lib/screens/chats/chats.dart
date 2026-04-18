@@ -10,8 +10,10 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/widgets/rich_message.dart';
 import 'package:vartalap_store/vartalap_store.dart';
+import 'package:vartalap_transport/vartalap_transport.dart';
 
 class ChatsScreen extends StatelessWidget {
   final ChatService chatService;
@@ -26,14 +28,45 @@ class ChatsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final wsTransport = AppServicesProvider.of(context).services.wsTransport;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          config.packageInfo.appName,
-          style: VartalapTheme.theme.appTitleStyle.copyWith(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
+        title: StreamBuilder<TransportState>(
+          stream: wsTransport.state,
+          initialData: wsTransport.currentState,
+          builder: (context, snapshot) {
+            final state = snapshot.data ?? TransportState.disconnected;
+            return Row(
+              children: [
+                Icon(
+                  Icons.circle,
+                  size: 10,
+                  color: _statusColor(state),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        config.packageInfo.appName,
+                        style: VartalapTheme.theme.appTitleStyle.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      if (state != TransportState.connected)
+                        Text(
+                          _statusLabel(state),
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.white70),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
         actions: [
           PopupMenuButton<String>(
@@ -84,6 +117,28 @@ class ChatsScreen extends StatelessWidget {
     );
   }
 
+  static Color _statusColor(TransportState state) {
+    switch (state) {
+      case TransportState.connected:
+        return Colors.green;
+      case TransportState.connecting:
+        return Colors.amber;
+      case TransportState.disconnected:
+        return Colors.red;
+    }
+  }
+
+  static String _statusLabel(TransportState state) {
+    switch (state) {
+      case TransportState.connecting:
+        return 'Connecting...';
+      case TransportState.disconnected:
+        return 'Waiting for network...';
+      case TransportState.connected:
+        return '';
+    }
+  }
+
   void _newChat(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -119,7 +174,6 @@ class ChatsScreen extends StatelessWidget {
         Text(config.subtitle),
         const SizedBox(height: 8),
         RichMessage(
-          // v3 description reflects the relaunch posture.
           'Vartalap v3 — a greenfield relaunch, Firebase-free.',
           TextStyle(
             fontSize: 12,
@@ -150,7 +204,7 @@ class _EmptyChats extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'New-chat flow lands once contact discovery is wired.',
+              'Tap the button below to start a new chat.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Theme.of(context).textTheme.bodyMedium?.color,

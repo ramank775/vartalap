@@ -163,17 +163,9 @@ class SyncScheduler {
       return;
     }
 
-    final messageId = op.targetMessageId;
-    if (messageId == null) {
-      // Non-message ops (channel CRUD / profile / push topic) dispatch
-      // in step 9 once the REST adapter is wired. For now the sync
-      // layer only supports chat_payload ops.
-      return;
-    }
-
     await store.markOpInFlight(
       opId: op.opId,
-      messageId: messageId,
+      messageId: op.targetMessageId,
       nowMs: clock.nowMs(),
     );
 
@@ -236,9 +228,9 @@ class SyncScheduler {
     final messageId = op.targetMessageId;
     if (messageId == null) {
       // Non-message ACK — REST channel-create / profile-patch / etc.
-      // Row-delete only; no message projection to update. The REST
-      // write's projection update (channel visible, profile edited)
-      // lands with step 9's per-kind handlers.
+      // Delete the op row; the local projection (channel row, profile)
+      // was already applied optimistically at enqueue time.
+      await store.deleteOp(op.opId);
       return;
     }
     await store.applyAckSuccess(
