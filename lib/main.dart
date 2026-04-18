@@ -262,8 +262,8 @@ class _AppState extends State<App> {
           title: configStore.packageInfo.appName,
           debugShowCheckedModeBanner: kDebugMode,
           themeMode: VartalapTheme.themeMode,
-          theme: VartalapTheme.lightTheme.appTheme,
-          darkTheme: VartalapTheme.darkTheme.appTheme,
+          theme: VartalapTheme.light.data,
+          darkTheme: VartalapTheme.dark.data,
           home: _home(),
           onGenerateRoute: (settings) {
             // No named routes in v3.0 — screens push each other

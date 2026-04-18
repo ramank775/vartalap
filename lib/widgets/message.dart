@@ -28,9 +28,10 @@ class MessageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final senderColor = VartalapTheme.theme.senderColor;
-    final receiverColor = VartalapTheme.theme.receiverColor;
-    final selectedRowColor = VartalapTheme.theme.selectedRowColor;
+    final chatColors = VartalapTheme.chatColorsOf(context);
+    final senderColor = chatColors.senderBubble;
+    final receiverColor = chatColors.receiverBubble;
+    final selectedRowColor = chatColors.senderBubble;
     return GestureDetector(
       onTap: () {
         this.onTab!(this._msg);
@@ -170,7 +171,7 @@ class MessageWidget extends StatelessWidget {
         return Container();
       case MessageState.READ:
         icon = Icons.done_all_sharp;
-        color = VartalapTheme.theme.readMessage;
+        color = const Color(0xFF009978); // kSeedColor
         break;
     }
 

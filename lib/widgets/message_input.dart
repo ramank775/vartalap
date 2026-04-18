@@ -164,7 +164,7 @@ class MessageInputState extends State<MessageInputWidget> {
 
   Widget buildSticker(BuildContext context) {
     var theme = Theme.of(context);
-    final vtheme = VartalapTheme.theme;
+    final chatColors = VartalapTheme.chatColorsOf(context);
     return Offstage(
       offstage: !_isShowSticker,
       child: SizedBox(
@@ -186,7 +186,7 @@ class MessageInputState extends State<MessageInputWidget> {
             categoryViewConfig: CategoryViewConfig(
               initCategory: Category.RECENT,
               indicatorColor: theme.indicatorColor,
-              iconColorSelected: vtheme.selectedRowColor,
+              iconColorSelected: chatColors.senderBubble,
               backgroundColor: theme.scaffoldBackgroundColor,
               categoryIcons: const CategoryIcons(),
             ),

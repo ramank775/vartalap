@@ -1,38 +1,52 @@
 import 'package:flutter/material.dart';
-import 'package:vartalap/widgets/avator_letter.dart';
 import 'package:vartalap/utils/color_helper.dart';
 
 class Avator extends StatelessWidget {
   final String text;
-  final double _opacity = 0.65;
   final double width;
   final double height;
-  Avator({
-    Key? key,
+
+  const Avator({
+    super.key,
     required this.text,
     required this.width,
     required this.height,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    return SizedBox(
-      width: this.width,
-      height: this.height,
-      child: AvatarLetter(
-        backgroundColor: getColor(
-          this.text,
-          opacity: this._opacity,
-          brightness: brightness,
+    final bgColor = getColor(text, opacity: 0.8, brightness: brightness);
+    final initials = _initials(text);
+    // Scale font to ~40% of avatar size for readability.
+    final fontSize = width * 0.4;
+
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: bgColor,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        initials,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          height: 1,
         ),
-        text: this.text,
-        numberLetters: 2,
-        upperCase: true,
-        letterType: LetterType.Circular,
-        textColor: Colors.white,
-        fontSize: 12,
       ),
     );
+  }
+
+  String _initials(String text) {
+    if (text.isEmpty) return '?';
+    final parts = text.trim().split(RegExp(r'[\s_]+'));
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return text[0].toUpperCase();
   }
 }

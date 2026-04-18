@@ -12,147 +12,110 @@ class IntroductionScreen extends StatelessWidget {
   final AuthService authService;
   final config = ConfigStore();
   IntroductionScreen({super.key, required this.authService});
+
   @override
   Widget build(BuildContext context) {
-    final theme = VartalapTheme.theme;
-    final linkTheme = theme.linkTitleStyle.copyWith(
-      fontWeight: FontWeight.bold,
-    );
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(10.0),
-        child: Column(
-          children: <Widget>[
-            Expanded(
-              flex: 2,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  Container(
-                    child: Center(
-                      child: Container(
-                        constraints: const BoxConstraints(maxHeight: 340),
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        child: AppLogo(
-                          size: 45,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    margin: EdgeInsets.only(top: 10),
-                    child: Text(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(kSpaceLg),
+          child: Column(
+            children: [
+              // Top section: logo + name
+              Expanded(
+                flex: 3,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const AppLogo(size: 48),
+                    const SizedBox(height: kSpaceMd),
+                    Text(
                       config.packageInfo.appName,
-                      style: VartalapTheme.theme.appTitleStyle.copyWith(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
+                      style: textTheme.headlineMedium?.copyWith(
+                        color: scheme.primary,
                       ),
                     ),
-                  )
-                ],
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              flex: 1,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: RichText(
-                      textAlign: TextAlign.center,
-                      text: TextSpan(
-                        children: <TextSpan>[
-                          TextSpan(
-                            text: 'Read our ',
+              // Bottom section: terms + button + version
+              Expanded(
+                flex: 2,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      constraints: const BoxConstraints(maxWidth: 500),
+                      child: RichText(
+                        textAlign: TextAlign.center,
+                        text: TextSpan(
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
                           ),
-                          TextSpan(
-                            text: 'Privacy Policy. ',
-                            style: linkTheme,
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () => launchUrl(
-                                    ConfigStore.privacyPolicyUrl,
-                                  ),
-                          ),
-                          TextSpan(
-                            text: 'Tap "Agree and continue" to accept the ',
-                          ),
-                          TextSpan(
-                            text: 'Terms of Service',
-                            style: linkTheme,
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () => launchUrl(
-                                    ConfigStore.privacyPolicyUrl,
-                                  ),
-                          )
-                        ],
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(fontSize: 14),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 15,
-                    ),
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                LoginScreen(authService: authService),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.all(
-                            Radius.circular(14),
-                          ),
-                        ),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 8,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: <Widget>[
-                            Text(
-                              'AGREE AND CONTINUE',
+                          children: [
+                            const TextSpan(text: 'Read our '),
+                            TextSpan(
+                              text: 'Privacy Policy',
+                              style: TextStyle(
+                                color: scheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () => launchUrl(
+                                      ConfigStore.privacyPolicyUrl,
+                                    ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.all(
-                                  Radius.circular(16),
-                                ),
+                            const TextSpan(
+                                text:
+                                    '. Tap "Agree and continue" to accept the '),
+                            TextSpan(
+                              text: 'Terms of Service',
+                              style: TextStyle(
+                                color: scheme.primary,
+                                fontWeight: FontWeight.w600,
                               ),
-                              child: Icon(
-                                Icons.arrow_forward_ios,
-                                size: 16,
-                              ),
-                            )
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () => launchUrl(
+                                      ConfigStore.privacyPolicyUrl,
+                                    ),
+                            ),
+                            const TextSpan(text: '.'),
                           ],
                         ),
                       ),
                     ),
-                  ),
-                  Text(
-                    "v${config.packageInfo.version}+${config.packageInfo.buildNumber}",
-                  )
-                ],
+                    const SizedBox(height: kSpaceLg),
+                    Container(
+                      constraints: const BoxConstraints(maxWidth: 500),
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) =>
+                                  LoginScreen(authService: authService),
+                            ),
+                          );
+                        },
+                        child: const Text('Agree and continue'),
+                      ),
+                    ),
+                    const SizedBox(height: kSpaceMd),
+                    Text(
+                      'v${config.packageInfo.version}+${config.packageInfo.buildNumber}',
+                      style: textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            )
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -52,6 +52,7 @@ dependencies:
     path: packages/vartalap_transport
   vartalap_sync:
     path: packages/vartalap_sync
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:

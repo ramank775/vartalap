@@ -1,14 +1,11 @@
 /// Contact picker for starting a new DM conversation.
-///
-/// Calls [ChatService.discoverContacts] to fetch known users from the
-/// server, displays them in a list, and on tap creates (or resumes) a
-/// DM channel via [ChatService.startDirectMessage].
 library vartalap.screens.new_chat;
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
@@ -48,7 +45,6 @@ class _NewChatScreenState extends State<NewChatScreen> {
         peerName: contact.resolvedName,
       );
       if (!mounted) return;
-      // Replace this screen with the chat screen.
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => ChatScreen(
@@ -71,8 +67,12 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('New Chat')),
+      appBar: AppBar(
+        title: const Text('New Chat'),
+      ),
       body: FutureBuilder<List<ContactRow>>(
         future: _contactsFuture,
         builder: (context, snapshot) {
@@ -82,31 +82,46 @@ class _NewChatScreenState extends State<NewChatScreen> {
           if (snapshot.hasError) {
             return Center(
               child: Padding(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(kSpaceLg),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline, size: 48),
-                    const SizedBox(height: 12),
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: scheme.errorContainer,
+                      ),
+                      child: Icon(
+                        Icons.error_outline_rounded,
+                        size: 36,
+                        color: scheme.onErrorContainer,
+                      ),
+                    ),
+                    const SizedBox(height: kSpaceMd),
                     Text(
                       'Could not load contacts',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: kSpaceSm),
                     Text(
                       '${snapshot.error}',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
+                    const SizedBox(height: kSpaceLg),
+                    ElevatedButton.icon(
                       onPressed: () {
                         setState(() {
                           _contactsFuture =
                               widget.chatService.discoverContacts();
                         });
                       },
-                      child: const Text('Retry'),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
                     ),
                   ],
                 ),
@@ -116,23 +131,37 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
           final contacts = snapshot.data ?? [];
           if (contacts.isEmpty) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(kSpaceLg),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.people_outline, size: 64),
-                    SizedBox(height: 12),
+                    Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: scheme.primaryContainer.withValues(alpha: 0.3),
+                      ),
+                      child: Icon(
+                        Icons.people_outline_rounded,
+                        size: 48,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: kSpaceMd),
                     Text(
                       'No contacts found',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    SizedBox(height: 6),
+                    const SizedBox(height: kSpaceSm),
                     Text(
                       'No other users are registered yet.',
                       textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                     ),
                   ],
                 ),
@@ -140,8 +169,9 @@ class _NewChatScreenState extends State<NewChatScreen> {
             );
           }
 
-          return ListView.builder(
+          return ListView.separated(
             itemCount: contacts.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (ctx, i) {
               final contact = contacts[i];
               return _ContactTile(
@@ -166,10 +196,17 @@ class _ContactTile extends StatelessWidget {
     final name = contact.resolvedName;
     final subtitle = contact.username != null ? '@${contact.username}' : null;
     return ListTile(
-      leading: Avator(text: name, width: 42, height: 42),
+      leading: Avator(text: name, width: kAvatarMd, height: kAvatarMd),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: subtitle != null
-          ? Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)
+          ? Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            )
           : null,
       onTap: onTap,
     );

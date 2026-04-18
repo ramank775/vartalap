@@ -14,11 +14,11 @@ class ChatPreviewWidget extends StatelessWidget {
       : super(key: Key(_chat.id));
   @override
   Widget build(BuildContext context) {
-    final vtheme = VartalapTheme.theme;
+    final chatColors = VartalapTheme.chatColorsOf(context);
     return new Column(
       children: [
         ListTileTheme(
-          selectedColor: vtheme.selectedRowColor,
+          selectedColor: chatColors.senderBubble,
           child: ListTile(
             leading: Container(
               width: 42,
@@ -35,7 +35,7 @@ class ChatPreviewWidget extends StatelessWidget {
                           bottom: 0,
                           right: 0,
                           child: CircleAvatar(
-                            backgroundColor: vtheme.selectedRowColor,
+                            backgroundColor: chatColors.senderBubble,
                             radius: 10,
                             child: Icon(
                               Icons.check,
@@ -95,14 +95,14 @@ class ChatPreviewWidget extends StatelessWidget {
   }
 
   Widget getWidget(BuildContext context) {
-    final vtheme = VartalapTheme.theme;
+    final chatColors = VartalapTheme.chatColorsOf(context);
     return this._chat.unread > 0
         ? Container(
             width: 24,
             height: 24,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: vtheme.selectedRowColor,
+              color: chatColors.senderBubble,
             ),
             child: Center(
                 child: Text(

@@ -1,6 +1,5 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/url_helper.dart';
 
 class RichMessage extends StatelessWidget {
@@ -45,8 +44,10 @@ class RichMessage extends StatelessWidget {
       fontSize: style.fontSize! * 1.7,
     );
 
-    final TextStyle hyperLinkStyle =
-        this.style.merge(VartalapTheme.theme.linkTitleStyle);
+    final TextStyle hyperLinkStyle = this.style.copyWith(
+      color: const Color(0xFF009978), // kSeedColor — links
+      decoration: TextDecoration.underline,
+    );
     String emojiString = "";
 
     text.splitMapJoin(

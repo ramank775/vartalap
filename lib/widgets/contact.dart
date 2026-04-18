@@ -19,9 +19,9 @@ class ContactItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final vtheme = VartalapTheme.theme;
+    final chatColors = VartalapTheme.chatColorsOf(context);
     return ListTileTheme(
-      selectedColor: vtheme.selectedRowColor,
+      selectedColor: chatColors.senderBubble,
       child: ListTile(
         contentPadding: EdgeInsets.symmetric(
           vertical: 2.0,

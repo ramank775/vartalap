@@ -1,129 +1,331 @@
-import 'package:flutter/foundation.dart';
+/// Vartalap v3 design system — Material 3.
+///
+/// Single seed color (teal) adapted for light and dark via
+/// [ColorScheme.fromSeed]. All screens inherit from this; no hardcoded
+/// colors in widget code.
+library vartalap.theme;
+
 import 'package:flutter/material.dart';
-import 'package:vartalap/utils/color_helper.dart';
+import 'package:flutter/services.dart';
 
-final Color _primaryLightColor = Colors.blue;
-final Color _primaryDarkColor = Color.fromRGBO(0, 153, 122, 1);
-final Color _darkBackgroundColor = hexToColor("#222831");
-final _defaultLightTheme = ThemeData.light();
-final ThemeData _lightTheme = _defaultLightTheme.copyWith(
+// ---------------------------------------------------------------------------
+// Design tokens
+// ---------------------------------------------------------------------------
+
+/// The brand's seed color. Every surface, accent, and tint derives from this.
+const Color kSeedColor = Color(0xFF009978);
+
+/// Spacing scale (8px grid).
+const double kSpaceXs = 4;
+const double kSpaceSm = 8;
+const double kSpaceMd = 16;
+const double kSpaceLg = 24;
+const double kSpaceXl = 32;
+const double kSpaceXxl = 48;
+
+/// Border radii.
+const double kRadiusSm = 8;
+const double kRadiusMd = 12;
+const double kRadiusLg = 16;
+const double kRadiusXl = 24;
+const double kRadiusFull = 999;
+
+/// Avatar sizes.
+const double kAvatarSm = 32;
+const double kAvatarMd = 42;
+const double kAvatarLg = 56;
+const double kAvatarXl = 80;
+
+// ---------------------------------------------------------------------------
+// Color scheme
+// ---------------------------------------------------------------------------
+
+final ColorScheme _lightScheme = ColorScheme.fromSeed(
+  seedColor: kSeedColor,
+  brightness: Brightness.light,
+);
+
+final ColorScheme _darkScheme = ColorScheme.fromSeed(
+  seedColor: kSeedColor,
+  brightness: Brightness.dark,
+);
+
+// ---------------------------------------------------------------------------
+// Text theme
+// ---------------------------------------------------------------------------
+
+const String _fontFamily = 'sofia';
+
+TextTheme _buildTextTheme(TextTheme base) {
+  return base.copyWith(
+    displayLarge: base.displayLarge?.copyWith(fontFamily: _fontFamily),
+    displayMedium: base.displayMedium?.copyWith(fontFamily: _fontFamily),
+    displaySmall: base.displaySmall?.copyWith(fontFamily: _fontFamily),
+    headlineLarge: base.headlineLarge?.copyWith(fontFamily: _fontFamily),
+    headlineMedium: base.headlineMedium?.copyWith(
+      fontFamily: _fontFamily,
+      fontWeight: FontWeight.w600,
+    ),
+    headlineSmall: base.headlineSmall?.copyWith(fontFamily: _fontFamily),
+    titleLarge: base.titleLarge?.copyWith(
+      fontFamily: _fontFamily,
+      fontWeight: FontWeight.w600,
+    ),
+    titleMedium: base.titleMedium?.copyWith(fontFamily: _fontFamily),
+    titleSmall: base.titleSmall?.copyWith(fontFamily: _fontFamily),
+    bodyLarge: base.bodyLarge?.copyWith(height: 1.5),
+    bodyMedium: base.bodyMedium?.copyWith(height: 1.5),
+    bodySmall: base.bodySmall?.copyWith(height: 1.4),
+    labelLarge: base.labelLarge?.copyWith(
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.5,
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ThemeData builders
+// ---------------------------------------------------------------------------
+
+final ThemeData lightThemeData = ThemeData(
+  useMaterial3: true,
+  colorScheme: _lightScheme,
+  textTheme: _buildTextTheme(ThemeData.light().textTheme),
+  scaffoldBackgroundColor: _lightScheme.surface,
   appBarTheme: AppBarTheme(
-    backgroundColor: Colors.blue,
+    backgroundColor: _lightScheme.primary,
+    foregroundColor: _lightScheme.onPrimary,
+    elevation: 0,
+    centerTitle: false,
+    systemOverlayStyle: SystemUiOverlayStyle.light,
+    titleTextStyle: TextStyle(
+      fontFamily: _fontFamily,
+      fontSize: 20,
+      fontWeight: FontWeight.w600,
+      color: _lightScheme.onPrimary,
+    ),
   ),
-  colorScheme: ColorScheme.fromSwatch(
-    primarySwatch: Colors.blue,
-    backgroundColor: Colors.grey,
+  floatingActionButtonTheme: FloatingActionButtonThemeData(
+    backgroundColor: _lightScheme.primaryContainer,
+    foregroundColor: _lightScheme.onPrimaryContainer,
+    elevation: 2,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(kRadiusLg)),
+    ),
   ),
-  scaffoldBackgroundColor: Colors.grey[100],
-  primaryColor: Colors.blue,
-  visualDensity: VisualDensity.comfortable,
-  iconTheme: _defaultLightTheme.iconTheme.copyWith(color: Colors.blue),
-  highlightColor: Colors.blue,
-  primaryColorLight: Colors.white,
+  elevatedButtonTheme: ElevatedButtonThemeData(
+    style: ElevatedButton.styleFrom(
+      backgroundColor: _lightScheme.primary,
+      foregroundColor: _lightScheme.onPrimary,
+      padding: const EdgeInsets.symmetric(
+        horizontal: kSpaceLg,
+        vertical: kSpaceMd,
+      ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(kRadiusMd)),
+      ),
+      textStyle: const TextStyle(
+        fontFamily: _fontFamily,
+        fontWeight: FontWeight.w600,
+        fontSize: 16,
+      ),
+    ),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    fillColor: _lightScheme.surfaceContainerHighest,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(kRadiusMd),
+      borderSide: BorderSide.none,
+    ),
+    contentPadding: const EdgeInsets.symmetric(
+      horizontal: kSpaceMd,
+      vertical: kSpaceMd,
+    ),
+  ),
+  cardTheme: CardThemeData(
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(kRadiusMd),
+    ),
+    color: _lightScheme.surfaceContainerLow,
+  ),
+  dividerTheme: DividerThemeData(
+    color: _lightScheme.outlineVariant.withValues(alpha: 0.3),
+    thickness: 0.5,
+    indent: 72, // aligned past avatar
+  ),
+  listTileTheme: const ListTileThemeData(
+    contentPadding: EdgeInsets.symmetric(
+      horizontal: kSpaceMd,
+      vertical: kSpaceXs,
+    ),
+  ),
 );
 
-final _defaultDarkTheme = ThemeData.dark();
-final ThemeData _darkTheme = _defaultDarkTheme.copyWith(
+final ThemeData darkThemeData = ThemeData(
+  useMaterial3: true,
+  colorScheme: _darkScheme,
+  textTheme: _buildTextTheme(ThemeData.dark().textTheme),
+  scaffoldBackgroundColor: _darkScheme.surface,
   appBarTheme: AppBarTheme(
-    backgroundColor: hexToColor("#2C394B"),
+    backgroundColor: _darkScheme.surface,
+    foregroundColor: _darkScheme.onSurface,
+    elevation: 0,
+    centerTitle: false,
+    systemOverlayStyle: SystemUiOverlayStyle.light,
+    titleTextStyle: TextStyle(
+      fontFamily: _fontFamily,
+      fontSize: 20,
+      fontWeight: FontWeight.w600,
+      color: _darkScheme.onSurface,
+    ),
   ),
-  colorScheme: ColorScheme.fromSwatch(
-    primarySwatch: generateMaterialColor(_primaryDarkColor),
-    brightness: Brightness.dark,
-    backgroundColor: _darkBackgroundColor,
+  floatingActionButtonTheme: FloatingActionButtonThemeData(
+    backgroundColor: _darkScheme.primaryContainer,
+    foregroundColor: _darkScheme.onPrimaryContainer,
+    elevation: 2,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(kRadiusLg)),
+    ),
   ),
-  visualDensity: VisualDensity.comfortable,
-  scaffoldBackgroundColor: _darkBackgroundColor,
-  primaryColorLight: hexToColor("#2C394B"),
-  iconTheme: _defaultDarkTheme.iconTheme.copyWith(
-    color: _primaryDarkColor,
+  elevatedButtonTheme: ElevatedButtonThemeData(
+    style: ElevatedButton.styleFrom(
+      backgroundColor: _darkScheme.primary,
+      foregroundColor: _darkScheme.onPrimary,
+      padding: const EdgeInsets.symmetric(
+        horizontal: kSpaceLg,
+        vertical: kSpaceMd,
+      ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(kRadiusMd)),
+      ),
+      textStyle: const TextStyle(
+        fontFamily: _fontFamily,
+        fontWeight: FontWeight.w600,
+        fontSize: 16,
+      ),
+    ),
   ),
-  cardColor: _darkBackgroundColor,
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    fillColor: _darkScheme.surfaceContainerHighest,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(kRadiusMd),
+      borderSide: BorderSide.none,
+    ),
+    contentPadding: const EdgeInsets.symmetric(
+      horizontal: kSpaceMd,
+      vertical: kSpaceMd,
+    ),
+  ),
+  cardTheme: CardThemeData(
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(kRadiusMd),
+    ),
+    color: _darkScheme.surfaceContainerLow,
+  ),
+  dividerTheme: DividerThemeData(
+    color: _darkScheme.outlineVariant.withValues(alpha: 0.3),
+    thickness: 0.5,
+    indent: 72,
+  ),
+  listTileTheme: const ListTileThemeData(
+    contentPadding: EdgeInsets.symmetric(
+      horizontal: kSpaceMd,
+      vertical: kSpaceXs,
+    ),
+  ),
 );
 
-final _appTitle = TextStyle(
-  fontFamily: "sofia",
+// ---------------------------------------------------------------------------
+// App-specific semantic colors
+// ---------------------------------------------------------------------------
+
+/// Chat-specific colors that Material's ColorScheme doesn't cover.
+@immutable
+class ChatColors {
+  final Color senderBubble;
+  final Color senderText;
+  final Color receiverBubble;
+  final Color receiverText;
+  final Color statusConnected;
+  final Color statusConnecting;
+  final Color statusDisconnected;
+  final Color linkText;
+  final Color unreadBadge;
+  final Color unreadBadgeText;
+  final Color messageTimestamp;
+
+  const ChatColors({
+    required this.senderBubble,
+    required this.senderText,
+    required this.receiverBubble,
+    required this.receiverText,
+    required this.statusConnected,
+    required this.statusConnecting,
+    required this.statusDisconnected,
+    required this.linkText,
+    required this.unreadBadge,
+    required this.unreadBadgeText,
+    required this.messageTimestamp,
+  });
+}
+
+final ChatColors lightChatColors = ChatColors(
+  senderBubble: const Color(0xFFD9F5EC), // soft teal tint
+  senderText: const Color(0xFF1A3C34),
+  receiverBubble: const Color(0xFFFFFFFF),
+  receiverText: const Color(0xFF1C1C1E),
+  statusConnected: const Color(0xFF4CAF50),
+  statusConnecting: const Color(0xFFFFA726),
+  statusDisconnected: const Color(0xFFEF5350),
+  linkText: _lightScheme.primary,
+  unreadBadge: _lightScheme.primary,
+  unreadBadgeText: _lightScheme.onPrimary,
+  messageTimestamp: const Color(0xFF8E8E93),
 );
+
+final ChatColors darkChatColors = ChatColors(
+  senderBubble: const Color(0xFF005C4B), // deep teal, like WhatsApp dark
+  senderText: const Color(0xFFE9EDEF),
+  receiverBubble: const Color(0xFF263238), // neutral slate, lighter than bg
+  receiverText: const Color(0xFFE9EDEF),
+  statusConnected: const Color(0xFF66BB6A),
+  statusConnecting: const Color(0xFFFFCA28),
+  statusDisconnected: const Color(0xFFEF5350),
+  linkText: const Color(0xFF53BDEB),
+  unreadBadge: const Color(0xFF00A884),
+  unreadBadgeText: const Color(0xFF111B21),
+  messageTimestamp: const Color(0xFF8696A0),
+);
+
+// ---------------------------------------------------------------------------
+// VartalapTheme — the public API screens use
+// ---------------------------------------------------------------------------
 
 @immutable
 class VartalapTheme {
-  const VartalapTheme({
-    Key? key,
-    required this.appTheme,
-    required this.appTitleStyle,
-    required this.appLogoColor,
-    required this.linkTitleStyle,
-    required this.receiverColor,
-    required this.senderColor,
-    this.readMessage = Colors.blueAccent,
-    this.selectedRowColor = Colors.blueAccent,
+  const VartalapTheme._({
+    required this.data,
+    required this.chatColors,
   });
 
-  final TextStyle appTitleStyle;
-  final Color appLogoColor;
-  final TextStyle linkTitleStyle;
-  final ThemeData appTheme;
-  final Color senderColor;
-  final Color receiverColor;
-  final Color readMessage;
-  final Color selectedRowColor;
+  final ThemeData data;
+  final ChatColors chatColors;
 
-  static ThemeMode get themeMode {
-    ThemeMode t = kReleaseMode ? ThemeMode.system : ThemeMode.dark;
-    return t;
-  }
+  static ThemeMode get themeMode => ThemeMode.system;
 
-  static VartalapTheme get darkTheme {
-    return VartalapTheme(
-      appTheme: _darkTheme,
-      appTitleStyle: _appTitle.copyWith(
-        color: _primaryDarkColor,
-      ),
-      appLogoColor: _primaryDarkColor,
-      linkTitleStyle: TextStyle(
-        color: Colors.lightBlueAccent[100],
-        decoration: TextDecoration.underline,
-      ),
-      receiverColor: _darkTheme.primaryColorLight,
-      senderColor: _primaryDarkColor,
-      readMessage: _darkBackgroundColor,
-      selectedRowColor: _primaryDarkColor,
-    );
-  }
+  static VartalapTheme get light =>
+      VartalapTheme._(data: lightThemeData, chatColors: lightChatColors);
 
-  static VartalapTheme get lightTheme {
-    return VartalapTheme(
-      appTheme: _lightTheme,
-      appTitleStyle: _appTitle.copyWith(
-        color: _primaryLightColor,
-      ),
-      appLogoColor: Colors.blue,
-      linkTitleStyle: TextStyle(
-        color: Colors.purpleAccent[700],
-        decoration: TextDecoration.underline,
-      ),
-      receiverColor: _lightTheme.primaryColorLight,
-      senderColor: Colors.blue[300]!,
-      readMessage: Colors.blue[900]!,
-    );
-  }
+  static VartalapTheme get dark =>
+      VartalapTheme._(data: darkThemeData, chatColors: darkChatColors);
 
-  static VartalapTheme get theme {
-    var themeMode = VartalapTheme.themeMode;
-    switch (themeMode) {
-      case ThemeMode.dark:
-        return VartalapTheme.darkTheme;
-      case ThemeMode.light:
-        return VartalapTheme.lightTheme;
-      case ThemeMode.system:
-        final brightness = MediaQueryData.fromView(
-                WidgetsBinding.instance.platformDispatcher.views.single)
-            .platformBrightness;
-        return brightness == Brightness.dark
-            ? VartalapTheme.darkTheme
-            : VartalapTheme.lightTheme;
-      default:
-        return VartalapTheme.lightTheme;
-    }
+  /// Resolve the chat colors from the current [BuildContext].
+  static ChatColors chatColorsOf(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return brightness == Brightness.dark ? darkChatColors : lightChatColors;
   }
 }

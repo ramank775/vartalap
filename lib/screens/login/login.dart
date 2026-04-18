@@ -1,8 +1,4 @@
 /// Phone-number entry → OTP send.
-///
-/// Keeps the visual shape of v2. Wiring swapped to
-/// [AuthService.sendOtp] (AUTH_CONTRACT §3.1). On failure the catch
-/// block surfaces the error as a dialog.
 library vartalap.screens.login.login;
 
 import 'package:flutter/material.dart';
@@ -11,7 +7,6 @@ import 'package:vartalap/screens/login/verifyOtp.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
-import 'package:vartalap/widgets/loadingIndicator.dart';
 
 class LoginScreen extends StatefulWidget {
   final AuthService authService;
@@ -24,6 +19,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _phoneController =
       TextEditingController(text: '+91');
+  bool _loading = false;
 
   @override
   void dispose() {
@@ -33,15 +29,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _onSend() async {
     final phone = _phoneController.text.trim();
-    if (phone.isEmpty) {
+    if (phone.isEmpty || phone == '+91') {
       _showError(['Please enter a phone number.']);
       return;
     }
-    _showLoading('While we send you a one-time password');
+    setState(() => _loading = true);
     try {
       await widget.authService.sendOtp(phone);
       if (!mounted) return;
-      Navigator.of(context).pop(); // dismiss loader
+      setState(() => _loading = false);
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => VerifyOtpScreen(authService: widget.authService),
@@ -49,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      Navigator.of(context).pop(); // dismiss loader
+      setState(() => _loading = false);
       _showError([
         'Unable to send one-time password.',
         'Please verify the phone number and try again.',
@@ -60,116 +56,89 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          children: [
-            Expanded(
-              flex: 5,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const AppLogo(size: 45),
-                  Container(
-                    margin: const EdgeInsets.only(top: 10),
-                    child: Text(
-                      ConfigStore().packageInfo.appName,
-                      style: VartalapTheme.theme.appTitleStyle.copyWith(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              flex: 4,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: RichText(
-                      textAlign: TextAlign.center,
-                      text: TextSpan(
-                        style: TextStyle(
-                          color: Theme.of(context).iconTheme.color,
-                        ),
-                        children: const [
-                          TextSpan(text: 'We will send you a '),
-                          TextSpan(
-                            text: 'One Time Password ',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          TextSpan(text: 'on this mobile number'),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    child: TextField(
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: '+91...',
-                        icon: Icon(Icons.phone),
-                      ),
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      maxLines: 1,
-                      autofocus: true,
-                    ),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 5,
-                    ),
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: ElevatedButton(
-                      onPressed: _onSend,
-                      style: ElevatedButton.styleFrom(
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(14)),
-                        ),
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 8,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Next'),
-                            Icon(Icons.arrow_forward_ios, size: 16),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-  void _showLoading(String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(content: LoadingIndicator(text: message)),
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(kSpaceLg),
+          child: Column(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const AppLogo(size: 40),
+                    const SizedBox(height: kSpaceMd),
+                    Text(
+                      ConfigStore().packageInfo.appName,
+                      style: textTheme.headlineMedium?.copyWith(
+                        color: scheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'We will send you a one-time password on this mobile number',
+                      textAlign: TextAlign.center,
+                      style: textTheme.bodyLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: kSpaceLg),
+                    Container(
+                      constraints: const BoxConstraints(maxWidth: 500),
+                      child: TextField(
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        maxLines: 1,
+                        autofocus: true,
+                        style: textTheme.titleLarge,
+                        decoration: InputDecoration(
+                          prefixIcon: Icon(
+                            Icons.phone_outlined,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                          hintText: '+91...',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: kSpaceLg),
+                    Container(
+                      constraints: const BoxConstraints(maxWidth: 500),
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _loading ? null : _onSend,
+                        child: _loading
+                            ? SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.onPrimary,
+                                ),
+                              )
+                            : const Text('Next'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

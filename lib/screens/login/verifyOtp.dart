@@ -1,14 +1,10 @@
-/// OTP entry screen — keeps the v2 visual shape, rewires submit to
-/// [AuthService.verifyOtp] (AUTH_CONTRACT §3.2).
-///
-/// `main.dart` listens on `AuthService.authStateChange` and swaps the
-/// root widget as soon as [AuthService.verifyOtp] emits `true`, so
-/// this screen just calls it and lets `main.dart` handle navigation.
+/// OTP entry screen — uses a standard 6-digit PIN input.
 library vartalap.screens.login.verify_otp;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:vartalap/services/auth_service.dart';
-import 'package:vartalap/widgets/keyboard.dart';
+import 'package:vartalap/theme/theme.dart';
 
 class VerifyOtpScreen extends StatefulWidget {
   final AuthService authService;
@@ -19,28 +15,18 @@ class VerifyOtpScreen extends StatefulWidget {
 }
 
 class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
-  String _otp = '';
+  final TextEditingController _otpController = TextEditingController();
   bool _working = false;
 
-  Widget _otpSlot(int position) {
-    return Container(
-      height: 40,
-      width: 40,
-      decoration: BoxDecoration(
-        border: Border.all(
-          width: 1,
-          color: Theme.of(context).iconTheme.color!,
-        ),
-        borderRadius: const BorderRadius.all(Radius.circular(8)),
-      ),
-      child: (_otp.length < position + 1)
-          ? null
-          : Center(child: Text(_otp[position])),
-    );
+  @override
+  void dispose() {
+    _otpController.dispose();
+    super.dispose();
   }
 
   Future<void> _onConfirm() async {
-    if (_otp.length < 6) return;
+    final otp = _otpController.text.trim();
+    if (otp.length < 6) return;
     final phone = widget.authService.phoneNumber;
     if (phone == null) {
       _showError(['No pending OTP flow — go back and re-enter your phone.']);
@@ -48,9 +34,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     }
     setState(() => _working = true);
     try {
-      await widget.authService.verifyOtp(phone, _otp);
-      // Pop all pushed login routes so the root widget's _home() rebuild
-      // (triggered by authStateChange → setState) becomes visible.
+      await widget.authService.verifyOtp(phone, otp);
       if (mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
@@ -64,99 +48,70 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: Theme.of(context).iconTheme,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          children: [
-            Expanded(
-              flex: 1,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  const Text(
-                    'Enter 6 digits verification code sent to your number',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
-                    overflow: TextOverflow.clip,
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: List.generate(6, _otpSlot),
-                    ),
-                  ),
-                ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(kSpaceLg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: kSpaceXl),
+              Text(
+                'Verification',
+                style: textTheme.headlineMedium,
               ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Column(
-                children: [
-                  Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: ElevatedButton(
-                      onPressed: _working ? null : _onConfirm,
-                      style: ElevatedButton.styleFrom(
-                        shape: const RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.all(Radius.circular(14)),
-                        ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 8,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _working ? 'Verifying...' : 'Confirm',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: NumericKeyboard(
-                      onKeyboardTap: _onKeyboardTap,
-                      textColor: Theme.of(context).iconTheme.color!,
-                      rightIcon: const Icon(Icons.backspace),
-                      rightButtonFn: () {
-                        if (_otp.isNotEmpty) {
-                          setState(() {
-                            _otp = _otp.substring(0, _otp.length - 1);
-                          });
-                        }
-                      },
-                    ),
-                  ),
-                ],
+              const SizedBox(height: kSpaceSm),
+              Text(
+                'Enter the 6-digit code sent to your number',
+                style: textTheme.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: kSpaceXl),
+              // OTP input with individual character display
+              _OtpInput(
+                controller: _otpController,
+                onCompleted: _onConfirm,
+              ),
+              const SizedBox(height: kSpaceXl),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _working ? null : _onConfirm,
+                  child: _working
+                      ? SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: scheme.onPrimary,
+                          ),
+                        )
+                      : const Text('Confirm'),
+                ),
+              ),
+              const SizedBox(height: kSpaceMd),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(
+                    'Change phone number',
+                    style: TextStyle(color: scheme.primary),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
-  }
-
-  void _onKeyboardTap(String value) {
-    if (_otp.length == 6) return;
-    setState(() => _otp = _otp + value);
   }
 
   void _showError(List<String> messages) {
@@ -171,6 +126,110 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Individual OTP digit display backed by a hidden TextField.
+class _OtpInput extends StatefulWidget {
+  final TextEditingController controller;
+  final VoidCallback onCompleted;
+
+  const _OtpInput({required this.controller, required this.onCompleted});
+
+  @override
+  State<_OtpInput> createState() => _OtpInputState();
+}
+
+class _OtpInputState extends State<_OtpInput> {
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onChanged);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onChanged() {
+    setState(() {});
+    if (widget.controller.text.length == 6) {
+      widget.onCompleted();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final otp = widget.controller.text;
+
+    return GestureDetector(
+      onTap: () => _focusNode.requestFocus(),
+      child: Column(
+        children: [
+          // Hidden TextField that captures input
+          SizedBox(
+            height: 0,
+            child: TextField(
+              controller: widget.controller,
+              focusNode: _focusNode,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                counterText: '',
+              ),
+              style: const TextStyle(color: Colors.transparent),
+            ),
+          ),
+          // Visual digit boxes
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(6, (i) {
+              final filled = i < otp.length;
+              final active = i == otp.length && _focusNode.hasFocus;
+              return Container(
+                width: 48,
+                height: 56,
+                margin: const EdgeInsets.symmetric(horizontal: kSpaceXs),
+                decoration: BoxDecoration(
+                  color: filled
+                      ? scheme.primaryContainer
+                      : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(kRadiusSm),
+                  border: Border.all(
+                    color: active
+                        ? scheme.primary
+                        : filled
+                            ? scheme.primary.withValues(alpha: 0.5)
+                            : scheme.outlineVariant,
+                    width: active ? 2 : 1,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: filled
+                    ? Text(
+                        otp[i],
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                      )
+                    : null,
+              );
+            }),
           ),
         ],
       ),
