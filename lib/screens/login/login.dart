@@ -24,7 +24,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _phoneController =
       TextEditingController(text: '+91');
-  final ConfigStore _config = ConfigStore();
 
   @override
   void dispose() {
@@ -75,7 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Container(
                     margin: const EdgeInsets.only(top: 10),
                     child: Text(
-                      _config.packageInfo.appName,
+                      ConfigStore().packageInfo.appName,
                       style: VartalapTheme.theme.appTitleStyle.copyWith(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,

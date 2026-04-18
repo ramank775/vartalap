@@ -73,7 +73,7 @@ class IntroductionScreen extends StatelessWidget {
                             style: linkTheme,
                             recognizer: TapGestureRecognizer()
                               ..onTap = () => launchUrl(
-                                    config.get('privacy_policy'),
+                                    ConfigStore.privacyPolicyUrl,
                                   ),
                           ),
                           TextSpan(
@@ -84,7 +84,7 @@ class IntroductionScreen extends StatelessWidget {
                             style: linkTheme,
                             recognizer: TapGestureRecognizer()
                               ..onTap = () => launchUrl(
-                                    config.get('privacy_policy'),
+                                    ConfigStore.privacyPolicyUrl,
                                   ),
                           )
                         ],

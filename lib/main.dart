@@ -97,7 +97,7 @@ class AppServices {
 }
 
 Future<AppServices> initializeApp() async {
-  await configStore.loadConfig();
+  await configStore.init();
   Crashlytics.init();
   PerformanceMetric.init();
 
@@ -111,8 +111,8 @@ Future<AppServices> initializeApp() async {
   final store = await ChatStore.open(path: dbPath);
 
   // --- transport + auth -----------------------------------------------------
-  final apiUrl = Uri.parse(configStore.get<String>('api_url'));
-  final wsUrl = Uri.parse(configStore.get<String>('ws_url'));
+  final apiUrl = Uri.parse(ConfigStore.apiUrl);
+  final wsUrl = Uri.parse(ConfigStore.wsUrl);
 
   final authClient = AuthClient(baseUrl: apiUrl);
   final authService = AuthService(client: authClient);
