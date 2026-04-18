@@ -138,6 +138,10 @@ Future<AppServices> initializeApp() async {
     clock: Clock.system,
   );
   await scheduler.start();
+  // Start the WS transport. If no accesskey yet (pre-login), it stays
+  // disconnected and auto-connects once auth lands. Reconnect with
+  // backoff on disconnect.
+  await wsTransport.start();
 
   final chatService = ChatService(
     store: store,
@@ -221,6 +225,9 @@ class _AppState extends State<App> {
           unawaited(
             widget.services.rebuildInboundReceiverForUser(userId),
           );
+          // Kick the WS transport so it connects now that we have an
+          // accesskey. If already connected this is a no-op.
+          unawaited(widget.services.wsTransport.start());
         }
       }
       setState(() => _isLogin = loggedIn);
