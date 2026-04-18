@@ -1,26 +1,22 @@
 /// v3 auth adapter — wraps [AuthClient] and persists the session
-/// (accesskey + user_id) in flutter_secure_storage.
+/// (accesskey + user_id + refreshToken + deviceId) in
+/// flutter_secure_storage.
 ///
 /// Surface per V3_ARCHITECTURE.md decision 7 and AUTH_CONTRACT.md
-/// §3 (OTP), §4 (sessions), §8 (logout). The [AuthClient] method
-/// bodies currently throw `UnimplementedError` pending step 7 of the
-/// v3 roadmap; the UI therefore sees OTP flow throws as "network
-/// failure" and shows the error dialog. Once step 7 lands, the same
-/// UI lights up with no changes here.
+/// §3 (OTP), §4 (sessions), §8 (logout).
 library vartalap.services.auth_service;
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
-/// Secure-storage keys — AUTH_CONTRACT §3.2 persists the returned
-/// accesskey and user_id; the refreshToken rides the 90-day rotation
-/// flow (§4.3). v3.0 does not persist the refreshToken in
-/// secure-storage separately because session refresh is a step-7
-/// concern; once it lands we add a `_keyRefreshToken` constant here.
+/// Secure-storage keys per AUTH_CONTRACT §14.1.
 const String _keyAccesskey = 'v3.accesskey';
 const String _keyUserId = 'v3.user_id';
+const String _keyRefreshToken = 'v3.refreshToken';
+const String _keyDeviceId = 'v3.deviceId';
 
 class AuthService {
   final AuthClient _client;
@@ -33,6 +29,10 @@ class AuthService {
       StreamController<bool>.broadcast();
 
   String? _phoneNumber;
+
+  /// Held between [sendOtp] and [verifyOtp] — the server's session
+  /// identifier for the OTP attempt (AUTH_CONTRACT §3.1).
+  String? _otpSessionId;
 
   AuthService({
     required AuthClient client,
@@ -48,11 +48,29 @@ class AuthService {
   /// Rehydrates the in-memory session from secure storage. Call once
   /// at app boot, BEFORE wiring transports (they read
   /// `AuthClient.currentAccesskey` on their first frame).
+  ///
+  /// Also ensures a stable deviceId exists (generated on first boot,
+  /// persisted forever).
   Future<void> init() async {
+    // Ensure deviceId exists.
+    var deviceId = await _storage.read(key: _keyDeviceId);
+    if (deviceId == null) {
+      deviceId = _generateDeviceId();
+      await _storage.write(key: _keyDeviceId, value: deviceId);
+    }
+    _client.setDeviceId(deviceId);
+
+    // Restore session if we have one.
     final accesskey = await _storage.read(key: _keyAccesskey);
     final userId = await _storage.read(key: _keyUserId);
+    final refreshToken = await _storage.read(key: _keyRefreshToken);
     if (accesskey != null && userId != null) {
-      _client.restoreSession(accesskey: accesskey, userId: userId);
+      _client.restoreSession(
+        accesskey: accesskey,
+        userId: userId,
+        refreshToken: refreshToken,
+        deviceId: deviceId,
+      );
     }
   }
 
@@ -70,38 +88,45 @@ class AuthService {
 
   /// `POST /v3.0/auth/otp/send` — AUTH_CONTRACT §3.1.
   ///
-  /// Throws `UnimplementedError` until step 7 lands. The login screen
-  /// treats the throw as a transient network failure and surfaces it
-  /// via the standard error dialog.
+  /// Returns the [OtpSendResult] containing the sessionId needed for
+  /// [verifyOtp]. Also stashes the sessionId internally so the
+  /// verify-OTP screen doesn't need to carry it.
   Future<OtpSendResult> sendOtp(String phone) async {
     _phoneNumber = phone;
-    return _client.sendOtp(phone: phone);
+    final result = await _client.sendOtp(phone: phone);
+    _otpSessionId = result.sessionId;
+    return result;
   }
 
   /// `POST /v3.0/auth/otp/verify` — AUTH_CONTRACT §3.2.
   ///
   /// On success:
-  /// 1. Persist accesskey + user_id to secure storage.
-  /// 2. [AuthClient.restoreSession] puts them in memory so transport
-  ///    adapters read them immediately (no reboot needed).
+  /// 1. Persist accesskey + user_id + refreshToken to secure storage.
+  /// 2. [AuthClient] already has them in memory from the call.
   /// 3. Emit `true` on [authStateChange] so `main.dart` swaps the
   ///    root widget from login to chat list.
   ///
   /// On throw: no persistence, no state emit. Caller shows the error
   /// and the user re-enters the OTP.
   Future<OtpVerifyResult> verifyOtp(String phone, String code) async {
-    final result = await _client.verifyOtp(phone: phone, code: code);
+    final sessionId = _otpSessionId;
+    if (sessionId == null) {
+      throw StateError('verifyOtp called before sendOtp');
+    }
+    final result = await _client.verifyOtp(
+      phone: phone,
+      code: code,
+      sessionId: sessionId,
+    );
     await _storage.write(key: _keyAccesskey, value: result.accesskey);
     await _storage.write(key: _keyUserId, value: result.userId);
-    _client.restoreSession(
-      accesskey: result.accesskey,
-      userId: result.userId,
-    );
+    await _storage.write(key: _keyRefreshToken, value: result.refreshToken);
+    _otpSessionId = null;
     _authState.add(true);
     return result;
   }
 
-  /// `POST /v3.0/auth/session/revoke` — AUTH_CONTRACT §4.4.
+  /// `POST /v3.0/auth/session/revoke` — AUTH_CONTRACT §4.6.
   ///
   /// Order matters: we attempt the server revoke first so the server
   /// marks the accesskey invalid before we drop it locally. If the
@@ -117,13 +142,32 @@ class AuthService {
     }
     await _storage.delete(key: _keyAccesskey);
     await _storage.delete(key: _keyUserId);
+    await _storage.delete(key: _keyRefreshToken);
     _client.clearSession();
     _phoneNumber = null;
+    _otpSessionId = null;
     _authState.add(false);
   }
 
   /// Disposes the internal state stream. Call on app exit.
   Future<void> dispose() async {
     await _authState.close();
+  }
+
+  /// Generate a stable device identifier (UUIDv4 — good enough for a
+  /// random opaque token per AUTH_CONTRACT §3.1). We use v4 here
+  /// because the deviceId doesn't need time-ordering — it just needs
+  /// to be unique per install.
+  static String _generateDeviceId() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    // Set version 4 (bits 6-7 of byte 6).
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    // Set variant 1 (bits 6-7 of byte 8).
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+        '${hex.substring(20)}';
   }
 }

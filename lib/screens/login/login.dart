@@ -1,12 +1,8 @@
 /// Phone-number entry → OTP send.
 ///
 /// Keeps the visual shape of v2. Wiring swapped to
-/// [AuthService.sendOtp] (AUTH_CONTRACT §3.1). While the server-side
-/// OTP provider is unwired (step 7), sendOtp throws
-/// `UnimplementedError`; the catch block surfaces it as a network
-/// failure dialog, which is the exact UX we want once the server is
-/// online but temporarily unreachable. No code changes needed when
-/// step 7 lands.
+/// [AuthService.sendOtp] (AUTH_CONTRACT §3.1). On failure the catch
+/// block surfaces the error as a dialog.
 library vartalap.screens.login.login;
 
 import 'package:flutter/material.dart';

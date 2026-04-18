@@ -1,22 +1,13 @@
 /// v3 app entry.
 ///
-/// Boots the config store, opens [ChatStore], constructs [AuthClient]
-/// + [WsTransport] + [RestTransport] against the config URLs, wraps
-/// them in [AuthService] and [ChatService], starts the
-/// [SyncScheduler], and picks the root widget based on two flags:
+/// Boots the v3 service graph: config → store → auth → transports →
+/// scheduler → chat service → inbound receiver. Picks the root widget
+/// based on two flags:
 ///
-/// 1. `v3_consent_accepted` (SharedPreferences) — unset means this is
-///    the first launch of the v3 build. Show the destructive-reset
-///    consent screen until accepted (V3_ARCHITECTURE "v3 release
-///    model").
-/// 2. [AuthService.isLoggedIn] — once consent is accepted, show the
-///    intro/login flow if not logged in, otherwise the chat list.
-///
-/// Transport bodies currently throw `UnimplementedError` (step 8).
-/// That means the scheduler's initial dispatch tick effectively
-/// no-ops (transports report themselves disconnected). Outbound
-/// messages accumulate in `outbound_ops` and will drain as soon as
-/// step 8 lands.
+/// 1. `v3_consent_accepted` (SharedPreferences) — show the destructive-
+///    reset consent screen on first v3 launch.
+/// 2. [AuthService.isLoggedIn] — show the intro/login flow or the
+///    chat list.
 library vartalap.main;
 
 import 'dart:async';
@@ -133,11 +124,9 @@ Future<AppServices> initializeApp() async {
   // --- sync scheduler -------------------------------------------------------
   //
   // UUIDv7 generator needs the 36-bit user_id (SPIKE_B_SYNC §4). If no
-  // one is logged in yet we seed a placeholder; once login finishes,
-  // sendMessage() uses the value in `AuthClient.currentUserId`. For
-  // v3.0 we regenerate the gen on login via `AppServices.rebuildAfterLogin`
-  // below, but for the current pre-step-7 scaffold the placeholder is
-  // never reached (the UI is blocked on login).
+  // one is logged in yet we seed zero; once login finishes,
+  // reseedForUser() in the authStateChange listener swaps in the real
+  // user_id bits.
   final userIdBits = _parseUserIdOrZero(authClient.currentUserId);
   final uuidGen = Uuid7Gen(userIdBits: userIdBits);
 
@@ -148,20 +137,7 @@ Future<AppServices> initializeApp() async {
     backoff: ExponentialJitterBackoff(),
     clock: Clock.system,
   );
-  // scheduler.start() reads the transport state (`currentState`) and
-  // subscribes to [Transport.acks]. Both transports currently return
-  // `TransportState.disconnected` from `currentState` and throw on
-  // `acks` access. To keep the scaffold bootable while step 8 is
-  // pending we guard .start() behind a try/catch; the scheduler will
-  // be re-started once the WS/REST bodies land.
-  try {
-    await scheduler.start();
-  } catch (_) {
-    // Transport adapters aren't implemented yet — that's fine. The
-    // outbound queue still drains locally; it just doesn't hit the
-    // wire. Once step 8 wires up real transports, this try/catch is
-    // redundant and gets removed.
-  }
+  await scheduler.start();
 
   final chatService = ChatService(
     store: store,

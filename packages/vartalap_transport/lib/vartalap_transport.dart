@@ -15,7 +15,14 @@
 library vartalap_transport;
 
 export 'src/ack.dart';
-export 'src/auth_client.dart' show AuthClient, OtpSendResult, OtpVerifyResult;
+export 'src/auth_client.dart'
+    show
+        AuthClient,
+        AuthClientException,
+        ContactMatch,
+        OtpSendResult,
+        OtpVerifyResult,
+        SessionRefreshResult;
 export 'src/auth_token_provider.dart' show AuthTokenProvider;
 export 'src/rest_transport.dart' show RestTransport, classifyHttpStatus;
 export 'src/transport.dart'

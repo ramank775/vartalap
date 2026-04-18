@@ -1,11 +1,9 @@
 /// OTP entry screen — keeps the v2 visual shape, rewires submit to
 /// [AuthService.verifyOtp] (AUTH_CONTRACT §3.2).
 ///
-/// Step 7 lands the real `verifyOtp` body; until then the call throws
-/// and this screen shows an error dialog. `main.dart` listens on
-/// `AuthService.authStateChange` and swaps the root widget as soon as
-/// [AuthService.verifyOtp] emits `true`, so this screen just calls
-/// it and lets `main.dart` handle navigation.
+/// `main.dart` listens on `AuthService.authStateChange` and swaps the
+/// root widget as soon as [AuthService.verifyOtp] emits `true`, so
+/// this screen just calls it and lets `main.dart` handle navigation.
 library vartalap.screens.login.verify_otp;
 
 import 'package:flutter/material.dart';
