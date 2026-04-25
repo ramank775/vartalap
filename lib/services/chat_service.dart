@@ -15,6 +15,7 @@ library vartalap.services.chat_service;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -244,11 +245,25 @@ class ChatService {
 
   /// Discover contacts from the server and cache locally.
   ///
-  /// Calls `POST /v3.0/contacts/lookup` (AUTH_CONTRACT §7.2) then
+  /// SHA-256-hashes each E.164 phone in [normalizedPhones] per
+  /// AUTH_CONTRACT §7.2, calls `POST /v3.0/contacts/lookup`, then
   /// upserts each match into the local `contacts` table. Returns the
-  /// full local contact list (may include previously cached contacts).
-  Future<List<ContactRow>> discoverContacts() async {
-    final matches = await _authClient.lookupContacts([]);
+  /// full local contact list.
+  ///
+  /// If [normalizedPhones] is empty, returns the cached local list
+  /// without firing a server call (the screen passes an empty list
+  /// when contacts permission is denied or the address book has no
+  /// phone numbers).
+  Future<List<ContactRow>> discoverContacts({
+    List<String> normalizedPhones = const [],
+  }) async {
+    if (normalizedPhones.isEmpty) {
+      return _store.fetchContacts();
+    }
+    final hashes = normalizedPhones
+        .map((p) => sha256.convert(utf8.encode(p)).toString())
+        .toList();
+    final matches = await _authClient.lookupContacts(hashes);
     final now = _clock.nowMs();
     for (final m in matches) {
       await _store.upsertContact(

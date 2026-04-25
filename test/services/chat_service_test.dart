@@ -10,7 +10,9 @@
 library vartalap.services.chat_service_test;
 
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -254,6 +256,149 @@ void main() {
     await scheduler.stop();
     await store.close();
   });
+
+  group('discoverContacts', () {
+    test('with empty phone list returns local cache without server call',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      final clock = FakeClock(4000000);
+      final ws = _StubTransport();
+      final rest = _StubTransport(connected: false);
+      final scheduler = SyncScheduler(
+        store: store,
+        wsTransport: ws,
+        restTransport: rest,
+        backoff: const FixedBackoff(Duration(milliseconds: 10)),
+        clock: clock,
+      );
+      await scheduler.start();
+
+      final fakeAuth = _FakeAuthClient(throwOnLookup: true);
+      final chat = ChatService(
+        store: store,
+        scheduler: scheduler,
+        authClient: fakeAuth,
+        uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
+        clock: clock,
+      );
+
+      // Seed a cached contact.
+      await store.upsertContact(
+        userId: 'u-cached',
+        username: 'cached',
+        displayName: 'Cached User',
+        nowMs: clock.nowMs(),
+      );
+
+      final result = await chat.discoverContacts(normalizedPhones: const []);
+      expect(result, hasLength(1));
+      expect(result.single.userId, 'u-cached');
+      expect(fakeAuth.lookupCallCount, 0);
+
+      await scheduler.stop();
+      await store.close();
+    });
+
+    test('hashes each phone and passes to AuthClient.lookupContacts',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      final clock = FakeClock(4000000);
+      final ws = _StubTransport();
+      final rest = _StubTransport(connected: false);
+      final scheduler = SyncScheduler(
+        store: store,
+        wsTransport: ws,
+        restTransport: rest,
+        backoff: const FixedBackoff(Duration(milliseconds: 10)),
+        clock: clock,
+      );
+      await scheduler.start();
+
+      final fakeAuth = _FakeAuthClient();
+      final chat = ChatService(
+        store: store,
+        scheduler: scheduler,
+        authClient: fakeAuth,
+        uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
+        clock: clock,
+      );
+
+      const phones = ['+919876543210', '+14155552671'];
+      await chat.discoverContacts(normalizedPhones: phones);
+
+      expect(fakeAuth.lookupCallCount, 1);
+      expect(fakeAuth.lastHashes, hasLength(2));
+      for (var i = 0; i < phones.length; i++) {
+        final expected = sha256.convert(utf8.encode(phones[i])).toString();
+        expect(fakeAuth.lastHashes![i], expected);
+      }
+
+      await scheduler.stop();
+      await store.close();
+    });
+
+    test('upserts returned matches into local contacts table', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      final clock = FakeClock(4000000);
+      final ws = _StubTransport();
+      final rest = _StubTransport(connected: false);
+      final scheduler = SyncScheduler(
+        store: store,
+        wsTransport: ws,
+        restTransport: rest,
+        backoff: const FixedBackoff(Duration(milliseconds: 10)),
+        clock: clock,
+      );
+      await scheduler.start();
+
+      final fakeAuth = _FakeAuthClient(matches: const [
+        ContactMatch(phoneHash: 'h1', userId: 'u-alice', username: 'alice'),
+        ContactMatch(phoneHash: 'h2', userId: 'u-bob', username: null),
+      ]);
+      final chat = ChatService(
+        store: store,
+        scheduler: scheduler,
+        authClient: fakeAuth,
+        uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
+        clock: clock,
+      );
+
+      final result =
+          await chat.discoverContacts(normalizedPhones: const ['+11', '+22']);
+
+      expect(result, hasLength(2));
+      final ids = result.map((c) => c.userId).toSet();
+      expect(ids, {'u-alice', 'u-bob'});
+
+      final rows = await store.db.query('contacts');
+      expect(rows, hasLength(2));
+
+      await scheduler.stop();
+      await store.close();
+    });
+  });
+}
+
+class _FakeAuthClient extends AuthClient {
+  final bool throwOnLookup;
+  final List<ContactMatch> matches;
+  int lookupCallCount = 0;
+  List<String>? lastHashes;
+
+  _FakeAuthClient({
+    this.throwOnLookup = false,
+    this.matches = const [],
+  }) : super(baseUrl: Uri.parse('https://example.invalid'));
+
+  @override
+  Future<List<ContactMatch>> lookupContacts(List<String> phoneHashes) async {
+    lookupCallCount += 1;
+    lastHashes = List<String>.from(phoneHashes);
+    if (throwOnLookup) {
+      throw StateError('lookupContacts should not have been called');
+    }
+    return matches;
+  }
 }
 
 /// Pulls the 36-bit user_id field out of a UUIDv7 produced by

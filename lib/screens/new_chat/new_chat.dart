@@ -11,11 +11,14 @@
 library vartalap.screens.new_chat;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart' hide PermissionStatus;
+import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/phone_number.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
@@ -33,20 +36,6 @@ class NewChatScreen extends StatefulWidget {
 }
 
 class _NewChatScreenState extends State<NewChatScreen> {
-  late Future<List<ContactRow>> _contactsFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _contactsFuture = widget.chatService.discoverContacts();
-  }
-
-  void _retryContacts() {
-    setState(() {
-      _contactsFuture = widget.chatService.discoverContacts();
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -64,10 +53,8 @@ class _NewChatScreenState extends State<NewChatScreen> {
         body: TabBarView(
           children: [
             _ContactsTab(
-              contactsFuture: _contactsFuture,
               chatService: widget.chatService,
               authService: widget.authService,
-              onRetry: _retryContacts,
             ),
             _GroupsTab(
               chatService: widget.chatService,
@@ -85,16 +72,12 @@ class _NewChatScreenState extends State<NewChatScreen> {
 // ---------------------------------------------------------------------------
 
 class _ContactsTab extends StatefulWidget {
-  final Future<List<ContactRow>> contactsFuture;
   final ChatService chatService;
   final AuthService authService;
-  final VoidCallback onRetry;
 
   const _ContactsTab({
-    required this.contactsFuture,
     required this.chatService,
     required this.authService,
-    required this.onRetry,
   });
 
   @override
@@ -103,6 +86,49 @@ class _ContactsTab extends StatefulWidget {
 
 class _ContactsTabState extends State<_ContactsTab> {
   bool _creating = false;
+  Future<PermissionStatus>? _permissionFuture;
+  Future<List<ContactRow>>? _contactsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _permissionFuture = Permission.contacts.status;
+  }
+
+  void _refreshPermission() {
+    setState(() {
+      _permissionFuture = Permission.contacts.status;
+      _contactsFuture = null;
+    });
+  }
+
+  void _loadContacts() {
+    setState(() {
+      _contactsFuture = _fetchAndDiscover();
+    });
+  }
+
+  Future<List<ContactRow>> _fetchAndDiscover() async {
+    final phones = await _readDevicePhones();
+    return widget.chatService.discoverContacts(normalizedPhones: phones);
+  }
+
+  Future<List<String>> _readDevicePhones() async {
+    final contacts = await FlutterContacts.getAll(
+      properties: {ContactProperty.phone},
+    );
+    final seen = <String>{};
+    for (final c in contacts) {
+      for (final p in c.phones) {
+        final raw = (p.normalizedNumber?.isNotEmpty ?? false)
+            ? p.normalizedNumber!
+            : p.number;
+        final normalized = normalizePhoneNumber(raw);
+        if (normalized != null) seen.add(normalized);
+      }
+    }
+    return seen.toList();
+  }
 
   Future<void> _onContactTap(ContactRow contact) async {
     final localUserId = widget.authService.currentUserId;
@@ -140,10 +166,66 @@ class _ContactsTabState extends State<_ContactsTab> {
 
   @override
   Widget build(BuildContext context) {
+    return FutureBuilder<PermissionStatus>(
+      future: _permissionFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final status = snapshot.data;
+        if (status != PermissionStatus.granted) {
+          return _ContactPermissionDisclosure(
+            status: status,
+            onSkip: () => DefaultTabController.of(context).animateTo(1),
+            onAllow: () async {
+              final granted = await Permission.contacts.request();
+              if (granted == PermissionStatus.granted) {
+                _refreshPermission();
+                _loadContacts();
+              } else {
+                setState(() {
+                  _permissionFuture = Future.value(granted);
+                });
+              }
+            },
+            onOpenSettings: () async {
+              await openAppSettings();
+              _refreshPermission();
+            },
+          );
+        }
+        // Permission granted — fetch on first build.
+        _contactsFuture ??= _fetchAndDiscover();
+        return _ContactsList(
+          contactsFuture: _contactsFuture!,
+          creating: _creating,
+          onTap: _onContactTap,
+          onRetry: _loadContacts,
+        );
+      },
+    );
+  }
+}
+
+class _ContactsList extends StatelessWidget {
+  final Future<List<ContactRow>> contactsFuture;
+  final bool creating;
+  final ValueChanged<ContactRow> onTap;
+  final VoidCallback onRetry;
+
+  const _ContactsList({
+    required this.contactsFuture,
+    required this.creating,
+    required this.onTap,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return FutureBuilder<List<ContactRow>>(
-      future: widget.contactsFuture,
+      future: contactsFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -183,7 +265,7 @@ class _ContactsTabState extends State<_ContactsTab> {
                   ),
                   const SizedBox(height: kSpaceLg),
                   ElevatedButton.icon(
-                    onPressed: widget.onRetry,
+                    onPressed: onRetry,
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry'),
                   ),
@@ -221,11 +303,17 @@ class _ContactsTabState extends State<_ContactsTab> {
                   ),
                   const SizedBox(height: kSpaceSm),
                   Text(
-                    'No other users are registered yet.',
+                    'None of your contacts are on Vartalap yet.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
+                  ),
+                  const SizedBox(height: kSpaceLg),
+                  TextButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
                   ),
                 ],
               ),
@@ -240,7 +328,7 @@ class _ContactsTabState extends State<_ContactsTab> {
             final contact = contacts[i];
             return _ContactTile(
               contact: contact,
-              onTap: _creating ? null : () => _onContactTap(contact),
+              onTap: creating ? null : () => onTap(contact),
             );
           },
         );
@@ -272,6 +360,125 @@ class _ContactTile extends StatelessWidget {
             )
           : null,
       onTap: onTap,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Permission disclosure (Play Store-compliant in-app prompt before the
+// system permission dialog).
+// ---------------------------------------------------------------------------
+
+class _ContactPermissionDisclosure extends StatelessWidget {
+  final PermissionStatus? status;
+  final VoidCallback onSkip;
+  final VoidCallback onAllow;
+  final VoidCallback onOpenSettings;
+
+  const _ContactPermissionDisclosure({
+    required this.status,
+    required this.onSkip,
+    required this.onAllow,
+    required this.onOpenSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final permanentlyDenied = status == PermissionStatus.permanentlyDenied;
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(kSpaceLg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.primaryContainer.withValues(alpha: 0.3),
+              ),
+              child: Icon(
+                Icons.contacts_rounded,
+                size: 48,
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(height: kSpaceMd),
+            Text(
+              'Contact Permission Required',
+              textAlign: TextAlign.center,
+              style: text.titleLarge,
+            ),
+            const SizedBox(height: kSpaceMd),
+            Text(
+              'Vartalap needs to access your contacts to show you which of your contacts are using Vartalap.',
+              textAlign: TextAlign.center,
+              style: text.bodyMedium,
+            ),
+            const SizedBox(height: kSpaceSm),
+            Text(
+              'Only phone numbers (hashed with SHA-256) are sent to our server to find matches. Your contact names, photos, and other details stay on this device.',
+              textAlign: TextAlign.center,
+              style: text.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: kSpaceSm),
+            Text(
+              'Phone number hashes are not stored on our servers — they are only used during the lookup.',
+              textAlign: TextAlign.center,
+              style: text.bodySmall?.copyWith(
+                fontStyle: FontStyle.italic,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            if (permanentlyDenied) ...[
+              const SizedBox(height: kSpaceMd),
+              Container(
+                padding: const EdgeInsets.all(kSpaceMd),
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(kRadiusMd),
+                ),
+                child: Text(
+                  'Contacts permission was denied. Open Settings to enable it.',
+                  textAlign: TextAlign.center,
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onErrorContainer,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: kSpaceLg),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                TextButton(
+                  onPressed: onSkip,
+                  child: const Text('Skip'),
+                ),
+                if (permanentlyDenied)
+                  FilledButton.icon(
+                    onPressed: onOpenSettings,
+                    icon: const Icon(Icons.settings),
+                    label: const Text('Open Settings'),
+                  )
+                else
+                  FilledButton.icon(
+                    onPressed: onAllow,
+                    icon: const Icon(Icons.lock_open),
+                    label: const Text('Allow'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
