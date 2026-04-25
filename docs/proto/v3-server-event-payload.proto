@@ -134,7 +134,7 @@ message ChannelCreated {
   // the `channels.created_at_ms` column on the recipient. Sourced from
   // the same clock the server stamps on `POST /v3.0/channels` REST
   // responses.
-  int64 created_at_ms = 6;
+  uint64 created_at_ms = 6;
 }
 
 // Emitted on REST `add_members` to existing members + the newly added
@@ -147,7 +147,7 @@ message ChannelMemberAdded {
   repeated string members = 2;
 
   // When the server applied the add, ms since epoch.
-  int64 added_at_ms = 3;
+  uint64 added_at_ms = 3;
 }
 
 // Emitted on REST `remove_member` to remaining members + the removed
@@ -160,7 +160,7 @@ message ChannelMemberRemoved {
   string member = 2;
 
   // When the server applied the removal, ms since epoch.
-  int64 removed_at_ms = 3;
+  uint64 removed_at_ms = 3;
 }
 
 // Emitted on REST `edit_channel` (rename / avatar change) to all members.
@@ -173,7 +173,7 @@ message ChannelEdited {
   optional string avatar_url = 3;
 
   // When the server applied the edit, ms since epoch.
-  int64 edited_at_ms = 4;
+  uint64 edited_at_ms = 4;
 }
 
 // Emitted on REST `DELETE /v3.0/channels/<id>` (or equivalent) to all
@@ -182,7 +182,7 @@ message ChannelDeleted {
   string channel_id = 1;
 
   // When the server applied the delete, ms since epoch.
-  int64 deleted_at_ms = 2;
+  uint64 deleted_at_ms = 2;
 }
 
 // Emitted on REST `PATCH /v3.0/users/me` with profile fields, to every
@@ -201,7 +201,7 @@ message ProfileEdited {
   optional string status_text = 4;
 
   // When the server applied the edit, ms since epoch.
-  int64 edited_at_ms = 5;
+  uint64 edited_at_ms = 5;
 }
 
 // Emitted on REST `PATCH /v3.0/users/me` with `username`, same fanout
@@ -218,5 +218,5 @@ message UsernameChanged {
   string new_username = 2;
 
   // When the server applied the change, ms since epoch.
-  int64 changed_at_ms = 3;
+  uint64 changed_at_ms = 3;
 }

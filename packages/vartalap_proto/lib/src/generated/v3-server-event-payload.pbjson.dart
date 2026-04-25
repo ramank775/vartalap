@@ -144,7 +144,7 @@ const ChannelCreated$json = {
     {'1': 'name', '3': 3, '4': 1, '5': 9, '10': 'name'},
     {'1': 'members', '3': 4, '4': 3, '5': 9, '10': 'members'},
     {'1': 'creator', '3': 5, '4': 1, '5': 9, '10': 'creator'},
-    {'1': 'created_at_ms', '3': 6, '4': 1, '5': 3, '10': 'createdAtMs'},
+    {'1': 'created_at_ms', '3': 6, '4': 1, '5': 4, '10': 'createdAtMs'},
   ],
 };
 
@@ -152,7 +152,7 @@ const ChannelCreated$json = {
 final $typed_data.Uint8List channelCreatedDescriptor = $convert.base64Decode(
     'Cg5DaGFubmVsQ3JlYXRlZBIdCgpjaGFubmVsX2lkGAEgASgJUgljaGFubmVsSWQSEgoEa2luZB'
     'gCIAEoCVIEa2luZBISCgRuYW1lGAMgASgJUgRuYW1lEhgKB21lbWJlcnMYBCADKAlSB21lbWJl'
-    'cnMSGAoHY3JlYXRvchgFIAEoCVIHY3JlYXRvchIiCg1jcmVhdGVkX2F0X21zGAYgASgDUgtjcm'
+    'cnMSGAoHY3JlYXRvchgFIAEoCVIHY3JlYXRvchIiCg1jcmVhdGVkX2F0X21zGAYgASgEUgtjcm'
     'VhdGVkQXRNcw==');
 
 @$core.Deprecated('Use channelMemberAddedDescriptor instead')
@@ -161,14 +161,14 @@ const ChannelMemberAdded$json = {
   '2': [
     {'1': 'channel_id', '3': 1, '4': 1, '5': 9, '10': 'channelId'},
     {'1': 'members', '3': 2, '4': 3, '5': 9, '10': 'members'},
-    {'1': 'added_at_ms', '3': 3, '4': 1, '5': 3, '10': 'addedAtMs'},
+    {'1': 'added_at_ms', '3': 3, '4': 1, '5': 4, '10': 'addedAtMs'},
   ],
 };
 
 /// Descriptor for `ChannelMemberAdded`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List channelMemberAddedDescriptor = $convert.base64Decode(
     'ChJDaGFubmVsTWVtYmVyQWRkZWQSHQoKY2hhbm5lbF9pZBgBIAEoCVIJY2hhbm5lbElkEhgKB2'
-    '1lbWJlcnMYAiADKAlSB21lbWJlcnMSHgoLYWRkZWRfYXRfbXMYAyABKANSCWFkZGVkQXRNcw==');
+    '1lbWJlcnMYAiADKAlSB21lbWJlcnMSHgoLYWRkZWRfYXRfbXMYAyABKARSCWFkZGVkQXRNcw==');
 
 @$core.Deprecated('Use channelMemberRemovedDescriptor instead')
 const ChannelMemberRemoved$json = {
@@ -176,14 +176,14 @@ const ChannelMemberRemoved$json = {
   '2': [
     {'1': 'channel_id', '3': 1, '4': 1, '5': 9, '10': 'channelId'},
     {'1': 'member', '3': 2, '4': 1, '5': 9, '10': 'member'},
-    {'1': 'removed_at_ms', '3': 3, '4': 1, '5': 3, '10': 'removedAtMs'},
+    {'1': 'removed_at_ms', '3': 3, '4': 1, '5': 4, '10': 'removedAtMs'},
   ],
 };
 
 /// Descriptor for `ChannelMemberRemoved`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List channelMemberRemovedDescriptor = $convert.base64Decode(
     'ChRDaGFubmVsTWVtYmVyUmVtb3ZlZBIdCgpjaGFubmVsX2lkGAEgASgJUgljaGFubmVsSWQSFg'
-    'oGbWVtYmVyGAIgASgJUgZtZW1iZXISIgoNcmVtb3ZlZF9hdF9tcxgDIAEoA1ILcmVtb3ZlZEF0'
+    'oGbWVtYmVyGAIgASgJUgZtZW1iZXISIgoNcmVtb3ZlZF9hdF9tcxgDIAEoBFILcmVtb3ZlZEF0'
     'TXM=');
 
 @$core.Deprecated('Use channelEditedDescriptor instead')
@@ -201,7 +201,7 @@ const ChannelEdited$json = {
       '10': 'avatarUrl',
       '17': true
     },
-    {'1': 'edited_at_ms', '3': 4, '4': 1, '5': 3, '10': 'editedAtMs'},
+    {'1': 'edited_at_ms', '3': 4, '4': 1, '5': 4, '10': 'editedAtMs'},
   ],
   '8': [
     {'1': '_name'},
@@ -213,21 +213,21 @@ const ChannelEdited$json = {
 final $typed_data.Uint8List channelEditedDescriptor = $convert.base64Decode(
     'Cg1DaGFubmVsRWRpdGVkEh0KCmNoYW5uZWxfaWQYASABKAlSCWNoYW5uZWxJZBIXCgRuYW1lGA'
     'IgASgJSABSBG5hbWWIAQESIgoKYXZhdGFyX3VybBgDIAEoCUgBUglhdmF0YXJVcmyIAQESIAoM'
-    'ZWRpdGVkX2F0X21zGAQgASgDUgplZGl0ZWRBdE1zQgcKBV9uYW1lQg0KC19hdmF0YXJfdXJs');
+    'ZWRpdGVkX2F0X21zGAQgASgEUgplZGl0ZWRBdE1zQgcKBV9uYW1lQg0KC19hdmF0YXJfdXJs');
 
 @$core.Deprecated('Use channelDeletedDescriptor instead')
 const ChannelDeleted$json = {
   '1': 'ChannelDeleted',
   '2': [
     {'1': 'channel_id', '3': 1, '4': 1, '5': 9, '10': 'channelId'},
-    {'1': 'deleted_at_ms', '3': 2, '4': 1, '5': 3, '10': 'deletedAtMs'},
+    {'1': 'deleted_at_ms', '3': 2, '4': 1, '5': 4, '10': 'deletedAtMs'},
   ],
 };
 
 /// Descriptor for `ChannelDeleted`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List channelDeletedDescriptor = $convert.base64Decode(
     'Cg5DaGFubmVsRGVsZXRlZBIdCgpjaGFubmVsX2lkGAEgASgJUgljaGFubmVsSWQSIgoNZGVsZX'
-    'RlZF9hdF9tcxgCIAEoA1ILZGVsZXRlZEF0TXM=');
+    'RlZF9hdF9tcxgCIAEoBFILZGVsZXRlZEF0TXM=');
 
 @$core.Deprecated('Use profileEditedDescriptor instead')
 const ProfileEdited$json = {
@@ -261,7 +261,7 @@ const ProfileEdited$json = {
       '10': 'statusText',
       '17': true
     },
-    {'1': 'edited_at_ms', '3': 5, '4': 1, '5': 3, '10': 'editedAtMs'},
+    {'1': 'edited_at_ms', '3': 5, '4': 1, '5': 4, '10': 'editedAtMs'},
   ],
   '8': [
     {'1': '_display_name'},
@@ -275,7 +275,7 @@ final $typed_data.Uint8List profileEditedDescriptor = $convert.base64Decode(
     'Cg1Qcm9maWxlRWRpdGVkEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBImCgxkaXNwbGF5X25hbW'
     'UYAiABKAlIAFILZGlzcGxheU5hbWWIAQESIgoKYXZhdGFyX3VybBgDIAEoCUgBUglhdmF0YXJV'
     'cmyIAQESJAoLc3RhdHVzX3RleHQYBCABKAlIAlIKc3RhdHVzVGV4dIgBARIgCgxlZGl0ZWRfYX'
-    'RfbXMYBSABKANSCmVkaXRlZEF0TXNCDwoNX2Rpc3BsYXlfbmFtZUINCgtfYXZhdGFyX3VybEIO'
+    'RfbXMYBSABKARSCmVkaXRlZEF0TXNCDwoNX2Rpc3BsYXlfbmFtZUINCgtfYXZhdGFyX3VybEIO'
     'Cgxfc3RhdHVzX3RleHQ=');
 
 @$core.Deprecated('Use usernameChangedDescriptor instead')
@@ -284,12 +284,12 @@ const UsernameChanged$json = {
   '2': [
     {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
     {'1': 'new_username', '3': 2, '4': 1, '5': 9, '10': 'newUsername'},
-    {'1': 'changed_at_ms', '3': 3, '4': 1, '5': 3, '10': 'changedAtMs'},
+    {'1': 'changed_at_ms', '3': 3, '4': 1, '5': 4, '10': 'changedAtMs'},
   ],
 };
 
 /// Descriptor for `UsernameChanged`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List usernameChangedDescriptor = $convert.base64Decode(
     'Cg9Vc2VybmFtZUNoYW5nZWQSFwoHdXNlcl9pZBgBIAEoCVIGdXNlcklkEiEKDG5ld191c2Vybm'
-    'FtZRgCIAEoCVILbmV3VXNlcm5hbWUSIgoNY2hhbmdlZF9hdF9tcxgDIAEoA1ILY2hhbmdlZEF0'
+    'FtZRgCIAEoCVILbmV3VXNlcm5hbWUSIgoNY2hhbmdlZF9hdF9tcxgDIAEoBFILY2hhbmdlZEF0'
     'TXM=');

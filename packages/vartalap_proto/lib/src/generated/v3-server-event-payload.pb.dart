@@ -291,7 +291,9 @@ class ChannelCreated extends $pb.GeneratedMessage {
     ..aOS(3, _omitFieldNames ? '' : 'name')
     ..pPS(4, _omitFieldNames ? '' : 'members')
     ..aOS(5, _omitFieldNames ? '' : 'creator')
-    ..aInt64(6, _omitFieldNames ? '' : 'createdAtMs')
+    ..a<$fixnum.Int64>(
+        6, _omitFieldNames ? '' : 'createdAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -407,7 +409,9 @@ class ChannelMemberAdded extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'channelId')
     ..pPS(2, _omitFieldNames ? '' : 'members')
-    ..aInt64(3, _omitFieldNames ? '' : 'addedAtMs')
+    ..a<$fixnum.Int64>(
+        3, _omitFieldNames ? '' : 'addedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -485,7 +489,9 @@ class ChannelMemberRemoved extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'channelId')
     ..aOS(2, _omitFieldNames ? '' : 'member')
-    ..aInt64(3, _omitFieldNames ? '' : 'removedAtMs')
+    ..a<$fixnum.Int64>(
+        3, _omitFieldNames ? '' : 'removedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -574,7 +580,9 @@ class ChannelEdited extends $pb.GeneratedMessage {
     ..aOS(1, _omitFieldNames ? '' : 'channelId')
     ..aOS(2, _omitFieldNames ? '' : 'name')
     ..aOS(3, _omitFieldNames ? '' : 'avatarUrl')
-    ..aInt64(4, _omitFieldNames ? '' : 'editedAtMs')
+    ..a<$fixnum.Int64>(
+        4, _omitFieldNames ? '' : 'editedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -662,7 +670,9 @@ class ChannelDeleted extends $pb.GeneratedMessage {
           const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'channelId')
-    ..aInt64(2, _omitFieldNames ? '' : 'deletedAtMs')
+    ..a<$fixnum.Int64>(
+        2, _omitFieldNames ? '' : 'deletedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -746,7 +756,9 @@ class ProfileEdited extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'displayName')
     ..aOS(3, _omitFieldNames ? '' : 'avatarUrl')
     ..aOS(4, _omitFieldNames ? '' : 'statusText')
-    ..aInt64(5, _omitFieldNames ? '' : 'editedAtMs')
+    ..a<$fixnum.Int64>(
+        5, _omitFieldNames ? '' : 'editedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -852,7 +864,9 @@ class UsernameChanged extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'userId')
     ..aOS(2, _omitFieldNames ? '' : 'newUsername')
-    ..aInt64(3, _omitFieldNames ? '' : 'changedAtMs')
+    ..a<$fixnum.Int64>(
+        3, _omitFieldNames ? '' : 'changedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
