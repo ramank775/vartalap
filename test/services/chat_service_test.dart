@@ -86,12 +86,14 @@ void main() {
     expect(latestChannels.single.channelId, channelId);
     expect(latestChannels.single.lastMessagePreview, 'hello world');
 
-    expect(messages, isNotEmpty);
-    final latestMessages = messages.last;
-    expect(latestMessages, hasLength(1));
-    expect(latestMessages.single.body, 'hello world');
-    expect(latestMessages.single.state, MessageState.pending);
-    expect(latestMessages.single.authorUserId, userId);
+    // First non-empty emit is the pending insert (the next emit races
+    // with Flow A's pending→sending transition triggered by tickSoon).
+    final firstWithMessage =
+        messages.firstWhere((m) => m.isNotEmpty);
+    expect(firstWithMessage, hasLength(1));
+    expect(firstWithMessage.single.body, 'hello world');
+    expect(firstWithMessage.single.state, MessageState.pending);
+    expect(firstWithMessage.single.authorUserId, userId);
 
     await chatListSub.cancel();
     await messagesSub.cancel();

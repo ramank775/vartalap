@@ -787,8 +787,7 @@ are server-authored and authoritative).
 **Server MUST:**
 1. Compute the recipient set per op type:
    - WS chat-content envelopes: all channel members except sender.
-   - REST `POST /v3.0/channels`: all `initial_members` plus the
-     creator.
+   - REST `POST /v3.0/channels`: all `members` (creator included).
    - REST `add_members`: existing members + newly added.
    - REST `remove_member`: remaining members + the removed member
      (so the removed user's client knows to leave).
@@ -896,16 +895,16 @@ Create a channel.
   "kind": "group",
   "name": "Weekend Trip",
   "avatar_url": null,
-  "initial_members": ["b1c2d3e4f", "c2d3e4f5a"]
+  "members": ["a0b1c2d3e", "b1c2d3e4f", "c2d3e4f5a"]
 }
 ```
 
 | Field | Constraint |
 |---|---|
 | `channel_id` | Client-generated UUIDv7. Must embed authenticated user's user_id bits per §3. |
-| `kind` | `"one_to_one"` or `"group"`. For one_to_one, `initial_members` must be exactly 1. |
+| `kind` | `"one_to_one"` or `"group"`. For one_to_one, `members` must be exactly 2 (creator + peer). |
 | `name` | Required for `group`, ignored for `one_to_one`. |
-| `initial_members` | List of `user_id` (9 hex chars). Creator NOT included; server adds implicitly. |
+| `members` | List of `user_id` (9 hex chars). Creator MUST be included; server validates membership against the authenticated user. |
 
 `resource_id` for sequencing is `channel_id`. `resource_seq` starts
 at 1 (this is the first op on a fresh channel id).
@@ -918,8 +917,8 @@ at 1 (this is the first op on a fresh channel id).
 }
 ```
 
-**Errors:** `forbidden` (creator not in `initial_members` is a
-client bug; server doesn't enforce), `resource_id_taken` (collision),
+**Errors:** `forbidden` (authenticated user not in `members`),
+`resource_id_taken` (collision),
 `validation_failed`, `prefix_mismatch`, `out_of_order`,
 `rate_limited`.
 

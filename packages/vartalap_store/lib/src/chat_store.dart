@@ -832,6 +832,7 @@ class ChatStore {
       },
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    _notify(const {'channel_members'});
   }
 
   // --- UI reactive queries ----------------------------------------------
