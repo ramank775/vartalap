@@ -10,10 +10,8 @@ import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
-import 'package:vartalap/widgets/app_logo.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
-import 'package:vartalap/widgets/rich_message.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
@@ -182,8 +180,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   ),
                 ),
               );
-            } else if (value == 'about') {
-              _showAbout(context);
             }
           },
           itemBuilder: (ctx) => const [
@@ -198,7 +194,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 ],
               ),
             ),
-            PopupMenuItem(value: 'about', child: Text('About')),
           ],
         ),
       ],
@@ -317,26 +312,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  void _showAbout(BuildContext context) {
-    showAboutDialog(
-      context: context,
-      applicationName: widget.config.packageInfo.appName,
-      applicationIcon: const AppLogo(size: 25),
-      applicationVersion:
-          '${widget.config.packageInfo.version}+${widget.config.packageInfo.buildNumber}',
-      children: [
-        Text(widget.config.subtitle),
-        const SizedBox(height: kSpaceSm),
-        RichMessage(
-          'Vartalap v3 — a greenfield relaunch, Firebase-free.',
-          TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).textTheme.bodyLarge?.color,
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _EmptyChats extends StatelessWidget {
