@@ -835,6 +835,40 @@ class ChatStore {
     _notify(const {'channel_members'});
   }
 
+  /// Soft-delete a membership row by stamping `removed_at`. Used by the
+  /// inbound ChannelMemberRemoved handler (SYNC_PROTOCOL.md §10.2). The
+  /// channel itself is untouched — see [tombstoneChannel] for the
+  /// self-removal case where the local user has been kicked.
+  Future<void> removeChannelMember({
+    required String channelId,
+    required String userId,
+    required int removedAtMs,
+  }) async {
+    await db.update(
+      'channel_members',
+      {'removed_at': removedAtMs},
+      where: 'channel_id = ? AND user_id = ?',
+      whereArgs: [channelId, userId],
+    );
+    _notify(const {'channel_members'});
+  }
+
+  /// Mark a channel tombstoned without dropping the row or its members.
+  /// Used when the local user has been removed from a channel by someone
+  /// else — the chat-list query filters on `tombstoned = 0` so the
+  /// channel disappears from the UI, while history remains queryable
+  /// for diagnostic / undo paths. Distinct from [leaveGroupLocal], which
+  /// hard-deletes the row (cascading members + messages).
+  Future<void> tombstoneChannel(String channelId) async {
+    await db.update(
+      'channels',
+      {'tombstoned': 1},
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+    );
+    _notify(const {'channels'});
+  }
+
   // --- UI reactive queries ----------------------------------------------
   //
   // These power the chat-list and chat-screen reactive streams

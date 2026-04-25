@@ -20,11 +20,13 @@ import 'clock.dart';
 /// caller doing `await receiver.stop(); await store.close()` won't race
 /// an in-flight apply against a closed DB.
 ///
-/// `ServerEventPayload` handling is decode-and-log for v3.0: the proto
-/// schema (SYNC_PROTOCOL.md §10.2) isn't generated yet and projection
-/// application lands with step 9 (REST server bodies). The receiver
-/// still records `op_id_seen` on those frames so a re-fanout is a
-/// no-op.
+/// `ServerEventPayload` handling (SYNC_PROTOCOL.md §10.2) covers the
+/// v3.0 channel/membership lifecycle: CHANNEL_CREATED,
+/// CHANNEL_MEMBER_ADDED, CHANNEL_MEMBER_REMOVED. The remaining four
+/// variants (CHANNEL_EDITED / CHANNEL_DELETED / PROFILE_EDITED /
+/// USERNAME_CHANGED) fall through to [_logServerEventFallback] until
+/// their projections land — `op_id_seen` is intentionally NOT recorded
+/// for those so a later client release can apply them on re-fanout.
 class InboundReceiver {
   final ChatStore store;
   final Stream<pb.Envelope> pushes;
@@ -93,7 +95,10 @@ class InboundReceiver {
     }
 
     if (payload[0] == 0x53) {
-      _logServerEvent(env);
+      // §10.2 wire distinguisher: server PREPENDS 0x53; strip before
+      // proto decode (the proto's natural first byte is the tag for
+      // `version`, 0x08 — never 0x53).
+      await _handleServerEvent(env, payload.sublist(1));
       return;
     }
 
@@ -198,19 +203,158 @@ class InboundReceiver {
     }
   }
 
-  /// Decode-and-log stub for ServerEventPayload (§10.2). The proto for
-  /// ServerEventPayload isn't generated in v3.0 — full projection apply
-  /// lands with step 9 when the server REST bodies produce these
-  /// envelopes. For now we prove the receiver routes correctly and
-  /// don't touch op_id_seen (a later client release should be free to
-  /// apply the same event if it was delivered early).
-  void _logServerEvent(pb.Envelope env) {
+  /// §10.2 dispatcher. Decodes the proto-bytes-without-distinguisher
+  /// and routes by `whichBody()`. Channel + membership lifecycle is
+  /// applied here; the remaining variants fall through to a log stub
+  /// (no `op_id_seen` so later clients can apply on re-fanout).
+  Future<void> _handleServerEvent(pb.Envelope env, List<int> bytes) async {
+    pb.ServerEventPayload sep;
+    try {
+      sep = pb.ServerEventPayload.fromBuffer(bytes);
+    } catch (e) {
+      // ignore: avoid_print
+      print(
+        'InboundReceiver: malformed ServerEventPayload '
+        'channel=${env.channelId} op_id=${env.opId}: $e',
+      );
+      return;
+    }
+    switch (sep.whichBody()) {
+      case pb.ServerEventPayload_Body.channelCreated:
+        await _handleChannelCreated(env, sep.channelCreated);
+      case pb.ServerEventPayload_Body.memberAdded:
+        await _handleChannelMemberAdded(env, sep.memberAdded);
+      case pb.ServerEventPayload_Body.memberRemoved:
+        await _handleChannelMemberRemoved(env, sep.memberRemoved);
+      // TODO(v3.x): wire ChannelEdited / ChannelDeleted / ProfileEdited /
+      // UsernameChanged. Falling through to log keeps op_id_seen empty so
+      // a later client release applies on re-fanout.
+      case pb.ServerEventPayload_Body.channelEdited:
+      case pb.ServerEventPayload_Body.channelDeleted:
+      case pb.ServerEventPayload_Body.profileEdited:
+      case pb.ServerEventPayload_Body.usernameChanged:
+      case pb.ServerEventPayload_Body.notSet:
+        _logServerEventFallback(env, sep);
+    }
+  }
+
+  /// §10.2 ChannelCreated. Materialize the channel + member roster on
+  /// every recipient (creator included per the e0e6bfe contract).
+  Future<void> _handleChannelCreated(
+    pb.Envelope env,
+    pb.ChannelCreated body,
+  ) async {
+    final nowMs = clock.nowMs();
+    final existing = await store.db.query(
+      'channels',
+      columns: const ['channel_id'],
+      where: 'channel_id = ?',
+      whereArgs: [body.channelId],
+      limit: 1,
+    );
+    if (existing.isEmpty) {
+      final createdAt = body.createdAtMs.toInt();
+      await store.insertChannel(
+        channelId: body.channelId,
+        kind: body.kind,
+        ownerUserId: body.creator,
+        createdAt: createdAt,
+        name: body.name.isEmpty ? null : body.name,
+      );
+      for (final userId in body.members) {
+        await store.insertChannelMember(
+          channelId: body.channelId,
+          userId: userId,
+          role: userId == body.creator ? 'owner' : 'member',
+          joinedAt: createdAt,
+        );
+      }
+    }
+    // §7.2 — record op_id_seen even on the creator-echo skip path so a
+    // re-fanout doesn't re-evaluate.
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': nowMs,
+    });
+  }
+
+  /// §10.2 ChannelMemberAdded. Out-of-order delivery (channel not yet
+  /// local) is dropped silently but op_id_seen is still recorded — the
+  /// dedup table is the source of truth for "have I processed this op."
+  Future<void> _handleChannelMemberAdded(
+    pb.Envelope env,
+    pb.ChannelMemberAdded body,
+  ) async {
+    final nowMs = clock.nowMs();
+    final existing = await store.db.query(
+      'channels',
+      columns: const ['channel_id'],
+      where: 'channel_id = ?',
+      whereArgs: [body.channelId],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      final addedAt = body.addedAtMs.toInt();
+      for (final userId in body.members) {
+        await store.insertChannelMember(
+          channelId: body.channelId,
+          userId: userId,
+          role: 'member',
+          joinedAt: addedAt,
+        );
+      }
+    }
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': nowMs,
+    });
+  }
+
+  /// §10.2 ChannelMemberRemoved. Soft-deletes the row; if the local user
+  /// was the one removed, also tombstone the channel locally so it falls
+  /// off the chat list (the user has been kicked).
+  Future<void> _handleChannelMemberRemoved(
+    pb.Envelope env,
+    pb.ChannelMemberRemoved body,
+  ) async {
+    final nowMs = clock.nowMs();
+    final existing = await store.db.query(
+      'channels',
+      columns: const ['channel_id'],
+      where: 'channel_id = ?',
+      whereArgs: [body.channelId],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      await store.removeChannelMember(
+        channelId: body.channelId,
+        userId: body.member,
+        removedAtMs: body.removedAtMs.toInt(),
+      );
+      if (body.member == localUserId) {
+        await store.tombstoneChannel(body.channelId);
+      }
+    }
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': nowMs,
+    });
+  }
+
+  /// Fallback log for ServerEventPayload variants we don't yet apply.
+  /// op_id_seen is deliberately NOT recorded — see class docstring.
+  void _logServerEventFallback(
+    pb.Envelope env,
+    pb.ServerEventPayload sep,
+  ) {
     // ignore: avoid_print
     print(
-      'InboundReceiver: ServerEventPayload (0x53) '
+      'InboundReceiver: deferred ServerEventPayload variant=${sep.whichBody()} '
       'channel=${env.channelId} op_id=${env.opId} '
-      'sender=${env.senderUserId} bytes=${env.payload.length} '
-      '(decode-and-log; full apply lands in step 9)',
+      '(op_id_seen NOT recorded; later release will apply)',
     );
   }
 }
