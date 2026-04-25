@@ -45,7 +45,14 @@ void main() {
 
     test('verifyOtp persists the session and emits true on authStateChange',
         () async {
-      final storage = _InMemoryStorage();
+      // Seed an in-flight OTP session so verifyOtp has a sessionId to
+      // forward (AuthService restores this from storage during init).
+      final storage = _InMemoryStorage(
+        initial: {
+          'v3.otpSessionId': 'otp_session_abc',
+          'v3.otpPhone': '+911234567890',
+        },
+      );
       final client = _FakeAuthClient()
         ..verifyResult = const OtpVerifyResult(
           accesskey: 'sk_fresh_xyz',
@@ -56,6 +63,7 @@ void main() {
           isNewUser: false,
         );
       final auth = AuthService(client: client, storage: storage);
+      await auth.init();
 
       final emissions = <bool>[];
       final sub = auth.authStateChange.listen(emissions.add);
@@ -216,11 +224,19 @@ class _FakeAuthClient extends AuthClient {
   Future<OtpVerifyResult> verifyOtp({
     required String phone,
     required String code,
+    required String sessionId,
   }) async {
     final r = verifyResult;
     if (r == null) {
       throw StateError('verifyResult not configured');
     }
+    // Mirror the production behaviour: a successful verifyOtp seeds
+    // the in-memory session so transports can read it immediately.
+    restoreSession(
+      accesskey: r.accesskey,
+      userId: r.userId,
+      refreshToken: r.refreshToken,
+    );
     return r;
   }
 
