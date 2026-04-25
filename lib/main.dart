@@ -285,6 +285,12 @@ class _AppState extends State<App> {
                 builder: (_) => ChatScreen(
                   channelId: channelId,
                   channelName: channelId,
+                  // Deep-link route doesn't know the kind yet — step 11
+                  // will resolve it from the store before constructing
+                  // the route. Defaulting to 'dm' for now is wrong for
+                  // groups (they'd lose the Leave option) but matches
+                  // the v3.0 deep-link surface, which only fires for DMs.
+                  channelKind: 'dm',
                   chatService: widget.services.chatService,
                   authService: widget.services.authService,
                 ),

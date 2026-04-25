@@ -13,6 +13,7 @@ import 'package:vartalap_store/vartalap_store.dart';
 class ChatScreen extends StatefulWidget {
   final String channelId;
   final String channelName;
+  final String channelKind; // 'dm' | 'group'
   final ChatService chatService;
   final AuthService authService;
 
@@ -20,6 +21,7 @@ class ChatScreen extends StatefulWidget {
     super.key,
     required this.channelId,
     required this.channelName,
+    required this.channelKind,
     required this.chatService,
     required this.authService,
   });
@@ -78,6 +80,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 builder: (_) => ChatInfoScreen(
                   channelId: widget.channelId,
                   channelName: widget.channelName,
+                  channelKind: widget.channelKind,
                   chatService: widget.chatService,
                 ),
               ),

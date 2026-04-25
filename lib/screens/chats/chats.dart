@@ -99,8 +99,6 @@ class ChatsScreen extends StatelessWidget {
                 );
               } else if (value == 'about') {
                 _showAbout(context);
-              } else if (value == 'logout') {
-                await authService.logout();
               }
             },
             itemBuilder: (ctx) => [
@@ -108,7 +106,6 @@ class ChatsScreen extends StatelessWidget {
                   value: 'new_group', child: Text('New group')),
               const PopupMenuItem(value: 'profile', child: Text('Profile')),
               const PopupMenuItem(value: 'about', child: Text('About')),
-              const PopupMenuItem(value: 'logout', child: Text('Sign out')),
             ],
           ),
         ],
@@ -187,6 +184,7 @@ class ChatsScreen extends StatelessWidget {
         builder: (_) => ChatScreen(
           channelId: entry.channelId,
           channelName: entry.name ?? entry.channelId,
+          channelKind: entry.kind,
           chatService: chatService,
           authService: authService,
         ),

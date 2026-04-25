@@ -142,7 +142,9 @@ void main() {
       expect(emissions, hasLength(1));
       expect(emissions.first, isEmpty);
 
-      // Inserting a channel → re-emit.
+      // Inserting a channel → re-emit, but an empty channel does NOT
+      // appear on the chat list (it lives in the Groups tab until it
+      // has at least one message).
       await store.insertChannel(
         channelId: 'c-1',
         kind: 'one_to_one',
@@ -151,7 +153,7 @@ void main() {
       );
       await _pumpEventLoop();
       expect(emissions.length, greaterThanOrEqualTo(2));
-      expect(emissions.last.map((e) => e.channelId), ['c-1']);
+      expect(emissions.last, isEmpty);
 
       // Enqueueing a message → messages table change → re-emit.
       await store.enqueueLocalMessage(
@@ -345,6 +347,202 @@ void main() {
           .single;
       expect(row['unread_count'], 0);
       expect(row['last_read_message_id'], isNull);
+    });
+  });
+
+  group('clearChannelMessages', () {
+    test('wipes messages, drops channel from chat list, leaves channel row',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+
+      await store.insertChannel(
+        channelId: 'c-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Team',
+      );
+      await _insertSentMessage(
+        store: store,
+        channelId: 'c-1',
+        messageId: 'm-1',
+        body: 'hello',
+        authorUserId: 'u-other',
+        clientTimestampMs: 200,
+        deliverySequence: 1,
+      );
+      await store.db.update(
+        'channels',
+        {'last_activity_ms': 200, 'last_message_id': 'm-1', 'unread_count': 5},
+        where: 'channel_id = ?',
+        whereArgs: ['c-1'],
+      );
+
+      // Sanity: channel is on the list before clearing.
+      expect(
+        (await store.fetchChannelList()).map((e) => e.channelId),
+        ['c-1'],
+      );
+
+      await store.clearChannelMessages('c-1');
+
+      // Chat list now empty.
+      expect(await store.fetchChannelList(), isEmpty);
+
+      // Messages gone.
+      final msgs = await store.db.query(
+        'messages',
+        where: 'channel_id = ?',
+        whereArgs: ['c-1'],
+      );
+      expect(msgs, isEmpty);
+
+      // Channel row still present, last_message_id and unread cleared.
+      final ch = (await store.db.query(
+        'channels',
+        where: 'channel_id = ?',
+        whereArgs: ['c-1'],
+      ))
+          .single;
+      expect(ch['last_message_id'], isNull);
+      expect(ch['last_read_message_id'], isNull);
+      expect(ch['unread_count'], 0);
+    });
+  });
+
+  group('leaveGroupLocal', () {
+    test('drops the group channel and cascades members + messages',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+
+      await store.insertChannel(
+        channelId: 'g-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Team',
+      );
+      await store.insertChannelMember(
+        channelId: 'g-1',
+        userId: 'u-self',
+        role: 'member',
+        joinedAt: 100,
+      );
+      await _insertSentMessage(
+        store: store,
+        channelId: 'g-1',
+        messageId: 'm-1',
+        body: 'hi',
+        authorUserId: 'u-self',
+        clientTimestampMs: 110,
+        deliverySequence: 1,
+      );
+
+      await store.leaveGroupLocal('g-1');
+
+      expect(
+        await store.db.query('channels', where: 'channel_id = ?',
+            whereArgs: ['g-1']),
+        isEmpty,
+      );
+      expect(
+        await store.db.query('channel_members', where: 'channel_id = ?',
+            whereArgs: ['g-1']),
+        isEmpty,
+      );
+      expect(
+        await store.db.query('messages', where: 'channel_id = ?',
+            whereArgs: ['g-1']),
+        isEmpty,
+      );
+    });
+
+    test('refuses to delete a DM channel', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+
+      await store.insertChannel(
+        channelId: 'dm-1',
+        kind: 'dm',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+      );
+
+      expect(
+        () => store.leaveGroupLocal('dm-1'),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
+  group('fetchMemberChannels', () {
+    test('returns groups the user is a member of, sorted by name',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+
+      await store.insertChannel(
+        channelId: 'g-zeta',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Zeta',
+      );
+      await store.insertChannelMember(
+        channelId: 'g-zeta',
+        userId: 'u-self',
+        role: 'member',
+        joinedAt: 100,
+      );
+
+      await store.insertChannel(
+        channelId: 'g-alpha',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Alpha',
+      );
+      await store.insertChannelMember(
+        channelId: 'g-alpha',
+        userId: 'u-self',
+        role: 'member',
+        joinedAt: 100,
+      );
+
+      // A group I'm not in — shouldn't appear.
+      await store.insertChannel(
+        channelId: 'g-other',
+        kind: 'group',
+        ownerUserId: 'u-other',
+        createdAt: 100,
+        name: 'Other',
+      );
+
+      // A DM — filtered out by kind='group'.
+      await store.insertChannel(
+        channelId: 'dm-1',
+        kind: 'dm',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Bob',
+      );
+      await store.insertChannelMember(
+        channelId: 'dm-1',
+        userId: 'u-self',
+        role: 'member',
+        joinedAt: 100,
+      );
+
+      final groups = await store.fetchMemberChannels(
+        userId: 'u-self',
+        kind: 'group',
+      );
+      expect(
+        groups.map((c) => c.channelId),
+        ['g-alpha', 'g-zeta'],
+      );
     });
   });
 }

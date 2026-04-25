@@ -844,9 +844,12 @@ class ChatStore {
 
   /// §13.1 — Chat list hot path.
   ///
-  /// Newest-first by `last_activity_ms`. LEFT JOIN picks up the preview
-  /// body from the `last_message_id` row; `tombstoned` is surfaced so
-  /// the UI can render "message deleted" without a second query.
+  /// Newest-first by `last_activity_ms`. JOIN (not LEFT JOIN) on
+  /// `last_message_id` so channels with no messages drop off the chat
+  /// list — they're still reachable via the Groups tab in the new-chat
+  /// picker. The chat list is "active conversations," not "all
+  /// channels." When messages arrive (or are sent), `last_message_id`
+  /// is set and the channel reappears.
   Future<List<ChannelListEntry>> fetchChannelList({int limit = 100}) async {
     final rows = await db.rawQuery(
       '''
@@ -856,7 +859,7 @@ class ChatStore {
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned
       FROM channels c
-      LEFT JOIN messages m ON m.message_id = c.last_message_id
+      JOIN messages m ON m.message_id = c.last_message_id
       WHERE c.tombstoned = 0
       ORDER BY c.last_activity_ms DESC
       LIMIT ?
@@ -985,6 +988,125 @@ class ChatStore {
       );
     });
     _notify(const {'channels'});
+  }
+
+  /// Wipe every message row in [channelId] without touching the channel
+  /// itself or its membership. Resets `last_message_id`, `unread_count`,
+  /// and `last_read_message_id` so the chat-list query (which filters
+  /// out channels with no `last_message_id`) drops the row from the
+  /// list. The channel remains reachable via the Groups tab / contact
+  /// picker; the next inbound or outbound message reattaches it.
+  Future<void> clearChannelMessages(String channelId) async {
+    await db.transaction((txn) async {
+      await txn.delete(
+        'messages',
+        where: 'channel_id = ?',
+        whereArgs: [channelId],
+      );
+      await txn.update(
+        'channels',
+        {
+          'last_message_id': null,
+          'last_read_message_id': null,
+          'unread_count': 0,
+        },
+        where: 'channel_id = ?',
+        whereArgs: [channelId],
+      );
+    });
+    _notify(const {'messages', 'channels'});
+  }
+
+  /// Local-only group leave. Drops the channel row (cascades members,
+  /// messages, reactions via FK ON DELETE CASCADE). Throws if [channelId]
+  /// is a DM — DM channels must remain consistent across both sides
+  /// because the channel_id is the stable address for incoming messages
+  /// from the peer; deleting and recreating would fork the conversation.
+  ///
+  /// v3.0 client-side stub. The server-side `delete_channel` op is
+  /// scheduled to land alongside group membership ops; this method does
+  /// not enqueue an outbound op yet. When the server side ships, this
+  /// gains an `enqueueOutboundOp` for `OpKind.deleteChannel`.
+  Future<void> leaveGroupLocal(String channelId) async {
+    final rows = await db.query(
+      'channels',
+      columns: const ['kind'],
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final kind = rows.single['kind'] as String;
+    if (kind != 'group') {
+      throw StateError(
+        'leaveGroupLocal called on non-group channel ($kind). '
+        'DM channels must not be deleted — clear messages instead.',
+      );
+    }
+    await db.delete(
+      'channels',
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+    );
+    _notify(const {'channels', 'channel_members', 'messages'});
+  }
+
+  /// Channels where the current user is an active member, optionally
+  /// filtered by `kind`. Powers the Groups tab in the new-chat picker.
+  /// Sort: alphabetical by name, falling back to channel_id.
+  Future<List<ChannelListEntry>> fetchMemberChannels({
+    required String userId,
+    String? kind,
+  }) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT c.channel_id, c.kind, c.name, c.avatar_url,
+             c.last_activity_ms, c.unread_count,
+             m.body AS last_message_preview,
+             m.author_user_id AS last_message_author,
+             m.tombstoned AS last_message_tombstoned
+      FROM channels c
+      JOIN channel_members cm ON cm.channel_id = c.channel_id
+        AND cm.user_id = ? AND cm.removed_at IS NULL
+      LEFT JOIN messages m ON m.message_id = c.last_message_id
+      WHERE c.tombstoned = 0 ${kind != null ? "AND c.kind = ?" : ""}
+      ORDER BY COALESCE(c.name, c.channel_id) COLLATE NOCASE
+      ''',
+      kind != null ? [userId, kind] : [userId],
+    );
+    return rows.map(_rowToChannelListEntry).toList();
+  }
+
+  /// Reactive wrapper over [fetchMemberChannels]. Emits when channels or
+  /// channel_members change.
+  Stream<List<ChannelListEntry>> watchMemberChannels({
+    required String userId,
+    String? kind,
+  }) {
+    late StreamController<List<ChannelListEntry>> controller;
+    StreamSubscription<Set<String>>? changeSub;
+
+    Future<void> emit() async {
+      if (controller.isClosed) return;
+      controller.add(await fetchMemberChannels(userId: userId, kind: kind));
+    }
+
+    controller = StreamController<List<ChannelListEntry>>(
+      onListen: () {
+        changeSub = tableChanges.listen((tables) {
+          if (tables.contains('channels') ||
+              tables.contains('channel_members')) {
+            emit();
+          }
+        });
+        emit();
+      },
+      onCancel: () async {
+        await changeSub?.cancel();
+        changeSub = null;
+      },
+    );
+    return controller.stream;
   }
 
   static ChannelListEntry _rowToChannelListEntry(Map<String, Object?> r) =>

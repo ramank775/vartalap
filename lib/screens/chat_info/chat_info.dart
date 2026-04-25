@@ -1,7 +1,9 @@
 /// Chat info screen — shows channel details, members, and actions.
 ///
-/// Works for both DM and group channels. DM shows the peer's info;
-/// group shows member list with admin controls.
+/// Branches on channel `kind` for the destructive action: groups get
+/// "Leave group" (drops channel + membership), DMs get "Clear messages"
+/// (wipes messages, keeps channel — DM channels must remain unique per
+/// user pair to keep the address stable for incoming peer messages).
 library vartalap.screens.chat_info;
 
 import 'package:flutter/material.dart';
@@ -12,14 +14,18 @@ import 'package:vartalap/widgets/avator.dart';
 class ChatInfoScreen extends StatelessWidget {
   final String channelId;
   final String channelName;
+  final String channelKind; // 'dm' | 'group'
   final ChatService chatService;
 
   const ChatInfoScreen({
     super.key,
     required this.channelId,
     required this.channelName,
+    required this.channelKind,
     required this.chatService,
   });
+
+  bool get _isGroup => channelKind == 'group';
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +39,6 @@ class ChatInfoScreen extends StatelessWidget {
       body: ListView(
         children: [
           const SizedBox(height: kSpaceXl),
-          // Avatar + name header
           Center(
             child: Column(
               children: [
@@ -43,13 +48,10 @@ class ChatInfoScreen extends StatelessWidget {
                   height: kAvatarXl,
                 ),
                 const SizedBox(height: kSpaceMd),
-                Text(
-                  channelName,
-                  style: textTheme.headlineSmall,
-                ),
+                Text(channelName, style: textTheme.headlineSmall),
                 const SizedBox(height: kSpaceXs),
                 Text(
-                  'Direct message',
+                  _isGroup ? 'Group' : 'Direct message',
                   style: textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
@@ -59,7 +61,6 @@ class ChatInfoScreen extends StatelessWidget {
           ),
           const SizedBox(height: kSpaceXl),
           const Divider(),
-          // Actions
           _InfoTile(
             icon: Icons.notifications_outlined,
             title: 'Notifications',
@@ -78,36 +79,37 @@ class ChatInfoScreen extends StatelessWidget {
             onTap: () {},
           ),
           const Divider(),
-          // Danger zone
           _InfoTile(
-            icon: Icons.block,
-            title: 'Block',
+            icon: Icons.cleaning_services_outlined,
+            title: 'Clear messages',
             iconColor: scheme.error,
             titleColor: scheme.error,
-            onTap: () {},
+            onTap: () => _confirmClear(context),
           ),
-          _InfoTile(
-            icon: Icons.delete_outline,
-            title: 'Delete chat',
-            iconColor: scheme.error,
-            titleColor: scheme.error,
-            onTap: () {
-              _confirmDelete(context);
-            },
-          ),
+          if (_isGroup)
+            _InfoTile(
+              icon: Icons.exit_to_app,
+              title: 'Leave group',
+              iconColor: scheme.error,
+              titleColor: scheme.error,
+              onTap: () => _confirmLeave(context),
+            ),
         ],
       ),
     );
   }
 
-  void _confirmDelete(BuildContext context) {
+  void _confirmClear(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete chat?'),
-        content: const Text(
-          'This will delete all messages in this chat from your device. '
-          'This action cannot be undone.',
+        title: const Text('Clear messages?'),
+        content: Text(
+          _isGroup
+              ? 'All messages in this group will be removed from this device. '
+                  'You’ll stay in the group and can find it under Groups.'
+              : 'All messages with this contact will be removed from this device. '
+                  'The contact stays in your contacts.',
         ),
         actions: [
           TextButton(
@@ -115,13 +117,63 @@ class ChatInfoScreen extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(ctx).pop();
-              // TODO: implement chatService.deleteChannel(channelId)
+              try {
+                await chatService.clearMessages(channelId);
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not clear messages: $e')),
+                );
+                return;
+              }
+              if (!context.mounted) return;
               Navigator.of(context).pop();
             },
             child: Text(
-              'Delete',
+              'Clear',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmLeave(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave group?'),
+        content: const Text(
+          'You’ll stop receiving messages from this group. '
+          'Someone will need to add you back to rejoin.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                await chatService.leaveGroup(channelId);
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not leave group: $e')),
+                );
+                return;
+              }
+              if (!context.mounted) return;
+              Navigator.of(context).pop();
+            },
+            child: Text(
+              'Leave',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.error,
               ),

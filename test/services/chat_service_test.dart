@@ -45,6 +45,7 @@ void main() {
     final chat = ChatService(
       store: store,
       scheduler: scheduler,
+      authClient: AuthClient(baseUrl: Uri.parse('http://localhost')),
       uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
       clock: clock,
     );
@@ -117,6 +118,7 @@ void main() {
     final chat = ChatService(
       store: store,
       scheduler: scheduler,
+      authClient: AuthClient(baseUrl: Uri.parse('http://localhost')),
       // Boot seed: zero bits, as main.dart does pre-login.
       uuidGen: Uuid7Gen(userIdBits: 0),
       clock: clock,

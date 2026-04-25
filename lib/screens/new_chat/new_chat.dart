@@ -50,6 +50,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
           builder: (_) => ChatScreen(
             channelId: channelId,
             channelName: contact.resolvedName,
+            channelKind: 'dm',
             chatService: widget.chatService,
             authService: widget.authService,
           ),

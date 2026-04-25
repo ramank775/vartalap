@@ -302,6 +302,35 @@ class ChatService {
     return channelId;
   }
 
+  /// Wipe every message in [channelId] without removing the channel
+  /// itself. The chat drops off the chat list (which filters channels
+  /// with no `last_message_id`); the channel stays reachable via the
+  /// Groups tab or contact picker, and a future inbound or outbound
+  /// message brings the chat back.
+  ///
+  /// Safe for both DM and group channels. Used by:
+  ///   - `chat_info` "Clear messages" on a DM
+  ///   - chat-list multi-select "Clear messages" (any kind)
+  Future<void> clearMessages(String channelId) =>
+      _store.clearChannelMessages(channelId);
+
+  /// Leave a group locally. Drops the channel and its membership / messages
+  /// from this device. Throws if [channelId] is not a group.
+  ///
+  /// v3.0 is local-only; the server-side `delete_channel` op lands when
+  /// group membership ops do. Until then, leaving a group on one device
+  /// does not propagate — re-login or other devices will still see the
+  /// channel.
+  Future<void> leaveGroup(String channelId) => _store.leaveGroupLocal(channelId);
+
+  /// Channels the current user is an active member of, filtered by
+  /// `kind`. Powers the Groups tab in the new-chat picker.
+  Stream<List<ChannelListEntry>> watchMemberChannels({
+    required String userId,
+    String? kind,
+  }) =>
+      _store.watchMemberChannels(userId: userId, kind: kind);
+
   /// Reactive failure surface — SPIKE_B_SYNC.md §10. The UI can bind a
   /// toast or inline retry affordance to this.
   Stream<List<OutboundOpRow>> watchFailures() => failureStream(_store);
