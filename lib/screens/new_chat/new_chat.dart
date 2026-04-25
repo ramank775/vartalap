@@ -84,15 +84,47 @@ class _ContactsTab extends StatefulWidget {
   State<_ContactsTab> createState() => _ContactsTabState();
 }
 
-class _ContactsTabState extends State<_ContactsTab> {
+class _ContactsTabState extends State<_ContactsTab>
+    with WidgetsBindingObserver {
   bool _creating = false;
   Future<PermissionStatus>? _permissionFuture;
   Future<List<ContactRow>>? _contactsFuture;
+  PermissionStatus? _lastStatus;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _permissionFuture = Permission.contacts.status;
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Re-check permission when the app returns to foreground — the user may
+  // have flipped the toggle in system Settings while we were paused.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _maybeRefreshOnResume();
+    }
+  }
+
+  Future<void> _maybeRefreshOnResume() async {
+    final current = await Permission.contacts.status;
+    if (!mounted) return;
+    if (current != _lastStatus) {
+      _lastStatus = current;
+      setState(() {
+        _permissionFuture = Future.value(current);
+        if (current == PermissionStatus.granted && _contactsFuture == null) {
+          _contactsFuture = _fetchAndDiscover();
+        }
+      });
+    }
   }
 
   void _refreshPermission() {
@@ -173,6 +205,7 @@ class _ContactsTabState extends State<_ContactsTab> {
           return const Center(child: CircularProgressIndicator());
         }
         final status = snapshot.data;
+        _lastStatus = status;
         if (status != PermissionStatus.granted) {
           return _ContactPermissionDisclosure(
             status: status,
