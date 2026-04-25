@@ -9,6 +9,7 @@
 library vartalap.screens.group_create;
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -70,13 +71,37 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
       );
       return;
     }
-    // TODO: implement chatService.createGroup(name, _selectedUserIds)
-    // For now, show a placeholder message.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('Group creation coming soon in a future update')),
-    );
-    Navigator.of(context).pop();
+    final creatorUserId = widget.authService.currentUserId;
+    if (creatorUserId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Not signed in')),
+      );
+      return;
+    }
+    try {
+      final channelId = await widget.chatService.createGroup(
+        name: name,
+        creatorUserId: creatorUserId,
+        memberUserIds: _selectedUserIds.toList(),
+      );
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            channelId: channelId,
+            channelName: name,
+            channelKind: 'group',
+            chatService: widget.chatService,
+            authService: widget.authService,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create group: $e')),
+      );
+    }
   }
 
   @override

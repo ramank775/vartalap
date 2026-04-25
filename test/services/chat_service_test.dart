@@ -99,6 +99,88 @@ void main() {
     await store.close();
   });
 
+  test('createGroup inserts channel + members and enqueues CHANNEL_CREATE op',
+      () async {
+    final store = await ChatStore.open(path: inMemoryDatabasePath);
+    final clock = FakeClock(3000000);
+    final ws = _StubTransport();
+    final rest = _StubTransport(connected: false);
+    final scheduler = SyncScheduler(
+      store: store,
+      wsTransport: ws,
+      restTransport: rest,
+      backoff: const FixedBackoff(Duration(milliseconds: 10)),
+      clock: clock,
+    );
+    await scheduler.start();
+
+    final chat = ChatService(
+      store: store,
+      scheduler: scheduler,
+      authClient: AuthClient(baseUrl: Uri.parse('http://localhost')),
+      uuidGen: Uuid7Gen(userIdBits: 0xA1B2C3D4E),
+      clock: clock,
+    );
+
+    const creator = 'u-creator';
+    final members = ['u-alice', 'u-bob', 'u-carol'];
+
+    final channelId = await chat.createGroup(
+      name: 'Weekend Trip',
+      creatorUserId: creator,
+      memberUserIds: members,
+    );
+
+    // Channel row.
+    final channels = await store.db
+        .query('channels', where: 'channel_id = ?', whereArgs: [channelId]);
+    expect(channels, hasLength(1));
+    expect(channels.single['kind'], 'group');
+    expect(channels.single['name'], 'Weekend Trip');
+    expect(channels.single['owner_user_id'], creator);
+
+    // Membership: creator + 3 members.
+    final memberRows = await store.db.query(
+      'channel_members',
+      where: 'channel_id = ? AND removed_at IS NULL',
+      whereArgs: [channelId],
+    );
+    expect(memberRows, hasLength(4));
+    final memberIds =
+        memberRows.map((r) => r['user_id'] as String).toSet();
+    expect(memberIds, {creator, ...members});
+    final creatorRow =
+        memberRows.firstWhere((r) => r['user_id'] == creator);
+    expect(creatorRow['role'], 'owner');
+
+    // Outbound op: REST CHANNEL_CREATE, resource_seq=1.
+    final ops = await store.db.query('outbound_ops',
+        where: 'resource_id = ?', whereArgs: [channelId]);
+    expect(ops, hasLength(1));
+    expect(ops.single['transport'], 'rest');
+    expect(ops.single['rest_method'], 'POST');
+    expect(ops.single['rest_path'], '/v3.0/channels');
+    expect(ops.single['resource_seq'], 1);
+
+    // Fresh subscribe to the Groups tab watcher surfaces the new group
+    // for the creator. Subscribing post-createGroup mirrors the real-
+    // app flow: the screen pushReplaces into ChatScreen, so the Groups
+    // tab stream is re-subscribed on its next visit.
+    final groups = <List<ChannelListEntry>>[];
+    final groupsSub = chat
+        .watchMemberChannels(userId: creator, kind: 'group')
+        .listen(groups.add);
+    await _pumpEventQueue();
+    expect(groups.last, hasLength(1));
+    expect(groups.last.single.channelId, channelId);
+    expect(groups.last.single.kind, 'group');
+    expect(groups.last.single.name, 'Weekend Trip');
+
+    await groupsSub.cancel();
+    await scheduler.stop();
+    await store.close();
+  });
+
   test(
       'reseedForUser swaps the user_id bits embedded in subsequent op_ids',
       () async {

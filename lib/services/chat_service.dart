@@ -261,6 +261,48 @@ class ChatService {
     return _store.fetchContacts();
   }
 
+  /// Create a group channel locally with [creatorUserId] as owner and
+  /// [memberUserIds] (creator excluded — server adds the creator
+  /// implicitly per SYNC_PROTOCOL §11.3) as members. Returns channel_id.
+  ///
+  /// Local membership records both the creator (role `owner`) and every
+  /// id in [memberUserIds] (role `member`) so a fresh subscribe to
+  /// `watchMemberChannels` shows the new group for the creator. (Live
+  /// observers attached during the call may see a transient empty
+  /// emission — `insertChannelMember` does not notify, so the post-
+  /// `insertChannel` emit JOINs an empty membership. In production the
+  /// caller `pushReplacement`s into the chat screen so the Groups tab
+  /// stream is re-subscribed before the user looks at it.)
+  Future<String> createGroup({
+    required String name,
+    required String creatorUserId,
+    required List<String> memberUserIds,
+  }) async {
+    final channelId = await createChannel(
+      kind: 'group',
+      ownerUserId: creatorUserId,
+      memberUserIds: memberUserIds,
+      name: name,
+    );
+
+    final now = _clock.nowMs();
+    await _store.insertChannelMember(
+      channelId: channelId,
+      userId: creatorUserId,
+      role: 'owner',
+      joinedAt: now,
+    );
+    for (final uid in memberUserIds) {
+      await _store.insertChannelMember(
+        channelId: channelId,
+        userId: uid,
+        role: 'member',
+        joinedAt: now,
+      );
+    }
+    return channelId;
+  }
+
   /// Start or resume a DM with [peerUserId]. Returns the channel_id.
   ///
   /// If a DM channel already exists between the current user and the
