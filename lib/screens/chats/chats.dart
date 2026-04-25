@@ -4,7 +4,6 @@ library vartalap.screens.chats.chats;
 import 'package:flutter/material.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
-import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -17,7 +16,7 @@ import 'package:vartalap/widgets/rich_message.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
-class ChatsScreen extends StatelessWidget {
+class ChatsScreen extends StatefulWidget {
   final ChatService chatService;
   final AuthService authService;
   final ConfigStore config;
@@ -29,118 +28,224 @@ class ChatsScreen extends StatelessWidget {
   });
 
   @override
+  State<ChatsScreen> createState() => _ChatsScreenState();
+}
+
+class _ChatsScreenState extends State<ChatsScreen> {
+  /// Channel ids currently selected. Non-empty = selection mode.
+  final Set<String> _selected = {};
+
+  bool get _selectionMode => _selected.isNotEmpty;
+
+  void _exitSelection() => setState(_selected.clear);
+
+  void _toggleSelection(String channelId) {
+    setState(() {
+      if (!_selected.remove(channelId)) _selected.add(channelId);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final wsTransport = AppServicesProvider.of(context).services.wsTransport;
-    final scheme = Theme.of(context).colorScheme;
     final chatColors = VartalapTheme.chatColorsOf(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: StreamBuilder<TransportState>(
-          stream: wsTransport.state,
-          initialData: wsTransport.currentState,
+    // Intercept system back while in selection mode so it cancels the
+    // selection rather than leaving the chat list.
+    return PopScope(
+      canPop: !_selectionMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_selectionMode) _exitSelection();
+      },
+      child: Scaffold(
+        appBar: _selectionMode
+            ? _buildSelectionAppBar(context)
+            : _buildDefaultAppBar(context, wsTransport, chatColors),
+        body: StreamBuilder<List<ChannelListEntry>>(
+          stream: widget.chatService.watchChannels(),
           builder: (context, snapshot) {
-            final state = snapshot.data ?? TransportState.disconnected;
-            return Row(
-              children: [
-                // Connectivity dot
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _statusColor(state, chatColors),
-                  ),
-                ),
-                const SizedBox(width: kSpaceSm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(config.packageInfo.appName),
-                      if (state != TransportState.connected)
-                        Text(
-                          _statusLabel(state),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.normal,
-                            color: scheme.onSurface.withValues(alpha: 0.7),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: Text('Error: ${snapshot.error}'));
+            }
+            final channels = snapshot.data ?? const [];
+            if (channels.isEmpty) {
+              return const _EmptyChats();
+            }
+            // Cull selection ids that are no longer in the list (e.g.,
+            // a parallel clear from another screen). Keeps the count
+            // accurate without an explicit refresh.
+            final visibleIds = channels.map((c) => c.channelId).toSet();
+            _selected.removeWhere((id) => !visibleIds.contains(id));
+            return ListView.separated(
+              itemCount: channels.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (ctx, i) {
+                final entry = channels[i];
+                final selected = _selected.contains(entry.channelId);
+                return _ChannelTile(
+                  entry: entry,
+                  chatColors: chatColors,
+                  selected: selected,
+                  onTap: () {
+                    if (_selectionMode) {
+                      _toggleSelection(entry.channelId);
+                    } else {
+                      _openChat(context, entry);
+                    }
+                  },
+                  onLongPress: () => _toggleSelection(entry.channelId),
+                );
+              },
             );
           },
         ),
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'new_group') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => GroupCreateScreen(
-                      chatService: chatService,
-                      authService: authService,
-                    ),
-                  ),
-                );
-              } else if (value == 'profile') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ProfileScreen(
-                      authService: authService,
-                      config: config,
-                    ),
-                  ),
-                );
-              } else if (value == 'about') {
-                _showAbout(context);
-              }
-            },
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                  value: 'new_group', child: Text('New group')),
-              const PopupMenuItem(value: 'profile', child: Text('Profile')),
-              const PopupMenuItem(value: 'about', child: Text('About')),
-            ],
-          ),
-        ],
+        floatingActionButton: _selectionMode
+            ? null
+            : FloatingActionButton(
+                onPressed: () => _newChat(context),
+                child: const Icon(Icons.chat),
+              ),
       ),
-      body: StreamBuilder<List<ChannelListEntry>>(
-        stream: chatService.watchChannels(),
+    );
+  }
+
+  AppBar _buildDefaultAppBar(
+    BuildContext context,
+    WsTransport wsTransport,
+    ChatColors chatColors,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    return AppBar(
+      title: StreamBuilder<TransportState>(
+        stream: wsTransport.state,
+        initialData: wsTransport.currentState,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          final channels = snapshot.data ?? const [];
-          if (channels.isEmpty) {
-            return const _EmptyChats();
-          }
-          return ListView.separated(
-            itemCount: channels.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (ctx, i) {
-              final entry = channels[i];
-              return _ChannelTile(
-                entry: entry,
-                chatColors: chatColors,
-                onTap: () => _openChat(context, entry),
-              );
-            },
+          final state = snapshot.data ?? TransportState.disconnected;
+          return Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _statusColor(state, chatColors),
+                ),
+              ),
+              const SizedBox(width: kSpaceSm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(widget.config.packageInfo.appName),
+                    if (state != TransportState.connected)
+                      Text(
+                        _statusLabel(state),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.normal,
+                          color: scheme.onSurface.withValues(alpha: 0.7),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _newChat(context),
-        child: const Icon(Icons.chat),
+      actions: [
+        PopupMenuButton<String>(
+          onSelected: (value) async {
+            if (value == 'profile') {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ProfileScreen(
+                    authService: widget.authService,
+                    config: widget.config,
+                  ),
+                ),
+              );
+            } else if (value == 'about') {
+              _showAbout(context);
+            }
+          },
+          itemBuilder: (ctx) => [
+            const PopupMenuItem(value: 'profile', child: Text('Profile')),
+            const PopupMenuItem(value: 'about', child: Text('About')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  AppBar _buildSelectionAppBar(BuildContext context) {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: _exitSelection,
+        tooltip: 'Cancel',
+      ),
+      title: Text('${_selected.length}'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.cleaning_services_outlined),
+          tooltip: 'Clear messages',
+          onPressed: _confirmClearSelected,
+        ),
+      ],
+    );
+  }
+
+  void _confirmClearSelected() {
+    final count = _selected.length;
+    if (count == 0) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(count == 1 ? 'Clear messages?' : 'Clear $count chats?'),
+        content: Text(
+          count == 1
+              ? 'All messages in this chat will be removed from this device. '
+                  'The contact or group stays in your list.'
+              : 'All messages in the selected chats will be removed from '
+                  'this device. The contacts and groups stay in your list.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final ids = _selected.toList();
+              _exitSelection();
+              try {
+                for (final id in ids) {
+                  await widget.chatService.clearMessages(id);
+                }
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not clear messages: $e')),
+                );
+              }
+            },
+            child: Text(
+              'Clear',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -171,8 +276,8 @@ class ChatsScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => NewChatScreen(
-          chatService: chatService,
-          authService: authService,
+          chatService: widget.chatService,
+          authService: widget.authService,
         ),
       ),
     );
@@ -185,8 +290,8 @@ class ChatsScreen extends StatelessWidget {
           channelId: entry.channelId,
           channelName: entry.name ?? entry.channelId,
           channelKind: entry.kind,
-          chatService: chatService,
-          authService: authService,
+          chatService: widget.chatService,
+          authService: widget.authService,
         ),
       ),
     );
@@ -195,12 +300,12 @@ class ChatsScreen extends StatelessWidget {
   void _showAbout(BuildContext context) {
     showAboutDialog(
       context: context,
-      applicationName: config.packageInfo.appName,
+      applicationName: widget.config.packageInfo.appName,
       applicationIcon: const AppLogo(size: 25),
       applicationVersion:
-          '${config.packageInfo.version}+${config.packageInfo.buildNumber}',
+          '${widget.config.packageInfo.version}+${widget.config.packageInfo.buildNumber}',
       children: [
-        Text(config.subtitle),
+        Text(widget.config.subtitle),
         const SizedBox(height: kSpaceSm),
         RichMessage(
           'Vartalap v3 — a greenfield relaunch, Firebase-free.',
@@ -262,11 +367,15 @@ class _EmptyChats extends StatelessWidget {
 class _ChannelTile extends StatelessWidget {
   final ChannelListEntry entry;
   final ChatColors chatColors;
+  final bool selected;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   const _ChannelTile({
     required this.entry,
     required this.chatColors,
     required this.onTap,
+    this.selected = false,
+    this.onLongPress,
   });
 
   @override
@@ -278,8 +387,36 @@ class _ChannelTile extends StatelessWidget {
         : entry.lastMessagePreview ?? '';
     final hasUnread = entry.unreadCount > 0;
 
+    // Selected: avatar overlaid with a primary check, tile tinted.
+    final Widget leading = selected
+        ? Stack(
+            children: [
+              Avator(
+                text: displayName,
+                width: kAvatarMd,
+                height: kAvatarMd,
+              ),
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: scheme.primary.withValues(alpha: 0.85),
+                  ),
+                  child: Icon(
+                    Icons.check,
+                    color: scheme.onPrimary,
+                    size: kAvatarMd * 0.55,
+                  ),
+                ),
+              ),
+            ],
+          )
+        : Avator(text: displayName, width: kAvatarMd, height: kAvatarMd);
+
     return ListTile(
-      leading: Avator(text: displayName, width: kAvatarMd, height: kAvatarMd),
+      tileColor:
+          selected ? scheme.primaryContainer.withValues(alpha: 0.25) : null,
+      leading: leading,
       title: Text(
         displayName,
         maxLines: 1,
@@ -324,6 +461,7 @@ class _ChannelTile extends StatelessWidget {
             )
           : null,
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
 }
