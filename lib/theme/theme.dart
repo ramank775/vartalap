@@ -315,7 +315,7 @@ class VartalapTheme {
   final ThemeData data;
   final ChatColors chatColors;
 
-  static ThemeMode get themeMode => ThemeMode.system;
+  static ThemeMode themeMode = ThemeMode.system;
 
   static VartalapTheme get light =>
       VartalapTheme._(data: lightThemeData, chatColors: lightChatColors);

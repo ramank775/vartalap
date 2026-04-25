@@ -104,6 +104,11 @@ Future<AppServices> initializeApp() async {
   // --- config / secure-storage bootstrapping --------------------------------
   final prefs = await SharedPreferences.getInstance();
   final consentAccepted = prefs.getBool(kV3ConsentAcceptedKey) ?? false;
+  VartalapTheme.themeMode = switch (prefs.getString('theme_mode')) {
+    'light' => ThemeMode.light,
+    'dark' => ThemeMode.dark,
+    _ => ThemeMode.system,
+  };
 
   // --- local store ----------------------------------------------------------
   final docsDir = await getApplicationDocumentsDirectory();

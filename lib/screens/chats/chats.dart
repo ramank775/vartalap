@@ -6,6 +6,7 @@ import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/profile/profile.dart';
+import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -172,13 +173,32 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   ),
                 ),
               );
+            } else if (value == 'settings') {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SettingsScreen(
+                    authService: widget.authService,
+                    config: widget.config,
+                  ),
+                ),
+              );
             } else if (value == 'about') {
               _showAbout(context);
             }
           },
-          itemBuilder: (ctx) => [
-            const PopupMenuItem(value: 'profile', child: Text('Profile')),
-            const PopupMenuItem(value: 'about', child: Text('About')),
+          itemBuilder: (ctx) => const [
+            PopupMenuItem(value: 'profile', child: Text('Profile')),
+            PopupMenuItem(
+              value: 'settings',
+              child: Row(
+                children: [
+                  Icon(Icons.settings_outlined, size: 20),
+                  SizedBox(width: kSpaceSm),
+                  Text('Settings'),
+                ],
+              ),
+            ),
+            PopupMenuItem(value: 'about', child: Text('About')),
           ],
         ),
       ],
