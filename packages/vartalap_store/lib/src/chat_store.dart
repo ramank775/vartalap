@@ -1002,6 +1002,64 @@ class ChatStore {
     _notify(const {'channels'});
   }
 
+  /// Apply a server-fanned `ChannelEdited` to the local channel row.
+  ///
+  /// Same proto3-`optional` shape as [applyProfileEdit]: each field is a
+  /// `($PresentField, value)` tuple — `null` for the outer field means
+  /// "the proto didn't carry this field; leave it alone." A
+  /// present-but-empty string writes NULL to the column (matches the
+  /// "user cleared the avatar" semantics from `ChannelEdited`'s proto-
+  /// `optional` fields).
+  ///
+  /// If the channel row doesn't exist locally, this is a no-op —
+  /// `ChannelCreated` is responsible for materializing channels; an edit
+  /// on its own shouldn't conjure a row with mostly-null bookkeeping.
+  Future<void> applyChannelEdit({
+    required String channelId,
+    ({String? value})? name,
+    ({String? value})? avatarUrl,
+    required int editedAtMs,
+  }) async {
+    final existing = await db.query(
+      'channels',
+      columns: const ['channel_id'],
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+      limit: 1,
+    );
+    if (existing.isEmpty) return;
+    final updates = <String, Object?>{};
+    if (name != null) updates['name'] = name.value;
+    if (avatarUrl != null) updates['avatar_url'] = avatarUrl.value;
+    if (updates.isEmpty) return;
+    await db.update(
+      'channels',
+      updates,
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+    );
+    _notify(const {'channels'});
+  }
+
+  /// Apply a server-fanned `ChannelDeleted` — flip `tombstoned=1` so the
+  /// chat-list query (which filters on `tombstoned=0`) drops the row.
+  /// Membership rows stay intact so a re-create wouldn't lose history.
+  /// No-op if the channel row doesn't exist locally.
+  Future<void> applyChannelDelete({
+    required String channelId,
+    required int deletedAtMs,
+  }) async {
+    final existing = await db.query(
+      'channels',
+      columns: const ['channel_id'],
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+      limit: 1,
+    );
+    if (existing.isEmpty) return;
+    await tombstoneChannel(channelId);
+  }
+
   /// Active members of [channelId], left-joined with `contacts` so the
   /// caller has a display name and avatar in one shot. Owner first, then
   /// alphabetical by resolved name with userId as tiebreaker.
@@ -1281,10 +1339,10 @@ class ChatStore {
   /// because the channel_id is the stable address for incoming messages
   /// from the peer; deleting and recreating would fork the conversation.
   ///
-  /// v3.0 client-side stub. The server-side `delete_channel` op is
-  /// scheduled to land alongside group membership ops; this method does
-  /// not enqueue an outbound op yet. When the server side ships, this
-  /// gains an `enqueueOutboundOp` for `OpKind.deleteChannel`.
+  /// The server-side fanout is the caller's responsibility — see
+  /// `ChatService.leaveGroup`, which enqueues the outbound
+  /// `OpKind.deleteChannel` op before invoking this method for
+  /// optimistic local removal.
   Future<void> leaveGroupLocal(String channelId) async {
     final rows = await db.query(
       'channels',

@@ -515,14 +515,73 @@ class ChatService {
   Future<void> clearMessages(String channelId) =>
       _store.clearChannelMessages(channelId);
 
-  /// Leave a group locally. Drops the channel and its membership / messages
-  /// from this device. Throws if [channelId] is not a group.
+  /// Leave a group: enqueue a REST `DELETE /v3.0/channels/{id}` op for
+  /// the server to drop our membership, then locally drop the channel +
+  /// cascade for an optimistic UI. Throws if [channelId] is not a group.
   ///
-  /// v3.0 is local-only; the server-side `delete_channel` op lands when
-  /// group membership ops do. Until then, leaving a group on one device
-  /// does not propagate — re-login or other devices will still see the
-  /// channel.
-  Future<void> leaveGroup(String channelId) => _store.leaveGroupLocal(channelId);
+  /// The server's eventual `ChannelMemberRemoved` fanout reaches the
+  /// remaining members; the leaver's own copy of that fanout is a no-op
+  /// because the local channel row is already gone.
+  Future<void> leaveGroup(String channelId) async {
+    // Resolve channel kind first so we never enqueue a DELETE op for a
+    // DM. `leaveGroupLocal` re-validates and throws on non-group, but
+    // doing the check up front keeps the outbound queue clean.
+    final rows = await _store.db.query(
+      'channels',
+      columns: const ['kind'],
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      // Channel already gone locally — nothing to do, no op to enqueue.
+      return;
+    }
+    final kind = rows.single['kind'] as String;
+    if (kind != 'group') {
+      throw StateError(
+        'leaveGroup called on non-group channel ($kind). '
+        'DM channels must not be deleted — clear messages instead.',
+      );
+    }
+
+    final now = _clock.nowMs();
+    final opId = _uuidGen.next(nowMs: now);
+
+    final seqRow = await _store.db.rawQuery(
+      'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
+      [channelId],
+    );
+    final maxSeq = seqRow.single['m'] as int?;
+    final nextSeq = (maxSeq ?? 0) + 1;
+
+    final op = OutboundOpRow(
+      opId: opId,
+      transport: OpTransport.rest,
+      kind: OpKind.deleteChannel,
+      restMethod: 'DELETE',
+      restPath: '/v3.0/channels/$channelId',
+      resourceId: channelId,
+      resourceSeq: nextSeq,
+      // RestTransport tolerates an empty payload — it sends just the
+      // standard op_id / resource_seq / client_timestamp_ms envelope
+      // fields with no endpoint-specific body.
+      payload: const [],
+      status: OpStatus.pending,
+      attempts: 0,
+      nextRetryAt: now,
+      dispatchedAt: null,
+      lastError: null,
+      acknowledgedAt: null,
+      createdAt: now,
+      targetMessageId: null,
+      targetChannelId: channelId,
+    );
+
+    await _store.enqueueOutboundOp(op);
+    await _store.leaveGroupLocal(channelId);
+    _scheduler.tickSoon();
+  }
 
   /// Active members of [channelId], joined with the local contact row
   /// where one exists. Powers the chat-info member list.

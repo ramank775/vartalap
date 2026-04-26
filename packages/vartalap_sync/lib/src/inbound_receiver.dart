@@ -40,12 +40,13 @@ class TypingEvent {
 /// an in-flight apply against a closed DB.
 ///
 /// `ServerEventPayload` handling (SYNC_PROTOCOL.md §10.2) covers the
-/// v3.0 channel/membership lifecycle: CHANNEL_CREATED,
-/// CHANNEL_MEMBER_ADDED, CHANNEL_MEMBER_REMOVED. The remaining four
-/// variants (CHANNEL_EDITED / CHANNEL_DELETED / PROFILE_EDITED /
-/// USERNAME_CHANGED) fall through to [_logServerEventFallback] until
-/// their projections land — `op_id_seen` is intentionally NOT recorded
-/// for those so a later client release can apply them on re-fanout.
+/// v3.0 channel/membership lifecycle (CHANNEL_CREATED,
+/// CHANNEL_MEMBER_ADDED, CHANNEL_MEMBER_REMOVED, CHANNEL_EDITED,
+/// CHANNEL_DELETED) and the user-profile fanout (PROFILE_EDITED,
+/// USERNAME_CHANGED). Any remaining unhandled variants fall through to
+/// [_logServerEventFallback] — `op_id_seen` is intentionally NOT
+/// recorded for those so a later client release can apply them on
+/// re-fanout.
 class InboundReceiver {
   final ChatStore store;
   final Stream<pb.Envelope> pushes;
@@ -283,11 +284,10 @@ class InboundReceiver {
         await _handleProfileEdited(env, sep.profileEdited);
       case pb.ServerEventPayload_Body.usernameChanged:
         await _handleUsernameChanged(env, sep.usernameChanged);
-      // TODO(v3.x): wire ChannelEdited / ChannelDeleted. Falling through
-      // to log keeps op_id_seen empty so a later client release applies
-      // on re-fanout.
       case pb.ServerEventPayload_Body.channelEdited:
+        await _handleChannelEdited(env, sep.channelEdited);
       case pb.ServerEventPayload_Body.channelDeleted:
+        await _handleChannelDeleted(env, sep.channelDeleted);
       case pb.ServerEventPayload_Body.typing:
         // Typing should never arrive on the persistent path — it's
         // routed via the ephemeral flag. If we see it here a peer/server
@@ -389,6 +389,54 @@ class InboundReceiver {
       userId: userId,
       newUsername: body.newUsername,
       nowMs: clock.nowMs(),
+    );
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': clock.nowMs(),
+    });
+  }
+
+  /// §10.2 ChannelEdited. Sparse update — each proto3-`optional` field
+  /// is forwarded as a present/absent record so the store can
+  /// distinguish "not in this edit" from "user cleared this field".
+  /// Out-of-order delivery (channel not yet local) is a no-op in the
+  /// store; op_id_seen is still recorded so the dedup invariant holds.
+  Future<void> _handleChannelEdited(
+    pb.Envelope env,
+    pb.ChannelEdited body,
+  ) async {
+    final channelId = body.channelId;
+    if (channelId.isEmpty) return;
+    await store.applyChannelEdit(
+      channelId: channelId,
+      name: body.hasName()
+          ? (value: body.name.isEmpty ? null : body.name)
+          : null,
+      avatarUrl: body.hasAvatarUrl()
+          ? (value: body.avatarUrl.isEmpty ? null : body.avatarUrl)
+          : null,
+      editedAtMs: body.editedAtMs.toInt(),
+    );
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': clock.nowMs(),
+    });
+  }
+
+  /// §10.2 ChannelDeleted. Tombstones the channel locally so the chat
+  /// list drops it; membership rows stay so a re-create doesn't lose
+  /// history.
+  Future<void> _handleChannelDeleted(
+    pb.Envelope env,
+    pb.ChannelDeleted body,
+  ) async {
+    final channelId = body.channelId;
+    if (channelId.isEmpty) return;
+    await store.applyChannelDelete(
+      channelId: channelId,
+      deletedAtMs: body.deletedAtMs.toInt(),
     );
     await store.db.insert('op_id_seen', {
       'channel_id': env.channelId,

@@ -505,6 +505,8 @@ Future<void> _handleRequest(HttpRequest req) async {
     await _handlePushTopic(req);
   } else if (method == 'POST' && path == '/v3.0/channels') {
     await _handleCreateChannel(req);
+  } else if (method == 'DELETE' && path.startsWith('/v3.0/channels/')) {
+    await _handleDeleteChannel(req);
   } else if (method == 'GET' && path == '/v3.0/sync/pending') {
     await _handleSyncPending(req);
   } else if (method == 'POST' && path == '/v3.0/_dev/seed-users') {
@@ -960,6 +962,65 @@ Future<void> _handleCreateChannel(HttpRequest req) async {
   });
 }
 
+// DELETE /v3.0/channels/{id} — drop the requesting user from the
+// channel's member roster and fan a ChannelMemberRemoved push to every
+// remaining member so their local membership table catches up. v3.0 is
+// deliberately minimal: we don't tombstone the channel server-side even
+// if it ends up empty — the channel record stays so re-joining (a v3.1
+// concern) can resurrect it cleanly.
+Future<void> _handleDeleteChannel(HttpRequest req) async {
+  final session = _authenticate(req);
+  if (session == null) return;
+
+  // /v3.0/channels/{id}
+  final path = req.uri.path;
+  final channelId = path.substring('/v3.0/channels/'.length);
+  if (channelId.isEmpty || channelId.contains('/')) {
+    _respondJson(req, 400, {
+      'error': {'code': 'MALFORMED_REQUEST', 'message': 'channel_id required'}
+    });
+    return;
+  }
+
+  // Drain the body so the request is fully consumed, but ignore the
+  // contents — RestTransport puts op_id/resource_seq/client_timestamp_ms
+  // in there, none of which we use here.
+  await _readJsonBody(req);
+
+  final channel = state.channels[channelId];
+  if (channel == null) {
+    _respondJson(req, 404, {
+      'error': {'code': 'NOT_FOUND', 'message': 'Unknown channel: $channelId'}
+    });
+    return;
+  }
+
+  if (!channel.members.contains(session.userId)) {
+    _respondJson(req, 403, {
+      'error': {'code': 'FORBIDDEN', 'message': 'Not a member of channel'}
+    });
+    return;
+  }
+
+  channel.members.remove(session.userId);
+  state.markDirty();
+  _log('Channel leave: $channelId user=${session.userId} '
+      'remaining=${channel.members}');
+
+  // Fan ChannelMemberRemoved to every remaining member.
+  final removedAtMs = DateTime.now().millisecondsSinceEpoch;
+  for (final memberId in channel.members) {
+    _enqueueChannelMemberRemoved(
+      recipientUserId: memberId,
+      channelId: channelId,
+      memberUserId: session.userId,
+      removedAtMs: removedAtMs,
+    );
+  }
+
+  _respondJson(req, 200, <String, dynamic>{});
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket handler
 // ---------------------------------------------------------------------------
@@ -1274,6 +1335,46 @@ void _enqueueChannelMemberAdded({
       'channel=$channelId added=$newMemberUserIds');
 }
 
+// Build a WS_PUSH WsEnvelope carrying a ChannelMemberRemoved
+// ServerEventPayload and enqueue / live-fan it for [recipientUserId].
+// Used when a member leaves a group via DELETE /v3.0/channels/{id} so
+// the remaining members' local channel_members tables drop the row.
+void _enqueueChannelMemberRemoved({
+  required String recipientUserId,
+  required String channelId,
+  required String memberUserId,
+  required int removedAtMs,
+}) {
+  final sep = pb.ServerEventPayload(
+    version: 1,
+    type: pb.ServerEventType.CHANNEL_MEMBER_REMOVED,
+    memberRemoved: pb.ChannelMemberRemoved(
+      channelId: channelId,
+      member: memberUserId,
+      removedAtMs: fixnum.Int64(removedAtMs),
+    ),
+  );
+  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+  final pushEnv = pb.Envelope(
+    opId: state.generateUuid(),
+    channelId: channelId,
+    resourceSeq: fixnum.Int64(0),
+    clientTimestampMs: fixnum.Int64(removedAtMs),
+    payload: payload,
+    senderUserId: '', // server-authored
+    serverTimestampMs: fixnum.Int64(removedAtMs),
+    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+  );
+  final pushFrame = pb.WsEnvelope(
+    type: pb.WsType.WS_PUSH,
+    push: pushEnv,
+  );
+  // Live-fan if the recipient's WS is open; otherwise enqueue.
+  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+  _log('Sent ChannelMemberRemoved to $recipientUserId '
+      'channel=$channelId member=$memberUserId');
+}
+
 // SYNC_PROTOCOL §10.2 ProfileEdited fanout. Each *Present flag carries
 // proto3-`optional` semantics: when true, the field is populated on
 // the wire (empty string == "user cleared this"); when false the
@@ -1381,6 +1482,88 @@ void _enqueueUsernameChanged({
   _sendToUser(recipientUserId, pushFrame.writeToBuffer());
   _log('Sent UsernameChanged to=$recipientUserId editor=$editorUserId '
       'new=$newUsername');
+}
+
+// SYNC_PROTOCOL §10.2 ChannelEdited fanout. *Present flags carry
+// proto3-`optional` semantics: when true, the field is populated on
+// the wire (empty string == "user cleared this"); when false the
+// field is absent and recipients leave their cached value alone.
+// Not wired to a REST route yet — call site for future PATCH
+// /v3.0/channels/{id} or manual testing.
+// ignore: unused_element
+void _enqueueChannelEdited({
+  required String recipientUserId,
+  required String channelId,
+  required bool namePresent,
+  String? name,
+  required bool avatarUrlPresent,
+  String? avatarUrl,
+}) {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final body = pb.ChannelEdited(
+    channelId: channelId,
+    editedAtMs: fixnum.Int64(now),
+  );
+  if (namePresent) body.name = name ?? '';
+  if (avatarUrlPresent) body.avatarUrl = avatarUrl ?? '';
+  final sep = pb.ServerEventPayload(
+    version: 1,
+    type: pb.ServerEventType.CHANNEL_EDITED,
+    channelEdited: body,
+  );
+  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+  final pushEnv = pb.Envelope(
+    opId: state.generateUuid(),
+    channelId: channelId,
+    resourceSeq: fixnum.Int64(0),
+    clientTimestampMs: fixnum.Int64(now),
+    payload: payload,
+    senderUserId: '', // server-authored
+    serverTimestampMs: fixnum.Int64(now),
+    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+  );
+  final pushFrame = pb.WsEnvelope(
+    type: pb.WsType.WS_PUSH,
+    push: pushEnv,
+  );
+  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+  _log('Sent ChannelEdited to=$recipientUserId channel=$channelId');
+}
+
+// SYNC_PROTOCOL §10.2 ChannelDeleted fanout. Recipients tombstone the
+// channel locally. Not wired to a REST route yet — call site for
+// future DELETE /v3.0/channels/{id} or manual testing.
+// ignore: unused_element
+void _enqueueChannelDeleted({
+  required String recipientUserId,
+  required String channelId,
+}) {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final sep = pb.ServerEventPayload(
+    version: 1,
+    type: pb.ServerEventType.CHANNEL_DELETED,
+    channelDeleted: pb.ChannelDeleted(
+      channelId: channelId,
+      deletedAtMs: fixnum.Int64(now),
+    ),
+  );
+  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+  final pushEnv = pb.Envelope(
+    opId: state.generateUuid(),
+    channelId: channelId,
+    resourceSeq: fixnum.Int64(0),
+    clientTimestampMs: fixnum.Int64(now),
+    payload: payload,
+    senderUserId: '', // server-authored
+    serverTimestampMs: fixnum.Int64(now),
+    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+  );
+  final pushFrame = pb.WsEnvelope(
+    type: pb.WsType.WS_PUSH,
+    push: pushEnv,
+  );
+  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+  _log('Sent ChannelDeleted to=$recipientUserId channel=$channelId');
 }
 
 // Build a WS_PUSH WsEnvelope carrying a ChatPayload TYPE_MESSAGE_CREATE
