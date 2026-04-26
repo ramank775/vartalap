@@ -235,6 +235,8 @@ class _AppState extends State<App> {
   late bool _consentAccepted;
   late StreamSubscription<bool> _authSub;
   StreamSubscription<TransportState>? _wsStateSub;
+  StreamSubscription<void>? _authFailureSub;
+  StreamSubscription<void>? _reauthRequiredSub;
   // Held so the auth-state listener can pop the navigator back to the
   // root before [_home] swaps in the login flow. Without this, screens
   // pushed on top of the chat list (Profile, Settings, …) survive the
@@ -285,6 +287,27 @@ class _AppState extends State<App> {
         unawaited(widget.services.pullPendingSync());
       }
     });
+
+    // Refresh accesskey on AUTH_FAILURE / WS_REAUTH_REQUIRED. Both
+    // streams just say "something failed auth" — AuthService coalesces
+    // concurrent attempts so two near-simultaneous signals only hit
+    // the server once. On success, unpause the scheduler; on failure
+    // AuthService logs out, which fires authStateChange=false above.
+    _authFailureSub = widget.services.scheduler.authFailures.listen((_) {
+      _refreshAuthOnDemand();
+    });
+    _reauthRequiredSub =
+        widget.services.wsTransport.reauthRequired.listen((_) {
+      _refreshAuthOnDemand();
+    });
+  }
+
+  Future<void> _refreshAuthOnDemand() async {
+    if (!widget.services.authService.isLoggedIn) return;
+    final ok = await widget.services.authService.refreshSession();
+    if (ok && mounted) {
+      widget.services.scheduler.resumeAfterAuthRefresh();
+    }
   }
 
   void _onConsentAccepted() {
@@ -364,6 +387,8 @@ class _AppState extends State<App> {
   void dispose() {
     _authSub.cancel();
     _wsStateSub?.cancel();
+    _authFailureSub?.cancel();
+    _reauthRequiredSub?.cancel();
     unawaited(widget.services.inboundReceiver?.stop());
     unawaited(widget.services.scheduler.stop());
     unawaited(widget.services.authService.dispose());

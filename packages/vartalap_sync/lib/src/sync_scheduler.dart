@@ -50,6 +50,16 @@ class SyncScheduler {
   /// checks this at the top of each tick.
   bool _authPaused = false;
 
+  /// Fires whenever an outbound op gets an ACK_AUTH_FAILURE. The auth
+  /// layer subscribes and triggers a session refresh; on success it
+  /// calls [resumeAfterAuthRefresh] which flips [_authPaused] back to
+  /// false and re-runs Flow A. The signal is intentionally
+  /// "something failed auth" rather than "with this op" — coalescing
+  /// is the subscriber's job.
+  final StreamController<void> _authFailures =
+      StreamController<void>.broadcast();
+  Stream<void> get authFailures => _authFailures.stream;
+
   /// Futures for every async work item kicked off by the flows
   /// (dispatch passes, ack-handler invocations, timeout sweeps). [stop]
   /// awaits them all so a caller that does
@@ -108,6 +118,7 @@ class SyncScheduler {
     while (_inFlight.isNotEmpty) {
       await Future.wait(_inFlight.toList());
     }
+    if (!_authFailures.isClosed) await _authFailures.close();
   }
 
   /// Adds [future] to [_inFlight] and removes it on completion. The
@@ -285,6 +296,7 @@ class SyncScheduler {
       nextRetryAt: clock.nowMs(),
       reason: 'auth_failure',
     );
+    if (!_authFailures.isClosed) _authFailures.add(null);
   }
 
   // ---------------------------------------------------------------------

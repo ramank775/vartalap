@@ -125,7 +125,10 @@ class AuthService {
   Stream<String?> get displayNameChange => _displayNameChange.stream;
 
   /// Persist [name] (trimmed) as the user's display name. Pass null or
-  /// empty to clear.
+  /// empty to clear. Best-effort PATCH to `/v3.0/users/me` so peers
+  /// sharing a channel get a `ProfileEdited` push and update their
+  /// local contact row. Server failures are swallowed — local-first
+  /// wins, and the next successful patch covers the drift.
   Future<void> setDisplayName(String? name) async {
     final trimmed = name?.trim();
     if (trimmed == null || trimmed.isEmpty) {
@@ -136,6 +139,11 @@ class AuthService {
       await _storage.write(key: _keyDisplayName, value: trimmed);
     }
     _displayNameChange.add(_displayName);
+    if (isLoggedIn) {
+      try {
+        await _client.patchOwnProfile(displayName: _displayName ?? '');
+      } catch (_) {/* offline / 5xx → local-only */}
+    }
   }
 
   String? get username => _username;
@@ -151,6 +159,11 @@ class AuthService {
       await _storage.write(key: _keyUsername, value: trimmed);
     }
     _usernameChange.add(_username);
+    if (isLoggedIn) {
+      try {
+        await _client.patchOwnProfile(username: _username ?? '');
+      } catch (_) {/* offline / 5xx → local-only */}
+    }
   }
 
   String? get statusText => _statusText;
@@ -166,6 +179,11 @@ class AuthService {
       await _storage.write(key: _keyStatusText, value: trimmed);
     }
     _statusTextChange.add(_statusText);
+    if (isLoggedIn) {
+      try {
+        await _client.patchOwnProfile(statusText: _statusText ?? '');
+      } catch (_) {/* offline / 5xx → local-only */}
+    }
   }
 
   /// `POST /v3.0/auth/otp/send` — AUTH_CONTRACT §3.1.
@@ -213,6 +231,46 @@ class AuthService {
     await _storage.delete(key: _keyOtpPhone);
     _authState.add(true);
     return result;
+  }
+
+  /// Coalesce concurrent refresh attempts. Multiple callers (the
+  /// scheduler observing AUTH_FAILURE, the WS observing
+  /// WS_REAUTH_REQUIRED) can fire near-simultaneously; we share the
+  /// same in-flight future so we only hit the server once.
+  Future<bool>? _refreshInFlight;
+
+  /// Try to refresh the session by exchanging the stored refresh token
+  /// for a new accesskey. On success: persist the new tokens and
+  /// return true. On failure (no token, refresh rejected): tear down
+  /// the local session via [logout] and return false — that emits
+  /// `authStateChange=false` so the UI routes to login.
+  ///
+  /// Coalesced — concurrent calls share one in-flight future, so two
+  /// near-simultaneous AUTH_FAILUREs hit the server once.
+  Future<bool> refreshSession() {
+    final existing = _refreshInFlight;
+    if (existing != null) return existing;
+    final fut = _doRefresh().whenComplete(() => _refreshInFlight = null);
+    _refreshInFlight = fut;
+    return fut;
+  }
+
+  Future<bool> _doRefresh() async {
+    final newKey = await _client.refresh();
+    if (newKey == null) {
+      // Refresh failed — refresh token is gone or rejected. Force the
+      // user back to login by tearing down the session.
+      await logout();
+      return false;
+    }
+    // Persist the freshened tokens. AuthClient.refresh updated its
+    // in-memory state but not the storage layer.
+    await _storage.write(key: _keyAccesskey, value: newKey);
+    final newRt = _client.currentRefreshToken;
+    if (newRt != null) {
+      await _storage.write(key: _keyRefreshToken, value: newRt);
+    }
+    return true;
   }
 
   /// `POST /v3.0/auth/session/revoke` — AUTH_CONTRACT §4.6.

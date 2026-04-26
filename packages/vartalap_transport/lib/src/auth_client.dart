@@ -75,6 +75,12 @@ class AuthClient implements AuthTokenProvider {
   @override
   String? get currentUserId => _userId;
 
+  /// Current in-memory refresh token. Exposed so the persistence layer
+  /// (`AuthService`) can write it back to secure storage after
+  /// [refresh] rotates it — the server may issue a new RT on every
+  /// refresh.
+  String? get currentRefreshToken => _refreshToken;
+
   @override
   Future<String?> refresh() async {
     final rt = _refreshToken;

@@ -33,6 +33,17 @@ class WsTransport implements Transport {
   final _stateCtrl = StreamController<TransportState>.broadcast();
   final _pushCtrl = StreamController<pb.Envelope>.broadcast();
 
+  /// Fires when the server sends a WS_REAUTH_REQUIRED frame. The auth
+  /// layer subscribes and runs a session refresh; the WS will reconnect
+  /// on its existing schedule and pick up the freshened accesskey
+  /// during the next handshake. Race-tolerant: if reconnect fires
+  /// before refresh completes the server will WS_REAUTH_REQUIRED again
+  /// and the cycle continues until the new key is in place. AUTH_CONTRACT
+  /// §6.3/4.
+  final StreamController<void> _reauthCtrl =
+      StreamController<void>.broadcast();
+  Stream<void> get reauthRequired => _reauthCtrl.stream;
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _wsSub;
   TransportState _state = TransportState.disconnected;
@@ -111,6 +122,7 @@ class WsTransport implements Transport {
     await _ackCtrl.close();
     await _stateCtrl.close();
     await _pushCtrl.close();
+    if (!_reauthCtrl.isClosed) await _reauthCtrl.close();
   }
 
   Future<void> _connect() async {
@@ -344,12 +356,11 @@ class WsTransport implements Transport {
       case pb.WsType.WS_PUSH:
         _emitPush(wsEnv.push);
       case pb.WsType.WS_REAUTH_REQUIRED:
-        // Close the connection; reconnect logic will handshake anew
-        // with a (presumably refreshed) token. AUTH_CONTRACT §6.3/4
-        // distinguishes 4001 vs 4002 via close code, but by the time
-        // the reauth_required frame arrives the server has already
-        // decided to tear down. The scheduler's AUTH_FAILURE handling
-        // happens on per-op ACKs, not on this signal.
+        // Tell the auth layer to refresh, then close. The reconnect
+        // schedule races with the refresh — if reconnect wins, the
+        // server WS_REAUTH_REQUIREDs us again and we loop until the
+        // refreshed key is in `auth.currentAccesskey`.
+        if (!_reauthCtrl.isClosed) _reauthCtrl.add(null);
         _closeChannel();
         _onDisconnected();
       case pb.WsType.WS_ERROR:
