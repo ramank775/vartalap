@@ -279,13 +279,15 @@ class InboundReceiver {
         await _handleChannelMemberRemoved(env, sep.memberRemoved);
       case pb.ServerEventPayload_Body.messageStateChanged:
         await _handleMessageStateChanged(env, sep.messageStateChanged);
-      // TODO(v3.x): wire ChannelEdited / ChannelDeleted / ProfileEdited /
-      // UsernameChanged. Falling through to log keeps op_id_seen empty so
-      // a later client release applies on re-fanout.
+      case pb.ServerEventPayload_Body.profileEdited:
+        await _handleProfileEdited(env, sep.profileEdited);
+      case pb.ServerEventPayload_Body.usernameChanged:
+        await _handleUsernameChanged(env, sep.usernameChanged);
+      // TODO(v3.x): wire ChannelEdited / ChannelDeleted. Falling through
+      // to log keeps op_id_seen empty so a later client release applies
+      // on re-fanout.
       case pb.ServerEventPayload_Body.channelEdited:
       case pb.ServerEventPayload_Body.channelDeleted:
-      case pb.ServerEventPayload_Body.profileEdited:
-      case pb.ServerEventPayload_Body.usernameChanged:
       case pb.ServerEventPayload_Body.typing:
         // Typing should never arrive on the persistent path — it's
         // routed via the ephemeral flag. If we see it here a peer/server
@@ -336,6 +338,58 @@ class InboundReceiver {
     print('InboundReceiver: MessageStateChanged '
         'channel=${env.channelId} message=${body.messageId} '
         'newState=${body.newState.name} mapped=$mapped applied=$applied');
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': clock.nowMs(),
+    });
+  }
+
+  /// §10.2 ProfileEdited. Sparse update — each proto3-`optional` field
+  /// is forwarded as a present/absent record so the store can
+  /// distinguish "not in this edit" (absent) from "user cleared this
+  /// field" (present-empty). The sender's user_id can be anyone in a
+  /// channel we share, so the contact row may not exist yet — the
+  /// store creates it lazily.
+  Future<void> _handleProfileEdited(
+    pb.Envelope env,
+    pb.ProfileEdited body,
+  ) async {
+    final userId = body.userId;
+    if (userId.isEmpty) return;
+    await store.applyProfileEdit(
+      userId: userId,
+      displayName: body.hasDisplayName()
+          ? (value: body.displayName.isEmpty ? null : body.displayName)
+          : null,
+      avatarUrl: body.hasAvatarUrl()
+          ? (value: body.avatarUrl.isEmpty ? null : body.avatarUrl)
+          : null,
+      statusText: body.hasStatusText()
+          ? (value: body.statusText.isEmpty ? null : body.statusText)
+          : null,
+      nowMs: clock.nowMs(),
+    );
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': clock.nowMs(),
+    });
+  }
+
+  /// §10.2 UsernameChanged. Empty `new_username` means the user
+  /// cleared their handle — store layer treats it as NULL.
+  Future<void> _handleUsernameChanged(
+    pb.Envelope env,
+    pb.UsernameChanged body,
+  ) async {
+    final userId = body.userId;
+    if (userId.isEmpty) return;
+    await store.applyUsernameChange(
+      userId: userId,
+      newUsername: body.newUsername,
+      nowMs: clock.nowMs(),
+    );
     await store.db.insert('op_id_seen', {
       'channel_id': env.channelId,
       'op_id': env.opId,

@@ -708,12 +708,72 @@ Future<void> _handlePatchProfile(HttpRequest req) async {
     return;
   }
   final body = await _readJsonBody(req);
-  if (body.containsKey('username')) user.username = body['username'] as String?;
-  if (body.containsKey('displayName')) user.displayName = body['displayName'] as String?;
-  if (body.containsKey('avatarUrl')) user.avatarUrl = body['avatarUrl'] as String?;
-  if (body.containsKey('statusText')) user.statusText = body['statusText'] as String?;
+  // Track which fields actually changed so the fanout payload only
+  // includes the deltas (matches proto3 `optional` semantics).
+  String? newUsername;
+  String? newDisplayName;
+  String? newAvatarUrl;
+  String? newStatusText;
+  bool usernameTouched = false;
+  bool profileTouched = false;
+  if (body.containsKey('username')) {
+    user.username = body['username'] as String?;
+    newUsername = user.username;
+    usernameTouched = true;
+  }
+  if (body.containsKey('displayName')) {
+    user.displayName = body['displayName'] as String?;
+    newDisplayName = user.displayName;
+    profileTouched = true;
+  }
+  if (body.containsKey('avatarUrl')) {
+    user.avatarUrl = body['avatarUrl'] as String?;
+    newAvatarUrl = user.avatarUrl;
+    profileTouched = true;
+  }
+  if (body.containsKey('statusText')) {
+    user.statusText = body['statusText'] as String?;
+    newStatusText = user.statusText;
+    profileTouched = true;
+  }
   state.markDirty();
   _respondJson(req, 200, user.toProfileJson());
+
+  // SYNC_PROTOCOL §10.2 fanout: every user sharing at least one
+  // channel with the editor gets the corresponding ServerEventPayload.
+  // We collect the recipient set first, then emit at most one push of
+  // each kind to each recipient.
+  final recipients = <String>{};
+  for (final ch in state.channels.values) {
+    if (ch.members.contains(user.userId)) {
+      recipients.addAll(ch.members);
+    }
+  }
+  recipients.remove(user.userId); // skip the editor
+
+  if (profileTouched && recipients.isNotEmpty) {
+    for (final recipient in recipients) {
+      _enqueueProfileEdited(
+        recipientUserId: recipient,
+        editorUserId: user.userId,
+        displayName: body.containsKey('displayName') ? newDisplayName : null,
+        displayNamePresent: body.containsKey('displayName'),
+        avatarUrl: body.containsKey('avatarUrl') ? newAvatarUrl : null,
+        avatarUrlPresent: body.containsKey('avatarUrl'),
+        statusText: body.containsKey('statusText') ? newStatusText : null,
+        statusTextPresent: body.containsKey('statusText'),
+      );
+    }
+  }
+  if (usernameTouched && recipients.isNotEmpty) {
+    for (final recipient in recipients) {
+      _enqueueUsernameChanged(
+        recipientUserId: recipient,
+        editorUserId: user.userId,
+        newUsername: newUsername ?? '',
+      );
+    }
+  }
 }
 
 Future<void> _handleGetUser(HttpRequest req) async {
@@ -1178,6 +1238,115 @@ void _enqueueChannelMemberAdded({
   _sendToUser(recipientUserId, pushFrame.writeToBuffer());
   _log('Sent ChannelMemberAdded to $recipientUserId '
       'channel=$channelId added=$newMemberUserIds');
+}
+
+// SYNC_PROTOCOL §10.2 ProfileEdited fanout. Each *Present flag carries
+// proto3-`optional` semantics: when true, the field is populated on
+// the wire (empty string == "user cleared this"); when false the
+// field is absent and recipients leave their cached value alone.
+//
+// Channel id on the envelope is intentionally a synthetic per-recipient
+// "profile" channel — recipients route on `payload[0]==0x53` and the
+// inner `ServerEventPayload.user_id`, not on Envelope.channel_id.
+// We use the channel that this fanout would be most relevant to
+// (any shared channel works); for simplicity we pick the first one.
+void _enqueueProfileEdited({
+  required String recipientUserId,
+  required String editorUserId,
+  required bool displayNamePresent,
+  String? displayName,
+  required bool avatarUrlPresent,
+  String? avatarUrl,
+  required bool statusTextPresent,
+  String? statusText,
+}) {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final body = pb.ProfileEdited(
+    userId: editorUserId,
+    editedAtMs: fixnum.Int64(now),
+  );
+  if (displayNamePresent) body.displayName = displayName ?? '';
+  if (avatarUrlPresent) body.avatarUrl = avatarUrl ?? '';
+  if (statusTextPresent) body.statusText = statusText ?? '';
+  final sep = pb.ServerEventPayload(
+    version: 1,
+    type: pb.ServerEventType.PROFILE_EDITED,
+    profileEdited: body,
+  );
+  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+
+  final channelId = state.channels.values
+      .firstWhere(
+        (ch) =>
+            ch.members.contains(editorUserId) &&
+            ch.members.contains(recipientUserId),
+        orElse: () => state.channels.values.first,
+      )
+      .channelId;
+
+  final pushEnv = pb.Envelope(
+    opId: state.generateUuid(),
+    channelId: channelId,
+    resourceSeq: fixnum.Int64(0),
+    clientTimestampMs: fixnum.Int64(now),
+    payload: payload,
+    senderUserId: '', // server-authored
+    serverTimestampMs: fixnum.Int64(now),
+    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+  );
+  final pushFrame = pb.WsEnvelope(
+    type: pb.WsType.WS_PUSH,
+    push: pushEnv,
+  );
+  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+  _log('Sent ProfileEdited to=$recipientUserId editor=$editorUserId');
+}
+
+// SYNC_PROTOCOL §10.2 UsernameChanged fanout. Empty `newUsername`
+// signals "user cleared their handle".
+void _enqueueUsernameChanged({
+  required String recipientUserId,
+  required String editorUserId,
+  required String newUsername,
+}) {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final sep = pb.ServerEventPayload(
+    version: 1,
+    type: pb.ServerEventType.USERNAME_CHANGED,
+    usernameChanged: pb.UsernameChanged(
+      userId: editorUserId,
+      newUsername: newUsername,
+      changedAtMs: fixnum.Int64(now),
+    ),
+  );
+  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+
+  final channelId = state.channels.values
+      .firstWhere(
+        (ch) =>
+            ch.members.contains(editorUserId) &&
+            ch.members.contains(recipientUserId),
+        orElse: () => state.channels.values.first,
+      )
+      .channelId;
+
+  final pushEnv = pb.Envelope(
+    opId: state.generateUuid(),
+    channelId: channelId,
+    resourceSeq: fixnum.Int64(0),
+    clientTimestampMs: fixnum.Int64(now),
+    payload: payload,
+    senderUserId: '',
+    serverTimestampMs: fixnum.Int64(now),
+    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+  );
+  final pushFrame = pb.WsEnvelope(
+    type: pb.WsType.WS_PUSH,
+    push: pushEnv,
+  );
+  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+  _log('Sent UsernameChanged to=$recipientUserId editor=$editorUserId '
+      'new=$newUsername');
 }
 
 // Build a WS_PUSH WsEnvelope carrying a ChatPayload TYPE_MESSAGE_CREATE

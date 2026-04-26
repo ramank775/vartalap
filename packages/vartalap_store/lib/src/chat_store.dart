@@ -824,6 +824,88 @@ class ChatStore {
     _notify(const {'contacts'});
   }
 
+  /// Apply a server-fanned `ProfileEdited` to the local contact row.
+  ///
+  /// Each parameter is a `($PresentField, value)` tuple — `null` for
+  /// the outer field means "the proto didn't carry this field; leave
+  /// it alone." A present-but-empty string means "the user cleared it"
+  /// per `ProfileEdited`'s proto-`optional` semantics, and we write
+  /// NULL to the column. Existing fields not mentioned in the proto
+  /// (phone_hash, contact_book_name, the locally-set username if this
+  /// is a profile-only edit) are preserved.
+  ///
+  /// If no contact row exists for [userId], inserts one with just the
+  /// supplied fields — the next `discoverContacts` call will fill in
+  /// phone_hash and contact_book_name when the user's number lands in
+  /// the address book.
+  Future<void> applyProfileEdit({
+    required String userId,
+    ({String? value})? displayName,
+    ({String? value})? avatarUrl,
+    ({String? value})? statusText,
+    required int nowMs,
+  }) async {
+    final updates = <String, Object?>{'last_refreshed_ms': nowMs};
+    if (displayName != null) updates['display_name'] = displayName.value;
+    if (avatarUrl != null) updates['avatar_url'] = avatarUrl.value;
+    if (statusText != null) updates['status_text'] = statusText.value;
+
+    final existing = await db.query(
+      'contacts',
+      columns: const ['user_id'],
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (existing.isEmpty) {
+      await db.insert('contacts', {
+        'user_id': userId,
+        ...updates,
+      });
+    } else {
+      await db.update(
+        'contacts',
+        updates,
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+    }
+    _notify(const {'contacts'});
+  }
+
+  /// Apply a server-fanned `UsernameChanged` — sets the contact row's
+  /// `username` column. Empty string in [newUsername] is treated as
+  /// "user cleared their handle" and writes NULL to the column.
+  Future<void> applyUsernameChange({
+    required String userId,
+    required String newUsername,
+    required int nowMs,
+  }) async {
+    final value = newUsername.isEmpty ? null : newUsername;
+    final existing = await db.query(
+      'contacts',
+      columns: const ['user_id'],
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (existing.isEmpty) {
+      await db.insert('contacts', {
+        'user_id': userId,
+        'username': value,
+        'last_refreshed_ms': nowMs,
+      });
+    } else {
+      await db.update(
+        'contacts',
+        {'username': value, 'last_refreshed_ms': nowMs},
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+    }
+    _notify(const {'contacts'});
+  }
+
   /// All contacts, sorted by display name.
   Future<List<ContactRow>> fetchContacts() async {
     final rows = await db.query(
