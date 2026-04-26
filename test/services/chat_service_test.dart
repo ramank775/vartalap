@@ -48,6 +48,7 @@ void main() {
       store: store,
       scheduler: scheduler,
       authClient: AuthClient(baseUrl: Uri.parse('http://localhost')),
+      wsTransport: _unconnectedWs(),
       uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
       clock: clock,
     );
@@ -122,6 +123,7 @@ void main() {
       store: store,
       scheduler: scheduler,
       authClient: AuthClient(baseUrl: Uri.parse('http://localhost')),
+      wsTransport: _unconnectedWs(),
       uuidGen: Uuid7Gen(userIdBits: 0xA1B2C3D4E),
       clock: clock,
     );
@@ -205,6 +207,7 @@ void main() {
       store: store,
       scheduler: scheduler,
       authClient: AuthClient(baseUrl: Uri.parse('http://localhost')),
+      wsTransport: _unconnectedWs(),
       // Boot seed: zero bits, as main.dart does pre-login.
       uuidGen: Uuid7Gen(userIdBits: 0),
       clock: clock,
@@ -278,6 +281,7 @@ void main() {
         store: store,
         scheduler: scheduler,
         authClient: fakeAuth,
+        wsTransport: _unconnectedWs(),
         uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
         clock: clock,
       );
@@ -319,6 +323,7 @@ void main() {
         store: store,
         scheduler: scheduler,
         authClient: fakeAuth,
+        wsTransport: _unconnectedWs(),
         uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
         clock: clock,
       );
@@ -359,6 +364,7 @@ void main() {
         store: store,
         scheduler: scheduler,
         authClient: fakeAuth,
+        wsTransport: _unconnectedWs(),
         uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
         clock: clock,
       );
@@ -431,6 +437,16 @@ Future<void> _pumpEventQueue() async {
   await Future<void>.delayed(const Duration(milliseconds: 5));
   await Future<void>.delayed(const Duration(milliseconds: 5));
 }
+
+/// Build a never-started [WsTransport] — its only role in these tests
+/// is satisfying [ChatService]'s constructor signature so we can
+/// construct a service. The tests don't exercise typing or any other
+/// path that calls `wsTransport.sendEphemeral`. Connecting to a fake
+/// endpoint would just kick the reconnect loop, which we don't want.
+WsTransport _unconnectedWs() => WsTransport(
+      endpoint: Uri.parse('ws://example.invalid/wss'),
+      auth: AuthClient(baseUrl: Uri.parse('http://example.invalid')),
+    );
 
 class _StubTransport implements Transport {
   final _ackCtrl = StreamController<AckFrame>.broadcast();

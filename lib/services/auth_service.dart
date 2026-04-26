@@ -149,6 +149,25 @@ class AuthService {
   String? get username => _username;
   Stream<String?> get usernameChange => _usernameChange.stream;
 
+  /// Best-effort uniqueness check against
+  /// `POST /v3.0/users/username/check`. The profile screen calls this
+  /// debounced while the user types; the result drives the inline
+  /// availability indicator. Server is the source of truth — the
+  /// final `PATCH` may still 409 on a race, which we surface back
+  /// through the same UI as a "taken" reason.
+  Future<UsernameAvailability> checkUsernameAvailability(
+      String candidate) async {
+    if (!isLoggedIn) {
+      return const UsernameAvailability(available: true);
+    }
+    try {
+      return await _client.checkUsername(candidate);
+    } catch (_) {
+      // Network blip or 5xx — treat as inconclusive (don't block save).
+      return const UsernameAvailability(available: true);
+    }
+  }
+
   Future<void> setUsername(String? value) async {
     final trimmed = value?.trim();
     if (trimmed == null || trimmed.isEmpty) {

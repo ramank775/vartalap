@@ -9,6 +9,28 @@ import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 
+/// Sync-only validator for usernames. Charset/length only — server has
+/// the final say on uniqueness (via the availability check) and on
+/// reserved-word policy (the `reason` of an unavailable response). We
+/// keep the rules close to AUTH_CONTRACT §4.5 so users don't burn the
+/// rate limit on obviously-bad input. Lower-case a-z, 0-9, dot, and
+/// underscore. 3-30 chars. Must start with a letter.
+String? _validateUsername(String value) {
+  if (value.isEmpty) return null; // empty = clear, allowed
+  if (value.length < 3) return 'At least 3 characters';
+  if (value.length > 30) return 'At most 30 characters';
+  if (!RegExp(r'^[a-z]').hasMatch(value)) {
+    return 'Must start with a letter';
+  }
+  if (!RegExp(r'^[a-z0-9._]+$').hasMatch(value)) {
+    return 'Only a-z, 0-9, _ and . allowed';
+  }
+  if (value.contains('..') || value.contains('__')) {
+    return 'No double dots or underscores';
+  }
+  return null;
+}
+
 class ProfileScreen extends StatefulWidget {
   final AuthService authService;
   final ConfigStore config;
@@ -93,6 +115,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
             textCapitalization: TextCapitalization.none,
             valuePrefix: '@',
             onSave: (v) => auth.setUsername(v),
+            validator: _validateUsername,
+            unavailableMessage: 'That username is taken',
+            availabilityCheck: (candidate) async {
+              // Skip the network round-trip when the user retypes
+              // their existing handle — own-handle is always
+              // "available" to oneself.
+              if (candidate == auth.username) {
+                return _RowAvailability.available;
+              }
+              final result =
+                  await auth.checkUsernameAvailability(candidate);
+              return result.available
+                  ? _RowAvailability.available
+                  : _RowAvailability.unavailable;
+            },
           ),
           const Divider(height: 1, indent: kSpaceMd, endIndent: kSpaceMd),
           _InlineEditableRow(
@@ -219,6 +256,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
 // flip into edit mode (TextField with check / cancel). No dialogs.
 // ---------------------------------------------------------------------------
 
+/// Optional validator hook for [_InlineEditableRow]. Returns null when
+/// [candidate] is acceptable; returns a short error message ("only
+/// a-z, 0-9, _ allowed") to display under the field. Sync — runs on
+/// every keystroke before the async availability check fires.
+typedef _RowValidator = String? Function(String candidate);
+
+/// Optional async availability check. Hits the network. Result is
+/// debounced by the row state so we don't spam the server on every
+/// keystroke. Null means "skip the async check entirely" (used for
+/// fields that have no uniqueness constraint).
+typedef _RowAvailabilityCheck = Future<_RowAvailability> Function(
+    String candidate);
+
+enum _RowAvailability { idle, checking, available, unavailable, error }
+
 class _InlineEditableRow extends StatefulWidget {
   final IconData icon;
   final String label;
@@ -228,6 +280,9 @@ class _InlineEditableRow extends StatefulWidget {
   final TextCapitalization textCapitalization;
   final String? valuePrefix;
   final Future<void> Function(String? value) onSave;
+  final _RowValidator? validator;
+  final _RowAvailabilityCheck? availabilityCheck;
+  final String? unavailableMessage;
 
   const _InlineEditableRow({
     required this.icon,
@@ -238,6 +293,9 @@ class _InlineEditableRow extends StatefulWidget {
     required this.textCapitalization,
     required this.onSave,
     this.valuePrefix,
+    this.validator,
+    this.availabilityCheck,
+    this.unavailableMessage,
   });
 
   @override
@@ -249,6 +307,25 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
   late TextEditingController _controller;
   late FocusNode _focusNode;
   bool _saving = false;
+
+  /// Latest sync validator output for the current draft text.
+  String? _validationError;
+
+  /// Latest async availability state. `idle` until the user actually
+  /// changes the field from the saved value.
+  _RowAvailability _availability = _RowAvailability.idle;
+
+  /// Debounce timer for the async availability check — avoids hitting
+  /// the server on every keystroke.
+  Timer? _availabilityDebounce;
+
+  /// Latest candidate the async check is racing against. We check this
+  /// before applying the result so a stale response from a previous
+  /// keystroke can't overwrite the current state.
+  String _availabilityInFlight = '';
+
+  static const Duration _availabilityDebounceWindow =
+      Duration(milliseconds: 400);
 
   @override
   void initState() {
@@ -267,6 +344,7 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
 
   @override
   void dispose() {
+    _availabilityDebounce?.cancel();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -276,14 +354,66 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
     setState(() {
       _editing = true;
       _controller.text = widget.value ?? '';
+      _validationError = null;
+      _availability = _RowAvailability.idle;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
   }
 
+  void _onChanged(String raw) {
+    final next = raw.trim();
+    final unchanged = next == (widget.value ?? '');
+    final validator = widget.validator;
+    final asyncCheck = widget.availabilityCheck;
+    setState(() {
+      _validationError = (next.isEmpty || validator == null)
+          ? null
+          : validator(next);
+      // Don't fire the network check for unchanged or sync-invalid input.
+      if (asyncCheck == null || unchanged || _validationError != null) {
+        _availability = _RowAvailability.idle;
+      } else {
+        _availability = _RowAvailability.checking;
+      }
+    });
+    _availabilityDebounce?.cancel();
+    if (asyncCheck == null || unchanged || _validationError != null) {
+      _availabilityInFlight = '';
+      return;
+    }
+    _availabilityInFlight = next;
+    _availabilityDebounce = Timer(_availabilityDebounceWindow, () async {
+      if (!mounted || !_editing) return;
+      final candidate = _availabilityInFlight;
+      if (candidate != next) return; // user kept typing
+      try {
+        final result = await asyncCheck(candidate);
+        if (!mounted || !_editing) return;
+        // If the user typed more after we fired, drop this result.
+        if (_controller.text.trim() != candidate) return;
+        setState(() {
+          _availability = result;
+        });
+      } catch (_) {
+        if (!mounted || !_editing) return;
+        if (_controller.text.trim() != candidate) return;
+        setState(() => _availability = _RowAvailability.error);
+      }
+    });
+  }
+
+  bool get _commitBlocked {
+    if (_saving) return true;
+    if (_validationError != null) return true;
+    if (_availability == _RowAvailability.unavailable) return true;
+    if (_availability == _RowAvailability.checking) return true;
+    return false;
+  }
+
   Future<void> _commit() async {
-    if (_saving) return;
+    if (_commitBlocked) return;
     final next = _controller.text.trim();
     final unchanged = next == (widget.value ?? '');
     if (unchanged) {
@@ -298,16 +428,73 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
         setState(() {
           _saving = false;
           _editing = false;
+          _availability = _RowAvailability.idle;
+          _validationError = null;
         });
       }
     }
   }
 
   void _cancel() {
+    _availabilityDebounce?.cancel();
     setState(() {
       _editing = false;
       _controller.text = widget.value ?? '';
+      _validationError = null;
+      _availability = _RowAvailability.idle;
     });
+  }
+
+  Widget? _buildAvailabilityIcon(ColorScheme scheme) {
+    switch (_availability) {
+      case _RowAvailability.checking:
+        return Padding(
+          padding: const EdgeInsets.all(kSpaceSm),
+          child: SizedBox(
+            height: 16,
+            width: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        );
+      case _RowAvailability.available:
+        return Icon(Icons.check_circle, color: Colors.green[600], size: 20);
+      case _RowAvailability.unavailable:
+        return Icon(Icons.cancel, color: scheme.error, size: 20);
+      case _RowAvailability.error:
+        return Icon(Icons.error_outline,
+            color: scheme.onSurfaceVariant, size: 20);
+      case _RowAvailability.idle:
+        return null;
+    }
+  }
+
+  String? _helperText() {
+    if (_validationError != null) return _validationError;
+    switch (_availability) {
+      case _RowAvailability.unavailable:
+        return widget.unavailableMessage ?? 'Not available';
+      case _RowAvailability.available:
+        return 'Available';
+      case _RowAvailability.checking:
+      case _RowAvailability.error:
+      case _RowAvailability.idle:
+        return null;
+    }
+  }
+
+  Color _helperColor(ColorScheme scheme) {
+    if (_validationError != null) return scheme.error;
+    switch (_availability) {
+      case _RowAvailability.unavailable:
+        return scheme.error;
+      case _RowAvailability.available:
+        return Colors.green[700]!;
+      default:
+        return scheme.onSurfaceVariant;
+    }
   }
 
   @override
@@ -322,51 +509,72 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
           horizontal: kSpaceMd,
           vertical: kSpaceSm,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(widget.icon, color: scheme.primary),
-            const SizedBox(width: kSpaceMd),
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                autofocus: true,
-                maxLength: widget.maxLength,
-                textCapitalization: widget.textCapitalization,
-                enabled: !_saving,
-                onSubmitted: (_) => _commit(),
-                decoration: InputDecoration(
-                  labelText: widget.label,
-                  hintText: widget.placeholder,
-                  prefixText: widget.valuePrefix,
-                  counterText: '',
-                  border: const UnderlineInputBorder(),
-                  isDense: true,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(widget.icon, color: scheme.primary),
+                const SizedBox(width: kSpaceMd),
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    autofocus: true,
+                    maxLength: widget.maxLength,
+                    textCapitalization: widget.textCapitalization,
+                    enabled: !_saving,
+                    onChanged: _onChanged,
+                    onSubmitted: (_) => _commit(),
+                    decoration: InputDecoration(
+                      labelText: widget.label,
+                      hintText: widget.placeholder,
+                      prefixText: widget.valuePrefix,
+                      suffixIcon: _buildAvailabilityIcon(scheme),
+                      counterText: '',
+                      border: const UnderlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _saving ? null : _cancel,
+                  icon: const Icon(Icons.close),
+                  color: scheme.onSurfaceVariant,
+                  tooltip: 'Cancel',
+                ),
+                IconButton(
+                  onPressed: _commitBlocked ? null : _commit,
+                  icon: _saving
+                      ? SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: scheme.primary,
+                          ),
+                        )
+                      : const Icon(Icons.check),
+                  color: scheme.primary,
+                  tooltip: 'Save',
+                ),
+              ],
+            ),
+            if (_helperText() != null)
+              Padding(
+                padding: EdgeInsets.only(
+                  left: kAvatarSm + kSpaceMd,
+                  top: kSpaceXs,
+                ),
+                child: Text(
+                  _helperText()!,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: _helperColor(scheme),
+                  ),
                 ),
               ),
-            ),
-            IconButton(
-              onPressed: _saving ? null : _cancel,
-              icon: const Icon(Icons.close),
-              color: scheme.onSurfaceVariant,
-              tooltip: 'Cancel',
-            ),
-            IconButton(
-              onPressed: _saving ? null : _commit,
-              icon: _saving
-                  ? SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: scheme.primary,
-                      ),
-                    )
-                  : const Icon(Icons.check),
-              color: scheme.primary,
-              tooltip: 'Save',
-            ),
           ],
         ),
       );

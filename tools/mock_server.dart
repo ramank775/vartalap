@@ -495,6 +495,8 @@ Future<void> _handleRequest(HttpRequest req) async {
     await _handleGetProfile(req);
   } else if (method == 'PATCH' && path == '/v3.0/users/me') {
     await _handlePatchProfile(req);
+  } else if (method == 'POST' && path == '/v3.0/users/username/check') {
+    await _handleCheckUsername(req);
   } else if (method == 'GET' && path.startsWith('/v3.0/users/')) {
     await _handleGetUser(req);
   } else if (method == 'POST' && path == '/v3.0/contacts/lookup') {
@@ -751,6 +753,10 @@ Future<void> _handlePatchProfile(HttpRequest req) async {
   }
   recipients.remove(user.userId); // skip the editor
 
+  _log('PATCH /v3.0/users/me: editor=${user.userId} '
+      'profileTouched=$profileTouched usernameTouched=$usernameTouched '
+      'recipients=${recipients.length}');
+
   if (profileTouched && recipients.isNotEmpty) {
     for (final recipient in recipients) {
       _enqueueProfileEdited(
@@ -774,6 +780,34 @@ Future<void> _handlePatchProfile(HttpRequest req) async {
       );
     }
   }
+}
+
+// Username availability stub. Real server (TODO) needs:
+//   - case-insensitive uniqueness over the global users table
+//   - 1-change-per-90-days rate limit per user
+//   - reserved-word list (admin, support, …)
+//   - bot/abuse heuristics
+// This stub only does (1) — the rest are documented in
+// docs/V3_TODOS.md.
+Future<void> _handleCheckUsername(HttpRequest req) async {
+  final session = _authenticate(req);
+  if (session == null) return;
+  final body = await _readJsonBody(req);
+  final candidate = (body['username'] as String?)?.trim().toLowerCase();
+  if (candidate == null || candidate.isEmpty) {
+    _respondJson(req, 200, {'available': true});
+    return;
+  }
+  final taken = state.usersById.values.any(
+    (u) =>
+        u.userId != session.userId &&
+        u.username != null &&
+        u.username!.toLowerCase() == candidate,
+  );
+  _respondJson(req, 200, {
+    'available': !taken,
+    if (taken) 'reason': 'taken',
+  });
 }
 
 Future<void> _handleGetUser(HttpRequest req) async {

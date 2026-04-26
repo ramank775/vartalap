@@ -237,6 +237,35 @@ class AuthClient implements AuthTokenProvider {
     return _decodeJson(resp);
   }
 
+  /// `POST /v3.0/users/username/check` — AUTH_CONTRACT §4.5.
+  ///
+  /// Pre-claim availability check the profile screen hits while the
+  /// user is typing. Returns `(available: bool, reason: String?)`
+  /// where `reason` is "taken" | "reserved" | "rate_limited" |
+  /// "validation_failed" | null. The server is the source of truth;
+  /// the client also runs a sync charset/length validator first to
+  /// avoid burning the rate-limit on obviously-bad input.
+  ///
+  /// 404 from the server is treated as "endpoint not yet shipped" —
+  /// we surface `available=true` so the UI doesn't block users on a
+  /// missing endpoint while the server-side work is still pending.
+  Future<UsernameAvailability> checkUsername(String username) async {
+    final resp = await _post(
+      '/v3.0/users/username/check',
+      body: {'username': username},
+      headers: _authHeaders(),
+    );
+    if (resp.statusCode == 404) {
+      return const UsernameAvailability(available: true, reason: null);
+    }
+    _assertOk(resp, 'checkUsername');
+    final json = _decodeJson(resp);
+    return UsernameAvailability(
+      available: json['available'] as bool? ?? false,
+      reason: json['reason'] as String?,
+    );
+  }
+
   /// `GET /v3.0/users/<user_id>` — AUTH_CONTRACT §7.5.
   Future<Map<String, dynamic>> getUser(String userId) async {
     final resp =
@@ -477,5 +506,21 @@ class ContactMatch {
     required this.phoneHash,
     required this.userId,
     this.username,
+  });
+}
+
+/// Result of a `/v3.0/users/username/check` lookup. `reason` is one of
+/// `"taken"`, `"reserved"`, `"rate_limited"`, `"validation_failed"`
+/// when [available] is false. When the endpoint isn't shipped yet the
+/// client returns `available=true, reason=null` so the UI doesn't
+/// block on a 404 — the eventual `PATCH` will still surface a
+/// uniqueness conflict if one exists.
+class UsernameAvailability {
+  final bool available;
+  final String? reason;
+
+  const UsernameAvailability({
+    required this.available,
+    this.reason,
   });
 }

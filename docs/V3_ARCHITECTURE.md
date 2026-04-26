@@ -754,6 +754,14 @@ open questions remain.
 
 ---
 
+## Working backlog
+
+Server-side and cross-cutting work-in-progress is tracked in
+[`V3_TODOS.md`](./V3_TODOS.md). Items there are scoped to v3.0 — anything
+deferred to v3.1+ is called out explicitly.
+
+---
+
 ## How to use this document
 
 - Start the next session by reading this file.

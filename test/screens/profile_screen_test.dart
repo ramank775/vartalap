@@ -162,6 +162,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'raman');
+    // Wait for the availability-check debounce + async resolve before
+    // tapping Save — the button is gated on `_availability == checking`.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.check));
     await tester.pumpAndSettle();
 
@@ -306,6 +310,13 @@ class _FakeAuthService extends AuthService {
     setUsernameCalls.add(value);
     _username = value?.trim();
     _usernameStream.add(_username);
+  }
+
+  @override
+  Future<UsernameAvailability> checkUsernameAvailability(
+      String candidate) async {
+    // Tests don't exercise the network — pretend everything is free.
+    return const UsernameAvailability(available: true);
   }
 
   @override

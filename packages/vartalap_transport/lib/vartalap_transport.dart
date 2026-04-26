@@ -22,7 +22,8 @@ export 'src/auth_client.dart'
         ContactMatch,
         OtpSendResult,
         OtpVerifyResult,
-        SessionRefreshResult;
+        SessionRefreshResult,
+        UsernameAvailability;
 export 'src/auth_token_provider.dart' show AuthTokenProvider;
 export 'src/rest_transport.dart' show RestTransport, classifyHttpStatus;
 export 'src/transport.dart'
