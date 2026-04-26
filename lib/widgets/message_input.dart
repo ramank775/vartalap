@@ -64,22 +64,20 @@ class MessageInputState extends State<MessageInputWidget> {
     }
   }
 
-  Future<bool> onBackPress() {
+  void onPopInvoked(bool didPop, Object? result) {
+    if (didPop) return;
     if (_isShowSticker) {
       setState(() {
         _isShowSticker = false;
       });
-    } else {
-      Navigator.pop(context);
     }
-
-    return Future.value(false);
   }
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: onBackPress,
+    return PopScope(
+      canPop: !_isShowSticker,
+      onPopInvokedWithResult: onPopInvoked,
       child: Stack(
         children: <Widget>[
           Column(
@@ -185,7 +183,8 @@ class MessageInputState extends State<MessageInputWidget> {
             ),
             categoryViewConfig: CategoryViewConfig(
               initCategory: Category.RECENT,
-              indicatorColor: theme.indicatorColor,
+              indicatorColor:
+                  theme.tabBarTheme.indicatorColor ?? theme.colorScheme.secondary,
               iconColorSelected: chatColors.senderBubble,
               backgroundColor: theme.scaffoldBackgroundColor,
               categoryIcons: const CategoryIcons(),

@@ -19,6 +19,10 @@ const String _keyRefreshToken = 'v3.refreshToken';
 const String _keyDeviceId = 'v3.deviceId';
 const String _keyOtpSessionId = 'v3.otpSessionId';
 const String _keyOtpPhone = 'v3.otpPhone';
+const String _keyPhone = 'v3.phone';
+const String _keyDisplayName = 'v3.displayName';
+const String _keyUsername = 'v3.username';
+const String _keyStatusText = 'v3.statusText';
 
 class AuthService {
   final AuthClient _client;
@@ -31,6 +35,15 @@ class AuthService {
       StreamController<bool>.broadcast();
 
   String? _phoneNumber;
+  String? _displayName;
+  String? _username;
+  String? _statusText;
+  final StreamController<String?> _displayNameChange =
+      StreamController<String?>.broadcast();
+  final StreamController<String?> _usernameChange =
+      StreamController<String?>.broadcast();
+  final StreamController<String?> _statusTextChange =
+      StreamController<String?>.broadcast();
 
   /// Held between [sendOtp] and [verifyOtp] — the server's session
   /// identifier for the OTP attempt (AUTH_CONTRACT §3.1).
@@ -82,7 +95,13 @@ class AuthService {
 
     // Restore in-flight OTP session (survives hot restart).
     _otpSessionId = await _storage.read(key: _keyOtpSessionId);
-    _phoneNumber = await _storage.read(key: _keyOtpPhone);
+    // Prefer the permanent phone (set on verifyOtp); fall back to the
+    // OTP scratch key so a hot restart mid-OTP still shows the number.
+    _phoneNumber = await _storage.read(key: _keyPhone) ??
+        await _storage.read(key: _keyOtpPhone);
+    _displayName = await _storage.read(key: _keyDisplayName);
+    _username = await _storage.read(key: _keyUsername);
+    _statusText = await _storage.read(key: _keyStatusText);
   }
 
   /// True iff the [AuthClient] has an in-memory session. Synchronous —
@@ -96,6 +115,58 @@ class AuthService {
   /// Last phone number we attempted OTP against. Used by the
   /// verify-OTP screen so it can show "6-digit code sent to +91…".
   String? get phoneNumber => _phoneNumber;
+
+  /// User-chosen display name. Local-only for now (no server endpoint
+  /// in v3.0); persisted in secure storage and emitted on
+  /// [displayNameChange] when set or cleared.
+  String? get displayName => _displayName;
+
+  /// Emits the new value (or null) whenever [setDisplayName] is called.
+  Stream<String?> get displayNameChange => _displayNameChange.stream;
+
+  /// Persist [name] (trimmed) as the user's display name. Pass null or
+  /// empty to clear.
+  Future<void> setDisplayName(String? name) async {
+    final trimmed = name?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      _displayName = null;
+      await _storage.delete(key: _keyDisplayName);
+    } else {
+      _displayName = trimmed;
+      await _storage.write(key: _keyDisplayName, value: trimmed);
+    }
+    _displayNameChange.add(_displayName);
+  }
+
+  String? get username => _username;
+  Stream<String?> get usernameChange => _usernameChange.stream;
+
+  Future<void> setUsername(String? value) async {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      _username = null;
+      await _storage.delete(key: _keyUsername);
+    } else {
+      _username = trimmed;
+      await _storage.write(key: _keyUsername, value: trimmed);
+    }
+    _usernameChange.add(_username);
+  }
+
+  String? get statusText => _statusText;
+  Stream<String?> get statusTextChange => _statusTextChange.stream;
+
+  Future<void> setStatusText(String? value) async {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      _statusText = null;
+      await _storage.delete(key: _keyStatusText);
+    } else {
+      _statusText = trimmed;
+      await _storage.write(key: _keyStatusText, value: trimmed);
+    }
+    _statusTextChange.add(_statusText);
+  }
 
   /// `POST /v3.0/auth/otp/send` — AUTH_CONTRACT §3.1.
   ///
@@ -134,8 +205,9 @@ class AuthService {
     await _storage.write(key: _keyAccesskey, value: result.accesskey);
     await _storage.write(key: _keyUserId, value: result.userId);
     await _storage.write(key: _keyRefreshToken, value: result.refreshToken);
+    await _storage.write(key: _keyPhone, value: phone);
     _otpSessionId = null;
-    _phoneNumber = null;
+    _phoneNumber = phone;
     lastDefaultChannelId = result.defaultChannelId;
     await _storage.delete(key: _keyOtpSessionId);
     await _storage.delete(key: _keyOtpPhone);
@@ -160,8 +232,15 @@ class AuthService {
     await _storage.delete(key: _keyAccesskey);
     await _storage.delete(key: _keyUserId);
     await _storage.delete(key: _keyRefreshToken);
+    await _storage.delete(key: _keyPhone);
+    await _storage.delete(key: _keyDisplayName);
+    await _storage.delete(key: _keyUsername);
+    await _storage.delete(key: _keyStatusText);
     _client.clearSession();
     _phoneNumber = null;
+    _displayName = null;
+    _username = null;
+    _statusText = null;
     _otpSessionId = null;
     _authState.add(false);
   }
@@ -169,6 +248,9 @@ class AuthService {
   /// Disposes the internal state stream. Call on app exit.
   Future<void> dispose() async {
     await _authState.close();
+    await _displayNameChange.close();
+    await _usernameChange.close();
+    await _statusTextChange.close();
   }
 
   /// Generate a stable device identifier (UUIDv4 — good enough for a

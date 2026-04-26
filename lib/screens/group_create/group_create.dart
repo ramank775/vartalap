@@ -36,6 +36,11 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
   bool _onNameStep = false;
   final TextEditingController _nameController = TextEditingController();
 
+  /// Cached contacts indexed by user_id so the name step can render
+  /// the selected-member chip strip with avatar + name without re-
+  /// fetching. Populated from the [_contactsFuture] result.
+  final Map<String, ContactRow> _contactsById = {};
+
   @override
   void initState() {
     super.initState();
@@ -141,6 +146,9 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
           final contacts = snapshot.data ?? [];
+          for (final c in contacts) {
+            _contactsById[c.userId] = c;
+          }
           if (contacts.isEmpty) {
             return Center(
               child: Text(
@@ -212,20 +220,50 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
               autofocus: true,
               textAlign: TextAlign.center,
               style: textTheme.headlineSmall,
+              cursorColor: scheme.primary,
               decoration: InputDecoration(
                 hintText: 'Group name',
                 hintStyle: textTheme.headlineSmall?.copyWith(
                   color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                 ),
-                border: InputBorder.none,
+                filled: false,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: kSpaceSm,
+                  vertical: kSpaceSm,
+                ),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(
+                    color: scheme.outlineVariant,
+                    width: 1,
+                  ),
+                ),
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(
+                    color: scheme.primary,
+                    width: 2,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: kSpaceSm),
             Text(
-              '${_selectedUserIds.length} participants',
+              '${_selectedUserIds.length} '
+              '${_selectedUserIds.length == 1 ? "participant" : "participants"}',
               style: textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
+            ),
+            const SizedBox(height: kSpaceMd),
+            _SelectedMembersStrip(
+              userIds: _selectedUserIds.toList(),
+              contactsById: _contactsById,
+              onRemove: (userId) {
+                setState(() {
+                  _selectedUserIds.remove(userId);
+                  // If everyone got removed, drop back to the picker.
+                  if (_selectedUserIds.isEmpty) _onNameStep = false;
+                });
+              },
             ),
             const Spacer(),
             SizedBox(
@@ -238,6 +276,93 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
             const SizedBox(height: kSpaceLg),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Horizontally scrollable strip of selected members. Each chip shows
+/// the contact's avatar + truncated name with a tap-to-remove "x".
+/// Falls back to user_id when the contact row hasn't loaded yet (race
+/// during the very first paint).
+class _SelectedMembersStrip extends StatelessWidget {
+  final List<String> userIds;
+  final Map<String, ContactRow> contactsById;
+  final ValueChanged<String> onRemove;
+
+  const _SelectedMembersStrip({
+    required this.userIds,
+    required this.contactsById,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (userIds.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 86,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        // Inner padding so the leading and trailing chips don't sit
+        // flush against the screen edges and the last chip clips with
+        // breathing room rather than mid-letter.
+        padding: const EdgeInsets.symmetric(horizontal: kSpaceXs),
+        itemCount: userIds.length,
+        separatorBuilder: (_, __) => const SizedBox(width: kSpaceMd),
+        itemBuilder: (_, i) {
+          final userId = userIds[i];
+          final contact = contactsById[userId];
+          final name = contact?.displayLabel ?? 'Unknown';
+          return SizedBox(
+            width: 64,
+            child: Column(
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Avator(text: name, width: kAvatarMd, height: kAvatarMd),
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: GestureDetector(
+                        onTap: () => onRemove(userId),
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: scheme.surfaceContainerHighest,
+                            border: Border.all(
+                              color: scheme.outlineVariant,
+                              width: 1,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.close,
+                            size: 14,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: kSpaceXs),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -257,7 +382,7 @@ class _SelectableContactTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final name = contact.resolvedName;
+    final name = contact.displayLabel;
 
     return ListTile(
       leading: Stack(

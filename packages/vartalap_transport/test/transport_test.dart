@@ -40,6 +40,8 @@ void main() {
 
       await transport.start();
       await _waitForState(transport, TransportState.connected);
+      // Release the post-connect buffer (no sync pull in this test).
+      transport.endSyncBuffer();
 
       await transport.send(OutboundFrame(
         kind: 'chat_payload',
@@ -89,6 +91,8 @@ void main() {
 
       await transport.start();
       await _waitForState(transport, TransportState.connected);
+      // Release the post-connect buffer (no sync pull in this test).
+      transport.endSyncBuffer();
 
       final ackFuture = transport.acks.first.timeout(
         const Duration(seconds: 3),
@@ -123,6 +127,8 @@ void main() {
 
       await transport.start();
       await _waitForState(transport, TransportState.connected);
+      // Release the post-connect buffer (no sync pull in this test).
+      transport.endSyncBuffer();
 
       final ackFuture = transport.acks.first.timeout(
         const Duration(seconds: 3),
@@ -170,6 +176,8 @@ void main() {
 
       await transport.start();
       await _waitForState(transport, TransportState.connected);
+      // Release the post-connect buffer (no sync pull in this test).
+      transport.endSyncBuffer();
 
       server.pushEnvelope(pb.Envelope(
         opId: 'push-op-1',

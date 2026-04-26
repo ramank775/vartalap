@@ -141,25 +141,43 @@ class _ContactsTabState extends State<_ContactsTab>
   }
 
   Future<List<ContactRow>> _fetchAndDiscover() async {
-    final phones = await _readDevicePhones();
-    return widget.chatService.discoverContacts(normalizedPhones: phones);
+    final (phones, names) = await _readDeviceContacts();
+    return widget.chatService.discoverContacts(
+      normalizedPhones: phones,
+      contactBookNamesByPhone: names,
+    );
   }
 
-  Future<List<String>> _readDevicePhones() async {
+  /// Walks the device address book once and returns:
+  ///   * `phones` — every readable normalized E.164 phone (input to the
+  ///     hashed lookup).
+  ///   * `names` — phone → contact-book label, only when the address
+  ///     book actually has a non-empty name. The name wins display
+  ///     priority over username/userId per AUTH_CONTRACT §2.4 — without
+  ///     this map, the UI falls back to whatever the server returned
+  ///     (username) and unfortunately to user_id when even that is
+  ///     missing.
+  Future<(List<String>, Map<String, String>)> _readDeviceContacts() async {
     final contacts = await FlutterContacts.getAll(
-      properties: {ContactProperty.phone},
+      properties: {ContactProperty.phone, ContactProperty.name},
     );
-    final seen = <String>{};
+    final phones = <String>{};
+    final names = <String, String>{};
     for (final c in contacts) {
+      final dn = c.displayName?.trim() ?? '';
+      final fn = c.name?.first?.trim() ?? '';
+      final label = dn.isNotEmpty ? dn : (fn.isNotEmpty ? fn : null);
       for (final p in c.phones) {
         final raw = (p.normalizedNumber?.isNotEmpty ?? false)
             ? p.normalizedNumber!
             : p.number;
         final normalized = normalizePhoneNumber(raw);
-        if (normalized != null) seen.add(normalized);
+        if (normalized == null) continue;
+        phones.add(normalized);
+        if (label != null) names.putIfAbsent(normalized, () => label);
       }
     }
-    return seen.toList();
+    return (phones.toList(), names);
   }
 
   Future<void> _onContactTap(ContactRow contact) async {
@@ -172,14 +190,14 @@ class _ContactsTabState extends State<_ContactsTab>
       final channelId = await widget.chatService.startDirectMessage(
         localUserId: localUserId,
         peerUserId: contact.userId,
-        peerName: contact.resolvedName,
+        peerName: contact.displayLabel,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => ChatScreen(
             channelId: channelId,
-            channelName: contact.resolvedName,
+            channelName: contact.displayLabel,
             channelKind: 'dm',
             chatService: widget.chatService,
             authService: widget.authService,
@@ -377,8 +395,14 @@ class _ContactTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = contact.resolvedName;
-    final subtitle = contact.username != null ? '@${contact.username}' : null;
+    final name = contact.displayLabel;
+    // Suppress the @username subtitle when the title already shows it
+    // (i.e. when the contact has no contactBookName/displayName so
+    // displayLabel itself fell back to "@username"). Otherwise we'd
+    // render the same handle twice.
+    final subtitle = (contact.username != null && !name.startsWith('@'))
+        ? '@${contact.username}'
+        : null;
     return ListTile(
       leading: Avator(text: name, width: kAvatarMd, height: kAvatarMd),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),

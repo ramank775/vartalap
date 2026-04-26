@@ -6,6 +6,25 @@ import 'package:vartalap_store/vartalap_store.dart';
 
 import 'clock.dart';
 
+/// One typing-indicator event observed on the inbound WS stream. Emitted
+/// from `InboundReceiver.typingEvents` when an envelope marked
+/// `ephemeral=true` carries a `ServerEventPayload{Typing}` body. Lossy
+/// by design — recipients should treat absence as "not typing" and
+/// expire any active indicator after a short TTL.
+class TypingEvent {
+  final String channelId;
+  final String userId;
+  final bool isTyping;
+  final int emittedAtMs;
+
+  const TypingEvent({
+    required this.channelId,
+    required this.userId,
+    required this.isTyping,
+    required this.emittedAtMs,
+  });
+}
+
 /// Inbound WS_PUSH receiver per SYNC_PROTOCOL.md §10.5 and
 /// SPIKE_A_SCHEMA.md §5.4.
 ///
@@ -38,6 +57,16 @@ class InboundReceiver {
 
   final Set<Future<void>> _inFlight = <Future<void>>{};
 
+  /// Ephemeral typing-event fanout. Broadcast so multiple chat screens
+  /// can subscribe; never replayed because typing is intentionally lossy
+  /// (see Typing proto contract).
+  final StreamController<TypingEvent> _typingCtrl =
+      StreamController<TypingEvent>.broadcast();
+
+  /// Subscribers (e.g. open chat screens) filter by `channelId` + ignore
+  /// own-user events.
+  Stream<TypingEvent> get typingEvents => _typingCtrl.stream;
+
   InboundReceiver({
     required this.store,
     required this.pushes,
@@ -66,12 +95,25 @@ class InboundReceiver {
     while (_inFlight.isNotEmpty) {
       await Future.wait(_inFlight.toList());
     }
+    if (!_typingCtrl.isClosed) await _typingCtrl.close();
   }
 
   Future<void> _track(Future<void> future) {
     _inFlight.add(future);
     future.whenComplete(() => _inFlight.remove(future));
     return future;
+  }
+
+  /// Wait for every currently-tracked apply to finish. Unlike [stop],
+  /// keeps the subscription live — the receiver keeps consuming new
+  /// frames after this returns. Used by the client-triggered sync pull
+  /// to gate "WS buffer flush" on "pulled events fully applied" so a
+  /// live message that depends on a pulled `ChannelCreated` never
+  /// races ahead of it.
+  Future<void> drainPending() async {
+    while (_inFlight.isNotEmpty) {
+      await Future.wait(_inFlight.toList());
+    }
   }
 
   Future<void> _apply(pb.Envelope env) async {
@@ -83,9 +125,6 @@ class InboundReceiver {
       return;
     }
 
-    if (await store.hasSeenOpId(channelId, opId)) return;
-    if (!_running) return;
-
     final payload = env.payload;
     if (payload.isEmpty) {
       // Reserved for client-defined "ping" semantics per envelope
@@ -93,6 +132,18 @@ class InboundReceiver {
       // dedup either (the envelope carries no idempotent intent).
       return;
     }
+
+    // Ephemeral envelopes (typing, future presence) bypass dedup, the
+    // op_id_seen table, and projection writes entirely. We decode the
+    // 0x53 ServerEventPayload directly and emit on the side-channel.
+    if (env.ephemeral) {
+      if (payload[0] != 0x53) return; // unknown ephemeral shape
+      _handleEphemeral(env, payload.sublist(1));
+      return;
+    }
+
+    if (await store.hasSeenOpId(channelId, opId)) return;
+    if (!_running) return;
 
     if (payload[0] == 0x53) {
       // §10.2 wire distinguisher: server PREPENDS 0x53; strip before
@@ -226,6 +277,8 @@ class InboundReceiver {
         await _handleChannelMemberAdded(env, sep.memberAdded);
       case pb.ServerEventPayload_Body.memberRemoved:
         await _handleChannelMemberRemoved(env, sep.memberRemoved);
+      case pb.ServerEventPayload_Body.messageStateChanged:
+        await _handleMessageStateChanged(env, sep.messageStateChanged);
       // TODO(v3.x): wire ChannelEdited / ChannelDeleted / ProfileEdited /
       // UsernameChanged. Falling through to log keeps op_id_seen empty so
       // a later client release applies on re-fanout.
@@ -233,8 +286,73 @@ class InboundReceiver {
       case pb.ServerEventPayload_Body.channelDeleted:
       case pb.ServerEventPayload_Body.profileEdited:
       case pb.ServerEventPayload_Body.usernameChanged:
+      case pb.ServerEventPayload_Body.typing:
+        // Typing should never arrive on the persistent path — it's
+        // routed via the ephemeral flag. If we see it here a peer/server
+        // didn't set the flag; treat as no-op rather than persisting.
       case pb.ServerEventPayload_Body.notSet:
         _logServerEventFallback(env, sep);
+    }
+  }
+
+  /// Decode and re-emit an ephemeral ServerEventPayload. The only
+  /// variant routed today is [pb.Typing]; anything else is a no-op
+  /// (forward-compat for future presence/reactions-bursts).
+  void _handleEphemeral(pb.Envelope env, List<int> bytes) {
+    pb.ServerEventPayload sep;
+    try {
+      sep = pb.ServerEventPayload.fromBuffer(bytes);
+    } catch (_) {
+      return;
+    }
+    if (sep.whichBody() != pb.ServerEventPayload_Body.typing) return;
+    if (_typingCtrl.isClosed) return;
+    _typingCtrl.add(TypingEvent(
+      channelId: env.channelId,
+      userId: env.senderUserId,
+      isTyping: sep.typing.isTyping,
+      emittedAtMs: env.clientTimestampMs.toInt(),
+    ));
+  }
+
+  /// §10.2 MessageStateChanged. Flip the local row's `message_state`
+  /// (sent → delivered → read). [ChatStore.applyMessageStateChange]
+  /// drops stale events on its own; we still record `op_id_seen` here
+  /// so the server-side dedup invariant holds.
+  Future<void> _handleMessageStateChanged(
+    pb.Envelope env,
+    pb.MessageStateChanged body,
+  ) async {
+    final mapped = _messageStateFromWire(body.newState);
+    bool applied = false;
+    if (mapped != null) {
+      applied = await store.applyMessageStateChange(
+        messageId: body.messageId,
+        newState: mapped,
+        changedAtMs: body.changedAtMs.toInt(),
+      );
+    }
+    // ignore: avoid_print
+    print('InboundReceiver: MessageStateChanged '
+        'channel=${env.channelId} message=${body.messageId} '
+        'newState=${body.newState.name} mapped=$mapped applied=$applied');
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': clock.nowMs(),
+    });
+  }
+
+  static MessageState? _messageStateFromWire(pb.MessageStateValue v) {
+    switch (v) {
+      case pb.MessageStateValue.MESSAGE_STATE_DELIVERED:
+        return MessageState.delivered;
+      case pb.MessageStateValue.MESSAGE_STATE_READ:
+        return MessageState.read;
+      case pb.MessageStateValue.MESSAGE_STATE_REJECTED:
+        return MessageState.rejected;
+      default:
+        return null;
     }
   }
 

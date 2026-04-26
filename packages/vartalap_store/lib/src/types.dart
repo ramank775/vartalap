@@ -162,6 +162,26 @@ class MessageRow {
   });
 }
 
+/// One member of a channel, joined with the contact row when known.
+///
+/// `contact` is null for members not yet discovered locally — the UI
+/// should fall back to a userId-derived label.
+class ChannelMemberRow {
+  final String channelId;
+  final String userId;
+  final String role;
+  final int joinedAt;
+  final ContactRow? contact;
+
+  const ChannelMemberRow({
+    required this.channelId,
+    required this.userId,
+    required this.role,
+    required this.joinedAt,
+    required this.contact,
+  });
+}
+
 /// Row from the `contacts` table — §7.
 class ContactRow {
   final String userId;
@@ -186,8 +206,29 @@ class ContactRow {
 
   /// Display name resolution per AUTH_CONTRACT §2.4:
   /// contact-book name → username → userId fallback.
+  ///
+  /// `userId` is the ultimate fallback so non-UI callers (logging,
+  /// sorting, debugging) always get a non-empty, stable string. UI
+  /// surfaces should use [displayLabel] instead — exposing a raw
+  /// 9-hex-char user_id to the user is jarring.
   String get resolvedName =>
       contactBookName ?? displayName ?? username ?? userId;
+
+  /// UI-safe variant of [resolvedName]. Returns the contact-book name,
+  /// then displayName, then `@username`, and finally a generic
+  /// placeholder — never the raw user_id.
+  String get displayLabel {
+    if (contactBookName != null && contactBookName!.isNotEmpty) {
+      return contactBookName!;
+    }
+    if (displayName != null && displayName!.isNotEmpty) {
+      return displayName!;
+    }
+    if (username != null && username!.isNotEmpty) {
+      return '@$username';
+    }
+    return 'Unknown';
+  }
 }
 
 /// Denormalized chat-list row — SPIKE_A_SCHEMA.md §13.1.

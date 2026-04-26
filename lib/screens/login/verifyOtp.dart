@@ -172,13 +172,54 @@ class _OtpInputState extends State<_OtpInput> {
     final scheme = Theme.of(context).colorScheme;
     final otp = widget.controller.text;
 
-    return GestureDetector(
-      onTap: () => _focusNode.requestFocus(),
-      child: Column(
-        children: [
-          // Hidden TextField that captures input
-          SizedBox(
-            height: 0,
+    final boxes = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(6, (i) {
+        final filled = i < otp.length;
+        final active = i == otp.length && _focusNode.hasFocus;
+        return Container(
+          width: 48,
+          height: 56,
+          margin: const EdgeInsets.symmetric(horizontal: kSpaceXs),
+          decoration: BoxDecoration(
+            color: filled
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(kRadiusSm),
+            border: Border.all(
+              color: active
+                  ? scheme.primary
+                  : filled
+                      ? scheme.primary.withValues(alpha: 0.5)
+                      : scheme.outlineVariant,
+              width: active ? 2 : 1,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: filled
+              ? Text(
+                  otp[i],
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                )
+              : null,
+        );
+      }),
+    );
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Real, sized, but fully transparent TextField — owns input + IME.
+        // Sized to match the boxes so it can actually receive focus and the
+        // soft keyboard. Tap-through is handled by the GestureDetector below.
+        Opacity(
+          opacity: 0,
+          child: SizedBox(
+            height: 56,
             child: TextField(
               controller: widget.controller,
               focusNode: _focusNode,
@@ -190,49 +231,16 @@ class _OtpInputState extends State<_OtpInput> {
                 border: InputBorder.none,
                 counterText: '',
               ),
-              style: const TextStyle(color: Colors.transparent),
             ),
           ),
-          // Visual digit boxes
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(6, (i) {
-              final filled = i < otp.length;
-              final active = i == otp.length && _focusNode.hasFocus;
-              return Container(
-                width: 48,
-                height: 56,
-                margin: const EdgeInsets.symmetric(horizontal: kSpaceXs),
-                decoration: BoxDecoration(
-                  color: filled
-                      ? scheme.primaryContainer
-                      : scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(kRadiusSm),
-                  border: Border.all(
-                    color: active
-                        ? scheme.primary
-                        : filled
-                            ? scheme.primary.withValues(alpha: 0.5)
-                            : scheme.outlineVariant,
-                    width: active ? 2 : 1,
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: filled
-                    ? Text(
-                        otp[i],
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onPrimaryContainer,
-                        ),
-                      )
-                    : null,
-              );
-            }),
-          ),
-        ],
-      ),
+        ),
+        // Visual digit boxes painted on top; tap routes focus to the field.
+        GestureDetector(
+          onTap: () => _focusNode.requestFocus(),
+          behavior: HitTestBehavior.opaque,
+          child: boxes,
+        ),
+      ],
     );
   }
 }

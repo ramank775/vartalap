@@ -739,6 +739,18 @@ open questions remain.
 12. ~~**Undelivered-queue TTL on chat-server.**~~ **Resolved: 30
     days rolling per user, 10,000 frames cap, drop-oldest on
     overflow. See `docs/SYNC_PROTOCOL.md` §11.2.**
+13. **Per-channel mute / notification preferences.** Chat-info exposes
+    a "Notifications" tile but it's currently a disabled "Coming soon"
+    stub. Needs: a `channel_settings` (or column on `channels`) for
+    `muted_until_ms` / `notify_mentions_only`, ntfy push-topic gating
+    so muted channels don't wake the device, UI for the four standard
+    durations (8h / 1w / always / off). Blocked on push-topic
+    registration semantics landing.
+14. **Media / links / docs viewer in chat-info.** Tile is also a
+    "Coming soon" stub. Needs: attachment send path (currently text-
+    only), then a query that filters `messages` by `content_type` /
+    URL regex per channel and renders a thumbnail grid + link list +
+    file list. Out of scope until the attachment pipeline ships.
 
 ---
 

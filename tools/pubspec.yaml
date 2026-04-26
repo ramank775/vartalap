@@ -10,3 +10,4 @@ dependencies:
   vartalap_proto:
     path: ../packages/vartalap_proto
   fixnum: ^1.1.0
+  crypto: ^3.0.3

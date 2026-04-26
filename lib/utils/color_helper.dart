@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/utils/random_color.dart';
 
 MaterialColor generateMaterialColor(Color color) {
-  return MaterialColor(color.value, {
+  return MaterialColor(color.toARGB32(), {
     50: tintColor(color, 0.9),
     100: tintColor(color, 0.8),
     200: tintColor(color, 0.6),
@@ -17,22 +17,24 @@ MaterialColor generateMaterialColor(Color color) {
   });
 }
 
+int _channel(double v) => (v * 255.0).round().clamp(0, 255);
+
 int tintValue(int value, double factor) =>
     max(0, min((value + ((255 - value) * factor)).round(), 255));
 
 Color tintColor(Color color, double factor) => Color.fromRGBO(
-    tintValue(color.red, factor),
-    tintValue(color.green, factor),
-    tintValue(color.blue, factor),
+    tintValue(_channel(color.r), factor),
+    tintValue(_channel(color.g), factor),
+    tintValue(_channel(color.b), factor),
     1);
 
 int shadeValue(int value, double factor) =>
     max(0, min(value - (value * factor).round(), 255));
 
 Color shadeColor(Color color, double factor) => Color.fromRGBO(
-    shadeValue(color.red, factor),
-    shadeValue(color.green, factor),
-    shadeValue(color.blue, factor),
+    shadeValue(_channel(color.r), factor),
+    shadeValue(_channel(color.g), factor),
+    shadeValue(_channel(color.b), factor),
     1);
 
 class Range {
@@ -94,7 +96,7 @@ Color getColor(
     colorBrightness: colorBrightness,
     colorSaturation: colorSaturation,
   );
-  return color.withOpacity(opacity);
+  return color.withValues(alpha: opacity);
 }
 
 /// Construct a color from a hex code string, of the format #RRGGBB.

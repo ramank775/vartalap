@@ -66,6 +66,7 @@ const Envelope$json = {
       '10': 'clientTimestampMs'
     },
     {'1': 'payload', '3': 5, '4': 1, '5': 12, '10': 'payload'},
+    {'1': 'ephemeral', '3': 6, '4': 1, '5': 8, '10': 'ephemeral'},
     {'1': 'sender_user_id', '3': 20, '4': 1, '5': 9, '10': 'senderUserId'},
     {
       '1': 'server_timestamp_ms',
@@ -89,9 +90,9 @@ final $typed_data.Uint8List envelopeDescriptor = $convert.base64Decode(
     'CghFbnZlbG9wZRITCgVvcF9pZBgBIAEoCVIEb3BJZBIdCgpjaGFubmVsX2lkGAIgASgJUgljaG'
     'FubmVsSWQSIQoMcmVzb3VyY2Vfc2VxGAMgASgEUgtyZXNvdXJjZVNlcRIuChNjbGllbnRfdGlt'
     'ZXN0YW1wX21zGAQgASgEUhFjbGllbnRUaW1lc3RhbXBNcxIYCgdwYXlsb2FkGAUgASgMUgdwYX'
-    'lsb2FkEiQKDnNlbmRlcl91c2VyX2lkGBQgASgJUgxzZW5kZXJVc2VySWQSLgoTc2VydmVyX3Rp'
-    'bWVzdGFtcF9tcxgVIAEoBFIRc2VydmVyVGltZXN0YW1wTXMSKwoRZGVsaXZlcnlfc2VxdWVuY2'
-    'UYFiABKARSEGRlbGl2ZXJ5U2VxdWVuY2U=');
+    'lsb2FkEhwKCWVwaGVtZXJhbBgGIAEoCFIJZXBoZW1lcmFsEiQKDnNlbmRlcl91c2VyX2lkGBQg'
+    'ASgJUgxzZW5kZXJVc2VySWQSLgoTc2VydmVyX3RpbWVzdGFtcF9tcxgVIAEoBFIRc2VydmVyVG'
+    'ltZXN0YW1wTXMSKwoRZGVsaXZlcnlfc2VxdWVuY2UYFiABKARSEGRlbGl2ZXJ5U2VxdWVuY2U=');
 
 @$core.Deprecated('Use ackDescriptor instead')
 const Ack$json = {

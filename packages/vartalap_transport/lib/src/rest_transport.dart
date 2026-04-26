@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 
 import 'ack.dart';
 import 'auth_token_provider.dart';
@@ -208,6 +209,58 @@ class RestTransport implements Transport {
 
   void _emit(AckFrame frame) {
     if (!_ackCtrl.isClosed) _ackCtrl.add(frame);
+  }
+
+  /// Client-triggered sync pull. Hits `GET /v3.0/sync/pending` and
+  /// returns the queued `WS_PUSH` envelopes. The server-side queue is
+  /// drained in the same call. Caller is responsible for feeding each
+  /// returned envelope into the inbound apply pipeline (typically via
+  /// [WsTransport.injectPush]). Returns an empty list on transport
+  /// failure or non-2xx so callers can fail open and retry on next
+  /// tick — there's no error reporting since this isn't a queued op.
+  Future<List<pb.Envelope>> pullPendingSync() async {
+    if (_disposed) return const [];
+    final token = auth.currentAccesskey;
+    if (token == null) return const [];
+    final uri = baseUrl.resolve('/v3.0/sync/pending');
+    http.Response resp;
+    try {
+      resp = await _client.get(uri, headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+      });
+    } catch (_) {
+      return const [];
+    }
+    if (resp.statusCode != 200) return const [];
+    Map<String, dynamic> body;
+    try {
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) return const [];
+      body = decoded;
+    } catch (_) {
+      return const [];
+    }
+    final framesB64 = body['frames'];
+    if (framesB64 is! List) return const [];
+    final out = <pb.Envelope>[];
+    for (final entry in framesB64) {
+      if (entry is! String) continue;
+      List<int> bytes;
+      try {
+        bytes = base64Decode(entry);
+      } catch (_) {
+        continue;
+      }
+      try {
+        final wsEnv = pb.WsEnvelope.fromBuffer(bytes);
+        if (wsEnv.type != pb.WsType.WS_PUSH || !wsEnv.hasPush()) continue;
+        out.add(wsEnv.push);
+      } catch (_) {
+        continue;
+      }
+    }
+    return out;
   }
 }
 

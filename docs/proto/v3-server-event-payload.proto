@@ -85,6 +85,8 @@ message ServerEventPayload {
     ChannelDeleted channel_deleted = 14;
     ProfileEdited profile_edited = 15;
     UsernameChanged username_changed = 16;
+    MessageStateChanged message_state_changed = 17;
+    Typing typing = 18;
   }
 }
 
@@ -97,6 +99,27 @@ enum ServerEventType {
   CHANNEL_DELETED = 5;
   PROFILE_EDITED = 6;
   USERNAME_CHANGED = 7;
+  MESSAGE_STATE_CHANGED = 8;
+  TYPING = 9;
+}
+
+// Receipt lifecycle a message can transition through after the author's
+// initial `sent`. Sent back to the AUTHOR only — not fanned to other
+// recipients (those see the actual message via WS_PUSH already).
+//
+// Adding a new state is additive (recipients tolerate unknown enum
+// values, falling back to MESSAGE_STATE_UNSPECIFIED → no-op).
+enum MessageStateValue {
+  MESSAGE_STATE_UNSPECIFIED = 0;
+  // Server fanned to at least one other recipient's WS, OR the
+  // recipient drained it from the undelivered queue. Author's local
+  // tick goes single → double.
+  MESSAGE_STATE_DELIVERED = 1;
+  // Recipient marked as read. Author's tick goes double → blue-double.
+  MESSAGE_STATE_READ = 2;
+  // Server permanently rejected the message after the initial ACK.
+  // Reserved for moderation / quota / banned-content paths.
+  MESSAGE_STATE_REJECTED = 3;
 }
 
 
@@ -219,4 +242,66 @@ message UsernameChanged {
 
   // When the server applied the change, ms since epoch.
   uint64 changed_at_ms = 3;
+}
+
+// Generic message receipt event: sent back to the message AUTHOR when
+// the server observes the message transitioning to a new state. One
+// event per transition. v3.0 emits this on:
+//   - delivered: server fans out to a recipient WS, or a recipient
+//     drains from undelivered queue.
+//   - read: a recipient client posts a read receipt.
+//   - rejected: server retracts a previously-acked message (moderation,
+//     quota, etc.) — rare; reserved.
+//
+// Recipients flip the local `messages.message_state` accordingly.
+// Out-of-order events are tolerated: states are monotonic in the
+// author's UI (delivered cannot revert to sent), so a stale event is
+// dropped client-side if `new_state` is "older" than what's stored.
+// EPHEMERAL: typing indicator. Client-authored despite living under the
+// 0x53 ServerEventPayload namespace (see the §10.2 routing-tag note —
+// 0x53 is the wire discriminator, not a provenance claim).
+//
+// CONTRACT (different from every other variant in this file):
+//   - The originating client bypasses `outbound_ops` entirely and calls
+//     `WsTransport.send` directly with a one-shot op_id. If the WS is
+//     not connected the event is DROPPED — typing is lossy by design.
+//   - The server fans the frame verbatim to the other channel members
+//     and DOES NOT persist or queue it. Recipients who are offline at
+//     fanout time MUST NOT receive it on reconnect.
+//   - Recipients show the indicator with a short TTL (~6s in v3.0) so
+//     a missed `is_typing=false` doesn't strand the UI.
+//
+// Why server-event-namespaced rather than a new ChatPayload variant:
+// the 0x53 prefix already routes unconditionally to the receiver's
+// no-op-friendly dispatcher; ChatPayload mutations would be more
+// invasive and would imply persistence on the receiver side.
+message Typing {
+  // True = composing started/ongoing; false = composing stopped.
+  // Senders typically emit `true` once on first keystroke after a
+  // quiet period and `false` after ~4s of inactivity (or on send).
+  //
+  // Channel, sender, and timestamp are all carried by the surrounding
+  // Envelope (`channel_id`, `sender_user_id`, `client_timestamp_ms`)
+  // and intentionally NOT duplicated here — keeping the typing payload
+  // a single byte on the wire (proto3 default-false is not encoded;
+  // is_typing=true encodes as 2 bytes).
+  bool is_typing = 1;
+}
+
+message MessageStateChanged {
+  // Channel the original message was sent to.
+  string channel_id = 1;
+
+  // The original message_id (chat payload's message_id, NOT op_id).
+  string message_id = 2;
+
+  // The state being transitioned INTO.
+  MessageStateValue new_state = 3;
+
+  // When the server observed the transition, ms since epoch.
+  uint64 changed_at_ms = 4;
+
+  // For per-recipient granularity in group DMs (v3.1+). Empty in v3.0
+  // one-to-one channels.
+  string recipient_user_id = 5;
 }

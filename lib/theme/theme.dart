@@ -161,6 +161,37 @@ final ThemeData lightThemeData = ThemeData(
       vertical: kSpaceXs,
     ),
   ),
+  popupMenuTheme: PopupMenuThemeData(
+    color: _lightScheme.surfaceContainer,
+    surfaceTintColor: _lightScheme.surfaceTint,
+    elevation: 3,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(kRadiusMd),
+    ),
+    textStyle: TextStyle(
+      fontFamily: _fontFamily,
+      color: _lightScheme.onSurface,
+      fontSize: 16,
+      height: 1.5,
+    ),
+    iconColor: _lightScheme.onSurface,
+    iconSize: 20,
+    labelTextStyle: WidgetStatePropertyAll(
+      TextStyle(
+        fontFamily: _fontFamily,
+        color: _lightScheme.onSurface,
+        fontSize: 16,
+        height: 1.5,
+      ),
+    ),
+    menuPadding: const EdgeInsets.symmetric(vertical: kSpaceSm),
+  ),
+  tabBarTheme: TabBarThemeData(
+    labelColor: _lightScheme.onPrimary,
+    unselectedLabelColor: _lightScheme.onPrimary.withValues(alpha: 0.7),
+    indicatorColor: _lightScheme.onPrimary,
+    dividerColor: Colors.transparent,
+  ),
 );
 
 final ThemeData darkThemeData = ThemeData(
@@ -236,6 +267,37 @@ final ThemeData darkThemeData = ThemeData(
       horizontal: kSpaceMd,
       vertical: kSpaceXs,
     ),
+  ),
+  popupMenuTheme: PopupMenuThemeData(
+    color: _darkScheme.surfaceContainer,
+    surfaceTintColor: _darkScheme.surfaceTint,
+    elevation: 3,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(kRadiusMd),
+    ),
+    textStyle: TextStyle(
+      fontFamily: _fontFamily,
+      color: _darkScheme.onSurface,
+      fontSize: 16,
+      height: 1.5,
+    ),
+    iconColor: _darkScheme.onSurface,
+    iconSize: 20,
+    labelTextStyle: WidgetStatePropertyAll(
+      TextStyle(
+        fontFamily: _fontFamily,
+        color: _darkScheme.onSurface,
+        fontSize: 16,
+        height: 1.5,
+      ),
+    ),
+    menuPadding: const EdgeInsets.symmetric(vertical: kSpaceSm),
+  ),
+  tabBarTheme: TabBarThemeData(
+    labelColor: _darkScheme.onSurface,
+    unselectedLabelColor: _darkScheme.onSurface.withValues(alpha: 0.7),
+    indicatorColor: _darkScheme.primary,
+    dividerColor: Colors.transparent,
   ),
 );
 
@@ -315,7 +377,17 @@ class VartalapTheme {
   final ThemeData data;
   final ChatColors chatColors;
 
-  static ThemeMode themeMode = ThemeMode.system;
+  /// Live theme mode. Wrap the root `MaterialApp` in a
+  /// `ValueListenableBuilder` over this notifier so calls to
+  /// [setThemeMode] take effect without an app restart.
+  static final ValueNotifier<ThemeMode> themeModeNotifier =
+      ValueNotifier<ThemeMode>(ThemeMode.system);
+
+  static ThemeMode get themeMode => themeModeNotifier.value;
+
+  static set themeMode(ThemeMode value) {
+    themeModeNotifier.value = value;
+  }
 
   static VartalapTheme get light =>
       VartalapTheme._(data: lightThemeData, chatColors: lightChatColors);

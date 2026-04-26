@@ -55,6 +55,7 @@ class AppServices {
   final ChatService chatService;
   final SyncScheduler scheduler;
   final WsTransport wsTransport;
+  final RestTransport restTransport;
   final bool consentAccepted;
 
   /// Inbound WS_PUSH fanout applier. Null pre-login: it's constructed
@@ -72,9 +73,28 @@ class AppServices {
     required this.chatService,
     required this.scheduler,
     required this.wsTransport,
+    required this.restTransport,
     required this.consentAccepted,
     this.inboundReceiver,
   });
+
+  /// Pull whatever the server has queued for us, feed each frame into
+  /// the same fanout stream as live WS_PUSHes, wait for the inbound
+  /// receiver to apply them, and then release the WS post-connect
+  /// buffer (live frames captured during the window flush in arrival
+  /// order). Safe to call many times — `InboundReceiver` dedups by
+  /// op_id; [WsTransport.endSyncBuffer] is idempotent.
+  Future<void> pullPendingSync() async {
+    try {
+      final envelopes = await restTransport.pullPendingSync();
+      for (final env in envelopes) {
+        wsTransport.injectPush(env);
+      }
+      await inboundReceiver?.drainPending();
+    } finally {
+      wsTransport.endSyncBuffer();
+    }
+  }
 
   /// Stop any previous receiver and construct + start a fresh one
   /// bound to [userIdHex]. Called on every login so the new session's
@@ -83,6 +103,7 @@ class AppServices {
   Future<void> rebuildInboundReceiverForUser(String userIdHex) async {
     final prev = inboundReceiver;
     inboundReceiver = null;
+    chatService.bindTypingSource(null);
     if (prev != null) {
       await prev.stop();
     }
@@ -93,6 +114,7 @@ class AppServices {
     );
     await next.start();
     inboundReceiver = next;
+    chatService.bindTypingSource(next.typingEvents);
   }
 }
 
@@ -152,6 +174,7 @@ Future<AppServices> initializeApp() async {
     store: store,
     scheduler: scheduler,
     authClient: authClient,
+    wsTransport: wsTransport,
     uuidGen: uuidGen,
     clock: Clock.system,
   );
@@ -163,6 +186,7 @@ Future<AppServices> initializeApp() async {
     chatService: chatService,
     scheduler: scheduler,
     wsTransport: wsTransport,
+    restTransport: restTransport,
     consentAccepted: consentAccepted,
   );
 
@@ -172,6 +196,10 @@ Future<AppServices> initializeApp() async {
   final restoredUserId = authClient.currentUserId;
   if (restoredUserId != null) {
     await services.rebuildInboundReceiverForUser(restoredUserId);
+    // Best-effort initial pull — picks up anything the server queued
+    // between the last connection and now (e.g. seed-peer DM created
+    // at OTP-verify on a fresh install). Server never auto-pushes.
+    unawaited(services.pullPendingSync());
   }
 
   return services;
@@ -206,6 +234,12 @@ class _AppState extends State<App> {
   late bool _isLogin;
   late bool _consentAccepted;
   late StreamSubscription<bool> _authSub;
+  StreamSubscription<TransportState>? _wsStateSub;
+  // Held so the auth-state listener can pop the navigator back to the
+  // root before [_home] swaps in the login flow. Without this, screens
+  // pushed on top of the chat list (Profile, Settings, …) survive the
+  // logout and the user has to back out of them manually.
+  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -213,6 +247,12 @@ class _AppState extends State<App> {
     _consentAccepted = widget.services.consentAccepted;
     _isLogin = widget.services.authService.isLoggedIn;
     _authSub = widget.services.authService.authStateChange.listen((loggedIn) {
+      if (!loggedIn) {
+        // Tear down any pushed routes (Profile, Settings, Chat, …) so
+        // the login screen replaces the *whole* surface, not just the
+        // root underneath an existing stack.
+        _navKey.currentState?.popUntil((route) => route.isFirst);
+      }
       if (loggedIn) {
         // Reseed the op_id generator with the just-authenticated
         // user's user_id. Before this point main.dart constructed the
@@ -223,12 +263,12 @@ class _AppState extends State<App> {
         if (userId != null) {
           widget.services.chatService.reseedForUser(userId);
           // Rebuild the inbound receiver so localUserId reflects the
-          // new session. Fire-and-forget: setState below flips the UI
-          // into the chat list; the receiver coming up a few ticks
-          // later just means the first push frame arrives against the
-          // already-visible shell.
+          // new session, then pull whatever the server has queued.
+          // Order matters: receiver must be live before frames arrive.
           unawaited(
-            widget.services.rebuildInboundReceiverForUser(userId),
+            widget.services
+                .rebuildInboundReceiverForUser(userId)
+                .then((_) => widget.services.pullPendingSync()),
           );
           // Kick the WS transport so it connects now that we have an
           // accesskey. If already connected this is a no-op.
@@ -236,6 +276,14 @@ class _AppState extends State<App> {
         }
       }
       setState(() => _isLogin = loggedIn);
+    });
+    // Re-pull on every WS reconnect so frames queued while offline
+    // arrive without waiting for an app restart. Server never pushes
+    // on connect; the client owns the trigger.
+    _wsStateSub = widget.services.wsTransport.state.listen((s) {
+      if (s == TransportState.connected) {
+        unawaited(widget.services.pullPendingSync());
+      }
     });
   }
 
@@ -263,14 +311,17 @@ class _AppState extends State<App> {
       configStore: configStore,
       child: AppServicesProvider(
         services: widget.services,
-        child: MaterialApp(
-          title: configStore.packageInfo.appName,
-          debugShowCheckedModeBanner: kDebugMode,
-          themeMode: VartalapTheme.themeMode,
-          theme: VartalapTheme.light.data,
-          darkTheme: VartalapTheme.dark.data,
-          home: _home(),
-          onGenerateRoute: (settings) {
+        child: ValueListenableBuilder<ThemeMode>(
+          valueListenable: VartalapTheme.themeModeNotifier,
+          builder: (context, themeMode, _) => MaterialApp(
+            title: configStore.packageInfo.appName,
+            debugShowCheckedModeBanner: kDebugMode,
+            themeMode: themeMode,
+            theme: VartalapTheme.light.data,
+            darkTheme: VartalapTheme.dark.data,
+            navigatorKey: _navKey,
+            home: _home(),
+            onGenerateRoute: (settings) {
             // No named routes in v3.0 — screens push each other
             // through direct constructor calls so dependencies are
             // explicit. Intent deep-links and push-notification
@@ -303,6 +354,7 @@ class _AppState extends State<App> {
             }
             return null;
           },
+          ),
         ),
       ),
     );
@@ -311,6 +363,7 @@ class _AppState extends State<App> {
   @override
   void dispose() {
     _authSub.cancel();
+    _wsStateSub?.cancel();
     unawaited(widget.services.inboundReceiver?.stop());
     unawaited(widget.services.scheduler.stop());
     unawaited(widget.services.authService.dispose());

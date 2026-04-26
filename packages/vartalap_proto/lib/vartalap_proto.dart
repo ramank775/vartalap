@@ -25,5 +25,8 @@ export 'src/generated/v3-server-event-payload.pb.dart'
         ChannelEdited,
         ChannelDeleted,
         ProfileEdited,
-        UsernameChanged;
-export 'src/generated/v3-server-event-payload.pbenum.dart' show ServerEventType;
+        UsernameChanged,
+        MessageStateChanged,
+        Typing;
+export 'src/generated/v3-server-event-payload.pbenum.dart'
+    show ServerEventType, MessageStateValue;

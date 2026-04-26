@@ -14,8 +14,11 @@ library vartalap.services.chat_service;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:fixnum/fixnum.dart' as fixnum;
+import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -37,11 +40,70 @@ List<int> _encodeChatPayload({
   return utf8.encode(jsonEncode(json));
 }
 
+/// Build the WS_OP payload for an outbound typing indicator. Same
+/// `0x53 || ServerEventPayload{Typing}` shape as other server-event
+/// envelopes; the routing distinguisher is the envelope's `ephemeral`
+/// flag, not the payload bytes. Channel/sender/timestamp ride on the
+/// envelope, not duplicated in the body.
+Uint8List _encodeTyping({required bool isTyping}) {
+  final sep = pb.ServerEventPayload(
+    version: 1,
+    type: pb.ServerEventType.TYPING,
+    typing: pb.Typing(isTyping: isTyping),
+  );
+  return Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+}
+
+/// Build the WS_OP payload for an outbound read receipt — a
+/// `ServerEventPayload{MessageStateChanged}` prefixed with the §10.2
+/// `0x53` distinguisher byte. Server fans this verbatim to the rest of
+/// the channel; the original message's author flips their tick to read.
+Uint8List _encodeReadReceipt({
+  required String channelId,
+  required String messageId,
+  required int nowMs,
+}) {
+  final sep = pb.ServerEventPayload(
+    version: 1,
+    type: pb.ServerEventType.MESSAGE_STATE_CHANGED,
+    messageStateChanged: pb.MessageStateChanged(
+      channelId: channelId,
+      messageId: messageId,
+      newState: pb.MessageStateValue.MESSAGE_STATE_READ,
+      changedAtMs: fixnum.Int64(nowMs),
+    ),
+  );
+  return Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+}
+
 class ChatService {
   final ChatStore _store;
   final SyncScheduler _scheduler;
   final AuthClient _authClient;
   final Clock _clock;
+  final WsTransport _wsTransport;
+
+  /// Broadcast passthrough for inbound typing events. main.dart wires
+  /// every InboundReceiver instance (built/rebuilt per login) into this
+  /// controller via [bindTypingSource], so chat screens can subscribe
+  /// once and stay correct across logout/login cycles.
+  final StreamController<TypingEvent> _typingCtrl =
+      StreamController<TypingEvent>.broadcast();
+  StreamSubscription<TypingEvent>? _typingSub;
+
+  Stream<TypingEvent> get typingEvents => _typingCtrl.stream;
+
+  /// Replace the inbound typing source. Cancels the previous bridge if
+  /// any. Pass `null` to detach (e.g. on logout while the screen is
+  /// already torn down). Idempotent.
+  void bindTypingSource(Stream<TypingEvent>? source) {
+    _typingSub?.cancel();
+    _typingSub = null;
+    if (source == null) return;
+    _typingSub = source.listen((e) {
+      if (!_typingCtrl.isClosed) _typingCtrl.add(e);
+    });
+  }
 
   /// Current op_id generator. Swapped via [reseedForUser] when the
   /// authenticated user changes — see the class doc on [reseedForUser]
@@ -57,11 +119,13 @@ class ChatService {
     required ChatStore store,
     required SyncScheduler scheduler,
     required AuthClient authClient,
+    required WsTransport wsTransport,
     required Uuid7Gen uuidGen,
     required Clock clock,
   })  : _store = store,
         _scheduler = scheduler,
         _authClient = authClient,
+        _wsTransport = wsTransport,
         _uuidGen = uuidGen,
         _clock = clock;
 
@@ -237,11 +301,82 @@ class ChatService {
     return channelId;
   }
 
-  /// §10 — advances the local read marker and zeroes `unread_count`.
-  /// Called on ChatScreen entry. v3.0 is local-only; v3.1 adds an
-  /// outbound read-receipt op.
-  Future<void> markRead(String channelId) =>
-      _store.markChannelRead(channelId, _clock.nowMs());
+  /// Advances the local read marker, zeroes `unread_count`, and (if
+  /// the user is logged in and the channel has at least one peer
+  /// message) enqueues an outbound `MessageStateChanged{READ}` so the
+  /// author's tick flips to read on their device. Best-effort: if the
+  /// op enqueue fails the local read marker still moves.
+  Future<void> markRead(String channelId) async {
+    final now = _clock.nowMs();
+    await _store.markChannelRead(channelId, now);
+    final localUserId = _authClient.currentUserId;
+    if (localUserId == null) return;
+    final messageId = await _store.latestPeerMessageId(
+      channelId: channelId,
+      localUserId: localUserId,
+    );
+    if (messageId == null) return;
+
+    final opId = _uuidGen.next(nowMs: now);
+    final seqRow = await _store.db.rawQuery(
+      'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
+      [channelId],
+    );
+    final maxSeq = seqRow.single['m'] as int?;
+    final nextSeq = (maxSeq ?? 0) + 1;
+
+    final op = OutboundOpRow(
+      opId: opId,
+      transport: OpTransport.ws,
+      kind: OpKind.chatPayload,
+      restMethod: null,
+      restPath: null,
+      resourceId: channelId,
+      resourceSeq: nextSeq,
+      payload: _encodeReadReceipt(
+        channelId: channelId,
+        messageId: messageId,
+        nowMs: now,
+      ),
+      status: OpStatus.pending,
+      attempts: 0,
+      nextRetryAt: now,
+      dispatchedAt: null,
+      lastError: null,
+      acknowledgedAt: null,
+      createdAt: now,
+      // Read receipt doesn't target a local message row — the ACK just
+      // deletes the op (scheduler's null-targetMessageId branch).
+      targetMessageId: null,
+      targetChannelId: channelId,
+    );
+    await _store.enqueueOutboundOp(op);
+    _scheduler.tickSoon();
+  }
+
+  /// Fire-and-forget typing indicator. Constructs an ephemeral envelope
+  /// (no `outbound_ops` row, no retry, no ACK) and writes it directly
+  /// to the WS. If the WS isn't connected the call is a no-op — the
+  /// recipient's "is typing" indicator will time out on its own.
+  void notifyTyping({
+    required String channelId,
+    required bool isTyping,
+  }) {
+    final localUserId = _authClient.currentUserId;
+    if (localUserId == null) return;
+    final now = _clock.nowMs();
+    // localUserId is read only to gate the call (don't fire when
+    // logged out — the embedded uuid_v7 user_id bits would be wrong).
+    // It does not appear in the encoded payload — the server stamps
+    // sender_user_id on the envelope at fanout.
+    if (localUserId.isEmpty) return;
+    _wsTransport.sendEphemeral(
+      opId: _uuidGen.next(nowMs: now),
+      channelId: channelId,
+      payload: _encodeTyping(isTyping: isTyping),
+      clientTimestampMs: now,
+    );
+  }
 
   /// Discover contacts from the server and cache locally.
   ///
@@ -256,20 +391,29 @@ class ChatService {
   /// phone numbers).
   Future<List<ContactRow>> discoverContacts({
     List<String> normalizedPhones = const [],
+    Map<String, String> contactBookNamesByPhone = const {},
   }) async {
     if (normalizedPhones.isEmpty) {
       return _store.fetchContacts();
     }
-    final hashes = normalizedPhones
-        .map((p) => sha256.convert(utf8.encode(p)).toString())
-        .toList();
+    // Hash each normalized phone, keeping a hash→name map so the
+    // server's per-hash matches can recover the device-side label.
+    final hashByName = <String, String>{};
+    final hashes = normalizedPhones.map((p) {
+      final h = sha256.convert(utf8.encode(p)).toString();
+      final name = contactBookNamesByPhone[p];
+      if (name != null && name.isNotEmpty) hashByName[h] = name;
+      return h;
+    }).toList();
     final matches = await _authClient.lookupContacts(hashes);
     final now = _clock.nowMs();
     for (final m in matches) {
       await _store.upsertContact(
         userId: m.userId,
         username: m.username,
-        displayName: m.username, // best we have from lookup
+        displayName: m.username,
+        phoneHash: m.phoneHash,
+        contactBookName: hashByName[m.phoneHash],
         nowMs: now,
       );
     }
@@ -379,6 +523,24 @@ class ChatService {
   /// does not propagate — re-login or other devices will still see the
   /// channel.
   Future<void> leaveGroup(String channelId) => _store.leaveGroupLocal(channelId);
+
+  /// Active members of [channelId], joined with the local contact row
+  /// where one exists. Powers the chat-info member list.
+  Future<List<ChannelMemberRow>> fetchChannelMembers(String channelId) =>
+      _store.fetchChannelMembers(channelId);
+
+  /// Substring search restricted to [channelId]. Powers chat-info's
+  /// "Search in conversation" sheet.
+  Future<List<MessageRow>> searchInChannel({
+    required String channelId,
+    required String query,
+    int limit = 200,
+  }) =>
+      _store.searchChannelMessages(
+        channelId: channelId,
+        query: query,
+        limit: limit,
+      );
 
   /// Channels the current user is an active member of, filtered by
   /// `kind`. Powers the Groups tab in the new-chat picker.

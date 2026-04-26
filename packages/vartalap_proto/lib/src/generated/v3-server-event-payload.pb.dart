@@ -29,6 +29,8 @@ enum ServerEventPayload_Body {
   channelDeleted,
   profileEdited,
   usernameChanged,
+  messageStateChanged,
+  typing,
   notSet
 }
 
@@ -51,6 +53,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     ChannelDeleted? channelDeleted,
     ProfileEdited? profileEdited,
     UsernameChanged? usernameChanged,
+    MessageStateChanged? messageStateChanged,
+    Typing? typing,
   }) {
     final result = create();
     if (version != null) result.version = version;
@@ -62,6 +66,9 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     if (channelDeleted != null) result.channelDeleted = channelDeleted;
     if (profileEdited != null) result.profileEdited = profileEdited;
     if (usernameChanged != null) result.usernameChanged = usernameChanged;
+    if (messageStateChanged != null)
+      result.messageStateChanged = messageStateChanged;
+    if (typing != null) result.typing = typing;
     return result;
   }
 
@@ -83,6 +90,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     14: ServerEventPayload_Body.channelDeleted,
     15: ServerEventPayload_Body.profileEdited,
     16: ServerEventPayload_Body.usernameChanged,
+    17: ServerEventPayload_Body.messageStateChanged,
+    18: ServerEventPayload_Body.typing,
     0: ServerEventPayload_Body.notSet
   };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
@@ -90,7 +99,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
       createEmptyInstance: create)
-    ..oo(0, [10, 11, 12, 13, 14, 15, 16])
+    ..oo(0, [10, 11, 12, 13, 14, 15, 16, 17, 18])
     ..aI(1, _omitFieldNames ? '' : 'version', fieldType: $pb.PbFieldType.OU3)
     ..aE<ServerEventType>(2, _omitFieldNames ? '' : 'type',
         enumValues: ServerEventType.values)
@@ -108,6 +117,10 @@ class ServerEventPayload extends $pb.GeneratedMessage {
         subBuilder: ProfileEdited.create)
     ..aOM<UsernameChanged>(16, _omitFieldNames ? '' : 'usernameChanged',
         subBuilder: UsernameChanged.create)
+    ..aOM<MessageStateChanged>(17, _omitFieldNames ? '' : 'messageStateChanged',
+        subBuilder: MessageStateChanged.create)
+    ..aOM<Typing>(18, _omitFieldNames ? '' : 'typing',
+        subBuilder: Typing.create)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -136,6 +149,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(14)
   @$pb.TagNumber(15)
   @$pb.TagNumber(16)
+  @$pb.TagNumber(17)
+  @$pb.TagNumber(18)
   ServerEventPayload_Body whichBody() =>
       _ServerEventPayload_BodyByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(10)
@@ -145,6 +160,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(14)
   @$pb.TagNumber(15)
   @$pb.TagNumber(16)
+  @$pb.TagNumber(17)
+  @$pb.TagNumber(18)
   void clearBody() => $_clearField($_whichOneof(0));
 
   /// Server-authored schema version. Bumped only when the wire shape
@@ -246,6 +263,28 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   void clearUsernameChanged() => $_clearField(16);
   @$pb.TagNumber(16)
   UsernameChanged ensureUsernameChanged() => $_ensure(8);
+
+  @$pb.TagNumber(17)
+  MessageStateChanged get messageStateChanged => $_getN(9);
+  @$pb.TagNumber(17)
+  set messageStateChanged(MessageStateChanged value) => $_setField(17, value);
+  @$pb.TagNumber(17)
+  $core.bool hasMessageStateChanged() => $_has(9);
+  @$pb.TagNumber(17)
+  void clearMessageStateChanged() => $_clearField(17);
+  @$pb.TagNumber(17)
+  MessageStateChanged ensureMessageStateChanged() => $_ensure(9);
+
+  @$pb.TagNumber(18)
+  Typing get typing => $_getN(10);
+  @$pb.TagNumber(18)
+  set typing(Typing value) => $_setField(18, value);
+  @$pb.TagNumber(18)
+  $core.bool hasTyping() => $_has(10);
+  @$pb.TagNumber(18)
+  void clearTyping() => $_clearField(18);
+  @$pb.TagNumber(18)
+  Typing ensureTyping() => $_ensure(10);
 }
 
 /// Emitted on REST `POST /v3.0/channels` to every member (creator included
@@ -916,6 +955,212 @@ class UsernameChanged extends $pb.GeneratedMessage {
   $core.bool hasChangedAtMs() => $_has(2);
   @$pb.TagNumber(3)
   void clearChangedAtMs() => $_clearField(3);
+}
+
+/// Generic message receipt event: sent back to the message AUTHOR when
+/// the server observes the message transitioning to a new state. One
+/// event per transition. v3.0 emits this on:
+///   - delivered: server fans out to a recipient WS, or a recipient
+///     drains from undelivered queue.
+///   - read: a recipient client posts a read receipt.
+///   - rejected: server retracts a previously-acked message (moderation,
+///     quota, etc.) — rare; reserved.
+///
+/// Recipients flip the local `messages.message_state` accordingly.
+/// Out-of-order events are tolerated: states are monotonic in the
+/// author's UI (delivered cannot revert to sent), so a stale event is
+/// dropped client-side if `new_state` is "older" than what's stored.
+/// EPHEMERAL: typing indicator. Client-authored despite living under the
+/// 0x53 ServerEventPayload namespace (see the §10.2 routing-tag note —
+/// 0x53 is the wire discriminator, not a provenance claim).
+///
+/// CONTRACT (different from every other variant in this file):
+///   - The originating client bypasses `outbound_ops` entirely and calls
+///     `WsTransport.send` directly with a one-shot op_id. If the WS is
+///     not connected the event is DROPPED — typing is lossy by design.
+///   - The server fans the frame verbatim to the other channel members
+///     and DOES NOT persist or queue it. Recipients who are offline at
+///     fanout time MUST NOT receive it on reconnect.
+///   - Recipients show the indicator with a short TTL (~6s in v3.0) so
+///     a missed `is_typing=false` doesn't strand the UI.
+///
+/// Why server-event-namespaced rather than a new ChatPayload variant:
+/// the 0x53 prefix already routes unconditionally to the receiver's
+/// no-op-friendly dispatcher; ChatPayload mutations would be more
+/// invasive and would imply persistence on the receiver side.
+class Typing extends $pb.GeneratedMessage {
+  factory Typing({
+    $core.bool? isTyping,
+  }) {
+    final result = create();
+    if (isTyping != null) result.isTyping = isTyping;
+    return result;
+  }
+
+  Typing._();
+
+  factory Typing.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory Typing.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Typing',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'isTyping')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Typing clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Typing copyWith(void Function(Typing) updates) =>
+      super.copyWith((message) => updates(message as Typing)) as Typing;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static Typing create() => Typing._();
+  @$core.override
+  Typing createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static Typing getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Typing>(create);
+  static Typing? _defaultInstance;
+
+  /// True = composing started/ongoing; false = composing stopped.
+  /// Senders typically emit `true` once on first keystroke after a
+  /// quiet period and `false` after ~4s of inactivity (or on send).
+  ///
+  /// Channel, sender, and timestamp are all carried by the surrounding
+  /// Envelope (`channel_id`, `sender_user_id`, `client_timestamp_ms`)
+  /// and intentionally NOT duplicated here — keeping the typing payload
+  /// a single byte on the wire (proto3 default-false is not encoded;
+  /// is_typing=true encodes as 2 bytes).
+  @$pb.TagNumber(1)
+  $core.bool get isTyping => $_getBF(0);
+  @$pb.TagNumber(1)
+  set isTyping($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIsTyping() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIsTyping() => $_clearField(1);
+}
+
+class MessageStateChanged extends $pb.GeneratedMessage {
+  factory MessageStateChanged({
+    $core.String? channelId,
+    $core.String? messageId,
+    MessageStateValue? newState,
+    $fixnum.Int64? changedAtMs,
+    $core.String? recipientUserId,
+  }) {
+    final result = create();
+    if (channelId != null) result.channelId = channelId;
+    if (messageId != null) result.messageId = messageId;
+    if (newState != null) result.newState = newState;
+    if (changedAtMs != null) result.changedAtMs = changedAtMs;
+    if (recipientUserId != null) result.recipientUserId = recipientUserId;
+    return result;
+  }
+
+  MessageStateChanged._();
+
+  factory MessageStateChanged.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory MessageStateChanged.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'MessageStateChanged',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'channelId')
+    ..aOS(2, _omitFieldNames ? '' : 'messageId')
+    ..aE<MessageStateValue>(3, _omitFieldNames ? '' : 'newState',
+        enumValues: MessageStateValue.values)
+    ..a<$fixnum.Int64>(
+        4, _omitFieldNames ? '' : 'changedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(5, _omitFieldNames ? '' : 'recipientUserId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageStateChanged clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageStateChanged copyWith(void Function(MessageStateChanged) updates) =>
+      super.copyWith((message) => updates(message as MessageStateChanged))
+          as MessageStateChanged;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static MessageStateChanged create() => MessageStateChanged._();
+  @$core.override
+  MessageStateChanged createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static MessageStateChanged getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<MessageStateChanged>(create);
+  static MessageStateChanged? _defaultInstance;
+
+  /// Channel the original message was sent to.
+  @$pb.TagNumber(1)
+  $core.String get channelId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set channelId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasChannelId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearChannelId() => $_clearField(1);
+
+  /// The original message_id (chat payload's message_id, NOT op_id).
+  @$pb.TagNumber(2)
+  $core.String get messageId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set messageId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMessageId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMessageId() => $_clearField(2);
+
+  /// The state being transitioned INTO.
+  @$pb.TagNumber(3)
+  MessageStateValue get newState => $_getN(2);
+  @$pb.TagNumber(3)
+  set newState(MessageStateValue value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasNewState() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearNewState() => $_clearField(3);
+
+  /// When the server observed the transition, ms since epoch.
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get changedAtMs => $_getI64(3);
+  @$pb.TagNumber(4)
+  set changedAtMs($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasChangedAtMs() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearChangedAtMs() => $_clearField(4);
+
+  /// For per-recipient granularity in group DMs (v3.1+). Empty in v3.0
+  /// one-to-one channels.
+  @$pb.TagNumber(5)
+  $core.String get recipientUserId => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set recipientUserId($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasRecipientUserId() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearRecipientUserId() => $_clearField(5);
 }
 
 const $core.bool _omitFieldNames =

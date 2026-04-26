@@ -42,11 +42,35 @@ class Avator extends StatelessWidget {
   }
 
   String _initials(String text) {
-    if (text.isEmpty) return '?';
-    final parts = text.trim().split(RegExp(r'[\s_]+'));
-    if (parts.length >= 2) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return '?';
+    final parts = trimmed.split(RegExp(r'[\s_]+'));
+    if (parts.length >= 2 &&
+        _isLetterOrDigit(parts[0][0]) &&
+        _isLetterOrDigit(parts[1][0])) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
-    return text[0].toUpperCase();
+    // Find the first letter or digit; skips leading symbols like
+    // "+" on phone numbers so "+919876543210" becomes "9", not "+".
+    for (final rune in trimmed.runes) {
+      final ch = String.fromCharCode(rune);
+      if (_isLetterOrDigit(ch)) return ch.toUpperCase();
+    }
+    return trimmed[0].toUpperCase();
+  }
+
+  static bool _isLetterOrDigit(String ch) {
+    if (ch.isEmpty) return false;
+    final code = ch.codeUnitAt(0);
+    // 0-9
+    if (code >= 0x30 && code <= 0x39) return true;
+    // A-Z
+    if (code >= 0x41 && code <= 0x5A) return true;
+    // a-z
+    if (code >= 0x61 && code <= 0x7A) return true;
+    // Letters outside ASCII (broad approximation): anything above 0x7F
+    // that isn't a common ASCII symbol is probably a letter (e.g. á, ñ,
+    // 你). Good enough for an avatar initial.
+    return code > 0x7F;
   }
 }

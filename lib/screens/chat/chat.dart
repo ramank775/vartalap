@@ -1,14 +1,18 @@
 /// Chat screen — reactive over `chatService.watchMessages(channelId)`.
 library vartalap.screens.chat.chat;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vartalap/screens/chat/chat_search.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_store/vartalap_store.dart';
+import 'package:vartalap_sync/vartalap_sync.dart';
 
 class ChatScreen extends StatefulWidget {
   final String channelId;
@@ -33,17 +37,217 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _input = TextEditingController();
   bool _sending = false;
+  StreamSubscription<List<MessageRow>>? _readMarkerSub;
+  String? _lastMarkedReadMessageId;
+
+  /// Per-message keys so [Scrollable.ensureVisible] can jump to a row by
+  /// id. Kept across rebuilds so a key created during the first build
+  /// (when the search-jumped row was visible) is still valid when we
+  /// scroll back to it later.
+  final Map<String, GlobalKey> _messageKeys = {};
+
+  /// Highlighted by a recent search-jump; cleared after a brief pulse so
+  /// the user can see which message matched.
+  String? _highlightedMessageId;
+  Timer? _highlightTimer;
+
+  /// Outbound typing-indicator state.
+  ///
+  /// On every keystroke we send `is_typing=true` if either we haven't
+  /// notified yet OR it's been ≥[_typingHeartbeat] since the last `true`
+  /// we sent. The receiver's TTL ([_peerTypingTtl] below) is wider than
+  /// our heartbeat so a single dropped frame doesn't strand the
+  /// indicator.
+  ///
+  /// We send `is_typing=false` when:
+  ///   - the input drains to empty
+  ///   - on send
+  ///   - on screen dispose
+  ///   - after [_typingQuietWindow] of inactivity (the timer below)
+  bool _typingNotified = false;
+  int _lastTypingHeartbeatMs = 0;
+  Timer? _typingQuietTimer;
+  static const Duration _typingHeartbeat = Duration(seconds: 3);
+  static const Duration _typingQuietWindow = Duration(seconds: 4);
+
+  /// Inbound peer-typing state. Map from peer user_id to the timer that
+  /// will auto-clear them if no `is_typing=false` arrives. Multi-user
+  /// (groups) shows a "Several people are typing" hint when >1 active.
+  final Map<String, Timer> _peerTypingTimers = {};
+  StreamSubscription<TypingEvent>? _typingSub;
+  static const Duration _peerTypingTtl = Duration(seconds: 6);
+
+  /// Sender display labels keyed by user_id. Populated once from the
+  /// channel-members + contacts join so group bubbles can render the
+  /// author's name without a per-message fetch. DM chats don't render
+  /// sender names so the cache is unused there but cheap to load.
+  Map<String, String> _memberNames = const {};
 
   @override
   void initState() {
     super.initState();
     widget.chatService.markRead(widget.channelId);
+    _input.addListener(_onInputChanged);
+    _typingSub = widget.chatService.typingEvents.listen(_onPeerTyping);
+    if (widget.channelKind == 'group') _loadMemberNames();
+    // While the chat is open, every new peer message that lands also
+    // counts as read. Subscribe once and re-mark whenever the latest
+    // message_id from a peer changes — `markRead` is idempotent on the
+    // local marker, and the read-receipt op is dedup'd by op_id on the
+    // server, so re-firing on every stream tick is safe.
+    final localUserId = widget.authService.currentUserId;
+    _readMarkerSub = widget.chatService
+        .watchMessages(widget.channelId)
+        .listen((rows) {
+      if (localUserId == null) return;
+      // Newest peer message first — `watchMessages` returns newest-first.
+      MessageRow? latestPeer;
+      for (final r in rows) {
+        if (r.authorUserId != localUserId && !r.tombstoned) {
+          latestPeer = r;
+          break;
+        }
+      }
+      if (latestPeer == null) return;
+      if (latestPeer.messageId == _lastMarkedReadMessageId) return;
+      _lastMarkedReadMessageId = latestPeer.messageId;
+      widget.chatService.markRead(widget.channelId);
+      // Group chats render the sender's name above peer bubbles. If
+      // we just observed an author we haven't seen before (e.g. a
+      // ChannelMemberAdded push that materialized after this screen
+      // loaded, or a race on first group create), refresh the name
+      // cache so the bubble label resolves instead of "Unknown".
+      if (widget.channelKind == 'group' &&
+          !_memberNames.containsKey(latestPeer.authorUserId)) {
+        _loadMemberNames();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _readMarkerSub?.cancel();
+    _highlightTimer?.cancel();
+    _typingQuietTimer?.cancel();
+    for (final t in _peerTypingTimers.values) {
+      t.cancel();
+    }
+    _peerTypingTimers.clear();
+    _typingSub?.cancel();
+    if (_typingNotified) {
+      // Don't leave the peer staring at "is typing…" after we leave.
+      widget.chatService.notifyTyping(
+        channelId: widget.channelId,
+        isTyping: false,
+      );
+    }
+    _input.removeListener(_onInputChanged);
     _input.dispose();
     super.dispose();
+  }
+
+  void _onInputChanged() {
+    final hasText = _input.text.trim().isNotEmpty;
+    if (!hasText) {
+      if (_typingNotified) {
+        _typingNotified = false;
+        _lastTypingHeartbeatMs = 0;
+        widget.chatService.notifyTyping(
+          channelId: widget.channelId,
+          isTyping: false,
+        );
+      }
+      _typingQuietTimer?.cancel();
+      return;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final dueForHeartbeat = !_typingNotified ||
+        now - _lastTypingHeartbeatMs >= _typingHeartbeat.inMilliseconds;
+    if (dueForHeartbeat) {
+      _typingNotified = true;
+      _lastTypingHeartbeatMs = now;
+      widget.chatService.notifyTyping(
+        channelId: widget.channelId,
+        isTyping: true,
+      );
+    }
+    _typingQuietTimer?.cancel();
+    _typingQuietTimer = Timer(_typingQuietWindow, () {
+      if (!mounted || !_typingNotified) return;
+      _typingNotified = false;
+      _lastTypingHeartbeatMs = 0;
+      widget.chatService.notifyTyping(
+        channelId: widget.channelId,
+        isTyping: false,
+      );
+    });
+  }
+
+  void _onPeerTyping(TypingEvent ev) {
+    if (!mounted) return;
+    if (ev.channelId != widget.channelId) return;
+    if (ev.userId == widget.authService.currentUserId) return;
+    setState(() {
+      _peerTypingTimers[ev.userId]?.cancel();
+      if (ev.isTyping) {
+        _peerTypingTimers[ev.userId] = Timer(_peerTypingTtl, () {
+          if (!mounted) return;
+          setState(() => _peerTypingTimers.remove(ev.userId));
+        });
+      } else {
+        _peerTypingTimers.remove(ev.userId);
+      }
+    });
+  }
+
+  GlobalKey _keyForMessage(String messageId) =>
+      _messageKeys.putIfAbsent(messageId, GlobalKey.new);
+
+  Future<void> _loadMemberNames() async {
+    final members =
+        await widget.chatService.fetchChannelMembers(widget.channelId);
+    if (!mounted) return;
+    setState(() {
+      _memberNames = {
+        for (final m in members)
+          m.userId: m.contact?.displayLabel ?? 'Unknown',
+      };
+    });
+  }
+
+  Future<void> _openSearch() async {
+    final picked = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ChatSearchScreen(
+          channelId: widget.channelId,
+          channelName: widget.channelName,
+          chatService: widget.chatService,
+          localUserId: widget.authService.currentUserId,
+        ),
+      ),
+    );
+    if (picked != null && mounted) {
+      _jumpToMessage(picked);
+    }
+  }
+
+  void _jumpToMessage(String messageId) {
+    setState(() => _highlightedMessageId = messageId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _messageKeys[messageId]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          alignment: 0.3,
+        );
+      }
+    });
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(milliseconds: 1800), () {
+      if (!mounted) return;
+      setState(() => _highlightedMessageId = null);
+    });
   }
 
   Future<void> _onSend() async {
@@ -59,6 +263,15 @@ class _ChatScreenState extends State<ChatScreen> {
         authorUserId: userId,
       );
       _input.clear();
+      if (_typingNotified) {
+        _typingNotified = false;
+        _lastTypingHeartbeatMs = 0;
+        _typingQuietTimer?.cancel();
+        widget.chatService.notifyTyping(
+          channelId: widget.channelId,
+          isTyping: false,
+        );
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -82,6 +295,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   channelName: widget.channelName,
                   channelKind: widget.channelKind,
                   chatService: widget.chatService,
+                  authService: widget.authService,
                 ),
               ),
             );
@@ -95,15 +309,39 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               const SizedBox(width: kSpaceSm),
               Expanded(
-                child: Text(
-                  widget.channelName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.channelName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (_peerTypingTimers.isNotEmpty)
+                      Text(
+                        _peerTypingTimers.length == 1
+                            ? 'typing…'
+                            : 'several people are typing…',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onPrimary.withValues(alpha: 0.85),
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Search in conversation',
+            onPressed: _openSearch,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -135,11 +373,24 @@ class _ChatScreenState extends State<ChatScreen> {
                   final showTail = i == messages.length - 1 ||
                       messages[i + 1].authorUserId != msg.authorUserId;
 
+                  // Sender name appears above the first bubble of a
+                  // same-author run, only for groups, only for peer
+                  // messages. `showTail=true` already identifies "top
+                  // of run" because the list is reverse-rendered.
+                  final senderLabel =
+                      (!mine && widget.channelKind == 'group' && showTail)
+                          ? (_memberNames[msg.authorUserId] ?? 'Unknown')
+                          : null;
+
                   items.add(_MessageBubble(
+                    key: _keyForMessage(msg.messageId),
                     message: msg,
                     isMine: mine,
                     showTail: showTail,
                     chatColors: chatColors,
+                    highlighted:
+                        _highlightedMessageId == msg.messageId,
+                    senderLabel: senderLabel,
                   ));
 
                   // Insert a date chip between this message and the
@@ -324,12 +575,17 @@ class _MessageBubble extends StatelessWidget {
   final bool isMine;
   final bool showTail;
   final ChatColors chatColors;
+  final bool highlighted;
+  final String? senderLabel;
 
   const _MessageBubble({
+    super.key,
     required this.message,
     required this.isMine,
     required this.showTail,
     required this.chatColors,
+    this.highlighted = false,
+    this.senderLabel,
   });
 
   @override
@@ -359,7 +615,12 @@ class _MessageBubble extends StatelessWidget {
       ],
     );
 
-    return Padding(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOut,
+      color: highlighted
+          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
+          : Colors.transparent,
       padding: EdgeInsets.only(
         top: showTail ? 8 : 2,
         bottom: 2,
@@ -384,20 +645,37 @@ class _MessageBubble extends StatelessWidget {
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.68,
               ),
-              // Wrap lets the meta (time+tick) sit at the end of the
-              // last line of text if there's room, or drop to a new
-              // line if the text fills the full width.
-              child: Wrap(
-                alignment: WrapAlignment.end,
-                crossAxisAlignment: WrapCrossAlignment.end,
-                spacing: 6,
-                runSpacing: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    message.body ?? '',
-                    style: TextStyle(color: fg, fontSize: 16, height: 1.35),
+                  if (senderLabel != null) ...[
+                    Text(
+                      senderLabel!,
+                      style: TextStyle(
+                        color: _senderColor(senderLabel!),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                  ],
+                  // Wrap lets the meta (time+tick) sit at the end of the
+                  // last line of text if there's room, or drop to a new
+                  // line if the text fills the full width.
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.end,
+                    spacing: 6,
+                    runSpacing: 2,
+                    children: [
+                      Text(
+                        message.body ?? '',
+                        style: TextStyle(color: fg, fontSize: 16, height: 1.35),
+                      ),
+                      meta,
+                    ],
                   ),
-                  meta,
                 ],
               ),
             ),
@@ -405,6 +683,27 @@ class _MessageBubble extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Stable hashed color for a sender's name label. Picks one of a
+  /// small palette so the same author always gets the same tint within
+  /// a conversation, while different authors are visually distinct.
+  Color _senderColor(String label) {
+    const palette = <Color>[
+      Color(0xFFE53935), // red
+      Color(0xFF8E24AA), // purple
+      Color(0xFF1E88E5), // blue
+      Color(0xFF00897B), // teal
+      Color(0xFFEF6C00), // orange
+      Color(0xFF6D4C41), // brown
+      Color(0xFF546E7A), // blue-grey
+      Color(0xFFD81B60), // pink
+    ];
+    var hash = 0;
+    for (final code in label.codeUnits) {
+      hash = (hash * 31 + code) & 0x7fffffff;
+    }
+    return palette[hash % palette.length];
   }
 
   /// Single tick = sent, double tick = delivered, blue double tick = read,

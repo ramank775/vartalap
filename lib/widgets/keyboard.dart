@@ -39,7 +39,7 @@ class _NumericKeyboardState extends State<NumericKeyboard> {
           mainAxisAlignment: MainAxisAlignment.start,
           mainAxisSize: MainAxisSize.max,
           children: <Widget>[
-            ButtonBar(
+            OverflowBar(
               alignment: widget.mainAxisAlignment,
               children: <Widget>[
                 _calcButton('1'),
@@ -47,7 +47,7 @@ class _NumericKeyboardState extends State<NumericKeyboard> {
                 _calcButton('3'),
               ],
             ),
-            ButtonBar(
+            OverflowBar(
               alignment: widget.mainAxisAlignment,
               children: <Widget>[
                 _calcButton('4'),
@@ -55,7 +55,7 @@ class _NumericKeyboardState extends State<NumericKeyboard> {
                 _calcButton('6'),
               ],
             ),
-            ButtonBar(
+            OverflowBar(
               alignment: widget.mainAxisAlignment,
               children: <Widget>[
                 _calcButton('7'),
@@ -63,7 +63,7 @@ class _NumericKeyboardState extends State<NumericKeyboard> {
                 _calcButton('9'),
               ],
             ),
-            ButtonBar(
+            OverflowBar(
               alignment: widget.mainAxisAlignment,
               children: <Widget>[
                 InkWell(

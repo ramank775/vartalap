@@ -55,3 +55,8 @@ firebase_*.json
 # Local tooling
 .claude/
 .codex
+.gstack/
+
+# Mock server persisted state (per-dev)
+tools/.mock_state.json
+tools/.mock_state.json.tmp

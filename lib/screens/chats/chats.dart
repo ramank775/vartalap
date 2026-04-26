@@ -182,17 +182,18 @@ class _ChatsScreenState extends State<ChatsScreen> {
               );
             }
           },
-          itemBuilder: (ctx) => const [
-            PopupMenuItem(value: 'profile', child: Text('Profile')),
-            PopupMenuItem(
+          itemBuilder: (ctx) => [
+            _menuItem(
+              context,
+              value: 'profile',
+              icon: Icons.person_outline_rounded,
+              label: 'Profile',
+            ),
+            _menuItem(
+              context,
               value: 'settings',
-              child: Row(
-                children: [
-                  Icon(Icons.settings_outlined, size: 20),
-                  SizedBox(width: kSpaceSm),
-                  Text('Settings'),
-                ],
-              ),
+              icon: Icons.settings_outlined,
+              label: 'Settings',
             ),
           ],
         ),
@@ -260,6 +261,28 @@ class _ChatsScreenState extends State<ChatsScreen> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(
+    BuildContext context, {
+    required String value,
+    required IconData icon,
+    required String label,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
+          color: scheme.onSurface,
+        );
+    return PopupMenuItem<String>(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: scheme.onSurface),
+          const SizedBox(width: kSpaceMd),
+          Text(label, style: textStyle),
         ],
       ),
     );

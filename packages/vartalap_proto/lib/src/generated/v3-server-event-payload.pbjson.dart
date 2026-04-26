@@ -27,6 +27,8 @@ const ServerEventType$json = {
     {'1': 'CHANNEL_DELETED', '2': 5},
     {'1': 'PROFILE_EDITED', '2': 6},
     {'1': 'USERNAME_CHANGED', '2': 7},
+    {'1': 'MESSAGE_STATE_CHANGED', '2': 8},
+    {'1': 'TYPING', '2': 9},
   ],
 };
 
@@ -35,7 +37,25 @@ final $typed_data.Uint8List serverEventTypeDescriptor = $convert.base64Decode(
     'Cg9TZXJ2ZXJFdmVudFR5cGUSHAoYU0VSVkVSX0VWRU5UX1VOU1BFQ0lGSUVEEAASEwoPQ0hBTk'
     '5FTF9DUkVBVEVEEAESGAoUQ0hBTk5FTF9NRU1CRVJfQURERUQQAhIaChZDSEFOTkVMX01FTUJF'
     'Ul9SRU1PVkVEEAMSEgoOQ0hBTk5FTF9FRElURUQQBBITCg9DSEFOTkVMX0RFTEVURUQQBRISCg'
-    '5QUk9GSUxFX0VESVRFRBAGEhQKEFVTRVJOQU1FX0NIQU5HRUQQBw==');
+    '5QUk9GSUxFX0VESVRFRBAGEhQKEFVTRVJOQU1FX0NIQU5HRUQQBxIZChVNRVNTQUdFX1NUQVRF'
+    'X0NIQU5HRUQQCBIKCgZUWVBJTkcQCQ==');
+
+@$core.Deprecated('Use messageStateValueDescriptor instead')
+const MessageStateValue$json = {
+  '1': 'MessageStateValue',
+  '2': [
+    {'1': 'MESSAGE_STATE_UNSPECIFIED', '2': 0},
+    {'1': 'MESSAGE_STATE_DELIVERED', '2': 1},
+    {'1': 'MESSAGE_STATE_READ', '2': 2},
+    {'1': 'MESSAGE_STATE_REJECTED', '2': 3},
+  ],
+};
+
+/// Descriptor for `MessageStateValue`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List messageStateValueDescriptor = $convert.base64Decode(
+    'ChFNZXNzYWdlU3RhdGVWYWx1ZRIdChlNRVNTQUdFX1NUQVRFX1VOU1BFQ0lGSUVEEAASGwoXTU'
+    'VTU0FHRV9TVEFURV9ERUxJVkVSRUQQARIWChJNRVNTQUdFX1NUQVRFX1JFQUQQAhIaChZNRVNT'
+    'QUdFX1NUQVRFX1JFSkVDVEVEEAM=');
 
 @$core.Deprecated('Use serverEventPayloadDescriptor instead')
 const ServerEventPayload$json = {
@@ -113,6 +133,24 @@ const ServerEventPayload$json = {
       '9': 0,
       '10': 'usernameChanged'
     },
+    {
+      '1': 'message_state_changed',
+      '3': 17,
+      '4': 1,
+      '5': 11,
+      '6': '.vartalap.v3.payload.MessageStateChanged',
+      '9': 0,
+      '10': 'messageStateChanged'
+    },
+    {
+      '1': 'typing',
+      '3': 18,
+      '4': 1,
+      '5': 11,
+      '6': '.vartalap.v3.payload.Typing',
+      '9': 0,
+      '10': 'typing'
+    },
   ],
   '8': [
     {'1': 'body'},
@@ -132,8 +170,10 @@ final $typed_data.Uint8List serverEventPayloadDescriptor = $convert.base64Decode
     'IAEoCzIjLnZhcnRhbGFwLnYzLnBheWxvYWQuQ2hhbm5lbERlbGV0ZWRIAFIOY2hhbm5lbERlbG'
     'V0ZWQSSwoOcHJvZmlsZV9lZGl0ZWQYDyABKAsyIi52YXJ0YWxhcC52My5wYXlsb2FkLlByb2Zp'
     'bGVFZGl0ZWRIAFINcHJvZmlsZUVkaXRlZBJRChB1c2VybmFtZV9jaGFuZ2VkGBAgASgLMiQudm'
-    'FydGFsYXAudjMucGF5bG9hZC5Vc2VybmFtZUNoYW5nZWRIAFIPdXNlcm5hbWVDaGFuZ2VkQgYK'
-    'BGJvZHk=');
+    'FydGFsYXAudjMucGF5bG9hZC5Vc2VybmFtZUNoYW5nZWRIAFIPdXNlcm5hbWVDaGFuZ2VkEl4K'
+    'FW1lc3NhZ2Vfc3RhdGVfY2hhbmdlZBgRIAEoCzIoLnZhcnRhbGFwLnYzLnBheWxvYWQuTWVzc2'
+    'FnZVN0YXRlQ2hhbmdlZEgAUhNtZXNzYWdlU3RhdGVDaGFuZ2VkEjUKBnR5cGluZxgSIAEoCzIb'
+    'LnZhcnRhbGFwLnYzLnBheWxvYWQuVHlwaW5nSABSBnR5cGluZ0IGCgRib2R5');
 
 @$core.Deprecated('Use channelCreatedDescriptor instead')
 const ChannelCreated$json = {
@@ -293,3 +333,42 @@ final $typed_data.Uint8List usernameChangedDescriptor = $convert.base64Decode(
     'Cg9Vc2VybmFtZUNoYW5nZWQSFwoHdXNlcl9pZBgBIAEoCVIGdXNlcklkEiEKDG5ld191c2Vybm'
     'FtZRgCIAEoCVILbmV3VXNlcm5hbWUSIgoNY2hhbmdlZF9hdF9tcxgDIAEoBFILY2hhbmdlZEF0'
     'TXM=');
+
+@$core.Deprecated('Use typingDescriptor instead')
+const Typing$json = {
+  '1': 'Typing',
+  '2': [
+    {'1': 'is_typing', '3': 1, '4': 1, '5': 8, '10': 'isTyping'},
+  ],
+};
+
+/// Descriptor for `Typing`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List typingDescriptor = $convert
+    .base64Decode('CgZUeXBpbmcSGwoJaXNfdHlwaW5nGAEgASgIUghpc1R5cGluZw==');
+
+@$core.Deprecated('Use messageStateChangedDescriptor instead')
+const MessageStateChanged$json = {
+  '1': 'MessageStateChanged',
+  '2': [
+    {'1': 'channel_id', '3': 1, '4': 1, '5': 9, '10': 'channelId'},
+    {'1': 'message_id', '3': 2, '4': 1, '5': 9, '10': 'messageId'},
+    {
+      '1': 'new_state',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.vartalap.v3.payload.MessageStateValue',
+      '10': 'newState'
+    },
+    {'1': 'changed_at_ms', '3': 4, '4': 1, '5': 4, '10': 'changedAtMs'},
+    {'1': 'recipient_user_id', '3': 5, '4': 1, '5': 9, '10': 'recipientUserId'},
+  ],
+};
+
+/// Descriptor for `MessageStateChanged`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List messageStateChangedDescriptor = $convert.base64Decode(
+    'ChNNZXNzYWdlU3RhdGVDaGFuZ2VkEh0KCmNoYW5uZWxfaWQYASABKAlSCWNoYW5uZWxJZBIdCg'
+    'ptZXNzYWdlX2lkGAIgASgJUgltZXNzYWdlSWQSQwoJbmV3X3N0YXRlGAMgASgOMiYudmFydGFs'
+    'YXAudjMucGF5bG9hZC5NZXNzYWdlU3RhdGVWYWx1ZVIIbmV3U3RhdGUSIgoNY2hhbmdlZF9hdF'
+    '9tcxgEIAEoBFILY2hhbmdlZEF0TXMSKgoRcmVjaXBpZW50X3VzZXJfaWQYBSABKAlSD3JlY2lw'
+    'aWVudFVzZXJJZA==');

@@ -140,19 +140,70 @@ class ChatStore {
   }) async {
     await db.transaction((txn) async {
       await txn.delete('outbound_ops', where: 'op_id = ?', whereArgs: [opId]);
-      await txn.update(
-        'messages',
-        {
-          'message_state': MessageState.sent.wire,
-          'state_updated_at': nowMs,
-          'server_timestamp_ms': serverTimestampMs,
-          'delivery_sequence': deliverySequence,
-        },
-        where: 'message_id = ?',
-        whereArgs: [messageId],
+      // Update server-stamped fields unconditionally, but ONLY raise
+      // message_state to `sent` if the row hasn't already advanced
+      // past it (e.g. a `MessageStateChanged{DELIVERED}` arriving
+      // before this ACK). The states form a monotonic lifecycle —
+      // SPIKE_A_SCHEMA.md §5.1 — and downgrading would flip a double
+      // tick back to single.
+      await txn.rawUpdate(
+        '''
+        UPDATE messages
+           SET message_state = CASE
+                 WHEN message_state IN (?, ?, ?) THEN ?
+                 ELSE message_state
+               END,
+               state_updated_at = ?,
+               server_timestamp_ms = ?,
+               delivery_sequence = ?
+         WHERE message_id = ?
+        ''',
+        [
+          MessageState.pending.wire,
+          MessageState.sending.wire,
+          MessageState.sent.wire,
+          MessageState.sent.wire,
+          nowMs,
+          serverTimestampMs,
+          deliverySequence,
+          messageId,
+        ],
       );
     });
     _notify(const {'outbound_ops', 'messages'});
+  }
+
+  /// Apply a server-pushed `MessageStateChanged` event. Monotonic — the
+  /// new state must be strictly LATER in the [MessageState] lifecycle
+  /// (`pending < sending < sent < delivered < read < rejected`) than
+  /// what's currently stored, otherwise the event is dropped (stale /
+  /// reorder). No-op if the message row doesn't exist locally yet.
+  Future<bool> applyMessageStateChange({
+    required String messageId,
+    required MessageState newState,
+    required int changedAtMs,
+  }) async {
+    final rows = await db.query(
+      'messages',
+      columns: const ['message_state'],
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    final current = MessageState.fromWire(rows.single['message_state'] as String);
+    if (newState.index <= current.index) return false;
+    await db.update(
+      'messages',
+      {
+        'message_state': newState.wire,
+        'state_updated_at': changedAtMs,
+      },
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+    );
+    _notify(const {'messages'});
+    return true;
   }
 
   /// Convenience read for the smoke test and any single-row fetch.
@@ -869,6 +920,75 @@ class ChatStore {
     _notify(const {'channels'});
   }
 
+  /// Active members of [channelId], left-joined with `contacts` so the
+  /// caller has a display name and avatar in one shot. Owner first, then
+  /// alphabetical by resolved name with userId as tiebreaker.
+  Future<List<ChannelMemberRow>> fetchChannelMembers(String channelId) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT cm.channel_id, cm.user_id, cm.role, cm.joined_at,
+             ct.username, ct.display_name, ct.avatar_url, ct.status_text,
+             ct.phone_hash, ct.contact_book_name, ct.last_refreshed_ms
+      FROM channel_members cm
+      LEFT JOIN contacts ct ON ct.user_id = cm.user_id
+      WHERE cm.channel_id = ? AND cm.removed_at IS NULL
+      ORDER BY (cm.role = 'owner') DESC,
+               COALESCE(ct.contact_book_name, ct.display_name, ct.username, cm.user_id)
+                 COLLATE NOCASE
+      ''',
+      [channelId],
+    );
+    return rows.map((r) {
+      final hasContact = r['last_refreshed_ms'] != null;
+      return ChannelMemberRow(
+        channelId: r['channel_id'] as String,
+        userId: r['user_id'] as String,
+        role: r['role'] as String,
+        joinedAt: r['joined_at'] as int,
+        contact: hasContact
+            ? ContactRow(
+                userId: r['user_id'] as String,
+                username: r['username'] as String?,
+                displayName: r['display_name'] as String?,
+                avatarUrl: r['avatar_url'] as String?,
+                statusText: r['status_text'] as String?,
+                phoneHash: r['phone_hash'] as String?,
+                contactBookName: r['contact_book_name'] as String?,
+                lastRefreshedMs: r['last_refreshed_ms'] as int,
+              )
+            : null,
+      );
+    }).toList();
+  }
+
+  /// Substring search within a single channel's messages. Case-insensitive
+  /// `LIKE` over `body`; tombstoned rows excluded. Newest-first by
+  /// `delivery_sequence` (with `client_timestamp_ms` as fallback for
+  /// pending rows). [query] is wrapped in `%…%` after stripping any SQL
+  /// wildcards so user input can't broaden the match.
+  Future<List<MessageRow>> searchChannelMessages({
+    required String channelId,
+    required String query,
+    int limit = 200,
+  }) async {
+    final cleaned = query.replaceAll(RegExp(r'[%_]'), '').trim();
+    if (cleaned.isEmpty) return const [];
+    final rows = await db.rawQuery(
+      '''
+      SELECT * FROM messages
+      WHERE channel_id = ?
+        AND tombstoned = 0
+        AND body IS NOT NULL
+        AND body LIKE ? COLLATE NOCASE
+      ORDER BY COALESCE(delivery_sequence, 9223372036854775807) DESC,
+               client_timestamp_ms DESC
+      LIMIT ?
+      ''',
+      [channelId, '%$cleaned%', limit],
+    );
+    return rows.map(_rowToMessage).toList();
+  }
+
   // --- UI reactive queries ----------------------------------------------
   //
   // These power the chat-list and chat-screen reactive streams
@@ -1023,6 +1143,27 @@ class ChatStore {
       );
     });
     _notify(const {'channels'});
+  }
+
+  /// Latest message in [channelId] NOT authored by [localUserId] — the
+  /// natural target for an outbound read receipt. Returns null when the
+  /// channel is empty or only has the local user's messages.
+  Future<String?> latestPeerMessageId({
+    required String channelId,
+    required String localUserId,
+  }) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT message_id FROM messages
+      WHERE channel_id = ? AND tombstoned = 0 AND author_user_id != ?
+      ORDER BY COALESCE(delivery_sequence, 9223372036854775807) DESC,
+               client_timestamp_ms DESC
+      LIMIT 1
+      ''',
+      [channelId, localUserId],
+    );
+    if (rows.isEmpty) return null;
+    return rows.single['message_id'] as String?;
   }
 
   /// Wipe every message row in [channelId] without touching the channel

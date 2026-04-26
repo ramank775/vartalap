@@ -39,6 +39,19 @@ class WsTransport implements Transport {
 
   bool _disposed = false;
 
+  /// While true, inbound WS_PUSH and WS_ACK frames are buffered instead
+  /// of being emitted onto [pushes] / [acks]. The client flips this on
+  /// at every [TransportState.connected] transition and flips it off
+  /// (flushing the buffer in arrival order) after [pullPendingSync]
+  /// has injected all server-queued envelopes. This keeps the apply
+  /// order correct: a server-queued ChannelCreated must land before
+  /// any live message that depends on it. ACKs for the client's own
+  /// in-flight ops are buffered too — the scheduler can't act on them
+  /// until the projection catches up either.
+  bool _buffering = false;
+  final List<pb.Envelope> _pushBuffer = [];
+  final List<AckFrame> _ackBuffer = [];
+
   /// Monotonic reconnect-attempt counter used for backoff pacing. Reset
   /// on every successful `connected` transition.
   int _reconnectAttempt = 0;
@@ -67,6 +80,16 @@ class WsTransport implements Transport {
   /// the future inbound-receiver layer (step 9+). Not part of the
   /// `Transport` contract — the scheduler only consumes [acks].
   Stream<pb.Envelope> get pushes => _pushCtrl.stream;
+
+  /// Inject an envelope onto the [pushes] stream. Used by the
+  /// client-triggered sync pull (REST `GET /v3.0/sync/pending`) to
+  /// deliver server-queued frames through the same fanout pipeline as
+  /// live WS_PUSH frames — `InboundReceiver` doesn't care which path
+  /// the envelope arrived on; dedup is keyed on `op_id`.
+  void injectPush(pb.Envelope env) {
+    if (_pushCtrl.isClosed) return;
+    _pushCtrl.add(env);
+  }
 
   /// Open the WS connection. Idempotent; safe to call multiple times.
   /// Errors on the initial upgrade surface as a transition to
@@ -115,6 +138,11 @@ class WsTransport implements Transport {
       }
       _channel = socket;
       _reconnectAttempt = 0;
+      // Arm the buffer BEFORE announcing `connected` so any frame the
+      // server sends out the gate is captured rather than fanned out.
+      // The state-stream listener will trigger a sync pull and call
+      // [endSyncBuffer] to flush.
+      _buffering = true;
       _setState(TransportState.connected);
 
       _wsSub = socket.stream.listen(
@@ -160,6 +188,13 @@ class WsTransport implements Transport {
     _wsSub?.cancel();
     _wsSub = null;
     _channel = null;
+    // Drop any buffered frames captured during the prior connection —
+    // they belonged to a session that's now gone. The reconnect will
+    // arm a fresh buffer and the next pull will refetch whatever the
+    // server still has queued.
+    _buffering = false;
+    _pushBuffer.clear();
+    _ackBuffer.clear();
     if (!_disposed) _scheduleReconnect();
   }
 
@@ -239,6 +274,51 @@ class WsTransport implements Transport {
     }
   }
 
+  /// Fire-and-forget ephemeral envelope (typing, presence). Bypasses the
+  /// outbound queue entirely — there's no scheduler, no retries, no ACK
+  /// expected. If the WS isn't connected the envelope is silently
+  /// dropped; that's the correct semantics for the kind of events that
+  /// would only confuse a recipient if they arrived stale.
+  ///
+  /// `opId` should be a fresh UUIDv7 (the server still uses it for
+  /// fanout deduplication within a single delivery wave) but the client
+  /// does NOT track it locally — there's no row to settle when the
+  /// implicit "ack" never comes back.
+  bool sendEphemeral({
+    required String opId,
+    required String channelId,
+    required Uint8List payload,
+    int? clientTimestampMs,
+  }) {
+    final ch = _channel;
+    if (ch == null || _state != TransportState.connected) return false;
+
+    final env = pb.Envelope(
+      opId: opId,
+      channelId: channelId,
+      // Server uses resource_seq for strict-monotone validation per
+      // (user, channel). Ephemeral envelopes don't participate in that
+      // ordering by contract, but the field is required on the wire —
+      // we stamp 0 and rely on the server's ephemeral path to skip the
+      // monotone check.
+      resourceSeq: fixnum.Int64.ZERO,
+      clientTimestampMs:
+          clientTimestampMs != null ? fixnum.Int64(clientTimestampMs) : null,
+      payload: payload,
+      ephemeral: true,
+    );
+    final wsEnv = pb.WsEnvelope(
+      type: pb.WsType.WS_OP,
+      ops: pb.EnvelopeBatch(envelopes: [env]),
+    );
+    try {
+      ch.sink.add(wsEnv.writeToBuffer());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ---- Inbound --------------------------------------------------------
 
   void _onFrame(dynamic frame) {
@@ -262,7 +342,7 @@ class WsTransport implements Transport {
       case pb.WsType.WS_ACK:
         _handleAckBatch(wsEnv.acks);
       case pb.WsType.WS_PUSH:
-        if (!_pushCtrl.isClosed) _pushCtrl.add(wsEnv.push);
+        _emitPush(wsEnv.push);
       case pb.WsType.WS_REAUTH_REQUIRED:
         // Close the connection; reconnect logic will handshake anew
         // with a (presumably refreshed) token. AUTH_CONTRACT §6.3/4
@@ -291,7 +371,47 @@ class WsTransport implements Transport {
   void _handleAckBatch(pb.AckBatch batch) {
     for (final ack in batch.acks) {
       final frame = AckFrame(opId: ack.opId, outcome: _outcomeFor(ack));
-      if (!_ackCtrl.isClosed) _ackCtrl.add(frame);
+      _emitAck(frame);
+    }
+  }
+
+  void _emitPush(pb.Envelope env) {
+    if (_pushCtrl.isClosed) return;
+    if (_buffering) {
+      _pushBuffer.add(env);
+      return;
+    }
+    _pushCtrl.add(env);
+  }
+
+  void _emitAck(AckFrame frame) {
+    if (_ackCtrl.isClosed) return;
+    if (_buffering) {
+      _ackBuffer.add(frame);
+      return;
+    }
+    _ackCtrl.add(frame);
+  }
+
+  /// Release the post-connect buffer. Called by the client after it has
+  /// pulled and applied all server-queued envelopes. Live WS_PUSH and
+  /// WS_ACK frames captured during the buffer window are flushed in
+  /// arrival order; afterwards new frames go straight to the streams.
+  /// Idempotent and safe to call when not buffering.
+  void endSyncBuffer() {
+    if (!_buffering) return;
+    _buffering = false;
+    final pushes = List<pb.Envelope>.from(_pushBuffer);
+    final acks = List<AckFrame>.from(_ackBuffer);
+    _pushBuffer.clear();
+    _ackBuffer.clear();
+    for (final env in pushes) {
+      if (_pushCtrl.isClosed) break;
+      _pushCtrl.add(env);
+    }
+    for (final ack in acks) {
+      if (_ackCtrl.isClosed) break;
+      _ackCtrl.add(ack);
     }
   }
 

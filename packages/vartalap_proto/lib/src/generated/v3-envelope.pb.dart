@@ -39,6 +39,7 @@ class Envelope extends $pb.GeneratedMessage {
     $fixnum.Int64? resourceSeq,
     $fixnum.Int64? clientTimestampMs,
     $core.List<$core.int>? payload,
+    $core.bool? ephemeral,
     $core.String? senderUserId,
     $fixnum.Int64? serverTimestampMs,
     $fixnum.Int64? deliverySequence,
@@ -49,6 +50,7 @@ class Envelope extends $pb.GeneratedMessage {
     if (resourceSeq != null) result.resourceSeq = resourceSeq;
     if (clientTimestampMs != null) result.clientTimestampMs = clientTimestampMs;
     if (payload != null) result.payload = payload;
+    if (ephemeral != null) result.ephemeral = ephemeral;
     if (senderUserId != null) result.senderUserId = senderUserId;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
     if (deliverySequence != null) result.deliverySequence = deliverySequence;
@@ -78,6 +80,7 @@ class Envelope extends $pb.GeneratedMessage {
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..a<$core.List<$core.int>>(
         5, _omitFieldNames ? '' : 'payload', $pb.PbFieldType.OY)
+    ..aOB(6, _omitFieldNames ? '' : 'ephemeral')
     ..aOS(20, _omitFieldNames ? '' : 'senderUserId')
     ..a<$fixnum.Int64>(
         21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
@@ -166,26 +169,54 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   void clearPayload() => $_clearField(5);
 
+  /// Best-effort, no-persistence, no-ack signal. Drives "send-and-forget"
+  /// events like typing indicators. Server semantics:
+  ///   - Fan to currently-connected channel members verbatim.
+  ///   - DO NOT enqueue for offline members (skip the undelivered queue).
+  ///   - DO NOT emit an `Ack` back to the sender.
+  ///   - DO NOT include in any history / sync-pull responses.
+  ///
+  /// Recipients that observe this flag bypass `op_id_seen` and any
+  /// projection writes — these envelopes are routed to a side-channel
+  /// (e.g. typing-indicator stream) and dropped from the persistent
+  /// pipeline entirely. Senders construct ephemeral envelopes via a
+  /// direct `WsTransport.sendEphemeral(...)` path that bypasses
+  /// `outbound_ops`; if the WS is not connected the envelope is dropped.
+  ///
+  /// Wire compat: defaults to false, so older clients/servers that don't
+  /// know about this field treat the envelope as a normal queued op —
+  /// which is harmless for typing (wastes one row, never re-applied
+  /// because the receiver-side dispatcher dedups by op_id) but the
+  /// optimization only kicks in once both sides understand the flag.
+  @$pb.TagNumber(6)
+  $core.bool get ephemeral => $_getBF(5);
+  @$pb.TagNumber(6)
+  set ephemeral($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasEphemeral() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearEphemeral() => $_clearField(6);
+
   /// The authenticated sender's user_id (9 lowercase hex chars). Server
   /// derives from session, not from any client-supplied field. Recipients
   /// use this for sender attribution; see SYNC_PROTOCOL.md §10.1 for the
   /// display-name resolution rule (contact-book → username → phone).
   @$pb.TagNumber(20)
-  $core.String get senderUserId => $_getSZ(5);
+  $core.String get senderUserId => $_getSZ(6);
   @$pb.TagNumber(20)
-  set senderUserId($core.String value) => $_setString(5, value);
+  set senderUserId($core.String value) => $_setString(6, value);
   @$pb.TagNumber(20)
-  $core.bool hasSenderUserId() => $_has(5);
+  $core.bool hasSenderUserId() => $_has(6);
   @$pb.TagNumber(20)
   void clearSenderUserId() => $_clearField(20);
 
   /// When the server accepted the envelope, ms since epoch.
   @$pb.TagNumber(21)
-  $fixnum.Int64 get serverTimestampMs => $_getI64(6);
+  $fixnum.Int64 get serverTimestampMs => $_getI64(7);
   @$pb.TagNumber(21)
-  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(6, value);
+  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(7, value);
   @$pb.TagNumber(21)
-  $core.bool hasServerTimestampMs() => $_has(6);
+  $core.bool hasServerTimestampMs() => $_has(7);
   @$pb.TagNumber(21)
   void clearServerTimestampMs() => $_clearField(21);
 
@@ -193,11 +224,11 @@ class Envelope extends $pb.GeneratedMessage {
   /// time. Used by recipients for inbound ordering across senders.
   /// Distinct from `resource_seq` (which is sender-scoped).
   @$pb.TagNumber(22)
-  $fixnum.Int64 get deliverySequence => $_getI64(7);
+  $fixnum.Int64 get deliverySequence => $_getI64(8);
   @$pb.TagNumber(22)
-  set deliverySequence($fixnum.Int64 value) => $_setInt64(7, value);
+  set deliverySequence($fixnum.Int64 value) => $_setInt64(8, value);
   @$pb.TagNumber(22)
-  $core.bool hasDeliverySequence() => $_has(7);
+  $core.bool hasDeliverySequence() => $_has(8);
   @$pb.TagNumber(22)
   void clearDeliverySequence() => $_clearField(22);
 }

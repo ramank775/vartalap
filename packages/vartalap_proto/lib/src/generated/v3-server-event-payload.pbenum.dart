@@ -31,6 +31,10 @@ class ServerEventType extends $pb.ProtobufEnum {
       ServerEventType._(6, _omitEnumNames ? '' : 'PROFILE_EDITED');
   static const ServerEventType USERNAME_CHANGED =
       ServerEventType._(7, _omitEnumNames ? '' : 'USERNAME_CHANGED');
+  static const ServerEventType MESSAGE_STATE_CHANGED =
+      ServerEventType._(8, _omitEnumNames ? '' : 'MESSAGE_STATE_CHANGED');
+  static const ServerEventType TYPING =
+      ServerEventType._(9, _omitEnumNames ? '' : 'TYPING');
 
   static const $core.List<ServerEventType> values = <ServerEventType>[
     SERVER_EVENT_UNSPECIFIED,
@@ -41,14 +45,56 @@ class ServerEventType extends $pb.ProtobufEnum {
     CHANNEL_DELETED,
     PROFILE_EDITED,
     USERNAME_CHANGED,
+    MESSAGE_STATE_CHANGED,
+    TYPING,
   ];
 
   static final $core.List<ServerEventType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 7);
+      $pb.ProtobufEnum.$_initByValueList(values, 9);
   static ServerEventType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
   const ServerEventType._(super.value, super.name);
+}
+
+/// Receipt lifecycle a message can transition through after the author's
+/// initial `sent`. Sent back to the AUTHOR only — not fanned to other
+/// recipients (those see the actual message via WS_PUSH already).
+///
+/// Adding a new state is additive (recipients tolerate unknown enum
+/// values, falling back to MESSAGE_STATE_UNSPECIFIED → no-op).
+class MessageStateValue extends $pb.ProtobufEnum {
+  static const MessageStateValue MESSAGE_STATE_UNSPECIFIED =
+      MessageStateValue._(0, _omitEnumNames ? '' : 'MESSAGE_STATE_UNSPECIFIED');
+
+  /// Server fanned to at least one other recipient's WS, OR the
+  /// recipient drained it from the undelivered queue. Author's local
+  /// tick goes single → double.
+  static const MessageStateValue MESSAGE_STATE_DELIVERED =
+      MessageStateValue._(1, _omitEnumNames ? '' : 'MESSAGE_STATE_DELIVERED');
+
+  /// Recipient marked as read. Author's tick goes double → blue-double.
+  static const MessageStateValue MESSAGE_STATE_READ =
+      MessageStateValue._(2, _omitEnumNames ? '' : 'MESSAGE_STATE_READ');
+
+  /// Server permanently rejected the message after the initial ACK.
+  /// Reserved for moderation / quota / banned-content paths.
+  static const MessageStateValue MESSAGE_STATE_REJECTED =
+      MessageStateValue._(3, _omitEnumNames ? '' : 'MESSAGE_STATE_REJECTED');
+
+  static const $core.List<MessageStateValue> values = <MessageStateValue>[
+    MESSAGE_STATE_UNSPECIFIED,
+    MESSAGE_STATE_DELIVERED,
+    MESSAGE_STATE_READ,
+    MESSAGE_STATE_REJECTED,
+  ];
+
+  static final $core.List<MessageStateValue?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
+  static MessageStateValue? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const MessageStateValue._(super.value, super.name);
 }
 
 const $core.bool _omitEnumNames =

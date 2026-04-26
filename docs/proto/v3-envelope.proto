@@ -75,6 +75,27 @@ message Envelope {
   // Required (zero-length allowed for client-defined "ping" semantics).
   bytes payload = 5;
 
+  // Best-effort, no-persistence, no-ack signal. Drives "send-and-forget"
+  // events like typing indicators. Server semantics:
+  //   - Fan to currently-connected channel members verbatim.
+  //   - DO NOT enqueue for offline members (skip the undelivered queue).
+  //   - DO NOT emit an `Ack` back to the sender.
+  //   - DO NOT include in any history / sync-pull responses.
+  //
+  // Recipients that observe this flag bypass `op_id_seen` and any
+  // projection writes — these envelopes are routed to a side-channel
+  // (e.g. typing-indicator stream) and dropped from the persistent
+  // pipeline entirely. Senders construct ephemeral envelopes via a
+  // direct `WsTransport.sendEphemeral(...)` path that bypasses
+  // `outbound_ops`; if the WS is not connected the envelope is dropped.
+  //
+  // Wire compat: defaults to false, so older clients/servers that don't
+  // know about this field treat the envelope as a normal queued op —
+  // which is harmless for typing (wastes one row, never re-applied
+  // because the receiver-side dispatcher dedups by op_id) but the
+  // optimization only kicks in once both sides understand the flag.
+  bool ephemeral = 6;
+
   // ---------------------------------------------------------------------------
   // Server-stamped fields. Absent on client→server. Populated by the
   // server before fanout to recipients.
