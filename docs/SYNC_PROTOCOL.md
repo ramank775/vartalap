@@ -750,6 +750,8 @@ ServerEventPayload {
     ChannelDeleted channel_deleted = 14;
     ProfileEdited profile_edited = 15;
     UsernameChanged username_changed = 16;
+    MessageStateChanged message_state_changed = 17;
+    Typing typing = 18;
   }
 }
 
@@ -762,6 +764,8 @@ enum ServerEventType {
   CHANNEL_DELETED = 5;
   PROFILE_EDITED = 6;
   USERNAME_CHANGED = 7;
+  MESSAGE_STATE_CHANGED = 8;
+  TYPING = 9;
 }
 ```
 
@@ -774,13 +778,22 @@ Each variant carries the changed fields:
 - `ProfileEdited`: `user_id`, `display_name?`, `avatar_url?`,
   `status_text?`.
 - `UsernameChanged`: `user_id`, `new_username` (may be null).
+- `MessageStateChanged`: routed to the message's AUTHOR only (not
+  the whole channel) — `channel_id`, `message_id`, `new_state`
+  (`DELIVERED` / `READ` / `REJECTED`), `changed_at_ms`.
+- `Typing`: ephemeral typing indicator — lossy (dropped if the
+  sender's WS isn't connected), NOT persisted or queued (bypasses
+  the undelivered queue entirely, unlike every other variant here),
+  and carries a client-side display TTL of ~6s.
 
 The server treats these envelopes the same as chat-content envelopes
-on the wire: same `Envelope` proto, same fanout rules, same
-undelivered-queue behavior. The client distinguishes by inspecting
-the first byte of `payload` and routing to the right decoder. Server-
-event payloads bypass the §6a.4 recipient-side authorization (they
-are server-authored and authoritative).
+on the wire: same `Envelope` proto, same fanout rules. Most variants
+also share the same undelivered-queue behavior as chat content;
+`Typing` is the one exception (see above — never queued). The client
+distinguishes by inspecting the first byte of `payload` and routing
+to the right decoder. Server-event payloads bypass the §6a.4
+recipient-side authorization (they are server-authored and
+authoritative).
 
 ### 10.3 Fanout rules
 
@@ -800,7 +813,7 @@ are server-authored and authoritative).
 2. For each online recipient (active WS connection in connection-
    gateway), emit the push frame immediately.
 3. For each offline recipient, enqueue the push frame in the
-   undelivered queue (§11).
+   undelivered queue (§10.6).
 4. Senders MUST NOT receive fanout for their own ops on the same
    device. Cross-device fanout is deferred to v3.1.
 
@@ -830,7 +843,59 @@ On receipt of a `WS_PUSH` envelope, the recipient client MUST:
 4. Server does not ACK its own push frames. No client-to-server
    acknowledgment is required at the protocol level — the
    undelivered queue is drained purely on WS connection
-   establishment (§11.3).
+   establishment (§10.6).
+
+### 10.6 Undelivered queue and sync pull
+
+The undelivered queue (§10.3 item 3) is the server-side holding
+area for push frames a recipient's WS wasn't open to receive. v3.0
+drains it exclusively via client pull — the server never pushes
+proactively when a connection opens.
+
+#### `GET /v3.0/sync/pending`
+
+**Headers:** `Authorization: Bearer <accesskey>`
+
+**Success 200:**
+```json
+{ "frames": ["<base64 WsEnvelope bytes>", "..."] }
+```
+
+Each entry is a base64-encoded `WsEnvelope` (`proto/v3-envelope.proto`)
+with `type = WS_PUSH`. Frames are ordered by `delivery_sequence` per
+channel — cross-channel ordering is not guaranteed, same as §10.4.
+
+**Drain semantics:** the server drains the calling user's queue in
+the same request that returns it — at-most-once delivery from the
+queue. A frame handed back here is removed server-side whether or
+not the client successfully applies it; there is no ACK for this
+endpoint and no re-fetch of a frame already returned. This is safe
+in practice because push frames are idempotent envelopes carrying
+their own `op_id`, and because §7.2 client-side dedup means a frame
+that also arrives via live fanout (e.g. a drain racing a reconnect)
+is harmless either way.
+
+**Size:** bounded by the undelivered queue's own cap — at most
+10,000 frames per user (§19 decision 2). v3.0 has no pagination;
+a full-queue response is the pathological case, not the common one.
+
+**When the client calls it** (client-driven, not server-driven):
+1. App start, when a session restores with a signed-in user
+   (`main.dart` ~L87) — picks up anything queued since the last run.
+2. Immediately after login, once the inbound receiver is rebuilt for
+   the new user (`main.dart` ~L202).
+3. On every WS reconnect (`main.dart` ~L273, ~L287), including the
+   ntfy-wake-triggered reconnect (§12.3).
+
+**Failure handling:** non-2xx or transport failure returns an empty
+frame list to the caller — fail open. There is no op_id to retry
+against, so the client relies on the next natural trigger (next
+reconnect, next app start) rather than an explicit retry loop.
+
+**Overflow:** if the queue already dropped frames to the 30-day TTL
+or 10,000-frame cap (§15.8, §19 decisions 1–2) before this call, the
+drain returns whatever remains. The client cannot detect the gap
+from this response alone.
 
 ---
 
@@ -1060,7 +1125,7 @@ the server MAY debounce the ntfy publish (no more than one wake per
 ### 12.3 Client reconnect flow
 
 ntfy Android app receives the wake → fires intent → Vartalap process
-wakes → reopens WS → drain protocol runs (§11.3 below, undelivered
+wakes → reopens WS → drain protocol runs (§10.6, undelivered
 queue). No client-initiated request to the ntfy topic other than
 registration.
 
@@ -1096,8 +1161,7 @@ On `WS_REAUTH_REQUIRED` or 4001/4002 close:
    or returns user to login (4002).
 3. On 4001 success, reconnect WS with new accesskey per §5.2; on
    4002, clear local credentials.
-4. After WS reconnect, the undelivered-queue drain runs (§11.3 of
-   the undelivered queue section below — TODO unify numbering),
+4. After WS reconnect, the undelivered-queue drain runs (§10.6),
    then scheduler resumes.
 
 In-flight ops with no ACK at disconnect are handled by Flow C
@@ -1246,7 +1310,7 @@ queued WS chat-content envelopes for that channel.
 
 Scenario: recipient offline long enough that > 10,000 frames
 accumulate.
-- Server: drops oldest on overflow (§11.2 below — undelivered queue).
+- Server: drops oldest on overflow (§10.6 — undelivered queue).
 - Client: on reconnect, drains what remains. Does NOT know what
   was dropped. Timeline shows a gap.
 - v3.0: known limitation. v3.1 plans a resync path.
@@ -1332,8 +1396,10 @@ the point.
   recovery path for lost fanout frames beyond the undelivered TTL.
 - **Stateless WS authentication via signed token (JWT).** Considered
   and rejected for v3.0 (see AUTH_CONTRACT §15).
-- **Presence, read receipts, typing indicators.** Deferred per
-  V3_ARCHITECTURE out-of-scope.
+- **Presence (online / last-seen).** Deferred per V3_ARCHITECTURE
+  out-of-scope. Read receipts and typing indicators are NOT in this
+  list — `MessageStateChanged` (read receipts) and the ephemeral
+  `Typing` event ship in v3.0; see §10.2.
 - **Per-op priority / QoS hints.** All ops processed at the same
   priority.
 - **Server-side payload introspection for moderation / spam.**

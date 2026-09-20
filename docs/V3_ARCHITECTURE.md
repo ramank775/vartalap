@@ -229,8 +229,12 @@ Server-side OTP auth contract is in `AUTH_CONTRACT.md` (v1.0 as of
   vs SMPP) stays deferred
 
 The contract now covers (per AUTH_CONTRACT.md v1.0):
-- **Identity model:** `user_id` canonical, `username` optional
-  discovery handle, `phone` login handle (AUTH_CONTRACT §2).
+- **Identity model:** `user_id` canonical, ~~`username` optional
+  discovery handle~~, `phone` login handle (AUTH_CONTRACT §2).
+  **Revised 2026-09-20: username required and the public identity;
+  phone private (login, verification, address-book matching only);
+  optional 4-digit username key; lookup by exact @username.** See
+  AUTH_CONTRACT.md v1.1 §2.
 - **Session management:** accesskey (30d TTL) + refreshToken (90d,
   single-use rotation), `/v3.0/auth/session/refresh`,
   `/v3.0/auth/session/revoke` (AUTH_CONTRACT §4).
@@ -265,16 +269,32 @@ load-bearing claims:
   `"a3f2e8c5d"`). **All references on the sync wire — message
   authorship, group membership, ACK targets, fanout recipients,
   compensating events — resolve to `user_id`.**
-- The **`username`** is the **optional** discovery handle: 3-32
-  ASCII chars, `[a-zA-Z0-9_]`, case-sensitive, mutable (1 change
-  per 90 days; first-ever set is exempt — AUTH_CONTRACT §10.6). Set/changed/cleared via
-  `PATCH /v3.0/users/me`, NOT picked at OTP signup — the OTP flow
-  is purely a phone-ownership proof. A user can sign up, send and
-  receive messages, and never set a username; identity is `user_id`
-  throughout. Username is never used as a wire identifier — it can
-  change or disappear at any moment without breaking any reference,
-  because nothing references it. Display in the UI uses contact-book
-  name first, username second, phone third (AUTH_CONTRACT §2.4).
+- ~~The **`username`** is the **optional** discovery handle: 3-30
+  chars, lower-case `[a-z0-9._]`, must start with a letter, no
+  `..`/`__`, no `www.` prefix or domain-suffix ending, globally
+  unique case-insensitively, mutable (1 change per 90 days;
+  first-ever set is exempt — AUTH_CONTRACT §10.6). Set/changed/
+  cleared via `PATCH /v3.0/users/me`, NOT picked at OTP signup —
+  the OTP flow is purely a phone-ownership proof. A user can sign
+  up, send and receive messages, and never set a username; identity
+  is `user_id` throughout. Username is never used as a wire
+  identifier — it can change or disappear at any moment without
+  breaking any reference, because nothing references it. Display in
+  the UI uses contact-book name first, then a phone number the
+  viewer already holds, then username, then displayName
+  (AUTH_CONTRACT §2.4).~~ **Revised 2026-09-20: username required
+  and the public identity; phone private (login, verification,
+  address-book matching only); optional 4-digit username key;
+  lookup by exact @username.** The **`username`** is now
+  **required**, same shape as above; NOT picked at OTP signup
+  itself, but the client MUST complete `PATCH /v3.0/users/me` with
+  a username immediately after, with no skip — every other
+  authenticated route returns `403 USERNAME_REQUIRED` while
+  `username` is `null` (AUTH_CONTRACT §2.4). Username is still
+  never used as a wire identifier — references stay on `user_id`.
+  Display in the UI is contact-book name, else `@username`; `phone`
+  is never shown to another user, in any form (AUTH_CONTRACT
+  §2.4-2.5).
 - The **`phone`** is the login handle used during OTP. Bound to one
   `user_id` at a time. Rebindable via the AUTH_CONTRACT §9
   phone-rebind flow (OTP-on-new-number while authenticated on old)
@@ -721,14 +741,29 @@ open questions remain.
 9. ~~**Contact-discovery privacy protocol.**~~ **Resolved: SHA-256
    hashed phone lookup with 500/day/user, 100/request, 5,000/day/IP
    quotas. PSI deferred to v4. See AUTH_CONTRACT.md §7.**
-10. ~~**Username creation flow at first OTP.**~~ **Resolved:
+10. ~~**Username creation flow at first OTP.**~~ ~~**Resolved:
     username is optional, NOT picked at OTP. The OTP flow is
     purely phone-ownership proof. Users set/change/clear username
     via `PATCH /v3.0/users/me` (AUTH_CONTRACT §4.5); they may
     skip indefinitely. The 1-change-per-90-days rate limit
     applies (first-ever set is exempt). Display falls back to
     contact-book name → username → phone → empty per
-    AUTH_CONTRACT §2.4.**
+    AUTH_CONTRACT §2.4.**~~
+    **Revised 2026-09-20: username required and the public
+    identity; phone private (login, verification, address-book
+    matching only); optional 4-digit username key; lookup by exact
+    @username.** Username is still NOT picked at OTP verify itself
+    (that step remains a pure phone-ownership proof), but the
+    client MUST complete the mandatory `PATCH /v3.0/users/me`
+    username-pick step immediately after, with no skip option.
+    While `username` is `null`, the server returns
+    `403 USERNAME_REQUIRED` on every authenticated route except
+    `GET`/`PATCH /v3.0/users/me`, `POST /v3.0/users/username/check`,
+    `POST /v3.0/auth/session/*`, and `POST /v3.0/auth/phone/rebind/*`.
+    The 1-change-per-90-days rate limit still applies (first-ever
+    set still exempt). Display falls back to contact-book name →
+    `@username`; `phone` is never shown to another user, in any
+    form. See AUTH_CONTRACT.md v1.1 §2.4-2.5, §4.5, §7.6.
 11. ~~**Phone-rebind flow.**~~ **Resolved: OTP-on-new-number while
     authenticated on the old session, via
     `POST /v3.0/auth/phone/rebind/start` and `…/verify`. The

@@ -6,13 +6,40 @@
 > copy in sync manually during the v3 design phase; once chat-server
 > adopts it, this mirror becomes a reference pointer.
 
-**Status:** v1.0 (2026-04-14)
+**Status:** v1.1 (2026-09-20)
 **Scope:** Wire contract between the Vartalap v3 mobile client and the
 chat-server services that own identity, sessions, push topics, contact
 discovery, and account lifecycle.
 **Branch:** `feat/v3-foundation` (client) / `master` (chat-server)
 **Supersedes:** v0.1 Draft (Firebase-compat draft, deleted in this
 revision).
+
+**Changelog:**
+- **v1.1 (2026-09-20):** Greenfield end-state identity model.
+  `username` is **required** and is the primary public identifier —
+  a mandatory, non-skippable "choose username" step follows signup,
+  enforced server-side by a `403 USERNAME_REQUIRED` gate on every
+  authenticated route except a short exempt list (§2.4, §3.2,
+  §4.5, §11.2). `phone` is **strictly private**: the server hands
+  it to the account owner only (`GET`/`PATCH /v3.0/users/me`,
+  `POST /v3.0/auth/otp/verify`, `POST /v3.0/auth/phone/rebind/verify`)
+  and never to any other user, in any response or fanout (§2.5).
+  Username validation rule aligned with the client's enforced regex
+  (lower-case `a-z0-9._`, 3-30 chars, must start with a letter, no
+  `..`/`__`, no `www.` prefix or domain-suffix ending), plus a
+  reserved-word list, new `409 USERNAME_RESERVED` (§2.4, §4.5,
+  §11.2). Display rule drops phone entirely: contact-book name →
+  `@username`, never a number (§2.4). New
+  `GET /v3.0/users/by-username/{username}` lookup (§7.6) and an
+  optional 4-digit **username key** (§4.5) gating it —
+  missing/wrong key returns the same `404 USER_NOT_FOUND` as a
+  nonexistent username. `POST /v3.0/channels` carries
+  `initiatedVia: "phone" | "username"` solely so the server can
+  require the key on a username-initiated one-to-one channel
+  (`403 USERNAME_KEY_REQUIRED`, §11.2); phone-hash-matched contacts
+  bypass the key; `initiatedVia` has no effect on what `phone` is
+  revealed to whom — that is governed entirely by §2.5. Full
+  channel-creation body is `SYNC_PROTOCOL.md` §11 (not edited here).
 
 This is a **contract spec**, not an implementation guide. A server
 engineer implements `profile-ms`, `notification-ms`, and the
@@ -28,8 +55,9 @@ do not improvise.
 ### 1.1 In scope
 
 - Phone-OTP signup, login, and session management.
-- Identity model: `user_id` (canonical), `username` (discovery
-  handle), `phone` (login handle).
+- Identity model: `user_id` (canonical), `username` (**required**,
+  primary public identifier), `phone` (**strictly private** login
+  handle — owner-only, see §2.5).
 - Session credentials: `accesskey` and `refreshToken`, their TTLs,
   rotation semantics, and revocation.
 - Push topic registration (ntfy-direct, per `V3_ARCHITECTURE.md`
@@ -91,8 +119,8 @@ change anywhere else in this document.
 | Identifier | Role | Mutable? | Wire shape | Authority |
 |---|---|---|---|---|
 | `user_id` | **Canonical user identity.** Every reference to a user — message author, group member, ACK target, fanout recipient, event payload — uses `user_id`. Also the 36-bit UUIDv7 partition (see `SPIKE_B_SYNC.md` §4). | **Immutable.** | 9 lowercase hex chars, e.g., `"a3f2e8c5d"`. | Server-assigned at signup. |
-| `username` | **Optional discovery handle.** Human-readable, used as a secondary display name (after contact-book name; see §2.4). Returned by contact lookup. Used **only** to find a user before any reference is created — once the client has the `user_id`, all subsequent operations reference the id, never the username. May be `null`. | **Optional and mutable.** Can be set, changed, or cleared at any time. | 3-32 ASCII chars, `[a-zA-Z0-9_]`, case-sensitive. May be absent (null). | NOT picked at OTP verify. Set/changed/cleared exclusively via `PATCH /v3.0/users/me` (§4.5). |
-| `phone` | **Login handle.** Used during OTP send/verify. Used as a contact-discovery key (hashed). Never appears in op payloads, ACKs, or fanout frames. | **Rebindable** via §9 phone-rebind flow. | E.164, e.g., `"+919876543210"`. | User-supplied at OTP send; verified by SMS receipt. |
+| `username` | **Required. The primary public identifier.** Human-readable, discoverable; this is what other users see and search for (see §2.4 for the display rule). Returned by contact lookup and `GET /v3.0/users/by-username/{username}` (§7.6). Used **only** to find a user before any reference is created — once the client has the `user_id`, all subsequent operations reference the id, never the username. `null` only in the brief window between signup and the mandatory username-pick step. | **Required, mutable.** Must be set before most authenticated routes work; can be changed thereafter subject to the §10.6 rate limit. | 3-30 chars, lower-case `[a-z0-9._]`, must start with a letter, no `..` or `__`, no `www.` prefix or domain-suffix ending. Globally unique, case-insensitively. | NOT picked at OTP verify — set immediately after via the mandatory `PATCH /v3.0/users/me` step (§2.4, §3.2, §4.5). |
+| `phone` | **Strictly private login handle.** Used during OTP send/verify. Used as a contact-discovery key (hashed). Never appears in op payloads, ACKs, or fanout frames, and never in any response except to the account owner (§2.5). | **Rebindable** via §9 phone-rebind flow. | E.164, e.g., `"+919876543210"`. | User-supplied at OTP send; verified by SMS receipt. |
 
 ### 2.2 Why this split
 
@@ -148,33 +176,77 @@ event partitioning.
 
 ### 2.4 `username` shape and lifecycle
 
-- **3-32 ASCII characters**, regex `^[a-zA-Z0-9_]{3,32}$`.
-  Case-sensitive (`Alice` and `alice` are distinct).
-- **Optional.** A user record can exist without a username
-  indefinitely. Sign-up does NOT require picking one (see §3.2).
-  Users without a username can still send and receive messages —
-  identity is `user_id`, not `username`. They simply cannot be
-  discovered by username (only by phone hash, see §7).
-- **Globally unique when present.** Server enforces with a unique
-  partial index on `users.username` where `username IS NOT NULL`.
+Greenfield end-state model: username is **required** and is the
+**primary public identifier**. There is no transitional "optional"
+period beyond the brief window between signup and the mandatory
+username-pick step.
+
+- **3-30 characters**, regex `^[a-z][a-z0-9._]{2,29}$` (a leading
+  letter guarantees at least one letter), plus a rejection of any
+  username containing `..` or `__`, and a rejection of any username
+  starting with `www.` or ending in a domain suffix (`.com`, `.net`,
+  and the operator's documented TLD blocklist) — this closes the
+  obvious phishing-lookalike gap. Lower-case only (`Alice` is not a
+  valid wire value; clients MUST lower-case before sending, and the
+  field is never rendered with mixed case). This aligns the
+  contract with what the client already enforces
+  (`lib/screens/profile/profile.dart`) — **changed in v1.1** from
+  the earlier `^[a-zA-Z0-9_]{3,32}$` case-sensitive rule.
+- **Required.** Every account MUST have a username to use the
+  product. It is the primary public identifier — see the display
+  rule below and the phone-privacy rule in §2.5.
+- **Not picked at OTP verify** (see §3.2) — the OTP flow is purely
+  a phone-ownership proof — but the client MUST complete a
+  mandatory "choose username" step immediately after, with **no
+  skip option**: either when `POST /v3.0/auth/otp/verify` returns
+  `isNew: true`, or any time `GET /v3.0/users/me` returns
+  `username: null` (e.g., a resumed signup). Until the client does
+  so, `username` is `null` server-side.
+- **Server-enforced gate while `username` is `null`.** Every
+  authenticated route except `GET /v3.0/users/me`,
+  `PATCH /v3.0/users/me`, `POST /v3.0/users/username/check`,
+  `POST /v3.0/auth/session/*`, and `POST /v3.0/auth/phone/rebind/*`
+  MUST return `403 USERNAME_REQUIRED` (see §11.2) while the
+  authenticated user's `username` is `null`.
+- **Globally unique, case-insensitively.** Server enforces with a
+  unique index on `LOWER(username)`.
+- **Reserved-word list.** Server rejects a documented list of
+  reserved handles (`admin`, `root`, `support`, `help`, `vartalap`,
+  `system`, `null`, `undefined`, plus a curated profanity
+  blocklist) with `409 USERNAME_RESERVED`, distinct from
+  `USERNAME_TAKEN`.
 - **Set or changed via `PATCH /v3.0/users/me`** (§4.5). This is the
-  only path that writes `username`. Server validates shape and
-  uniqueness; rejects with `USERNAME_TAKEN` or `INVALID_USERNAME`
-  on failure.
-- **Mutable at any time** via the same PATCH endpoint, subject to
-  the §10.6 rate limit. The change is a single UPDATE on
+  only path that writes `username`. Server validates shape,
+  reserved-word list, and uniqueness; rejects with `USERNAME_TAKEN`,
+  `USERNAME_RESERVED`, or `INVALID_USERNAME` on failure.
+- **Mutable after the first set**, subject to the §10.6 rate limit
+  (1 change per 90 days; **the first-ever set is exempt** — it does
+  not consume the budget). The change is a single UPDATE on
   `users.username` — references are by `user_id`, so nothing
   downstream needs touching.
-- **Removable.** PATCH with `{"username": null}` clears the
-  username. After clearing, the prior name becomes available for
-  anyone to claim (it does NOT enter the tombstone table — only
-  account deletion does that). The 1-change-per-90-days limit
-  applies to clears the same as it does to renames.
-- **Tombstoned on account deletion** *if a username was set at
-  the time of deletion* (`tombstones.username`); permanently
-  reserved. If the deleted account had no username, only `user_id`
-  is tombstoned. Rationale: prevents impersonation of past users
-  who had an established handle.
+- **Clearing is still possible** (PATCH with `{"username": null}`)
+  and still counts against the §10.6 budget like a rename, but it
+  immediately re-arms the mandatory gate above: the account goes
+  back to being blocked from every non-exempt route with
+  `403 USERNAME_REQUIRED` until a new username is set. The client
+  SHOULD NOT expose a bare "clear" UI action for this reason — it
+  is preserved as a server capability, not a recommended client
+  flow. The released name becomes available for anyone to claim (it
+  does NOT enter the tombstone table — only account deletion does
+  that).
+- **Optional 4-digit username key.** A user MAY additionally set a
+  `usernameKey` (§4.5) to gate discovery: `GET
+  /v3.0/users/by-username/{username}` then requires the correct key
+  to resolve (§7.6). This lets a user keep a discoverable handle
+  for people they hand the key to, without being findable by
+  strangers who only know the handle.
+- **Tombstoned on account deletion** (`tombstones.username`);
+  permanently reserved. Because `username` is required and
+  `POST /v3.0/users/me/delete` is not on the gate-exempt list, an
+  account can only reach delete with a username already set — see
+  §8.2 for the resulting (username-only) confirmation rule.
+  Rationale: prevents impersonation of past users who had an
+  established handle.
 
 **Display-name resolution rule (client UX).** When the client needs
 to render a user's name (chat header, message author, group member
@@ -185,24 +257,21 @@ list, fanout sender), it MUST resolve in this order:
    `(phone_hash → user_id)` mapping from §7), display the
    contact-book name. This is the primary identifier — the user
    has chosen what to call this person.
-2. **Username**, if one is set on the user record. Display as
-   `@username` (the leading `@` is a UI convention to disambiguate
-   from arbitrary display strings).
-3. **Phone number** in E.164 format, if the client has it from the
-   contact book or from a prior interaction AND it has not already
-   been used as the contact-book key in step 1.
-4. **Empty / placeholder.** If none of the above resolve (a user
-   the local client has no information about — e.g., a new group
-   member with no contact entry and no username), display empty
-   or a neutral placeholder ("Unknown member" is acceptable; the
-   exact string is a UI decision, not a contract decision).
+2. **`@username`.** Since `username` is required, this is the
+   fallback for everyone not already in the viewer's contact book.
+   Display as `@username` (the leading `@` is a UI convention to
+   disambiguate from arbitrary display strings).
 
-The username is intentionally NOT the primary identifier even when
-present — contact-book names are user-chosen and trump any
-server-side handle. This rule is what makes the username optional
-in v3.0: a user without a username is indistinguishable from one
-who has hidden it, because the contact-book name takes precedence
-for everyone who knows them.
+**Phone number is never part of this fallback chain, in any form**
+(no bare number, no `~displayName` variant) — the phone is strictly
+private (§2.5) and the client never has it for anyone but itself.
+A user the client has no contact-book entry for is always shown
+`@username`; there is no further fallback below `@username` because
+`username` is required and therefore always present.
+
+The username is nonetheless not shown in preference to a
+contact-book name — a contact-book name is user-chosen and trumps
+the server-side handle for anyone who has this person saved.
 
 ### 2.5 `phone` shape and role
 
@@ -216,6 +285,32 @@ for everyone who knows them.
 - **Never appears on the sync wire.** The only endpoints that take
   `phone` in plaintext are §3 (OTP send/verify), §7 (contact lookup,
   hashed), and §9 (phone rebind, OTP-on-new).
+
+**Phone is strictly private (v1.1).** `phone` in plaintext MUST
+appear in exactly one class of response: to the account owner about
+themselves. Concretely, that is `GET /v3.0/users/me` and
+`PATCH /v3.0/users/me` (§4.4-4.5), `POST /v3.0/auth/otp/verify`
+(§3.2), and `POST /v3.0/auth/phone/rebind/verify` (§9.3). No other
+response or event — `GET /v3.0/users/<user_id>` (§7.5),
+`GET /v3.0/users/by-username/…` (§7.6),
+`POST /v3.0/contacts/lookup` matches (§7.2), the `ChannelCreated`
+fanout, or any other fanout/event payload — may include another
+user's `phone`, under any circumstance. This is unconditional: it
+does not depend on how a channel or contact was found.
+
+**`initiatedVia` exists only to gate the username key, not phone
+visibility.** `POST /v3.0/channels` for a one-to-one channel
+carries `initiatedVia: "phone" | "username"` so the server knows
+whether to enforce a target's `usernameKey` (§4.5, §7.6): a
+phone-hash-matched contact (`initiatedVia: "phone"`) bypasses the
+key, while a username-initiated one against a keyed user must
+present a matching key or the server rejects with
+`403 USERNAME_KEY_REQUIRED` (§11.2). `initiatedVia` has **no other
+effect** — in particular it never causes the server to reveal
+either party's `phone` in the `ChannelCreated` fanout or anywhere
+else. The full `POST /v3.0/channels` request/fanout shape is
+specified in `SYNC_PROTOCOL.md` §11; this contract only states the
+identity/privacy rule that shape must satisfy.
 
 ### 2.6 The `x-user` header semantics changed in v3
 
@@ -333,10 +428,16 @@ controls the phone and returns a session credential. It does NOT:
 - register a push topic (use `POST /v3.0/push/topic`, §5.1),
 - fetch contacts (use `POST /v3.0/contacts/lookup`, §7.2).
 
-This decoupling lets the client present each follow-up step
-independently. A user can skip username-pick at signup and set one
-later — or never. They can defer push-topic registration until ntfy
-subscription completes (which can be slow on first install).
+This decoupling lets the client present each follow-up step as a
+separate screen rather than one giant signup form. It does NOT mean
+username-pick is optional: per §2.4, the client MUST complete
+`PATCH /v3.0/users/me` with a username immediately after a verify
+that returns `isNew: true` (or after any `GET /v3.0/users/me` that
+returns `username: null`), with no skip option, because every other
+authenticated route returns `403 USERNAME_REQUIRED` until it does.
+Push-topic registration and contact lookup remain genuinely
+deferrable — they are just gated behind the username step, not
+skippable forever.
 
 **Request body:**
 ```json
@@ -380,7 +481,7 @@ or `notificationToken` from older clients) as `validation_failed`.
 | `refreshToken` | string | Rotation credential. 90-day TTL (see §4.2). Single-use — every refresh issues a new one and invalidates the old. |
 | `accesskeyExpiresAt` | integer (ms epoch) | Absolute expiry. Client uses to schedule proactive refresh at T < 48h. |
 | `refreshTokenExpiresAt` | integer (ms epoch) | Absolute expiry. After this, full re-login (OTP) is required. |
-| `isNew` | boolean | `true` if this verify created the account, `false` if it logged into an existing account. Client MAY use this to decide whether to surface the optional username-pick UI on first launch. |
+| `isNew` | boolean | `true` if this verify created the account, `false` if it logged into an existing account. Client MUST use this (or a `null` `username` from `GET /v3.0/users/me`) to decide whether to surface the **mandatory, non-skippable** username-pick UI — see §2.4. |
 
 **One-shot semantics.** A successful verify marks the `sessionId`
 consumed. Re-verify on the same session returns
@@ -526,14 +627,20 @@ Fetch the authenticated user's profile.
 }
 ```
 
-`username` MAY be `null` if the user has not set one. `displayName`,
+`username` is `null` only if the user has not yet completed the
+mandatory username-pick step (§2.4) — a `null` here is exactly the
+signal that triggers the client's "choose username" screen and the
+server's `403 USERNAME_REQUIRED` gate on other routes. `displayName`,
 `avatarUrl`, `statusText` MAY be `null` if unset. `user_id`,
-`phone`, `createdAt` are always present.
+`phone`, `createdAt` are always present. This is one of the two
+endpoints (with `POST /v3.0/auth/otp/verify`/rebind-verify) allowed
+to return `phone` — see §2.5, which is unconditional: no other
+endpoint or fanout ever includes it.
 
 ### 4.5 `PATCH /v3.0/users/me`
 
-Update the authenticated user's profile, including the optional
-username.
+Update the authenticated user's profile, including the required
+username and its optional discovery key.
 
 **Headers:** `Authorization: Bearer <accesskey>`
 **Request body** (all fields optional; absent key = unchanged;
@@ -541,29 +648,46 @@ explicit `null` = clear):
 ```json
 {
   "username": "alice_new",
+  "usernameKey": "4821",
   "displayName": "Alice K.",
   "avatarUrl": "https://media.vartalap/…/new-avatar.jpg",
   "statusText": "Back online"
 }
 ```
 
-**This is the only endpoint that writes `username`.** Username is
-not picked at signup (see §3.2); users set it later via this
-endpoint, or never. A user without a username is a normal user —
-they just can't be discovered by username (only by phone hash).
+**This is the only endpoint that writes `username` or
+`usernameKey`.** Username is not picked at signup (see §3.2); the
+client MUST call this endpoint with a username immediately after
+signup (or after any `GET /v3.0/users/me` that returns
+`username: null`) — see the §2.4 mandatory-gate rule. This endpoint
+(along with `GET /v3.0/users/me`, `POST /v3.0/users/username/check`,
+`POST /v3.0/auth/session/*`, and `POST /v3.0/auth/phone/rebind/*`)
+is exempt from that gate, since it is the only way to satisfy it.
 
 **Username write semantics.**
-- **Set or change.** Server validates new username against
-  `^[a-zA-Z0-9_]{3,32}$`. Reject with `INVALID_USERNAME` on shape
-  failure.
-- **Uniqueness.** Server validates against the partial index on
-  `users.username WHERE username IS NOT NULL` AND the
-  `tombstones.username` table. Reject with `USERNAME_TAKEN` on
-  either collision.
+- **Set or change.** Server validates the new username against
+  `^[a-z][a-z0-9._]{2,29}$` (3-30 chars total, lower-case
+  `a-z0-9._`, must start with a letter), rejects `..` or `__`
+  anywhere in the string, and rejects a value starting with `www.`
+  or ending in a domain suffix (`.com`, `.net`, etc. — §2.4).
+  Reject with `INVALID_USERNAME` on shape failure. **Changed in
+  v1.1** from the prior `^[a-zA-Z0-9_]{3,32}$` case-sensitive rule,
+  to match what the client already enforces client-side
+  (`lib/screens/profile/profile.dart`).
+- **Reserved words.** Reject with `409 USERNAME_RESERVED` if the
+  (lower-cased) value is on the reserved list (§2.4).
+- **Uniqueness.** Server validates against a unique index on
+  `LOWER(users.username)` AND the `tombstones.username` table.
+  Reject with `409 USERNAME_TAKEN` on either collision.
 - **Clear.** PATCH with `{"username": null}` removes the username
-  from the user record. The released name becomes available for
-  anyone to claim (it does NOT enter the tombstone table — only
-  account deletion does that, §8).
+  from the user record. This is still permitted (it counts against
+  the §10.6 budget like a rename) but immediately re-triggers the
+  §2.4 mandatory gate — `403 USERNAME_REQUIRED` on every non-exempt
+  route until a new username is set. The released name becomes
+  available for anyone to claim (it does NOT enter the tombstone
+  table — only account deletion does that). Clearing `username`
+  also clears any `usernameKey` (a key is meaningless with no
+  handle to gate).
 - **Race.** Two users PATCH-ing the same username concurrently:
   whoever the DB serializes first wins; the loser receives
   `409 USERNAME_TAKEN` and may retry with a different name. There
@@ -576,8 +700,34 @@ they just can't be discovered by username (only by phone hash).
   display-resolution rule, the contact-book name takes precedence
   for users who are in the recipient's contact book regardless.
 
+**`usernameKey` write semantics (v1.1, added).**
+- **Only meaningful when `username` is set.** Reject with
+  `INVALID_USERNAME_KEY` if `usernameKey` is set/changed while
+  `username` is `null`.
+- **Exactly 4 digits**, regex `^\d{4}$`. Reject with
+  `INVALID_USERNAME_KEY` otherwise.
+- **Stored hashed** (same treatment as the OTP code, §14.5), never
+  returned in plaintext by any endpoint, including to the owner —
+  the client is the only holder of the plaintext value it set.
+- **Rotatable at any time** via the same PATCH; a new value replaces
+  the old hash outright. `null` clears it (username becomes
+  discoverable with no key required).
+- **Not subject to the username §10.6 rate limit** — it shares the
+  "other profile fields" 50/hour budget, since rotating it is not a
+  contact-cache-invalidating event the way a username rename is.
+- **Gates `GET /v3.0/users/by-username/{username}`** (§7.6) and
+  username-initiated one-to-one channel creation (§2.5,
+  `SYNC_PROTOCOL.md` §11) when set.
+
+**`POST /v3.0/users/username/check`** is the pre-claim availability
+check the client's inline indicator uses; it is exempt from the
+§2.4 gate for the same reason as this endpoint. Its full wire shape
+is tracked in `docs/V3_TODOS.md` ("Username uniqueness + rate
+limit") pending promotion into this contract.
+
 **Success response `200 OK`:** the updated profile (same shape as
-§4.4). `username` field reflects the new value (or `null` if
+§4.4; `usernameKey` itself is never echoed, per its write
+semantics). `username` field reflects the new value (or `null` if
 cleared).
 
 **Username-change rate limit.** 1 change per 90 days per user
@@ -827,6 +977,11 @@ to v4**. Do not redesign the v3.0 API on the assumption that it will
 become PSI; the wire shape will likely change when PSI lands, and
 that's fine.
 
+A successful phone-hash match reveals only `(user_id, username)` —
+never `phone` (§2.5) — to the requester. A per-user "discoverable by
+phone" opt-out (excluding an account from hash-match results
+entirely) is **deferred to v3.1**.
+
 ### 7.2 `POST /v3.0/contacts/lookup`
 
 Look up a batch of phone hashes.
@@ -878,7 +1033,7 @@ hex, canonical E.164 string).
 |---|---|---|
 | `matches` | array | One entry per phone hash that resolved to a registered user. **Order is not preserved**; client matches by `phoneHash`. **Hashes that did not match are absent from the response** (negative results are not reported, only positive). |
 | `matches[].phoneHash` | string | Echo of the input hash. |
-| `matches[].username` | string \| null | The user's current username, or `null` if they have not set one. Per §2.4 the username is optional; a `null` here is a normal state, not an error. |
+| `matches[].username` | string \| null | The user's current username, or `null` only in the brief window before they complete the §2.4 mandatory username-pick step. |
 | `matches[].user_id` | string | Canonical identity. **Client MUST cache this and use for all subsequent ops referencing the user.** |
 
 **The username can change OR appear/disappear.** A subsequent
@@ -958,6 +1113,58 @@ public profile by prefix" rule.
 belongs to a deleted account (the prefix tombstone is checked, see
 §8.3).
 
+### 7.6 `GET /v3.0/users/by-username/{username}` (added v1.1)
+
+Resolve a username to a public profile. This is the discovery path
+for the now-required, primary-public-identifier username (§2.4) —
+the "find someone by their @handle" complement to §7.5's
+by-`user_id` lookup and §7.2's by-phone-hash lookup.
+
+**Headers:** `Authorization: Bearer <accesskey>`
+**Query:** `?key=NNNN` — required only if the target user has a
+`usernameKey` set (§4.5); omitted otherwise.
+
+**Match.** Exact match, case-insensitive (`LOWER(username) =
+LOWER(:input)`), consistent with the uniqueness rule in §2.4.
+
+**Success response `200 OK`:** identical shape to §7.5
+`GET /v3.0/users/<user_id>` — no `phone` (§2.5):
+```json
+{
+  "user_id": "a3f2e8c5d",
+  "username": "alice_k",
+  "displayName": "Alice K.",
+  "avatarUrl": "https://media.vartalap/…/avatar.jpg",
+  "statusText": "Off the grid"
+}
+```
+
+**Errors:** `404 USER_NOT_FOUND` if no active, non-tombstoned user
+has that username, **or** if the user has a `usernameKey` set and
+`?key=` is missing or does not match. The two cases are
+**deliberately indistinguishable** — a wrong key MUST NOT be
+reported differently from a nonexistent username, or the key stops
+being a secret.
+
+**Username-initiated channel creation** against a keyed user
+requires the same key: `POST /v3.0/channels` with
+`initiatedVia: "username"` targeting a user with `usernameKey` set
+MUST include a matching `usernameKey` in the request body, or the
+server rejects with `403 USERNAME_KEY_REQUIRED` (§11.2). Contacts
+resolved by phone hash (`initiatedVia: "phone"`) bypass the key
+entirely — the key only gates the username discovery path. See
+`SYNC_PROTOCOL.md` §11 for the full channel-creation wire shape.
+
+**Rate limits.** Same class as contact-lookup (§7.4): 60/min/user,
+5,000/day/IP. **Enumeration-resistance rationale:** unlike phone
+hashes, usernames are public by design — for a user with no
+`usernameKey`, this endpoint reveals nothing an attacker couldn't
+already get by guessing handles and checking
+`POST /v3.0/users/username/check` or the contact-book UI. For a
+keyed user, the indistinguishable-404 rule above is the actual
+defense; the rate limit still throttles brute-forcing the 4-digit
+key space (10,000 combinations) against a known username.
+
 ---
 
 ## 8. Logout and account deletion
@@ -985,7 +1192,7 @@ Permanently delete the authenticated user's account.
 
 | Field | Type | Required | Constraint |
 |---|---|---|---|
-| `confirmation` | string | yes | Literal string `"DELETE "` followed by the user's current `username` if one is set, OR the user's `phone` (E.164, including the leading `+`) if no username is set. Server validates exact match. Reject with `INVALID_CONFIRMATION` otherwise. |
+| `confirmation` | string | yes | Literal string `"DELETE "` followed by the user's current `username`. Server validates exact match. Reject with `INVALID_CONFIRMATION` otherwise. |
 
 The confirmation string is intentionally human-typed and
 case-sensitive. The client UI MUST present it as a typed-input
@@ -993,16 +1200,15 @@ field, not a pre-filled or one-tap button. This is the
 account-recovery boundary: there is no recovery for an accidentally
 deleted account.
 
-The username/phone fallback exists because username is optional
-(see §2.4); a user without a username still needs a meaningful
-confirmation string to type. The client knows which to use by
-checking its own profile (`username` field of the cached
-`/users/me` response).
+Username is always present at this point: `username` is required
+(§2.4) and `POST /v3.0/users/me/delete` is not on the §2.4
+gate-exempt list, so an account can only reach this endpoint with a
+username already set. There is no phone fallback (phone is
+strictly private, §2.5, and MUST NOT be surfaced in a
+client-side-composed confirmation string either).
 
-Examples:
+Example:
 - User with `username: "alice_k"` types: `DELETE alice_k`
-- User with `username: null`, `phone: "+919876543210"` types:
-  `DELETE +919876543210`
 
 **Success response `200 OK`:**
 ```json
@@ -1012,14 +1218,13 @@ Examples:
 **Server side-effects, in order, in a single transaction:**
 1. Insert `(user_id, username, deleted_at)` into the
    `tombstones` table. `user_id` is permanently reserved (never
-   reassigned to a new user). `username` is permanently reserved
-   only if the user had one set at the time of deletion; if the
-   account had no username, the tombstone row's `username` column
-   is `NULL` and no name is reserved.
+   reassigned to a new user). `username` is always present (§2.4)
+   and is permanently reserved too, preventing reuse of the handle.
 2. Delete the row from `users`. (This releases `phone` — the
    `users.phone` unique constraint no longer applies, so a fresh
    signup on the same number creates a new account with a new
-   `user_id` and no username until the new user picks one.)
+   `user_id`, `username: null` until the mandatory pick step is
+   completed.)
 3. Delete all `accesskeys` and `refresh_tokens` for this
    `user_id`.
 4. Delete all `notification_topics` for this `user_id`.
@@ -1041,7 +1246,7 @@ Examples:
 - The user's own local data (cleared by the client on confirm).
 - The undelivered queue (best-effort cleanup, may briefly persist
   but is bounded by the 30-day TTL anyway, see `SYNC_PROTOCOL.md`
-  §11.2).
+  §10.6).
 - Any in-flight messages the user sent that have not yet been
   fanned out.
 
@@ -1336,6 +1541,7 @@ Every error response, on every endpoint, uses this shape:
 |---|---|---|---|
 | 400 | `INVALID_PHONE_FORMAT` | OTP send, rebind start | `phone` not E.164 |
 | 400 | `INVALID_USERNAME` | profile patch | `username` shape violation |
+| 400 | `INVALID_USERNAME_KEY` | profile patch | `usernameKey` not 4 digits, or set while `username` is `null` |
 | 400 | `INVALID_CONFIRMATION` | account delete | confirmation string mismatch |
 | 400 | `INVALID_TOPIC_URL` | push topic | URL shape violation |
 | 400 | `MALFORMED_REQUEST` | all | missing/extra fields, malformed JSON |
@@ -1345,9 +1551,12 @@ Every error response, on every endpoint, uses this shape:
 | 401 | `INVALID_ACCESSKEY` | all authenticated | accesskey doesn't resolve, expired, or revoked |
 | 401 | `INVALID_REFRESH_TOKEN` | session refresh | refresh token doesn't resolve, expired, or `deviceId` mismatch |
 | 401 | `INVALID_CODE` | OTP verify, rebind verify | wrong OTP code |
+| 403 | `USERNAME_REQUIRED` | all authenticated except the §2.4 gate-exempt list | `username` is `null`; client must complete `PATCH /v3.0/users/me` first |
+| 403 | `USERNAME_KEY_REQUIRED` | `POST /v3.0/channels` (`initiatedVia: "username"`) | target user has a `usernameKey` set and the request omitted/mismatched it (`SYNC_PROTOCOL.md` §11) |
 | 404 | `SESSION_NOT_FOUND` | OTP verify, resend, rebind | unknown `sessionId` / `rebindSessionId` |
-| 404 | `USER_NOT_FOUND` | GET /v3.0/users/* | prefix unrecognized or tombstoned |
+| 404 | `USER_NOT_FOUND` | GET /v3.0/users/*, GET /v3.0/users/by-username/* | prefix or username unrecognized, tombstoned, or (by-username) a `usernameKey` mismatch (§7.6, deliberately indistinguishable) |
 | 409 | `USERNAME_TAKEN` | profile patch | username collides with active user or tombstone |
+| 409 | `USERNAME_RESERVED` | profile patch | username is on the reserved-word list (§2.4) |
 | 409 | `PHONE_TAKEN` | rebind start, rebind verify | newPhone is bound to another user_id |
 | 409 | `SAME_PHONE` | rebind start | newPhone equals current phone |
 | 410 | `SESSION_EXPIRED` | OTP verify | `sessionId` past `expiresInSec` |
@@ -1469,7 +1678,7 @@ and consumed by one client package.
 
 | Service | Owns | Endpoints |
 |---|---|---|
-| `profile-ms` | Identity, sessions, contacts, profile, account lifecycle | §3 (OTP), §4 (sessions, profile), §7 (contacts), §8 (delete), §9 (rebind) |
+| `profile-ms` | Identity, sessions, contacts, profile, account lifecycle | §3 (OTP), §4 (sessions, profile), §7 (contacts, incl. §7.6 by-username lookup), §8 (delete), §9 (rebind) |
 | `notification-ms` | Push topic registry | §5 |
 | `connection-gateway` | WebSocket handshake and pre-upgrade auth | §6 |
 
@@ -1509,25 +1718,33 @@ A fresh client install performs:
 **Required, in order:**
 1. `POST /v3.0/auth/otp/send` (collect phone)
 2. `POST /v3.0/auth/otp/verify` (collect 6-digit code)
+3. `PATCH /v3.0/users/me` (`username`) — **mandatory, no skip**.
+   Required whenever step 2 returns `isNew: true`, or whenever
+   `GET /v3.0/users/me` returns `username: null` (e.g., a resumed
+   signup). Every route other than the §2.4 gate-exempt list
+   (`GET`/`PATCH /v3.0/users/me`, `POST /v3.0/users/username/check`,
+   `POST /v3.0/auth/session/*`, `POST /v3.0/auth/phone/rebind/*`)
+   returns `403 USERNAME_REQUIRED` until this completes.
 
-After step 2 the client has `user_id`, `accesskey`, `refreshToken`.
-WS connection (§6) and sync (`SYNC_PROTOCOL.md`) become available
-immediately. The user can send and receive messages.
+After step 2 the client has `user_id`, `accesskey`, `refreshToken`,
+but per step 3 cannot do much else until a username is set. WS
+connection (§6) and sync (`SYNC_PROTOCOL.md`) are not gated by
+username, so they can proceed in parallel with step 3.
 
 **Optional follow-ups, any order, any time, can be deferred or
-skipped:**
+skipped (but not before step 3 completes):**
 
 | Call | Purpose | Skip impact |
 |---|---|---|
 | `POST /v3.0/push/topic` | Register ntfy topic | User receives messages only when foreground (no wake-on-message). Recommended on first launch after ntfy app subscribe completes. |
-| `PATCH /v3.0/users/me` (`username`) | Pick a username | User cannot be discovered by username; only by phone hash. Other users in their contact book see them by contact-book name regardless. |
+| `PATCH /v3.0/users/me` (`usernameKey`) | Optionally gate discovery of the username with a 4-digit key | Username stays discoverable by anyone who knows it (§7.6). |
 | `PATCH /v3.0/users/me` (`displayName`, `avatarUrl`, `statusText`) | Profile metadata | Other users see fallback display per §2.4 resolution rule. |
 | `POST /v3.0/contacts/lookup` | Find Vartalap-using contacts | The "new chat" picker has no contact suggestions; user can still start chats by phone if they know one. |
 
-The client SHOULD prompt for username and push registration on
-first launch after step 2, but MUST allow the user to skip both
-and continue. There is no required state beyond
-`(user_id, accesskey, refreshToken)`.
+The client MUST prompt for a username immediately after step 2, with
+no skip option (it is not optional, per §2.4), and SHOULD prompt for
+push registration right after. There is no required state beyond
+`(user_id, accesskey, refreshToken, username)`.
 
 ---
 
@@ -1685,14 +1902,16 @@ ship in v3.0.
    ← 101 Switching Protocols
    ← Sec-WebSocket-Protocol: accesskey.d4f5a1c9-…
 
-6. [Optional, prompted] CLIENT: PATCH /v3.0/users/me
+6. [MANDATORY, no skip] CLIENT: PATCH /v3.0/users/me
    Authorization: Bearer d4f5a1c9-…
    { username: "alice_k", displayName: "Alice K." }
    ← 200 { user_id: "a3f2e8c5d", username: "alice_k",
            phone: "+919876543210", displayName: "Alice K.",
            avatarUrl: null, statusText: null,
            createdAt: 1744675200000 }
-   USER MAY SKIP — username remains null, displayName remains null.
+   USER MAY NOT SKIP — until this succeeds, steps 7 and 8 (and
+   everything else not on the §2.4 gate-exempt list) return
+   403 USERNAME_REQUIRED. displayName MAY still be omitted/null.
 
 7. [Optional, prompted] CLIENT subscribes to ntfy topic locally,
    then registers it:
@@ -1821,31 +2040,22 @@ PRE-CONDITION: alice_k is logged in (has set username "alice_k").
    - Drop active WS with code 4002.
 
 5. The phone +919876543210 is now available for a fresh signup.
-   A new signup creates a new user_id and no username
-   (the new user picks one later if they want; cannot reuse
-   'alice_k' — it's tombstoned forever).
+   A new signup creates a new user_id with username: null until
+   the new user completes the mandatory username-pick step (§2.4);
+   they cannot reuse 'alice_k' — it's tombstoned forever.
 
 6. Other users' contact caches that reference user_id=a3f2e8c5d
    will, on next GET /v3.0/users/a3f2e8c5d, receive 404
    USER_NOT_FOUND. Their UI shows the §2.4 fallback for an
-   unresolvable identity (likely the contact-book name they have
-   for this person, then phone, then a "deleted user" placeholder).
+   unresolvable identity (the contact-book name they have for this
+   person, if any, else a "deleted user" placeholder — never phone,
+   which is strictly private).
 ```
 
-**Variant: deleting an account with no username.**
-```
-PRE-CONDITION: bob is logged in, never set a username
-   (user_id=b1c2d3e4f, username=null, phone=+919876543211).
-
-1. CLIENT prompts for confirmation. Because username is null, the
-   client builds the confirmation string from phone:
-   POST /v3.0/users/me/delete
-   { confirmation: "DELETE +919876543211" }
-   ← 200 { status: true }
-
-4. SERVER tombstone: (user_id='b1c2d3e4f', username=NULL, …).
-   No name is reserved (nothing to reserve).
-```
+There is no "no-username" variant: `username` is required (§2.4)
+and `POST /v3.0/users/me/delete` is not on the gate-exempt list, so
+every account that can reach this endpoint already has a username,
+and `DELETE <username>` (§8.2) is the only confirmation form.
 
 ---
 

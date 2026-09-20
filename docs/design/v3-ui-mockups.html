@@ -1,0 +1,1683 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vartalap v3 Screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* ----------------------------------------------------------------------
+   Page chrome tokens. Light on bare :root, dark redefined twice so both
+   the OS setting and an explicit data-theme stamp resolve.
+   ---------------------------------------------------------------------- */
+:root {
+  --ground: #EFF3F1;
+  --panel: #FFFFFF;
+  --panel-2: #F7FAF8;
+  --ink: #14211E;
+  --ink-mute: #566A65;
+  --ink-faint: #80958F;
+  --rule: rgba(20, 33, 30, 0.10);
+  --rule-strong: rgba(20, 33, 30, 0.18);
+  --accent: #00755C;
+  --accent-soft: rgba(0, 153, 120, 0.12);
+  --flag: #A8410C;
+  --bezel: #C9D5D1;
+  --bezel-in: rgba(20, 33, 30, 0.14);
+  --shadow: 0 18px 44px rgba(12, 32, 27, 0.10);
+  --font: "Sofia Sans", "Sofia Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #050807;
+    --panel: #0F1514;
+    --panel-2: #141B19;
+    --ink: #E9EFEE;
+    --ink-mute: #8A9A96;
+    --ink-faint: #5A6967;
+    --rule: rgba(255, 255, 255, 0.07);
+    --rule-strong: rgba(255, 255, 255, 0.14);
+    --accent: #00B89A;
+    --accent-soft: rgba(0, 184, 154, 0.12);
+    --flag: #FF8A7A;
+    --bezel: #1A1D1C;
+    --bezel-in: rgba(255, 255, 255, 0.08);
+    --shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #050807;
+  --panel: #0F1514;
+  --panel-2: #141B19;
+  --ink: #E9EFEE;
+  --ink-mute: #8A9A96;
+  --ink-faint: #5A6967;
+  --rule: rgba(255, 255, 255, 0.07);
+  --rule-strong: rgba(255, 255, 255, 0.14);
+  --accent: #00B89A;
+  --accent-soft: rgba(0, 184, 154, 0.12);
+  --flag: #FF8A7A;
+  --bezel: #1A1D1C;
+  --bezel-in: rgba(255, 255, 255, 0.08);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-inline: 16px;
+  padding-block: 40px 96px;
+}
+h1, h2, h3 { text-wrap: balance; margin: 0; letter-spacing: -0.015em; }
+h1 { font-size: 30px; font-weight: 700; }
+h2 { font-size: 21px; font-weight: 600; }
+h3 { font-size: 15px; font-weight: 600; }
+p { margin: 0; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.lede { max-width: 66ch; color: var(--ink-mute); font-size: 15.5px; }
+.masthead { display: flex; flex-direction: column; gap: 10px; }
+.masthead .meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+
+.slab {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rules { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.rules li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; font-size: 14px; color: var(--ink-mute); }
+.rules b { color: var(--ink); font-weight: 600; }
+.rules .n {
+  font-family: var(--mono); font-size: 11px; color: var(--accent);
+  padding-top: 3px;
+}
+
+.scrollx { overflow-x: auto; }
+.ia { min-width: 640px; width: 100%; height: auto; display: block; }
+
+.tokens { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px; }
+.tok {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-mute);
+  border: 1px solid var(--rule); border-radius: 8px; padding: 6px 8px;
+  background: var(--panel-2);
+}
+.tok .sw { width: 18px; height: 18px; border-radius: 5px; flex: none; border: 1px solid var(--rule-strong); }
+.tok span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+section.screens { margin-top: 52px; display: flex; flex-direction: column; gap: 18px; }
+.sec-head { display: flex; flex-direction: column; gap: 4px; }
+.sec-head .sub { color: var(--ink-mute); font-size: 14px; max-width: 70ch; }
+
+.frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 36px 24px;
+  align-items: start;
+}
+.fig { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.fig > .cap { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 4px; }
+.cap .tag { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 0.06em; }
+.cap .why { font-size: 13px; color: var(--ink-mute); line-height: 1.45; }
+.cap .why em { color: var(--flag); font-style: normal; font-weight: 600; }
+
+/* ----------------------------------------------------------------------
+   Phone frame + the app's own token sets, taken from lib/theme/theme.dart
+   (seed #009978 through ColorScheme.fromSeed) and ChatColors.
+   ---------------------------------------------------------------------- */
+.phone {
+  width: 100%;
+  max-width: 360px;
+  height: 760px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 30px;
+  border: 6px solid var(--bezel);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  background: var(--sf);
+  color: var(--onsf);
+  isolation: isolate;
+}
+.phone.light {
+  --pr: #006B53; --onpr: #FFFFFF; --prc: #80F8D1; --onprc: #002117;
+  --sf: #F8FAF7; --onsf: #191C1B;
+  --sfcl: #F2F4F1; --sfc: #ECEEEB; --sfch: #E6E9E5; --sfchi: #E1E3E0;
+  --onsv: #3F4944; --ov: #BFC9C3; --outline: #707974;
+  --err: #BA1A1A; --errc: #FFDAD6; --onerrc: #410002;
+  --secc: #CEE9DC; --onsecc: #082018;
+  --bubo: #D9F5EC; --bubotx: #1A3C34; --bubi: #FFFFFF; --bubitx: #1C1C1E;
+  --ts: #8E8E93; --unread: #006B53; --unreadtx: #FFFFFF;
+  --ok: #4CAF50; --warn: #FFA726; --bad: #EF5350; --link: #006B53;
+  --appbg: #006B53; --appfg: #FFFFFF; --chatbg: #ECF6F0;
+  --scrim: rgba(12, 22, 19, 0.44);
+}
+.phone.dark {
+  --pr: #63DBB6; --onpr: #00382A; --prc: #00513E; --onprc: #80F8D1;
+  --sf: #111412; --onsf: #E1E3E0;
+  --sfcl: #191C1B; --sfc: #1D201F; --sfch: #272B29; --sfchi: #323634;
+  --onsv: #BFC9C3; --ov: #3F4944; --outline: #89938E;
+  --err: #FFB4AB; --errc: #93000A; --onerrc: #FFB4AB;
+  --secc: #344C43; --onsecc: #CEE9DC;
+  --bubo: #005C4B; --bubotx: #E9EDEF; --bubi: #263238; --bubitx: #E9EDEF;
+  --ts: #8696A0; --unread: #00A884; --unreadtx: #111B21;
+  --ok: #66BB6A; --warn: #FFCA28; --bad: #EF5350; --link: #53BDEB;
+  --appbg: #111412; --appfg: #E1E3E0; --chatbg: #0C1512;
+  --scrim: rgba(0, 0, 0, 0.55);
+}
+
+.sb {
+  height: 22px; flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  background: var(--appbg); color: var(--appfg);
+}
+.sb .r { display: flex; gap: 5px; align-items: center; }
+.sb .bars { display: flex; gap: 1.5px; align-items: flex-end; height: 9px; }
+.sb .bars i { width: 2px; background: currentColor; border-radius: 1px; display: block; }
+.sb .bars i:nth-child(1) { height: 3px; }
+.sb .bars i:nth-child(2) { height: 5px; }
+.sb .bars i:nth-child(3) { height: 7px; }
+.sb .bars i:nth-child(4) { height: 9px; }
+
+.appbar {
+  flex: none; min-height: 54px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 14px;
+  background: var(--appbg); color: var(--appfg);
+}
+.appbar .ttl { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+.appbar .spacer { flex: 1; }
+.appbar .acts { display: flex; gap: 14px; align-items: center; opacity: 0.95; }
+.appbar .sub { font-size: 11.5px; opacity: 0.8; font-weight: 400; line-height: 1.2; }
+.appbar .stack { display: flex; flex-direction: column; min-width: 0; }
+
+.tabs {
+  flex: none; display: flex; background: var(--appbg); color: var(--appfg);
+  padding: 0 8px;
+}
+.tabs .t {
+  flex: 1; text-align: center; padding: 10px 4px 9px;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
+  opacity: 0.68; border-bottom: 2.5px solid transparent;
+}
+.tabs .t.on { opacity: 1; border-bottom-color: var(--appfg); }
+
+.seg {
+  flex: none; display: flex; gap: 8px; padding: 10px 14px 6px;
+  background: var(--sf);
+}
+.seg .s {
+  flex: 1; text-align: center; padding: 6px 4px;
+  border-radius: 999px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--ov); color: var(--onsv);
+}
+.seg .s.on { background: var(--secc); color: var(--onsecc); border-color: transparent; }
+.seg .s .cnt { font-variant-numeric: tabular-nums; opacity: 0.75; font-weight: 500; }
+
+.body { flex: 1; overflow: hidden; position: relative; background: var(--sf); }
+.body.chatpane { background: var(--chatbg); display: flex; flex-direction: column; }
+
+.chip {
+  margin: 8px 14px 2px;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 11px; border-radius: 999px;
+  background: var(--sfch); color: var(--onsv);
+  font-size: 12px; font-weight: 500;
+  border: 1px solid var(--ov);
+}
+.chip .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--warn); flex: none; }
+.chip.bad .dot { background: var(--bad); }
+.chip.ok .dot { background: var(--ok); }
+
+.row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 14px;
+  position: relative;
+}
+.row.pressed { background: var(--sfch); }
+.avatar {
+  width: 42px; height: 42px; border-radius: 999px; flex: none;
+  display: grid; place-items: center;
+  background: var(--secc); color: var(--onsecc);
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+}
+.avatar.lg { width: 56px; height: 56px; font-size: 20px; }
+.avatar.xl { width: 80px; height: 80px; font-size: 28px; }
+.avatar.sm { width: 32px; height: 32px; font-size: 12px; }
+.avatar.grp { background: var(--prc); color: var(--onprc); }
+.avatar { position: relative; }
+.avatar.photo { background: none; color: transparent; }
+.avatar .avimg { width: 100%; height: 100%; border-radius: 999px; display: block; }
+.cambadge {
+  position: absolute; right: -2px; bottom: -2px;
+  width: 26px; height: 26px; border-radius: 999px;
+  background: var(--prc); color: var(--onprc);
+  display: grid; place-items: center;
+  border: 2px solid var(--sf);
+}
+.cambadge .ic { width: 14px; height: 14px; }
+.rmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rtop { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rname { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rname.handle { font-weight: 600; }
+.rtop .ic { color: var(--onsv); flex: none; }
+.rprev {
+  font-size: 13px; color: var(--onsv);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 5px;
+}
+.rprev .who { color: var(--onsv); opacity: 0.9; }
+.rprev.fail { color: var(--err); font-weight: 500; }
+.rmeta { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: none; }
+.rtime { font-size: 11.5px; color: var(--ts); font-variant-numeric: tabular-nums; }
+.rtime.hot { color: var(--unread); font-weight: 600; }
+.badge {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: var(--unread); color: var(--unreadtx);
+  font-size: 11.5px; font-weight: 700; display: grid; place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.badge.mutedb { background: var(--outline); color: var(--sf); }
+.div { height: 1px; background: var(--ov); opacity: 0.35; margin-left: 68px; }
+.div.full { margin-left: 0; }
+
+.ic { width: 19px; height: 19px; flex: none; display: block; }
+.ic.s { width: 15px; height: 15px; }
+.ic.l { width: 22px; height: 22px; }
+
+.fab {
+  position: absolute; right: 16px; bottom: 18px;
+  width: 56px; height: 56px; border-radius: 16px;
+  background: var(--prc); color: var(--onprc);
+  display: grid; place-items: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+.fab .ic { width: 24px; height: 24px; }
+
+.search {
+  margin: 10px 14px; display: flex; align-items: center; gap: 10px;
+  background: var(--sfchi); color: var(--onsv);
+  border-radius: 12px; padding: 11px 13px; font-size: 14px;
+}
+.search.outlined { background: transparent; border: 1.5px solid var(--ov); }
+.search .val { color: var(--onsf); }
+.search .caret { width: 1.5px; height: 16px; background: var(--pr); margin-left: -6px; }
+.hl { background: var(--secc); color: var(--onsecc); border-radius: 4px; padding: 0 2px; font-weight: 700; }
+
+.sectitle {
+  padding: 12px 14px 6px; font-size: 11.5px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--onsv);
+}
+
+.tile {
+  display: flex; align-items: center; gap: 14px; padding: 12px 14px;
+  color: var(--onsf);
+}
+.tile .ic { color: var(--onsv); }
+.tile .tmain { flex: 1; min-width: 0; }
+.tile .tt { font-size: 14.5px; font-weight: 500; }
+.tile .tsub { font-size: 12.5px; color: var(--onsv); line-height: 1.35; }
+.tile.danger { color: var(--err); }
+.tile.danger .ic { color: var(--err); }
+.tile.danger .tsub { color: var(--onsv); }
+
+.note {
+  margin: 4px 14px 10px; padding: 9px 11px;
+  border-left: 3px solid var(--pr);
+  background: var(--secc); color: var(--onsecc);
+  border-radius: 0 10px 10px 0; font-size: 12px; line-height: 1.4;
+}
+
+/* Sheets, scrims, dialogs -------------------------------------------- */
+.scrimlayer { position: absolute; inset: 0; background: var(--scrim); z-index: 4; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  background: var(--sfc); color: var(--onsf);
+  border-radius: 24px 24px 0 0;
+  padding: 10px 0 16px;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.26);
+}
+.sheet .grab { width: 34px; height: 4px; border-radius: 999px; background: var(--ov); margin: 2px auto 10px; }
+.sheet .sh {
+  padding: 4px 20px 10px; display: flex; flex-direction: column; gap: 2px;
+}
+.sheet .sh .n { font-size: 16px; font-weight: 600; }
+.sheet .sh .m { font-size: 12.5px; color: var(--onsv); }
+.sheet .item { display: flex; align-items: center; gap: 16px; padding: 12px 20px; font-size: 15px; }
+.sheet .item .ic { color: var(--onsv); }
+.sheet .item .lbl { flex: 1; }
+.sheet .item .sub { font-size: 12px; color: var(--onsv); }
+.sheet .item.danger, .sheet .item.danger .ic { color: var(--err); }
+.sheet .item .radio {
+  width: 18px; height: 18px; border-radius: 999px; border: 2px solid var(--outline); flex: none;
+}
+.sheet .item .radio.on { border-color: var(--pr); box-shadow: inset 0 0 0 3.5px var(--sfc), inset 0 0 0 9px var(--pr); }
+
+.snackbar {
+  position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 6;
+  background: var(--sfchi); color: var(--onsf);
+  border-radius: 12px; padding: 12px 14px;
+  display: flex; align-items: center; gap: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  font-size: 13.5px;
+}
+.snackbar .act { color: var(--pr); font-weight: 700; letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px; }
+.snackbar .ring {
+  width: 22px; height: 22px; flex: none;
+  border-radius: 999px;
+  background: conic-gradient(var(--pr) 0 216deg, var(--ov) 216deg 360deg);
+  display: grid; place-items: center;
+  font-size: 9.5px; font-weight: 700; color: var(--onsf);
+}
+.snackbar .ring b { width: 16px; height: 16px; border-radius: 999px; background: var(--sfchi); display: grid; place-items: center; }
+
+.dialog {
+  position: absolute; left: 20px; right: 20px; top: 50%; transform: translateY(-50%);
+  z-index: 5; background: var(--sfch); color: var(--onsf);
+  border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+}
+.dialog .dt { font-size: 18px; font-weight: 600; }
+.dialog .db { font-size: 13.5px; color: var(--onsv); line-height: 1.45; }
+.dialog .dacts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; font-weight: 600; font-size: 14px; }
+.dialog .dacts .go { color: var(--err); }
+.dialog .dacts .no { color: var(--pr); }
+
+/* Chat pane ----------------------------------------------------------- */
+.msgs { flex: 1; overflow: hidden; padding: 8px 10px 4px; display: flex; flex-direction: column; gap: 5px; }
+.datechip {
+  align-self: center; margin: 6px 0;
+  background: var(--sfch); color: var(--onsv);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  padding: 4px 11px; border-radius: 999px; text-transform: uppercase;
+}
+.bub {
+  max-width: 78%; border-radius: 14px; padding: 7px 10px 5px;
+  font-size: 14px; line-height: 1.38;
+  background: var(--bubi); color: var(--bubitx);
+  align-self: flex-start;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.10);
+  position: relative;
+}
+.bub.out { background: var(--bubo); color: var(--bubotx); align-self: flex-end; }
+.bub.fail { background: var(--errc); color: var(--onerrc); }
+.bub .snd { font-size: 12.5px; font-weight: 700; margin-bottom: 1px; }
+.bub .foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+  font-size: 10.5px; color: var(--ts); margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.bub .foot .ic { width: 15px; height: 15px; }
+.bub .foot .read { color: var(--link); }
+.bub .foot .edited { margin-right: auto; font-style: italic; opacity: 0.85; }
+.bub .foot .failtx { margin-right: auto; color: var(--err); font-weight: 600; font-size: 11px; }
+.bub .retry {
+  margin-top: 6px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1.5px solid var(--err); color: var(--err);
+  border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 700;
+}
+.bub .photo {
+  width: 210px; max-width: 100%; height: 132px; border-radius: 10px; margin: -2px -3px 4px;
+  background: linear-gradient(150deg, #0E5C4A 0%, #1B7C64 45%, #63A98C 100%);
+  position: relative; overflow: hidden;
+}
+.bub .photo .sun { position: absolute; width: 34px; height: 34px; border-radius: 999px; background: rgba(255, 233, 170, 0.85); top: 18px; right: 26px; }
+.bub .photo .hill { position: absolute; left: -20px; right: -20px; bottom: -34px; height: 88px; border-radius: 50% 50% 0 0; background: rgba(5, 32, 26, 0.45); }
+.bub .photo .hill.two { left: 60px; bottom: -46px; background: rgba(5, 32, 26, 0.7); }
+.bub .rx {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--sfc); color: var(--onsf);
+  border: 1px solid var(--ov);
+  border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+  margin-top: 4px;
+}
+.bub.sel { outline: 2px solid var(--pr); outline-offset: 1px; }
+.reactbar {
+  position: absolute; z-index: 5; display: flex; gap: 4px;
+  background: var(--sfc); border: 1px solid var(--ov);
+  border-radius: 999px; padding: 5px 8px;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3);
+  font-size: 16px;
+}
+.typing { display: flex; align-items: center; gap: 7px; padding: 2px 6px 6px; font-size: 12px; color: var(--onsv); }
+.typing .dots { display: flex; gap: 3px; }
+.typing .dots i { width: 5px; height: 5px; border-radius: 999px; background: var(--onsv); opacity: 0.55; display: block; }
+.typing .dots i:nth-child(2) { opacity: 0.75; }
+.typing .dots i:nth-child(3) { opacity: 0.95; }
+
+.composer {
+  flex: none; display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px 12px; background: var(--sf);
+}
+.composer .field {
+  flex: 1; display: flex; align-items: center; gap: 10px;
+  background: var(--sfchi); color: var(--onsv);
+  border-radius: 999px; padding: 10px 14px; font-size: 14px;
+}
+.composer .field .ph { flex: 1; }
+.composer .send {
+  width: 44px; height: 44px; border-radius: 999px; flex: none;
+  background: var(--pr); color: var(--onpr); display: grid; place-items: center;
+}
+.banner {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; font-size: 12.5px; font-weight: 500;
+  background: var(--errc); color: var(--onerrc);
+}
+.banner .act { margin-left: auto; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 11.5px; }
+
+/* Profile / onboarding pieces ---------------------------------------- */
+.hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 22px 20px 0; gap: 3px; }
+.hero .nm { font-size: 23px; font-weight: 600; letter-spacing: -0.015em; margin-top: 14px; }
+.hero .hd { font-size: 15px; font-weight: 600; color: var(--pr); font-family: var(--mono); }
+.hero .st { font-size: 13px; color: var(--onsv); }
+.pillrow { display: flex; gap: 10px; width: 100%; padding: 18px 20px 0; }
+.pill {
+  flex: 1; height: 42px; border-radius: 14px; display: inline-flex;
+  align-items: center; justify-content: center; gap: 8px;
+  font-size: 14px; font-weight: 600;
+}
+.pill.solid { background: var(--pr); color: var(--onpr); }
+.pill.ghost { border: 1.5px solid var(--pr); color: var(--pr); }
+.privacy {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--onsv);
+  padding: 2px 14px 0;
+}
+.field-lg {
+  margin: 0 20px; display: flex; align-items: center; gap: 10px;
+  border: 1.5px solid var(--ov); border-radius: 14px; padding: 13px 14px;
+  background: var(--sfcl);
+}
+.field-lg.ok { border-color: var(--ok); }
+.field-lg.bad { border-color: var(--err); }
+.field-lg .at { color: var(--onsv); font-family: var(--mono); font-size: 16px; }
+.field-lg .txt { flex: 1; font-family: var(--mono); font-size: 16px; color: var(--onsf); }
+.field-lg .state { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; flex: none; }
+.field-lg .state.ok { background: var(--ok); color: #FFFFFF; }
+.field-lg .state.bad { background: var(--err); color: #FFFFFF; }
+.field-lg .state.busy { border: 2.5px solid var(--ov); border-top-color: var(--pr); }
+.helper { padding: 8px 20px 0; font-size: 12.5px; line-height: 1.45; color: var(--onsv); }
+.helper.good { color: var(--ok); font-weight: 600; }
+.helper.bad { color: var(--err); font-weight: 600; }
+.cta {
+  margin: 0 20px; height: 48px; border-radius: 14px;
+  background: var(--pr); color: var(--onpr);
+  display: grid; place-items: center; font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
+}
+.cta.off { background: var(--sfchi); color: var(--onsv); }
+.stepdots { display: flex; gap: 6px; justify-content: center; padding-top: 14px; }
+.stepdots i { width: 6px; height: 6px; border-radius: 999px; background: var(--ov); display: block; }
+.stepdots i.on { background: var(--pr); width: 18px; }
+
+.empty { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 44px 30px 0; color: var(--onsv); }
+.empty .ic { width: 40px; height: 40px; opacity: 0.6; }
+.empty .et { font-size: 16px; font-weight: 600; color: var(--onsf); }
+.empty .eb { font-size: 13px; line-height: 1.45; }
+
+.memberhead { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 14px 2px; }
+.memberhead .mh { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--onsv); }
+.memberhead .ma { font-size: 12.5px; color: var(--pr); font-weight: 600; }
+.roletag {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--onsv); border: 1px solid var(--ov); border-radius: 999px; padding: 1px 7px;
+}
+.mediastrip { display: flex; gap: 6px; padding: 0 14px 4px; }
+.mediastrip i {
+  flex: 1; aspect-ratio: 1; border-radius: 8px; display: block;
+  background: linear-gradient(140deg, #14584A, #3E8E76);
+}
+.mediastrip i:nth-child(2) { background: linear-gradient(140deg, #1D4F63, #4C8DA5); }
+.mediastrip i:nth-child(3) { background: linear-gradient(140deg, #4A3F1E, #9C8447); }
+.mediastrip i:nth-child(4) { background: linear-gradient(140deg, #3B2740, #7C5C8C); }
+
+.callout {
+  border: 1px dashed var(--rule-strong); border-radius: 12px;
+  padding: 12px 14px; font-size: 13.5px; color: var(--ink-mute); background: var(--panel-2);
+}
+.callout b { color: var(--ink); }
+footer.foot { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--ink-faint); display: flex; flex-direction: column; gap: 4px; }
+footer.foot code { font-family: var(--mono); font-size: 11.5px; }
+
+@media (max-width: 420px) {
+  h1 { font-size: 25px; }
+  .phone { height: 720px; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<g id="_s" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></g>
+<linearGradient id="pg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7FA99B"></stop><stop offset="1" stop-color="#1E3B34"></stop></linearGradient>
+<linearGradient id="pg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D9A05B"></stop><stop offset="1" stop-color="#6B3E1D"></stop></linearGradient>
+<linearGradient id="pg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8FA8C8"></stop><stop offset="1" stop-color="#2A3C55"></stop></linearGradient>
+<linearGradient id="pg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#B98CA8"></stop><stop offset="1" stop-color="#4A2C40"></stop></linearGradient>
+<linearGradient id="pg5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6FC2AC"></stop><stop offset="1" stop-color="#14413A"></stop></linearGradient>
+<linearGradient id="pg6" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E0B98C"></stop><stop offset="1" stop-color="#7A5230"></stop></linearGradient>
+<symbol id="av-p1" viewBox="0 0 48 48"><rect width="48" height="48" fill="url(#pg1)"></rect><circle cx="24" cy="18.5" r="8.6" fill="rgba(255,255,255,.78)"></circle><path d="M5.5 48c1.8-10.2 9.2-15.8 18.5-15.8S40.7 37.8 42.5 48Z" fill="rgba(255,255,255,.78)"></path><path d="M14.4 16.2c1-6.6 6-9.4 11-8.6 4.6.8 7.4 4 8 8.6-3-2.4-6-3.4-9.6-3.4-3.6 0-6.6 1.2-9.4 3.4Z" fill="rgba(18,30,26,.55)"></path></symbol>
+<symbol id="av-p2" viewBox="0 0 48 48"><rect width="48" height="48" fill="url(#pg2)"></rect><circle cx="24" cy="19" r="8.2" fill="rgba(255,255,255,.8)"></circle><path d="M6.5 48c1.6-9.6 8.8-15 17.5-15S40 38.4 41.6 48Z" fill="rgba(255,255,255,.8)"></path><path d="M15.6 13.6h16.8c-1.2-4.2-4.6-6.4-8.4-6.4s-7.2 2.2-8.4 6.4Z" fill="rgba(40,22,8,.6)"></path></symbol>
+<symbol id="av-p3" viewBox="0 0 48 48"><rect width="48" height="48" fill="url(#pg3)"></rect><circle cx="24" cy="18" r="8" fill="rgba(255,255,255,.82)"></circle><path d="M7 48c1.4-9.8 8.6-15.4 17-15.4S39.6 38.2 41 48Z" fill="rgba(255,255,255,.82)"></path><path d="M13.8 20c-.6-8 4.4-12.8 10.2-12.8S34.8 12 34.2 20c-1.4-4.2-2.8-5.6-4.6-6.6-3 1.8-9 2-11.4.4-1.8 1.2-3.2 2.8-4.4 6.2Z" fill="rgba(16,24,38,.6)"></path></symbol>
+<symbol id="av-p4" viewBox="0 0 48 48"><rect width="48" height="48" fill="url(#pg4)"></rect><circle cx="24" cy="19.2" r="8.4" fill="rgba(255,255,255,.8)"></circle><path d="M6 48c1.8-10 9-15.6 18-15.6S40.2 38 42 48Z" fill="rgba(255,255,255,.8)"></path><circle cx="24" cy="7.6" r="3.6" fill="rgba(34,18,30,.62)"></circle><path d="M14.8 17c.6-5.6 4.4-8.4 9.2-8.4s8.6 2.8 9.2 8.4c-2.6-2.8-5.6-4-9.2-4s-6.6 1.2-9.2 4Z" fill="rgba(34,18,30,.62)"></path></symbol>
+<symbol id="av-g1" viewBox="0 0 48 48"><rect width="48" height="48" fill="url(#pg5)"></rect><circle cx="15" cy="20" r="6.4" fill="rgba(255,255,255,.72)"></circle><circle cx="33" cy="20" r="6.4" fill="rgba(255,255,255,.72)"></circle><circle cx="24" cy="25.6" r="7.4" fill="rgba(255,255,255,.88)"></circle><path d="M2 48c1-6.6 5.6-10.4 11.6-10.4S24.2 41.4 25.2 48Z" fill="rgba(255,255,255,.72)"></path><path d="M22.8 48c1-6.6 5.6-10.4 11.6-10.4S45 41.4 46 48Z" fill="rgba(255,255,255,.72)"></path><path d="M10.6 48c1.2-7.4 6.4-11.6 13.4-11.6S36.2 40.6 37.4 48Z" fill="rgba(255,255,255,.88)"></path></symbol>
+<symbol id="av-g2" viewBox="0 0 48 48"><rect width="48" height="48" fill="url(#pg6)"></rect><circle cx="16" cy="19" r="6.8" fill="rgba(255,255,255,.75)"></circle><circle cx="32" cy="22" r="7.6" fill="rgba(255,255,255,.9)"></circle><path d="M2.5 48c1.2-7 6-11 13.5-11S28.3 41 29.5 48Z" fill="rgba(255,255,255,.75)"></path><path d="M17.5 48c1.2-7.6 6.4-11.8 14.5-11.8S45.3 40.4 46.5 48Z" fill="rgba(255,255,255,.9)"></path></symbol>
+<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M16.2 16.2 21 21"></path></symbol>
+<symbol id="i-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></symbol>
+<symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4.5 7.5 12 15 19.5"></path></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5 17 12l-7.5 7"></path></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L20 8l-4-4L4 16v4Z"></path><path d="M14.5 5.5 18.5 9.5"></path></symbol>
+<symbol id="i-people" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"></circle><path d="M3 19c0-3.3 2.7-5.2 6-5.2s6 1.9 6 5.2"></path><path d="M16.6 7.4a3 3 0 0 1 0 5.9"></path><path d="M18.2 19c0-2.1-.6-3.5-1.6-4.5"></path></symbol>
+<symbol id="i-peopleplus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"></circle><path d="M3 19c0-3.3 2.7-5.2 6-5.2 1 0 2 .2 2.8.5"></path><path d="M18 13v7M14.5 16.5h7"></path></symbol>
+<symbol id="i-belloff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 16v-4.6a5.5 5.5 0 0 1 4.2-5.3"></path><path d="M14.2 6.8A5.5 5.5 0 0 1 17.5 12v4l1.3 2.2H7"></path><path d="M10.2 20.2a2 2 0 0 0 3.6 0"></path><path d="M4 3.5 20.5 20"></path></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2V11.5a5.8 5.8 0 0 1 11.6 0v4.7l1.3 2.2H4.9Z"></path><path d="M10.2 20.4a2 2 0 0 0 3.6 0"></path></symbol>
+<symbol id="i-tick2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 13 5.5 17 13 7.5"></path><path d="M9 13.4 11.4 16 19 6"></path></symbol>
+<symbol id="i-tick1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 9.5 17 19 6.5"></path></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"></circle><path d="M12 7.2V12l3 1.8"></path></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"></circle><path d="M12 7.6v5"></path><path d="M12 16.2h.01"></path></symbol>
+<symbol id="i-retry" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.8 13.4A8 8 0 1 1 18 6.4"></path><path d="M19.2 2.8v4.4h-4.4"></path></symbol>
+<symbol id="i-attach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19.6 11.3 11.2 19.7a5 5 0 0 1-7.1-7.1l8.8-8.8a3.4 3.4 0 0 1 4.8 4.8l-8.7 8.8a1.8 1.8 0 0 1-2.5-2.5l8.1-8.1"></path></symbol>
+<symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 20.4 21 12 3.6 3.6 6 12Z"></path><path d="M6 12h8"></path></symbol>
+<symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="5" width="17.6" height="14" rx="2.4"></rect><circle cx="8.6" cy="10" r="1.5"></circle><path d="M4 17.4 9.8 11.6l3.6 3.6 2.6-2.2 4.8 4.4"></path></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 8.6h3l1.6-2.2h6.6l1.6 2.2h3a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H3.6A1.6 1.6 0 0 1 2 17.6v-7.4a1.6 1.6 0 0 1 1.6-1.6Z"></path><circle cx="12" cy="13.6" r="3.2"></circle></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.6h16"></path><path d="M9.2 6.6V4.4h5.6v2.2"></path><path d="M6.4 6.6 7.4 20h9.2l1-13.4"></path><path d="M10.2 10.4v5.6M13.8 10.4v5.6"></path></symbol>
+<symbol id="i-eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8.6 20h11.2"></path><path d="M14.6 4.2 20 9.6 11.6 18l-5.4-5.4Z"></path><path d="M9.4 9.4 14.8 14.8"></path></symbol>
+<symbol id="i-exit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4.4H6.6a1.6 1.6 0 0 0-1.6 1.6v12a1.6 1.6 0 0 0 1.6 1.6H14"></path><path d="M16.6 8.2 20.4 12l-3.8 3.8"></path><path d="M10 12h10.2"></path></symbol>
+<symbol id="i-person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.2" r="3.6"></circle><path d="M4.6 20c0-4 3.3-6.4 7.4-6.4S19.4 16 19.4 20"></path></symbol>
+<symbol id="i-at" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.6"></circle><path d="M15.6 12v1.8a2.8 2.8 0 0 0 5.6 0V12a9.2 9.2 0 1 0-3.7 7.4"></path></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.4" width="14" height="9.4" rx="2.2"></rect><path d="M8.4 10.4V7.8a3.6 3.6 0 0 1 7.2 0v2.6"></path></symbol>
+<symbol id="i-qr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.6" y="3.6" width="6.4" height="6.4" rx="1.4"></rect><rect x="14" y="3.6" width="6.4" height="6.4" rx="1.4"></rect><rect x="3.6" y="14" width="6.4" height="6.4" rx="1.4"></rect><path d="M14 14h3.2v3.2H14zM20.4 14v6.4h-6.4"></path></symbol>
+<symbol id="i-wifioff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 8.6a16 16 0 0 1 6.4-3.2"></path><path d="M21.6 8.6a16 16 0 0 0-4.4-2.6"></path><path d="M6 12.4a10 10 0 0 1 2.8-1.7"></path><path d="M18 12.4a10 10 0 0 0-2.2-1.4"></path><path d="M12 18.6h.01"></path><path d="M3.4 3.4 20.6 20.6"></path></symbol>
+<symbol id="i-reply" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.6 5.6 4 11.2l5.6 5.6"></path><path d="M4.4 11.2h9.2a6.4 6.4 0 0 1 6.4 6.4v1.2"></path></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.4" y="8.4" width="11.6" height="11.6" rx="2.2"></rect><path d="M15.6 8.4V6.2A2.2 2.2 0 0 0 13.4 4H6.2A2.2 2.2 0 0 0 4 6.2v7.2a2.2 2.2 0 0 0 2.2 2.2h2.2"></path></symbol>
+<symbol id="i-smile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"></circle><path d="M9.2 10h.01M14.8 10h.01"></path><path d="M8.6 14.4a4.4 4.4 0 0 0 6.8 0"></path></symbol>
+<symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.2 3.4 9.8 8 14.4"></path><path d="M3.8 9.8h10.4a5.8 5.8 0 1 1 0 11.6h-3"></path></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.4 19 6.4v5c0 4.3-2.9 7.7-7 9.2-4.1-1.5-7-4.9-7-9.2v-5Z"></path><path d="M9.2 12.2 11.4 14.4 15 10.4"></path></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.2 3.6H7.2A1.6 1.6 0 0 0 5.6 5.2v13.6a1.6 1.6 0 0 0 1.6 1.6h9.6a1.6 1.6 0 0 0 1.6-1.6V9Z"></path><path d="M13.2 3.6V9h5.2"></path></symbol>
+<symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 13.6a4 4 0 0 0 5.8 0l2.6-2.6a4 4 0 0 0-5.7-5.7l-1.4 1.4"></path><path d="M13.6 10.4a4 4 0 0 0-5.8 0l-2.6 2.6a4 4 0 0 0 5.7 5.7l1.4-1.4"></path></symbol>
+<symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6 18 18M18 6 6 18"></path></symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.6 9.8 17.4 19 6.8"></path></symbol>
+<symbol id="i-contacts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.4" y="3.6" width="15.2" height="16.8" rx="2.4"></rect><circle cx="12" cy="10" r="2.6"></circle><path d="M8 17c.6-2 2.1-3 4-3s3.4 1 4 3"></path><path d="M4.4 8H2.6M4.4 12H2.6M4.4 16H2.6"></path></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.6h6l-1 5 3.4 3.4H6.6L10 8.6Z"></path><path d="M12 11.8V20.4"></path></symbol>
+</defs></svg>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Vartalap v3 &middot; design</p>
+    <h1>Vartalap v3 Screens</h1>
+    <p class="lede">UI mockups for the v3.0 client, drawn with the app's real Material&nbsp;3 palette from <code>lib/theme/theme.dart</code> (seed <code>#009978</code>) and the &ldquo;Quiet Card&rdquo; direction approved for the profile screen on 2026-04-25. Every frame is a static HTML rendering, not a screenshot.</p>
+    <p class="meta">docs/design/v3-ui-mockups.html &middot; owner rules 2026-09-20 &middot; frames a&ndash;h &middot; light + dark</p>
+  </header>
+
+  <section class="slab" style="margin-top:28px">
+    <h2>Information architecture</h2>
+    <p class="lede">Vartalap keeps three things apart. <b>Chats</b> is a live inbox: a row exists there only once a conversation has at least one message, so an untouched group or a contact you have never written to is never in the list. <b>Contacts</b> and <b>Groups</b> are directories of who and what you can write to; in 3.0 they are the two tabs of the New chat picker, reached from the Chats FAB, which is why no bottom navigation bar is needed. Deleting a chat is a local inbox action: the row leaves Chats and the local history is erased, but membership is untouched and the group is still listed under Groups, ready to be reopened from the picker. Leaving a group is a separate, deliberate, server-side action that lives at the bottom of group info and removes the group from Groups as well. Identity follows one rule everywhere another person appears: their name from your address book if you hold their number, otherwise their <code>@username</code>. No other user's phone number is ever rendered, and your own is visible only to you, on your own profile.</p>
+    <div class="scrollx">
+      <svg class="ia" viewBox="0 0 700 300" role="img" aria-label="Contacts and Groups feed into Chats when a message exists; delete chat removes a row from Chats only; leave group removes the group from Groups and Chats">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 10 5 0 10Z" fill="currentColor"></path>
+          </marker>
+        </defs>
+        <g fill="none" stroke="currentColor" color="var(--accent)">
+          <rect x="18" y="40" width="180" height="88" rx="14" stroke="var(--rule-strong)" fill="var(--panel-2)"></rect>
+          <rect x="18" y="172" width="180" height="88" rx="14" stroke="var(--rule-strong)" fill="var(--panel-2)"></rect>
+          <rect x="332" y="96" width="196" height="108" rx="14" stroke="var(--accent)" stroke-width="1.6" fill="var(--accent-soft)"></rect>
+        </g>
+        <g font-family="var(--font)" text-anchor="middle">
+          <text x="108" y="74" font-size="17" font-weight="600" fill="var(--ink)">Contacts</text>
+          <text x="108" y="96" font-size="12.5" fill="var(--ink-mute)">Address book + @username</text>
+          <text x="108" y="114" font-size="12.5" fill="var(--ink-mute)">directory. Always listed.</text>
+          <text x="108" y="206" font-size="17" font-weight="600" fill="var(--ink)">Groups</text>
+          <text x="108" y="228" font-size="12.5" fill="var(--ink-mute)">Every group you are a</text>
+          <text x="108" y="246" font-size="12.5" fill="var(--ink-mute)">member of. Always listed.</text>
+          <text x="430" y="138" font-size="19" font-weight="700" fill="var(--ink)">Chats</text>
+          <text x="430" y="162" font-size="12.5" fill="var(--ink-mute)">Only conversations with</text>
+          <text x="430" y="180" font-size="12.5" fill="var(--ink-mute)">at least one message</text>
+        </g>
+        <g fill="none" stroke="var(--accent)" stroke-width="1.6" color="var(--accent)" marker-end="url(#ah)">
+          <path d="M198 84 Q 268 84 330 124"></path>
+          <path d="M198 216 Q 268 216 330 176"></path>
+        </g>
+        <g font-family="var(--mono)" font-size="10.5" fill="var(--accent)" letter-spacing="0.04em">
+          <text x="214" y="76">first message sent or received</text>
+          <text x="214" y="236">first message sent or received</text>
+        </g>
+        <g fill="none" stroke="var(--flag)" stroke-width="1.6" color="var(--flag)" marker-end="url(#ah)" stroke-dasharray="5 4">
+          <path d="M528 120 Q 604 120 604 60 Q 604 30 540 30"></path>
+          <path d="M528 186 Q 640 186 640 256 Q 640 282 204 268"></path>
+        </g>
+        <g font-family="var(--mono)" font-size="10.5" fill="var(--flag)" letter-spacing="0.04em">
+          <text x="694" y="24" text-anchor="end">delete chat &rarr; leaves Chats only</text>
+          <text x="330" y="286">leave group &rarr; leaves Groups and Chats</text>
+        </g>
+      </svg>
+    </div>
+    <ul class="rules">
+      <li><span class="n">01</span><span><b>Chats, Contacts, Groups are three things.</b> A group with no messages lives in Groups only.</span></li>
+      <li><span class="n">02</span><span><b>Delete chat &ne; Leave group.</b> Delete chat is local: row + history. Leave group is a server op in group info.</span></li>
+      <li><span class="n">03</span><span><b>New chat opens a picker</b> with Contacts and Groups tabs; tapping a group opens its chat, which joins Chats once a message exists.</span></li>
+      <li><span class="n">04</span><span><b>3.1 splits Chats into Personal and Other.</b> The 3.0 screen already carries the segment slot, collapsed to nothing.</span></li>
+      <li><span class="n">05</span><span><b>@username is required and public; the phone number is private.</b> Every account claims a handle at sign-up; people appear as a saved contact name or as <code>@handle</code>, never as a number.</span></li>
+      <li><span class="n">06</span><span><b>Avatar: photo when set, else initials on a stable per-id colour.</b> Users and groups both carry a photo; the initials tile is the fallback, not the default.</span></li>
+    </ul>
+  </section>
+
+  <section class="slab" style="margin-top:20px">
+    <h2>Tokens in use</h2>
+    <p class="lede">Pulled from <code>lib/theme/theme.dart</code>. The scheme colors are what <code>ColorScheme.fromSeed(seedColor: 0xFF009978)</code> resolves to; <code>ChatColors</code> values are literal in the file. Radii <code>8 / 12 / 16 / 24 / 999</code>, spacing on an 8px grid (<code>4 / 8 / 16 / 24 / 32 / 48</code>), avatars <code>32 / 42 / 56 / 80</code>, divider inset 72px, type family <code>sofia</code>.</p>
+    <div class="tokens">
+      <span class="tok"><span class="sw" style="background:#009978"></span><span>seed #009978</span></span>
+      <span class="tok"><span class="sw" style="background:#006B53"></span><span>L primary #006B53</span></span>
+      <span class="tok"><span class="sw" style="background:#80F8D1"></span><span>primaryContainer #80F8D1</span></span>
+      <span class="tok"><span class="sw" style="background:#CEE9DC"></span><span>secondaryContainer #CEE9DC</span></span>
+      <span class="tok"><span class="sw" style="background:#F8FAF7"></span><span>L surface #F8FAF7</span></span>
+      <span class="tok"><span class="sw" style="background:#BFC9C3"></span><span>outlineVariant #BFC9C3</span></span>
+      <span class="tok"><span class="sw" style="background:#BA1A1A"></span><span>L error #BA1A1A</span></span>
+      <span class="tok"><span class="sw" style="background:#D9F5EC"></span><span>L senderBubble #D9F5EC</span></span>
+      <span class="tok"><span class="sw" style="background:#63DBB6"></span><span>D primary #63DBB6</span></span>
+      <span class="tok"><span class="sw" style="background:#00513E"></span><span>D primaryContainer #00513E</span></span>
+      <span class="tok"><span class="sw" style="background:#111412"></span><span>D surface #111412</span></span>
+      <span class="tok"><span class="sw" style="background:#005C4B"></span><span>D senderBubble #005C4B</span></span>
+      <span class="tok"><span class="sw" style="background:#263238"></span><span>D receiverBubble #263238</span></span>
+      <span class="tok"><span class="sw" style="background:#00A884"></span><span>D unreadBadge #00A884</span></span>
+      <span class="tok"><span class="sw" style="background:#FFB4AB"></span><span>D error #FFB4AB</span></span>
+      <span class="tok"><span class="sw" style="background:#FFA726"></span><span>statusConnecting #FFA726</span></span>
+    </div>
+  </section>
+
+  <!-- ================= a. CHATS 3.0 ================= -->
+  <section class="screens">
+    <div class="sec-head">
+      <p class="eyebrow">Frame a</p>
+      <h2>Chats &mdash; 3.0 merged list</h2>
+      <p class="sub">One inbox. Rows carry the group glyph, the mute glyph, unread count and send state; the long-press sheet is where a chat is removed, and it says in the sheet what removal does not do.</p>
+    </div>
+    <div class="frames">
+
+      <!-- a1 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <div class="stack"><span class="ttl">Chats</span></div>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body">
+            <div class="chip"><span class="dot"></span>Connecting&hellip; 2 messages queued</div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p1"></use></svg></div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname">Ananya Iyer</span></div>
+                <div class="rprev">Sent the rent receipt, check once</div>
+              </div>
+              <div class="rmeta"><span class="rtime hot">9:38</span><span class="badge">3</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname">Kothrud Flat 3B</span><svg class="ic s"><use href="#i-belloff"></use></svg></div>
+                <div class="rprev"><span class="who">Vikram:</span> Maintenance meeting moved to Sunday 11am</div>
+              </div>
+              <div class="rmeta"><span class="rtime">9:12</span><span class="badge mutedb">12</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar">FQ</div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname">Farhan Qureshi</span></div>
+                <div class="rprev fail"><svg class="ic s"><use href="#i-alert"></use></svg>Not sent &middot; tap to retry</div>
+              </div>
+              <div class="rmeta"><span class="rtime">8:54</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname">Sunday Football 6am</span></div>
+                <div class="rprev"><span class="who">Meera:</span> Ground booked, 12 confirmed</div>
+              </div>
+              <div class="rmeta"><span class="rtime">Yesterday</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar" style="background:var(--sfchi);color:var(--onsv)">S</div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname handle">@sandeep_rao</span></div>
+                <div class="rprev"><svg class="ic s"><use href="#i-tick2"></use></svg>Will confirm the invoice by Monday</div>
+              </div>
+              <div class="rmeta"><span class="rtime">Yesterday</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p4"></use></svg></div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname">Priya Deshmukh</span></div>
+                <div class="rprev"><svg class="ic s"><use href="#i-image"></use></svg>Photo</div>
+              </div>
+              <div class="rmeta"><span class="rtime">Tue</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname">Iyer Family</span><svg class="ic s"><use href="#i-pin"></use></svg></div>
+                <div class="rprev"><span class="who">You:</span> Reaching Chennai on the 14th</div>
+              </div>
+              <div class="rmeta"><span class="rtime">Mon</span></div>
+            </div>
+            <div class="fab"><svg class="ic"><use href="#i-pencil"></use></svg></div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">a1 &middot; Chats 3.0 &middot; light</span>
+          <p class="why">Groups get the filled teal glyph avatar and a sender prefix in the preview, so a group row is legible without reading the name. Someone whose number you have not saved shows as <code>@sandeep_rao</code> &mdash; his number never appears, in this list or anywhere else.</p>
+        </div>
+      </div>
+
+      <!-- a2 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <div class="stack"><span class="ttl">Chats</span></div>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body">
+            <div class="chip"><span class="dot"></span>Connecting&hellip; 2 messages queued</div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Ananya Iyer</span></div><div class="rprev">Sent the rent receipt, check once</div></div>
+              <div class="rmeta"><span class="rtime hot">9:38</span><span class="badge">3</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row pressed">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-g1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Kothrud Flat 3B</span><svg class="ic s"><use href="#i-belloff"></use></svg></div><div class="rprev"><span class="who">Vikram:</span> Maintenance meeting moved to Sunday</div></div>
+              <div class="rmeta"><span class="rtime">9:12</span><span class="badge mutedb">12</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar">FQ</div>
+              <div class="rmain"><div class="rtop"><span class="rname">Farhan Qureshi</span></div><div class="rprev fail"><svg class="ic s"><use href="#i-alert"></use></svg>Not sent &middot; tap to retry</div></div>
+              <div class="rmeta"><span class="rtime">8:54</span></div>
+            </div>
+            <div class="scrimlayer"></div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="sh"><span class="n">Kothrud Flat 3B</span><span class="m">Group &middot; 14 members</span></div>
+              <div class="item"><svg class="ic"><use href="#i-belloff"></use></svg><span class="lbl">Mute notifications<span class="sub" style="display:block">Muted until 6:00 pm</span></span></div>
+              <div class="item"><svg class="ic"><use href="#i-pin"></use></svg><span class="lbl">Pin to top</span></div>
+              <div class="item"><svg class="ic"><use href="#i-eraser"></use></svg><span class="lbl">Clear history<span class="sub" style="display:block">Erases messages on this phone. The chat stays in the list.</span></span></div>
+              <div class="item danger"><svg class="ic"><use href="#i-trash"></use></svg><span class="lbl">Delete chat<span class="sub" style="display:block">Removes it from Chats and erases history on this phone.</span></span></div>
+              <div class="note" style="margin:10px 20px 2px"><b>You stay in the group.</b> Kothrud Flat 3B keeps showing under Groups in New chat, and reappears here the next time someone writes. To actually leave, open group info &rarr; Leave group.</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">a2 &middot; long-press sheet</span>
+          <p class="why">Destructive items sit last and carry a one-line consequence each. <em>The sheet states what Delete chat does not do</em> right where the mistake would be made, instead of hiding it in a confirm dialog nobody reads.</p>
+        </div>
+      </div>
+
+      <!-- b -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <div class="stack"><span class="ttl">Chats</span></div>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="seg">
+            <span class="s on">Personal <span class="cnt">4</span></span>
+            <span class="s">Other <span class="cnt">11</span></span>
+          </div>
+          <div class="body">
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Ananya Iyer</span></div><div class="rprev">Sent the rent receipt, check once</div></div>
+              <div class="rmeta"><span class="rtime hot">9:38</span><span class="badge">3</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-g1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Kothrud Flat 3B</span><svg class="ic s"><use href="#i-belloff"></use></svg></div><div class="rprev"><span class="who">Vikram:</span> Maintenance meeting moved to Sunday</div></div>
+              <div class="rmeta"><span class="rtime">9:12</span><span class="badge mutedb">12</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar">FQ</div>
+              <div class="rmain"><div class="rtop"><span class="rname">Farhan Qureshi</span></div><div class="rprev fail"><svg class="ic s"><use href="#i-alert"></use></svg>Not sent &middot; tap to retry</div></div>
+              <div class="rmeta"><span class="rtime">8:54</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Sunday Football 6am</span></div><div class="rprev"><span class="who">Meera:</span> Ground booked, 12 confirmed</div></div>
+              <div class="rmeta"><span class="rtime">Yesterday</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="sectitle">In Other</div>
+            <div class="row">
+              <div class="avatar" style="background:var(--sfchi);color:var(--onsv)">VM</div>
+              <div class="rmain"><div class="rtop"><span class="rname handle">VM-HDFCBK</span></div><div class="rprev">Rs 2,480.00 debited from A/c XX4417 on 20-Sep</div></div>
+              <div class="rmeta"><span class="rtime">8:02</span><span class="badge">2</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar" style="background:var(--sfchi);color:var(--onsv)">AX</div>
+              <div class="rmain"><div class="rtop"><span class="rname handle">AX-SWIGGY</span><svg class="ic s"><use href="#i-belloff"></use></svg></div><div class="rprev">Your order from Vaishali is 6 mins away</div></div>
+              <div class="rmeta"><span class="rtime">Yesterday</span></div>
+            </div>
+            <div class="fab"><svg class="ic"><use href="#i-pencil"></use></svg></div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">b &middot; Chats 3.1 variant</span>
+          <p class="why">The 3.1 split is a segmented row between the app bar and the list. In 3.0 that slot renders nothing and the list is merged &mdash; the row markup, sorting and sheet are unchanged, so the split ships as a filter, not a redesign. The &ldquo;In Other&rdquo; group header shown here is the 3.0-to-3.1 migration preview.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= c. NEW CHAT PICKER ================= -->
+  <section class="screens">
+    <div class="sec-head">
+      <p class="eyebrow">Frame c</p>
+      <h2>New chat picker</h2>
+      <p class="sub">The FAB opens the directory: Contacts and Groups side by side, groups listed exactly like people. Tapping either opens a chat; the chat only joins the Chats list once a message exists.</p>
+    </div>
+    <div class="frames">
+
+      <!-- c1 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl">New chat</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg></span>
+          </div>
+          <div class="tabs"><span class="t on">CONTACTS</span><span class="t">GROUPS</span></div>
+          <div class="body">
+            <div class="search"><svg class="ic"><use href="#i-search"></use></svg><span class="val">99204</span><span class="caret"></span></div>
+            <div class="row" style="padding-top:4px;padding-bottom:4px">
+              <div class="avatar" style="background:var(--sfchi);color:var(--onsv)">MP</div>
+              <div class="rmain">
+                <div class="rtop"><span class="rname">Meera Pillai</span></div>
+                <div class="rprev" style="font-variant-numeric:tabular-nums">+91 <span class="hl">99204</span> 11872 &middot; saved in your contacts</div>
+              </div>
+            </div>
+            <div class="div full"></div>
+            <div class="sectitle">Not in your contacts</div>
+            <div class="search outlined" style="margin-top:2px"><svg class="ic"><use href="#i-at"></use></svg><span class="val">kavya_m</span><span class="caret"></span></div>
+            <div style="display:flex;gap:10px;align-items:center;margin:0 14px 2px">
+              <div class="search outlined" style="margin:0;flex:none;width:126px"><svg class="ic"><use href="#i-lock"></use></svg><span>Key</span></div>
+              <span style="font-size:11.5px;color:var(--onsv);line-height:1.35">@kavya_m asks for a 4-digit key</span>
+            </div>
+            <div class="tile"><svg class="ic"><use href="#i-peopleplus"></use></svg><div class="tmain"><div class="tt">New group</div><div class="tsub">Pick members, name it</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            <div class="div full"></div>
+            <div class="sectitle">On Vartalap &middot; 24</div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Ananya Iyer</span></div><div class="rprev">@ananya.iyer</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar">FQ</div>
+              <div class="rmain"><div class="rtop"><span class="rname">Farhan Qureshi</span></div><div class="rprev">@farhanq</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p3"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Kavya Menon</span></div><div class="rprev">@kavya_m &middot; Back in Kochi</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar">MP</div>
+              <div class="rmain"><div class="rtop"><span class="rname">Meera Pillai</span></div><div class="rprev">@meera.pillai</div></div>
+            </div>
+            <div class="div full"></div>
+            <div class="sectitle">Not on Vartalap &middot; 132</div>
+            <div class="row">
+              <div class="avatar" style="background:var(--sfchi);color:var(--onsv)">RS</div>
+              <div class="rmain"><div class="rtop"><span class="rname">Rohit Shirke</span></div><div class="rprev">Invite</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">c1 &middot; Contacts tab</span>
+          <p class="why">One field, placeholder &ldquo;Search name, @username or phone&rdquo;, shown here mid-query on <code>99204</code> with the matched digits emphasised. Saved numbers are searchable, as in WhatsApp; unsaved numbers are never revealed. Below the rule, the separate handle field reaches people who are not in your address book &mdash; its Key field appears only when the server says that handle requires one.</p>
+        </div>
+      </div>
+
+      <!-- c2 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl">New chat</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg></span>
+          </div>
+          <div class="tabs"><span class="t">CONTACTS</span><span class="t on">GROUPS</span></div>
+          <div class="body">
+            <div class="search"><svg class="ic"><use href="#i-search"></use></svg><span>Search name, @username or phone</span></div>
+            <div class="tile"><svg class="ic"><use href="#i-peopleplus"></use></svg><div class="tmain"><div class="tt">New group</div><div class="tsub">Pick members, name it</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            <div class="div full"></div>
+            <div class="sectitle">Your groups &middot; 6</div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-g2"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Iyer Family</span></div><div class="rprev">You, Ananya, Kavya and 6 others</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-g1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Kothrud Flat 3B</span><svg class="ic s"><use href="#i-belloff"></use></svg></div><div class="rprev">You, Vikram, Priya and 11 others</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Pune Trek Crew</span></div><div class="rprev">No messages yet</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Sunday Football 6am</span></div><div class="rprev">You, Meera, Farhan and 9 others</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-g2"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Vartalap Devs</span></div><div class="rprev">Deleted from Chats &middot; you are still a member</div></div>
+            </div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Wing B Parking</span></div><div class="rprev">No messages yet</div></div>
+            </div>
+            <div class="note">Groups always live here, with or without messages. Opening one starts the chat; it appears in Chats after the first message.</div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">c2 &middot; Groups tab</span>
+          <p class="why">Groups read as list rows just like contacts, with the member line as subtitle. Two states earn their own copy: <code>No messages yet</code> (never in Chats) and <code>Deleted from Chats &middot; you are still a member</code> &mdash; the proof of rule 3, visible at the moment of doubt.</p>
+        </div>
+      </div>
+
+      <!-- c3 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl">New chat</span>
+            <span class="spacer"></span>
+          </div>
+          <div class="tabs"><span class="t on">CONTACTS</span><span class="t">GROUPS</span></div>
+          <div class="body">
+            <div class="search outlined"><svg class="ic"><use href="#i-at"></use></svg><span>Find by @username</span></div>
+            <div class="div full"></div>
+            <div class="empty">
+              <svg class="ic"><use href="#i-contacts"></use></svg>
+              <p class="et">Find people you already know</p>
+              <p class="eb">Vartalap can check which of your saved contacts are on Vartalap. Numbers are hashed on this phone before they are sent &mdash; the server never sees a phone number, and your contact names never leave the device.</p>
+            </div>
+            <div style="padding:16px 22px 0;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;gap:10px;align-items:flex-start;font-size:12.5px;color:var(--onsv)"><svg class="ic" style="color:var(--pr)"><use href="#i-shield"></use></svg><span>Hashed on device, never stored in plain text</span></div>
+              <div style="display:flex;gap:10px;align-items:flex-start;font-size:12.5px;color:var(--onsv)"><svg class="ic" style="color:var(--pr)"><use href="#i-at"></use></svg><span>You can skip this and reach anyone by @username instead</span></div>
+            </div>
+            <div style="position:absolute;left:0;right:0;bottom:16px;display:flex;flex-direction:column;gap:10px;padding:0 20px">
+              <div class="cta">Allow contact access</div>
+              <div style="text-align:center;font-size:14px;font-weight:600;color:var(--pr);padding:6px">Not now &mdash; use @username</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">c3 &middot; contacts permission disclosure</span>
+          <p class="why">The disclosure runs before the Android dialog and says what leaves the phone. Declining is a real path, not a dead end, because @username lookup covers it &mdash; which is the whole point of username-first identity.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= d. CHAT SCREEN ================= -->
+  <section class="screens">
+    <div class="sec-head">
+      <p class="eyebrow">Frame d</p>
+      <h2>Chat</h2>
+      <p class="sub">1:1 and group. Send state on every outgoing bubble, a dead-letter bubble with its own retry, attachments inline, and the long-press sheet that carries edit, delete, react &mdash; with the 5-second undo that the sync layer needs.</p>
+    </div>
+    <div class="frames">
+
+      <!-- d1 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <div class="avatar sm photo"><svg class="avimg"><use href="#av-p1"></use></svg></div>
+            <div class="stack"><span class="ttl" style="font-size:16px">Ananya Iyer</span><span class="sub">online</span></div>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body chatpane">
+            <div class="msgs">
+              <span class="datechip">Today</span>
+              <div class="bub">Did the society send the rent receipt for August?<div class="foot"><span>9:21 am</span></div></div>
+              <div class="bub out">Checking. Bhide uncle said he would drop it in the group.<div class="foot"><span>9:23 am</span><svg class="ic read"><use href="#i-tick2"></use></svg></div></div>
+              <div class="bub">
+                <div class="photo"><span class="sun"></span><span class="hill"></span><span class="hill two"></span></div>
+                Got it, scanned copy attached
+                <div class="foot"><span>9:35 am</span></div>
+              </div>
+              <div class="bub out">Perfect, forwarding to the CA.<div class="foot"><span class="edited">edited</span><span>9:36 am</span><svg class="ic"><use href="#i-tick1"></use></svg></div></div>
+              <div class="bub out fail">
+                Also need last year's NOC scan if you have it.
+                <div class="foot"><span class="failtx">Not sent &middot; failed 3 times</span><span>9:38 am</span><svg class="ic" style="color:var(--err)"><use href="#i-alert"></use></svg></div>
+                <span class="retry"><svg class="ic s"><use href="#i-retry"></use></svg>Retry</span>
+              </div>
+              <div class="bub out">Sure, one sec.<div class="foot"><span>9:39 am</span><svg class="ic"><use href="#i-clock"></use></svg></div></div>
+              <div class="typing"><span class="dots"><i></i><i></i><i></i></span>Ananya is typing&hellip;</div>
+            </div>
+            <div class="composer">
+              <div class="field"><svg class="ic"><use href="#i-smile"></use></svg><span class="ph">Message</span><svg class="ic"><use href="#i-attach"></use></svg><svg class="ic"><use href="#i-camera"></use></svg></div>
+              <div class="send"><svg class="ic"><use href="#i-send"></use></svg></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">d1 &middot; 1:1 chat</span>
+          <p class="why">Four send states are distinguishable at a glance: clock (queued), one tick (sent), two teal ticks (read), and the error-container bubble with an inline Retry for a dead-lettered message &mdash; failure stays on the message it belongs to instead of a global banner.</p>
+        </div>
+      </div>
+
+      <!-- d2 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <div class="avatar sm photo"><svg class="avimg"><use href="#av-g1"></use></svg></div>
+            <div class="stack"><span class="ttl" style="font-size:16px">Kothrud Flat 3B</span><span class="sub">Vikram, Priya, Meera +11</span></div>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body chatpane">
+            <div class="banner"><svg class="ic s"><use href="#i-belloff"></use></svg>Muted until 6:00 pm<span class="act">Unmute</span></div>
+            <div class="msgs">
+              <span class="datechip">Yesterday</span>
+              <div class="bub"><div class="snd" style="color:#8A5100">Vikram Nair</div>Maintenance meeting moved to Sunday 11am, terrace.<div class="foot"><span>7:04 pm</span></div></div>
+              <div class="bub"><div class="snd" style="color:#2A5CA8">@bhide_sd</div>Can we make it 11:30? School drop.<div class="foot"><span>7:11 pm</span></div>
+                <span class="rx">&#128077; 4</span>
+              </div>
+              <span class="datechip">Today</span>
+              <div class="bub"><div class="snd" style="color:#8A5100">Vikram Nair</div>
+                <div class="photo"><span class="sun"></span><span class="hill"></span><span class="hill two"></span></div>
+                Agenda + last month's accounts
+                <div class="foot"><span>9:10 am</span></div>
+              </div>
+              <div class="bub out">11:30 works for us in 3B.<div class="foot"><span>9:12 am</span><svg class="ic read"><use href="#i-tick2"></use></svg></div></div>
+              <div class="typing"><span class="dots"><i></i><i></i><i></i></span>Priya is typing&hellip;</div>
+            </div>
+            <div class="composer">
+              <div class="field"><svg class="ic"><use href="#i-smile"></use></svg><span class="ph">Message</span><svg class="ic"><use href="#i-attach"></use></svg><svg class="ic"><use href="#i-camera"></use></svg></div>
+              <div class="send"><svg class="ic"><use href="#i-send"></use></svg></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">d2 &middot; group chat</span>
+          <p class="why">Sender labels use each member's colour and follow the same identity rule: saved contact name, else <code>@handle</code>. A muted group says so in a dismissible bar with Unmute in reach, so mute never becomes a silent mystery.</p>
+        </div>
+      </div>
+
+      <!-- d3 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-close"></use></svg>
+            <div class="stack"><span class="ttl" style="font-size:16px">1 selected</span></div>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-reply"></use></svg><svg class="ic l"><use href="#i-copy"></use></svg><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body chatpane">
+            <div class="msgs">
+              <span class="datechip">Today</span>
+              <div class="bub"><div class="snd" style="color:#8A5100">Vikram Nair</div>Maintenance meeting moved to Sunday 11am, terrace.<div class="foot"><span>7:04 pm</span></div></div>
+              <div class="bub out sel" style="margin-top:34px">11:30 works for us in 3B.<div class="foot"><span>9:12 am</span><svg class="ic read"><use href="#i-tick2"></use></svg></div>
+                <span class="reactbar" style="right:0;top:-38px">&#128077; &#10084;&#65039; &#128514; &#128558; &#128546; &#128591;</span>
+              </div>
+            </div>
+            <div class="scrimlayer"></div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="item"><svg class="ic"><use href="#i-reply"></use></svg><span class="lbl">Reply</span></div>
+              <div class="item"><svg class="ic"><use href="#i-smile"></use></svg><span class="lbl">React</span></div>
+              <div class="item"><svg class="ic"><use href="#i-pencil"></use></svg><span class="lbl">Edit<span class="sub" style="display:block">Everyone sees it marked as edited</span></span></div>
+              <div class="item"><svg class="ic"><use href="#i-copy"></use></svg><span class="lbl">Copy text</span></div>
+              <div class="item danger"><svg class="ic"><use href="#i-trash"></use></svg><span class="lbl">Delete for everyone<span class="sub" style="display:block">You have 5 seconds to undo</span></span></div>
+            </div>
+            <div class="snackbar"><span class="ring"><b>2</b></span><span style="flex:1">Message deleted</span><span class="act"><svg class="ic s"><use href="#i-undo"></use></svg>UNDO</span></div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">d3 &middot; message sheet + 5s undo</span>
+          <p class="why">Delete writes a local tombstone and the snackbar's countdown ring is the 5-second window before it is queued for sync &mdash; undo is the cheap path, so no confirm dialog is needed above it.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= e/f/g. INFO ================= -->
+  <section class="screens">
+    <div class="sec-head">
+      <p class="eyebrow">Frames e, f, g</p>
+      <h2>Group info, mute, contact info</h2>
+      <p class="sub">Where membership is managed. Delete chat and Leave group appear on the same screen on purpose &mdash; separated, worded differently, and only one of them is red.</p>
+    </div>
+    <div class="frames">
+
+      <!-- e -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl" style="font-size:17px">Group info</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-pencil"></use></svg></span>
+          </div>
+          <div class="body" style="overflow:hidden">
+            <div class="hero" style="padding-top:16px">
+              <div class="avatar xl photo"><svg class="avimg"><use href="#av-g1"></use></svg><span class="cambadge"><svg class="ic"><use href="#i-camera"></use></svg></span></div>
+              <div class="nm" style="font-size:21px;margin-top:10px">Kothrud Flat 3B</div>
+              <div class="st">Group &middot; 14 members &middot; created 12 Mar 2026</div>
+            </div>
+            <div style="padding:14px 0 2px">
+              <div class="tile"><svg class="ic"><use href="#i-image"></use></svg><div class="tmain"><div class="tt">Media, links and docs</div><div class="tsub">128 items</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+              <div class="mediastrip"><i></i><i></i><i></i><i></i></div>
+              <div class="tile"><svg class="ic"><use href="#i-belloff"></use></svg><div class="tmain"><div class="tt">Notifications</div><div class="tsub">Muted until 6:00 pm today</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+              <div class="tile"><svg class="ic"><use href="#i-link"></use></svg><div class="tmain"><div class="tt">Invite link</div><div class="tsub">Only admins can invite</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            </div>
+            <div class="div full"></div>
+            <div class="memberhead"><span class="mh">14 members</span><span class="ma">Add</span></div>
+            <div class="row" style="padding-top:5px;padding-bottom:5px">
+              <div class="avatar sm photo"><svg class="avimg"><use href="#av-p2"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname" style="font-size:14px">Vikram Nair</span><span class="roletag">Admin</span></div></div>
+            </div>
+            <div class="row" style="padding-top:5px;padding-bottom:5px">
+              <div class="avatar sm photo"><svg class="avimg"><use href="#av-p4"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname" style="font-size:14px">Priya Deshmukh</span></div></div>
+            </div>
+            <div class="row" style="padding-top:5px;padding-bottom:5px">
+              <div class="avatar sm" style="background:var(--sfchi);color:var(--onsv)">S</div>
+              <div class="rmain"><div class="rtop"><span class="rname handle" style="font-size:14px">@sandeep_rao</span></div></div>
+            </div>
+            <div class="tile" style="padding-top:6px;color:var(--pr)"><svg class="ic" style="color:var(--pr)"><use href="#i-chev"></use></svg><div class="tmain"><div class="tt" style="color:var(--pr)">See all 14</div></div></div>
+            <div class="div full"></div>
+            <div class="tile"><svg class="ic"><use href="#i-eraser"></use></svg><div class="tmain"><div class="tt">Clear history</div><div class="tsub">Erases messages on this phone only</div></div></div>
+            <div class="tile"><svg class="ic"><use href="#i-trash"></use></svg><div class="tmain"><div class="tt">Delete chat</div><div class="tsub">Removes it from Chats. You stay a member and the group stays under Groups.</div></div></div>
+            <div class="div full" style="opacity:.8"></div>
+            <div class="tile danger" style="padding-bottom:16px"><svg class="ic"><use href="#i-exit"></use></svg><div class="tmain"><div class="tt">Leave group</div><div class="tsub">You stop receiving messages. The group disappears from Groups too.</div></div></div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">e &middot; group info</span>
+          <p class="why">Delete chat sits in the neutral block; Leave group is alone at the bottom, in error red, below a rule. <em>Different words, different colour, different block</em> &mdash; the two are never adjacent lookalikes. The group photo carries a camera badge: tap to change photo; upload uses the same presigned-upload path as attachments.</p>
+        </div>
+      </div>
+
+      <!-- e2 leave confirm -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl" style="font-size:17px">Group info</span>
+          </div>
+          <div class="body">
+            <div class="hero" style="padding-top:16px">
+              <div class="avatar xl photo"><svg class="avimg"><use href="#av-g1"></use></svg></div>
+              <div class="nm" style="font-size:21px;margin-top:10px">Kothrud Flat 3B</div>
+              <div class="st">Group &middot; 14 members</div>
+            </div>
+            <div style="padding:14px 0 2px">
+              <div class="tile"><svg class="ic"><use href="#i-image"></use></svg><div class="tmain"><div class="tt">Media, links and docs</div><div class="tsub">128 items</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+              <div class="tile"><svg class="ic"><use href="#i-belloff"></use></svg><div class="tmain"><div class="tt">Notifications</div><div class="tsub">Muted until 6:00 pm today</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            </div>
+            <div class="scrimlayer"></div>
+            <div class="dialog">
+              <div class="dt">Leave Kothrud Flat 3B?</div>
+              <div class="db">You will stop receiving messages and the group will be removed from Groups and from Chats. Other members stay in the group and can add you back.<br><br>This needs a connection &mdash; it is not a local-only change.</div>
+              <div class="dacts"><span class="no">Cancel</span><span class="go">Leave group</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">e2 &middot; leave confirmation</span>
+          <p class="why">The copy names the two lists the group leaves, and flags that this is the one action here that needs the network &mdash; per the offline matrix, leaving is a server op while delete and clear are local.</p>
+        </div>
+      </div>
+
+      <!-- f -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl" style="font-size:17px">Group info</span>
+          </div>
+          <div class="body">
+            <div class="hero" style="padding-top:16px">
+              <div class="avatar xl grp"><svg class="ic" style="width:34px;height:34px"><use href="#i-people"></use></svg></div>
+              <div class="nm" style="font-size:21px;margin-top:10px">Sunday Football 6am</div>
+              <div class="st">Group &middot; 12 members</div>
+            </div>
+            <div style="padding:14px 0 2px">
+              <div class="tile"><svg class="ic"><use href="#i-image"></use></svg><div class="tmain"><div class="tt">Media, links and docs</div><div class="tsub">41 items</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+              <div class="tile"><svg class="ic"><use href="#i-bell"></use></svg><div class="tmain"><div class="tt">Notifications</div><div class="tsub">On</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            </div>
+            <div class="scrimlayer"></div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="sh"><span class="n">Mute notifications</span><span class="m">Messages still arrive. Only the alert is silenced.</span></div>
+              <div class="item"><span class="radio"></span><span class="lbl">8 hours<span class="sub" style="display:block">Until 5:41 pm today</span></span></div>
+              <div class="item"><span class="radio"></span><span class="lbl">1 week<span class="sub" style="display:block">Until Sun, 27 Sep</span></span></div>
+              <div class="item"><span class="radio on"></span><span class="lbl">Always</span></div>
+              <div class="item"><span class="radio"></span><span class="lbl">Off<span class="sub" style="display:block">Notify me for every message</span></span></div>
+              <div style="display:flex;justify-content:flex-end;gap:18px;padding:6px 22px 2px;font-weight:600;color:var(--pr)"><span>Cancel</span><span>Save</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">f &middot; mute bottom sheet</span>
+          <p class="why">Four durations write <code>channel_settings.muted_until_ms</code> and gate the ntfy wake. Each option resolves to a real date under it, so &ldquo;1 week&rdquo; never has to be calculated in the user's head.</p>
+        </div>
+      </div>
+
+      <!-- g -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl" style="font-size:17px">Contact info</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body">
+            <div class="hero">
+              <div class="avatar xl photo"><svg class="avimg"><use href="#av-p3"></use></svg></div>
+              <div class="nm">Kavya Menon</div>
+              <div class="hd">@kavya_m</div>
+              <div class="st">Back in Kochi</div>
+            </div>
+            <div class="pillrow">
+              <span class="pill solid"><svg class="ic s"><use href="#i-send"></use></svg>Message</span>
+              <span class="pill ghost"><svg class="ic s"><use href="#i-belloff"></use></svg>Mute</span>
+            </div>
+            <div class="privacy" style="justify-content:center;padding-top:12px"><svg class="ic s"><use href="#i-lock"></use></svg>Saved in your contacts &middot; her number is not shown here</div>
+            <div class="div full" style="margin-top:14px"></div>
+            <div class="memberhead"><span class="mh">3 groups in common</span></div>
+            <div class="row" style="padding-top:6px;padding-bottom:6px">
+              <div class="avatar sm photo"><svg class="avimg"><use href="#av-g2"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname" style="font-size:14px">Iyer Family</span></div><div class="rprev">9 members</div></div>
+            </div>
+            <div class="row" style="padding-top:6px;padding-bottom:6px">
+              <div class="avatar sm photo"><svg class="avimg"><use href="#av-g1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname" style="font-size:14px">Pune Trek Crew</span></div><div class="rprev">6 members &middot; no messages yet</div></div>
+            </div>
+            <div class="row" style="padding-top:6px;padding-bottom:6px">
+              <div class="avatar sm grp"><svg class="ic s"><use href="#i-people"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname" style="font-size:14px">Sunday Football 6am</span></div><div class="rprev">12 members</div></div>
+            </div>
+            <div class="div full"></div>
+            <div class="tile"><svg class="ic"><use href="#i-image"></use></svg><div class="tmain"><div class="tt">Media, links and docs</div><div class="tsub">23 items</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            <div class="tile"><svg class="ic"><use href="#i-eraser"></use></svg><div class="tmain"><div class="tt">Clear history</div><div class="tsub">Erases messages on this phone only</div></div></div>
+            <div class="tile danger" style="padding-bottom:14px"><svg class="ic"><use href="#i-shield"></use></svg><div class="tmain"><div class="tt">Block @kavya_m</div><div class="tsub">They can no longer message you</div></div></div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">g &middot; contact info</span>
+          <p class="why">Name, handle, status, Message &mdash; no phone row, because the number adds nothing here and a number you do not hold must never appear. Shared groups double as a shortcut into Groups, including ones with no messages yet.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= h. IDENTITY ================= -->
+  <section class="screens">
+    <div class="sec-head">
+      <p class="eyebrow">Frame h</p>
+      <h2>Username, then everything else</h2>
+      <p class="sub">The username is claimed right after OTP verify and is required &mdash; it is the handle everyone who has not saved your number will see. The number itself stays private, and an optional 4-digit key controls who may open a chat by handle.</p>
+    </div>
+    <div class="frames">
+
+      <!-- h1 -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb" style="background:var(--sf);color:var(--onsf)"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar" style="background:var(--sf);color:var(--onsf)">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="spacer"></span>
+            <span style="font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--onsv)">STEP 2 OF 3</span>
+          </div>
+          <div class="body">
+            <div style="padding:16px 20px 0;display:flex;flex-direction:column;gap:8px">
+              <h3 style="font-size:26px;font-weight:600;letter-spacing:-0.02em;line-height:1.15;color:var(--onsf)">Choose your username</h3>
+              <p style="font-size:14px;color:var(--onsv);line-height:1.45;margin:0">A username lets people reach you without knowing your number, and is how you appear to anyone who has not saved you.</p>
+            </div>
+            <div style="height:22px"></div>
+            <div class="field-lg ok">
+              <span class="at">@</span><span class="txt">kavya_m</span>
+              <span class="state ok"><svg class="ic s"><use href="#i-check"></use></svg></span>
+            </div>
+            <p class="helper good">@kavya_m is available</p>
+            <p class="helper">3&ndash;30 characters. Letters, numbers, dot and underscore. Must start with a letter.</p>
+            <div style="height:14px"></div>
+            <div class="field-lg bad">
+              <span class="at">@</span><span class="txt">kavya</span>
+              <span class="state bad"><svg class="ic s"><use href="#i-close"></use></svg></span>
+            </div>
+            <p class="helper bad">@kavya is taken. Try @kavya_m or @kavya.menon</p>
+            <div style="height:14px"></div>
+            <div class="field-lg">
+              <span class="at">@</span><span class="txt" style="color:var(--onsv)">kavyamenon</span>
+              <span class="state busy"></span>
+            </div>
+            <p class="helper">Checking availability&hellip;</p>
+            <div style="position:absolute;left:0;right:0;bottom:16px;display:flex;flex-direction:column;gap:10px">
+              <div class="cta">Continue</div>
+              <p class="helper" style="text-align:center;padding-top:0">Your username is how people find you. Your phone number stays private.</p>
+              <div class="stepdots"><i></i><i class="on"></i><i></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">h &middot; choose your username</span>
+          <p class="why">All three availability states are stacked here for the spec; the real screen has one field. There is no Skip: the handle is the account's public identity, so it is claimed before the first chat exists, and the caption under Continue says why.</p>
+        </div>
+      </div>
+
+      <!-- h2 own profile -->
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl" style="font-size:17px">Profile</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-pencil"></use></svg></span>
+          </div>
+          <div class="body">
+            <div class="hero">
+              <div class="avatar xl photo"><svg class="avimg"><use href="#av-p3"></use></svg><span class="cambadge"><svg class="ic"><use href="#i-camera"></use></svg></span></div>
+              <div class="nm">Kavya Menon</div>
+              <div class="hd">@kavya_m</div>
+              <div class="st">Back in Kochi</div>
+            </div>
+            <div class="pillrow">
+              <span class="pill solid"><svg class="ic s"><use href="#i-pencil"></use></svg>Edit profile</span>
+              <span class="pill ghost"><svg class="ic s"><use href="#i-qr"></use></svg>My QR</span>
+            </div>
+            <div class="div full" style="margin-top:18px"></div>
+            <div class="tile"><svg class="ic"><use href="#i-lock"></use></svg><div class="tmain"><div class="tt" style="font-variant-numeric:tabular-nums">+91 98765 43210</div><div class="tsub">Only you can see this</div></div></div>
+            <div class="tile"><svg class="ic"><use href="#i-lock"></use></svg><div class="tmain"><div class="tt">Username key <span class="roletag" style="margin-left:4px">Optional</span></div><div class="tsub">People who message you by username must enter this. Not set.</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            <div class="tile"><svg class="ic"><use href="#i-qr"></use></svg><div class="tmain"><div class="tt">QR code</div><div class="tsub">Shares @kavya_m, not your number</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            <div class="div full"></div>
+            <div class="tile"><svg class="ic"><use href="#i-bell"></use></svg><div class="tmain"><div class="tt">Notifications</div><div class="tsub">ntfy wake &middot; connected</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            <div class="tile"><svg class="ic"><use href="#i-shield"></use></svg><div class="tmain"><div class="tt">Privacy and data</div><div class="tsub">Crash reports off</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            <div style="position:absolute;left:0;right:0;bottom:22px;text-align:center;font-size:14px;font-weight:600;color:var(--err)">Sign out</div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">h2 &middot; own profile</span>
+          <p class="why">Carries the approved &ldquo;Quiet Card&rdquo; direction: monogram, two pill actions, a flat row list, sign-out at the bottom. Your number sits behind a lock with &ldquo;Only you can see this&rdquo;, the optional 4-digit username key sits directly under it, and the QR encodes the handle rather than the number. The avatar carries a camera badge: tap to change photo; upload uses the same presigned-upload path as attachments.</p>
+        </div>
+      </div>
+
+      <div class="fig">
+        <div class="phone light">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl" style="font-size:17px">New group</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg></span>
+          </div>
+          <div class="body">
+            <div style="display:flex;gap:8px;padding:12px 14px 6px;flex-wrap:wrap">
+              <span class="chip ok" style="margin:0"><span class="dot"></span>Meera Pillai</span>
+              <span class="chip ok" style="margin:0"><span class="dot"></span>@farhanq</span>
+              <span class="chip ok" style="margin:0"><span class="dot"></span>Vikram Nair</span>
+            </div>
+            <div class="search"><svg class="ic"><use href="#i-search"></use></svg><span class="val">Add members</span><span class="caret"></span></div>
+            <div class="sectitle">Suggested</div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Ananya Iyer</span></div><div class="rprev">@ananya.iyer</div></div>
+              <div class="rmeta"><span class="radio" style="width:20px;height:20px;border:2px solid var(--outline);border-radius:999px;display:block"></span></div>
+            </div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p3"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Kavya Menon</span></div><div class="rprev">@kavya_m</div></div>
+              <div class="rmeta"><span class="radio" style="width:20px;height:20px;border:2px solid var(--outline);border-radius:999px;display:block"></span></div>
+            </div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p4"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Priya Deshmukh</span></div><div class="rprev">@priyad</div></div>
+              <div class="rmeta"><span class="radio" style="width:20px;height:20px;border:2px solid var(--outline);border-radius:999px;display:block"></span></div>
+            </div>
+            <div class="note">The group is created on this phone right away and syncs when you are online. It appears under Groups immediately &mdash; and in Chats after the first message.</div>
+            <div class="fab" style="width:auto;padding:0 18px;height:48px;gap:9px;display:flex;align-items:center;font-weight:600;background:var(--pr);color:var(--onpr)"><svg class="ic"><use href="#i-chev"></use></svg>Next</div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">bonus &middot; new group</span>
+          <p class="why">Reached from either picker tab. The inline note is where rule 2 is taught the first time: a brand-new group is listed under Groups but is not yet a chat.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= DARK ================= -->
+  <section class="screens">
+    <div class="sec-head">
+      <p class="eyebrow">Dark theme</p>
+      <h2>The same three screens, dark</h2>
+      <p class="sub">Dark uses the app bar as surface rather than primary (as <code>darkThemeData</code> does), the deep teal outgoing bubble <code>#005C4B</code> and the brighter unread badge <code>#00A884</code>. Nothing about the structure changes.</p>
+    </div>
+    <div class="frames">
+
+      <div class="fig">
+        <div class="phone dark">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <span class="ttl">Chats</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-search"></use></svg><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body">
+            <div class="chip bad"><span class="dot"></span>Offline &middot; 2 messages waiting to send</div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Ananya Iyer</span></div><div class="rprev">Sent the rent receipt, check once</div></div>
+              <div class="rmeta"><span class="rtime hot">9:38</span><span class="badge">3</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-g1"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Kothrud Flat 3B</span><svg class="ic s"><use href="#i-belloff"></use></svg></div><div class="rprev"><span class="who">Vikram:</span> Maintenance meeting moved to Sunday</div></div>
+              <div class="rmeta"><span class="rtime">9:12</span><span class="badge mutedb">12</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar">FQ</div>
+              <div class="rmain"><div class="rtop"><span class="rname">Farhan Qureshi</span></div><div class="rprev fail"><svg class="ic s"><use href="#i-alert"></use></svg>Not sent &middot; tap to retry</div></div>
+              <div class="rmeta"><span class="rtime">8:54</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar grp"><svg class="ic"><use href="#i-people"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Sunday Football 6am</span></div><div class="rprev"><span class="who">Meera:</span> Ground booked, 12 confirmed</div></div>
+              <div class="rmeta"><span class="rtime">Yesterday</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar">@</div>
+              <div class="rmain"><div class="rtop"><span class="rname handle">@sandeep_rao</span></div><div class="rprev"><svg class="ic s"><use href="#i-tick2"></use></svg>Will confirm the invoice by Monday</div></div>
+              <div class="rmeta"><span class="rtime">Yesterday</span></div>
+            </div>
+            <div class="div"></div>
+            <div class="row">
+              <div class="avatar photo"><svg class="avimg"><use href="#av-p4"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname">Priya Deshmukh</span></div><div class="rprev"><svg class="ic s"><use href="#i-image"></use></svg>Photo</div></div>
+              <div class="rmeta"><span class="rtime">Tue</span></div>
+            </div>
+            <div class="fab"><svg class="ic"><use href="#i-pencil"></use></svg></div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">dark &middot; Chats 3.0</span>
+          <p class="why">Offline is a red-dot chip, not a modal: the queue keeps accepting messages while it shows. Muted unread counts drop to the outline grey in both themes.</p>
+        </div>
+      </div>
+
+      <div class="fig">
+        <div class="phone dark">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <div class="avatar sm grp"><svg class="ic s"><use href="#i-people"></use></svg></div>
+            <div class="stack"><span class="ttl" style="font-size:16px">Kothrud Flat 3B</span><span class="sub">Vikram, Priya, Meera +11</span></div>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-more"></use></svg></span>
+          </div>
+          <div class="body chatpane">
+            <div class="msgs">
+              <span class="datechip">Yesterday</span>
+              <div class="bub"><div class="snd" style="color:#F0B45C">Vikram Nair</div>Maintenance meeting moved to Sunday 11am, terrace.<div class="foot"><span>7:04 pm</span></div></div>
+              <div class="bub"><div class="snd" style="color:#8AB8F0">@bhide_sd</div>Can we make it 11:30? School drop.<div class="foot"><span>7:11 pm</span></div><span class="rx">&#128077; 4</span></div>
+              <span class="datechip">Today</span>
+              <div class="bub"><div class="snd" style="color:#F0B45C">Vikram Nair</div>
+                <div class="photo"><span class="sun"></span><span class="hill"></span><span class="hill two"></span></div>
+                Agenda + last month's accounts
+                <div class="foot"><span>9:10 am</span></div>
+              </div>
+              <div class="bub out">11:30 works for us in 3B.<div class="foot"><span>9:12 am</span><svg class="ic read"><use href="#i-tick2"></use></svg></div></div>
+              <div class="bub out fail">
+                I will bring the printouts.
+                <div class="foot"><span class="failtx">Not sent</span><span>9:14 am</span><svg class="ic" style="color:var(--err)"><use href="#i-alert"></use></svg></div>
+                <span class="retry"><svg class="ic s"><use href="#i-retry"></use></svg>Retry</span>
+              </div>
+              <div class="typing"><span class="dots"><i></i><i></i><i></i></span>Priya is typing&hellip;</div>
+            </div>
+            <div class="composer">
+              <div class="field"><svg class="ic"><use href="#i-smile"></use></svg><span class="ph">Message</span><svg class="ic"><use href="#i-attach"></use></svg><svg class="ic"><use href="#i-camera"></use></svg></div>
+              <div class="send"><svg class="ic"><use href="#i-send"></use></svg></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">dark &middot; group chat</span>
+          <p class="why">Sender colours are re-picked for the dark ground rather than inverted; the failed bubble uses <code>errorContainer #93000A</code> so it reads as a state, not as a highlight.</p>
+        </div>
+      </div>
+
+      <div class="fig">
+        <div class="phone dark">
+          <div class="sb"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span><span>78%</span></span></div>
+          <div class="appbar">
+            <svg class="ic l"><use href="#i-back"></use></svg>
+            <span class="ttl" style="font-size:17px">Group info</span>
+            <span class="spacer"></span>
+            <span class="acts"><svg class="ic l"><use href="#i-pencil"></use></svg></span>
+          </div>
+          <div class="body">
+            <div class="hero" style="padding-top:16px">
+              <div class="avatar xl photo"><svg class="avimg"><use href="#av-g1"></use></svg><span class="cambadge"><svg class="ic"><use href="#i-camera"></use></svg></span></div>
+              <div class="nm" style="font-size:21px;margin-top:10px">Kothrud Flat 3B</div>
+              <div class="st">Group &middot; 14 members &middot; created 12 Mar 2026</div>
+            </div>
+            <div style="padding:14px 0 2px">
+              <div class="tile"><svg class="ic"><use href="#i-image"></use></svg><div class="tmain"><div class="tt">Media, links and docs</div><div class="tsub">128 items</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+              <div class="mediastrip"><i></i><i></i><i></i><i></i></div>
+              <div class="tile"><svg class="ic"><use href="#i-belloff"></use></svg><div class="tmain"><div class="tt">Notifications</div><div class="tsub">Muted until 6:00 pm today</div></div><svg class="ic"><use href="#i-chev"></use></svg></div>
+            </div>
+            <div class="div full"></div>
+            <div class="memberhead"><span class="mh">14 members</span><span class="ma">Add</span></div>
+            <div class="row" style="padding-top:5px;padding-bottom:5px">
+              <div class="avatar sm photo"><svg class="avimg"><use href="#av-p2"></use></svg></div>
+              <div class="rmain"><div class="rtop"><span class="rname" style="font-size:14px">Vikram Nair</span><span class="roletag">Admin</span></div></div>
+            </div>
+            <div class="row" style="padding-top:5px;padding-bottom:5px">
+              <div class="avatar sm">@</div>
+              <div class="rmain"><div class="rtop"><span class="rname handle" style="font-size:14px">@bhide_sd</span></div></div>
+            </div>
+            <div class="div full"></div>
+            <div class="tile"><svg class="ic"><use href="#i-eraser"></use></svg><div class="tmain"><div class="tt">Clear history</div><div class="tsub">Erases messages on this phone only</div></div></div>
+            <div class="tile"><svg class="ic"><use href="#i-trash"></use></svg><div class="tmain"><div class="tt">Delete chat</div><div class="tsub">Removes it from Chats. You stay a member and the group stays under Groups.</div></div></div>
+            <div class="div full"></div>
+            <div class="tile danger" style="padding-bottom:16px"><svg class="ic"><use href="#i-exit"></use></svg><div class="tmain"><div class="tt">Leave group</div><div class="tsub">You stop receiving messages. The group disappears from Groups too.</div></div></div>
+          </div>
+        </div>
+        <div class="cap">
+          <span class="tag">dark &middot; group info</span>
+          <p class="why">The same two-block separation holds in dark, where red is <code>#FFB4AB</code>; the member list shows the identity rule again &mdash; a saved neighbour by name, an unsaved one by handle.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="slab" style="margin-top:44px">
+    <h2>Open questions for the owner</h2>
+    <div class="callout"><b>Contacts and Groups as destinations.</b> They are the two tabs of the New chat picker, not a bottom navigation bar &mdash; the brief mandates the picker and a FAB, and a nav bar would put three tabs in front of an inbox that is the only screen most sessions need. If Contacts and Groups should be reachable without going through &ldquo;New chat&rdquo;, the cheapest change is retitling that screen to &ldquo;Contacts &amp; Groups&rdquo; and adding a second entry point from the overflow menu; no frame changes.</div>
+    <div class="callout"><b>Delete chat on a 1:1.</b> Same local semantics, but there is no membership to keep, so the sheet's note reads &ldquo;The contact stays in Contacts&rdquo; instead of the group wording.</div>
+    <div class="callout"><b>Muted chats and the unread badge.</b> A muted chat still counts unread messages; the badge just loses its colour (outline grey). The alternative &mdash; hiding the count &mdash; loses information the user asked to keep receiving.</div>
+    <div class="callout"><b>Two label forms, never three.</b> A row reads as an address-book name or as <code>@handle</code>; both appear across the frames on purpose. Because the handle is required at sign-up there is no third, transitional form &mdash; no phone number is rendered for another user anywhere, which also means the unsaved-sender row needs no extra layout.</div>
+    <div class="callout"><b>Where 3.1's classifier lives.</b> The Personal / Other split is drawn as a client-side filter over one table, so 3.0 rows need no new column beyond a nullable <code>bucket</code> the 3.1 classifier fills. Frame b assumes that.</div>
+  </section>
+
+  <footer class="foot">
+    <span>Static mockup. No JavaScript, no images, no network calls other than the Google Fonts stylesheet.</span>
+    <span><code>docs/design/v3-ui-mockups.html</code> &middot; palette from <code>lib/theme/theme.dart</code> &middot; rules from <code>docs/V3_RELEASE_PLAN.md</code> &sect;6 and <code>docs/V3_ARCHITECTURE.md</code> &sect;3</span>
+  </footer>
+
+</div>
+</body>
+</html>
