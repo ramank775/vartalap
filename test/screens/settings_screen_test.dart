@@ -47,6 +47,8 @@ void main() {
     expect(find.text('Crash reporting (Sentry)'), findsOneWidget);
     expect(find.text('Log out'), findsOneWidget);
     expect(find.text('Version'), findsOneWidget);
+    // Below the fold in the test viewport — scroll the list to build it.
+    await tester.scrollUntilVisible(find.text('Open source licenses'), 200);
     expect(find.text('Open source licenses'), findsOneWidget);
   });
 

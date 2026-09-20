@@ -47,9 +47,11 @@ void main() {
   test('TYPE_MESSAGE_CREATE applies and chat list re-emits preview', () async {
     final listStream =
         store.watchChannelList().asBroadcastStream();
-    // First emission is the initial empty-preview state.
+    // First emission: the channel has no last message yet, so the chat
+    // list (which only surfaces channels with a last message, since
+    // fac0ce2) starts empty.
     final first = await listStream.first;
-    expect(first.single.lastMessagePreview, isNull);
+    expect(first, isEmpty);
 
     final nextEmit = listStream.firstWhere(
       (entries) => entries.single.lastMessagePreview == 'hi there',

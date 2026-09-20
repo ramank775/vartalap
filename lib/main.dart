@@ -23,11 +23,8 @@ import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/services/crashlystics.dart';
-import 'package:vartalap/services/performance_metric.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
-import 'package:vartalap/widgets/Inherited/config_provider.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -37,11 +34,6 @@ final ConfigStore configStore = ConfigStore();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final services = await initializeApp();
-  FlutterError.onError = Crashlytics.recordFlutterError;
-  PlatformDispatcher.instance.onError = (error, stack) {
-    Crashlytics.recordError(error, stack);
-    return true;
-  };
   runApp(App(services: services));
 }
 
@@ -120,8 +112,6 @@ class AppServices {
 
 Future<AppServices> initializeApp() async {
   await configStore.init();
-  Crashlytics.init();
-  PerformanceMetric.init();
 
   // --- config / secure-storage bootstrapping --------------------------------
   final prefs = await SharedPreferences.getInstance();
@@ -330,9 +320,7 @@ class _AppState extends State<App> {
 
   @override
   Widget build(BuildContext context) {
-    return ConfigProvider(
-      configStore: configStore,
-      child: AppServicesProvider(
+    return AppServicesProvider(
         services: widget.services,
         child: ValueListenableBuilder<ThemeMode>(
           valueListenable: VartalapTheme.themeModeNotifier,
@@ -379,8 +367,7 @@ class _AppState extends State<App> {
           },
           ),
         ),
-      ),
-    );
+      );
   }
 
   @override
