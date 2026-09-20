@@ -185,6 +185,21 @@ const List<String> ddl = [
     WHERE target_message_id IS NOT NULL
   ''',
 
+  // §6 outbound resource sequence counters.
+  //
+  // `outbound_ops` rows are deleted on ACK, so MAX(resource_seq) over
+  // that table restarts at 1 after the queue drains and the server
+  // answers `out_of_order` (SYNC_PROTOCOL §6: strictly monotonic per
+  // (user_id, resource_id), first op is 1). The counter therefore
+  // lives in its own table, allocated by ChatStore inside the same
+  // transaction as the op insert. Cleared by ChatStore.wipe().
+  '''
+  CREATE TABLE IF NOT EXISTS resource_seq (
+    resource_id  TEXT PRIMARY KEY,
+    next_seq     INTEGER NOT NULL
+  )
+  ''',
+
   // §9 op_id_seen
   '''
   CREATE TABLE IF NOT EXISTS op_id_seen (

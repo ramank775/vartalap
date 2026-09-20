@@ -93,6 +93,10 @@ class OutboundOpRow {
   final String? restMethod;
   final String? restPath;
   final String resourceId;
+
+  /// §6 per-resource sequence. Assigned by [ChatStore.enqueueOutboundOp]
+  /// / [ChatStore.enqueueLocalMessage] from the monotonic `resource_seq`
+  /// counter; the value carried by a not-yet-enqueued row is ignored.
   final int resourceSeq;
   final List<int> payload;
   final OpStatus status;
@@ -112,7 +116,7 @@ class OutboundOpRow {
     required this.restMethod,
     required this.restPath,
     required this.resourceId,
-    required this.resourceSeq,
+    this.resourceSeq = 0,
     required this.payload,
     required this.status,
     required this.attempts,

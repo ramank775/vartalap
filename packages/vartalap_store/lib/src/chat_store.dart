@@ -30,6 +30,16 @@ class ChatStore {
 
   ChatStore._(this.db);
 
+  /// The store the process last opened, so code that can't be handed a
+  /// [ChatStore] can still reach it — currently only `AuthService.logout`,
+  /// which must [wipe] the account's data (AUTH_CONTRACT §8) and is
+  /// constructed before the store exists.
+  ///
+  /// ponytail: a process-wide handle because the app (and each test
+  /// harness) opens exactly one store. Thread the store through
+  /// explicitly if a second concurrent store ever appears.
+  static ChatStore? current;
+
   /// Emits the set of table names touched by the most recent write.
   /// Callers typically `stream.where((tables) => tables.contains('x'))`.
   Stream<Set<String>> get tableChanges => _changes.stream;
@@ -59,12 +69,43 @@ class ChatStore {
         },
       ),
     );
-    return ChatStore._(db);
+    return current = ChatStore._(db);
   }
 
   Future<void> close() async {
+    if (identical(current, this)) current = null;
     await _changes.close();
     await db.close();
+  }
+
+  /// AUTH_CONTRACT §8 — destroy every trace of the signed-out account.
+  /// One transaction, every table: projections, the outbound queue,
+  /// the inbound dedup set, the resource_seq counters and snapshots.
+  Future<void> wipe() async {
+    await db.transaction((txn) async {
+      for (final table in const [
+        'messages',
+        'reactions',
+        'channel_members',
+        'op_id_seen',
+        'channels',
+        'contacts',
+        'outbound_ops',
+        'resource_seq',
+        'snapshots',
+      ]) {
+        await txn.delete(table);
+      }
+    });
+    _notify(const {
+      'messages',
+      'reactions',
+      'channel_members',
+      'op_id_seen',
+      'channels',
+      'contacts',
+      'outbound_ops',
+    });
   }
 
   /// §5.3 — optimistic send. Inserts the message row in `pending`,
@@ -77,7 +118,7 @@ class ChatStore {
   }) async {
     await db.transaction((txn) async {
       await txn.insert('messages', _messageToRow(message));
-      await txn.insert('outbound_ops', _outboundOpToRow(op));
+      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
       await txn.update(
         'channels',
         {'last_activity_ms': nowMs, 'last_message_id': message.messageId},
@@ -90,9 +131,48 @@ class ChatStore {
 
   /// Enqueue a standalone outbound op (no associated message row).
   /// Used for channel creation and other REST-only ops.
+  ///
+  /// [op.resourceSeq] is ignored — see [_allocResourceSeq].
   Future<void> enqueueOutboundOp(OutboundOpRow op) async {
-    await db.insert('outbound_ops', _outboundOpToRow(op));
+    await db.transaction(
+        (txn) async => txn.insert('outbound_ops', await _opRowWithSeq(txn, op)));
     _notify(const {'outbound_ops'});
+  }
+
+  /// §6 — allocate the next `resource_seq` for [resourceId].
+  ///
+  /// Strictly monotonic per resource, first op is 1. The counter lives
+  /// in its own `resource_seq` table rather than being derived from
+  /// `MAX(resource_seq)` over `outbound_ops`, because acked rows are
+  /// deleted: after the queue drains the derived value falls back to 1
+  /// and the server answers `out_of_order`. Callers must run this in
+  /// the same transaction as the op insert, so two concurrent
+  /// enqueues (a send racing a read receipt) can't mint the same seq.
+  Future<int> _allocResourceSeq(DatabaseExecutor txn, String resourceId) async {
+    final rows = await txn.query(
+      'resource_seq',
+      columns: const ['next_seq'],
+      where: 'resource_id = ?',
+      whereArgs: [resourceId],
+      limit: 1,
+    );
+    final seq = rows.isEmpty ? 1 : rows.single['next_seq'] as int;
+    await txn.insert(
+      'resource_seq',
+      {'resource_id': resourceId, 'next_seq': seq + 1},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return seq;
+  }
+
+  /// [op] as a DB row with a freshly allocated `resource_seq`.
+  Future<Map<String, Object?>> _opRowWithSeq(
+    DatabaseExecutor txn,
+    OutboundOpRow op,
+  ) async {
+    final row = _outboundOpToRow(op);
+    row['resource_seq'] = await _allocResourceSeq(txn, op.resourceId);
+    return row;
   }
 
   /// Delete an outbound op row (e.g. after ACK success for non-message ops).
@@ -394,12 +474,7 @@ class ChatStore {
       // than every prior op on the resource so that in-flight/queued
       // siblings drain first — otherwise a retry could jump ahead of
       // pending follow-ups and reorder user intent on the wire.
-      final seqRow = await txn.rawQuery(
-        'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
-        [old.resourceId],
-      );
-      final maxSeq = seqRow.single['m'] as int?;
-      final nextSeq = (maxSeq ?? 0) + 1;
+      final nextSeq = await _allocResourceSeq(txn, old.resourceId);
 
       await txn.insert('outbound_ops', {
         'op_id': newOpId,
@@ -930,7 +1005,7 @@ class ChatStore {
   /// Returns the channel_id if found, null otherwise.
   Future<String?> findExistingDmChannel(
       String userId, String peerUserId) async {
-    // A DM channel has kind='dm' and both users as members.
+    // A DM channel has kind='one_to_one' and both users as members.
     final rows = await db.rawQuery(
       '''
       SELECT c.channel_id FROM channels c
@@ -938,7 +1013,7 @@ class ChatStore {
         AND m1.user_id = ? AND m1.removed_at IS NULL
       JOIN channel_members m2 ON c.channel_id = m2.channel_id
         AND m2.user_id = ? AND m2.removed_at IS NULL
-      WHERE c.kind = 'dm' AND c.tombstoned = 0
+      WHERE c.kind = 'one_to_one' AND c.tombstoned = 0
       LIMIT 1
       ''',
       [userId, peerUserId],

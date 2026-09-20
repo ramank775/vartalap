@@ -10,6 +10,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 /// Secure-storage keys per AUTH_CONTRACT §14.1.
@@ -300,6 +301,10 @@ class AuthService {
   /// state — offline logout would otherwise trap the user in a broken
   /// session. The stale accesskey on the server will expire via its
   /// 30-day TTL.
+  ///
+  /// Also wipes the on-device [ChatStore] (AUTH_CONTRACT §8). The
+  /// store isn't a constructor arg — it is opened after this service
+  /// in `main.dart` — so we reach it through [ChatStore.current].
   Future<void> logout() async {
     try {
       await _client.revokeSession();
@@ -314,6 +319,10 @@ class AuthService {
     await _storage.delete(key: _keyUsername);
     await _storage.delete(key: _keyStatusText);
     _client.clearSession();
+    // AUTH_CONTRACT §8 — the local store is account state too. Without
+    // this the next account signing in on this device inherits the
+    // previous one's channels, messages and contacts.
+    await ChatStore.current?.wipe();
     _phoneNumber = null;
     _displayName = null;
     _username = null;

@@ -465,7 +465,7 @@ void main() {
 
       await store.insertChannel(
         channelId: 'dm-1',
-        kind: 'dm',
+        kind: 'one_to_one',
         ownerUserId: 'u-self',
         createdAt: 100,
       );
@@ -523,7 +523,7 @@ void main() {
       // A DM — filtered out by kind='group'.
       await store.insertChannel(
         channelId: 'dm-1',
-        kind: 'dm',
+        kind: 'one_to_one',
         ownerUserId: 'u-self',
         createdAt: 100,
         name: 'Bob',

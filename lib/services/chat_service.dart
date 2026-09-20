@@ -23,22 +23,22 @@ import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
-/// Encoding used for the outbound_ops.payload bytes when the
-/// `ChatPayload` proto isn't wired yet (step 9). Once `vartalap_proto`
-/// carries a real encoder we swap this out; the shape of the enqueued
-/// op is identical so scheduler tests don't care.
-List<int> _encodeChatPayload({
+/// Build the WS_OP payload for an outbound text message — a
+/// `ChatPayload{TYPE_MESSAGE_CREATE}` protobuf (SYNC_PROTOCOL §6a.1,
+/// docs/proto/v3-chat-payload.proto). This is what the server and
+/// every recipient's InboundReceiver decode; anything else is
+/// rejected `validation_failed`.
+Uint8List _encodeChatPayload({
   required String messageId,
   required String body,
-}) {
-  final json = {
-    'message_id': messageId,
-    'type': 'TYPE_MESSAGE_CREATE',
-    'body': body,
-    'content_type': 'text/plain',
-  };
-  return utf8.encode(jsonEncode(json));
-}
+}) =>
+    pb.ChatPayload(
+      version: 1,
+      type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+      messageId: messageId,
+      body: body,
+      contentType: 'text/plain',
+    ).writeToBuffer();
 
 /// Build the WS_OP payload for an outbound typing indicator. Same
 /// `0x53 || ServerEventPayload{Typing}` shape as other server-event
@@ -181,18 +181,6 @@ class ChatService {
     final messageId = _uuidGen.next(nowMs: now);
     final opId = _uuidGen.next(nowMs: now);
 
-    // Per-resource sequence number for this channel. v3.0 uses a
-    // simple `MAX(resource_seq) + 1` against outbound_ops for the
-    // channel. This is fine while the user's only active device
-    // generates sends — the per-device monotone property
-    // (V3_ARCHITECTURE decision 4) holds. Multi-device is v3.1+.
-    final seqRow = await _store.db.rawQuery(
-      'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
-      [channelId],
-    );
-    final maxSeq = seqRow.single['m'] as int?;
-    final nextSeq = (maxSeq ?? 0) + 1;
-
     final message = MessageRow(
       messageId: messageId,
       channelId: channelId,
@@ -218,7 +206,6 @@ class ChatService {
       restMethod: null,
       restPath: null,
       resourceId: channelId,
-      resourceSeq: nextSeq,
       payload: _encodeChatPayload(messageId: messageId, body: body),
       status: OpStatus.pending,
       attempts: 0,
@@ -262,13 +249,6 @@ class ChatService {
       name: name,
     );
 
-    final seqRow = await _store.db.rawQuery(
-      'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
-      [channelId],
-    );
-    final maxSeq = seqRow.single['m'] as int?;
-    final nextSeq = (maxSeq ?? 0) + 1;
-
     final payload = utf8.encode(jsonEncode({
       'channel_id': channelId,
       'kind': kind,
@@ -283,7 +263,6 @@ class ChatService {
       restMethod: 'POST',
       restPath: '/v3.0/channels',
       resourceId: channelId,
-      resourceSeq: nextSeq,
       payload: payload,
       status: OpStatus.pending,
       attempts: 0,
@@ -318,13 +297,6 @@ class ChatService {
     if (messageId == null) return;
 
     final opId = _uuidGen.next(nowMs: now);
-    final seqRow = await _store.db.rawQuery(
-      'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
-      [channelId],
-    );
-    final maxSeq = seqRow.single['m'] as int?;
-    final nextSeq = (maxSeq ?? 0) + 1;
-
     final op = OutboundOpRow(
       opId: opId,
       transport: OpTransport.ws,
@@ -332,7 +304,6 @@ class ChatService {
       restMethod: null,
       restPath: null,
       resourceId: channelId,
-      resourceSeq: nextSeq,
       payload: _encodeReadReceipt(
         channelId: channelId,
         messageId: messageId,
@@ -479,7 +450,7 @@ class ChatService {
 
     // Create new channel.
     final channelId = await createChannel(
-      kind: 'dm',
+      kind: 'one_to_one',
       ownerUserId: localUserId,
       memberUserIds: [peerUserId],
       name: peerName,
@@ -548,13 +519,6 @@ class ChatService {
     final now = _clock.nowMs();
     final opId = _uuidGen.next(nowMs: now);
 
-    final seqRow = await _store.db.rawQuery(
-      'SELECT MAX(resource_seq) m FROM outbound_ops WHERE resource_id = ?',
-      [channelId],
-    );
-    final maxSeq = seqRow.single['m'] as int?;
-    final nextSeq = (maxSeq ?? 0) + 1;
-
     final op = OutboundOpRow(
       opId: opId,
       transport: OpTransport.rest,
@@ -562,7 +526,6 @@ class ChatService {
       restMethod: 'DELETE',
       restPath: '/v3.0/channels/$channelId',
       resourceId: channelId,
-      resourceSeq: nextSeq,
       // RestTransport tolerates an empty payload — it sends just the
       // standard op_id / resource_seq / client_timestamp_ms envelope
       // fields with no endpoint-specific body.
