@@ -126,7 +126,11 @@ class OtpSession {
   final String deviceId;
   final int createdAt;
 
-  const OtpSession({
+  /// AUTH_CONTRACT §3.2: verify is one-shot. Re-verifying a consumed
+  /// session is `410 SESSION_CONSUMED`, not a fresh login.
+  bool consumed = false;
+
+  OtpSession({
     required this.sessionId,
     required this.phone,
     required this.deviceId,
@@ -182,7 +186,12 @@ class MockState {
   final Map<String, OtpSession> otpSessions = {};
   final Map<String, ChannelRecord> channels = {};
   final Map<String, int> channelDeliverySeq = {};
-  final Map<String, Set<String>> opIdSeen = {};
+  // §7.1 dedup window: '<user_id>:<op_id>' -> the outcome we already
+  // returned for it. ponytail: unbounded and in-memory only (the spec
+  // wants 10k/user, 7 days) — a mock never runs long enough to care.
+  final Map<String, StoredOutcome> outcomes = {};
+  // §6 sequencing: '<user_id>:<resource_id>' -> max accepted seq.
+  final Map<String, int> resourceSeq = {};
   final Map<String, List<WebSocket>> wsConnections = {};
   // Per-user undelivered queue (SYNC_PROTOCOL.md §11). Holds raw
   // serialized WS_PUSH WsEnvelope frames. Drained on WS connect.
@@ -227,9 +236,7 @@ class MockState {
         'channels':
             channels.values.map((c) => c.toPersistJson()).toList(),
         'channelDeliverySeq': channelDeliverySeq,
-        'opIdSeen': opIdSeen.map(
-          (k, v) => MapEntry(k, v.toList()),
-        ),
+        'resourceSeq': resourceSeq,
         'undelivered': undelivered.map(
           (k, v) => MapEntry(k, v.map(base64Encode).toList()),
         ),
@@ -260,9 +267,8 @@ class MockState {
       }
       final seqs = j['channelDeliverySeq'] as Map<String, dynamic>? ?? {};
       seqs.forEach((k, v) => channelDeliverySeq[k] = v as int);
-      final seen = j['opIdSeen'] as Map<String, dynamic>? ?? {};
-      seen.forEach((k, v) =>
-          opIdSeen[k] = (v as List<dynamic>).cast<String>().toSet());
+      final seqs2 = j['resourceSeq'] as Map<String, dynamic>? ?? {};
+      seqs2.forEach((k, v) => resourceSeq[k] = v as int);
       final queues = j['undelivered'] as Map<String, dynamic>? ?? {};
       queues.forEach((k, v) => undelivered[k] = (v as List<dynamic>)
           .map((e) => base64Decode(e as String))
@@ -342,14 +348,24 @@ class MockState {
     return seq;
   }
 
-  bool hasSeenOp(String userId, String channelId, String opId) {
-    final key = '$userId:$channelId';
-    return opIdSeen.putIfAbsent(key, () => {}).contains(opId);
+  /// §7.1 — the outcome already returned for [opId], if any.
+  StoredOutcome? storedOutcome(String userId, String opId) =>
+      outcomes['$userId:$opId'];
+
+  void recordOutcome(String userId, String opId, StoredOutcome outcome) {
+    outcomes['$userId:$opId'] = outcome;
   }
 
-  void markOpSeen(String userId, String channelId, String opId) {
-    opIdSeen.putIfAbsent('$userId:$channelId', () => {}).add(opId);
+  /// §6 — accept [seq] iff it is exactly `max_seen + 1` (first op on a
+  /// resource must be 1). Returns false on a skip / replay of a lower
+  /// seq, which the caller turns into `out_of_order`.
+  bool acceptSeq(String userId, String resourceId, int seq) {
+    final key = '$userId:$resourceId';
+    final prev = resourceSeq[key] ?? 0;
+    if (seq != prev + 1) return false;
+    resourceSeq[key] = seq;
     markDirty();
+    return true;
   }
 
   void addWsConnection(String userId, WebSocket ws) {
@@ -389,62 +405,58 @@ class MockState {
 }
 
 // ---------------------------------------------------------------------------
-// Main entry point
+// Entry points
 // ---------------------------------------------------------------------------
 
-late MockState state;
-late bool seedPeerEnabled;
 const String seedPeerUserId = '000000001';
 
+/// The dev OTP code. The mock accepts any 6-digit code; tests use this.
+const String devOtpCode = '000000';
+
+/// CLI wrapper. Preserves the historical flags and the on-disk state
+/// file; in-process callers use [MockServer.start] instead (which
+/// defaults to in-memory state).
 void main(List<String> args) async {
-  final port = _parseArg(args, '--port', '9777');
-  seedPeerEnabled = args.contains('--seed-peer');
+  final port = int.parse(_parseArg(args, '--port', '9777'));
+  final seedPeer = args.contains('--seed-peer');
   // Default state file lives next to the script. `--state-file=-`
   // disables persistence (back to pure in-memory).
   final scriptDir = File.fromUri(Platform.script).parent.path;
-  final stateArg = _parseArg(args, '--state-file', '$scriptDir/.mock_state.json');
+  final stateArg =
+      _parseArg(args, '--state-file', '$scriptDir/.mock_state.json');
   final statePath = stateArg == '-' ? null : stateArg;
+  final strict = !args.contains('--lax');
 
-  state = MockState();
+  final server = await MockServer.start(
+    port: port,
+    strict: strict,
+    seedPeer: seedPeer,
+    demoMode: seedPeer,
+    statePath: statePath,
+    log: true,
+  );
+
   if (statePath != null) {
-    state.loadFromFile(statePath);
-    state.persistencePath = statePath;
     _log('Persistence: $statePath '
-        '(${state.usersById.length} user(s), '
-        '${state.sessions.length} session(s), '
-        '${state.channels.length} channel(s))');
+        '(${server.state.usersById.length} user(s), '
+        '${server.state.sessions.length} session(s), '
+        '${server.state.channels.length} channel(s))');
   } else {
     _log('Persistence: disabled (--state-file=-)');
   }
-  if (seedPeerEnabled && !state.usersById.containsKey(seedPeerUserId)) {
-    state.createSeedPeer();
-    _log('Seed peer created: userId=$seedPeerUserId');
-  }
+  if (seedPeer) _log('Seed peer: userId=$seedPeerUserId');
   // Flush IO on Ctrl-C so the in-flight debounce timer doesn't drop
   // the last mutation.
   ProcessSignal.sigint.watch().listen((_) {
-    if (statePath != null) state._saveSync(statePath);
+    if (statePath != null) server.state._saveSync(statePath);
     exit(0);
   });
 
-  final server = await HttpServer.bind(InternetAddress.anyIPv4, int.parse(port));
-  _log('Mock server listening on http://localhost:$port');
-  _log('  WS endpoint: ws://localhost:$port/wss');
-  _log('  Emulator:    http://10.0.2.2:$port');
-  _log('  Seed peer:   ${seedPeerEnabled ? "enabled" : "disabled"}');
+  _log('Mock server listening on http://localhost:${server.port}');
+  _log('  WS endpoint: ws://localhost:${server.port}/wss');
+  _log('  Emulator:    http://10.0.2.2:${server.port}');
+  _log('  Strict:      $strict');
   _log('---');
-
-  await for (final req in server) {
-    try {
-      await _handleRequest(req);
-    } catch (e, st) {
-      _log('ERROR handling ${req.method} ${req.uri}: $e\n$st');
-      try {
-        req.response.statusCode = 500;
-        _respondJson(req, 500, {'error': {'code': 'INTERNAL_ERROR', 'message': '$e'}});
-      } catch (_) {}
-    }
-  }
 }
 
 String _parseArg(List<String> args, String flag, String defaultValue) {
@@ -453,1436 +465,1906 @@ String _parseArg(List<String> args, String flag, String defaultValue) {
   return defaultValue;
 }
 
+bool _logEnabled = true;
+
 void _log(String msg) {
+  if (!_logEnabled) return;
   final ts = DateTime.now().toIso8601String().substring(11, 23);
   print('[$ts] $msg');
 }
 
-// ---------------------------------------------------------------------------
-// Request router
-// ---------------------------------------------------------------------------
+/// One REST request the server handled. Tests assert on these instead
+/// of scraping logs.
+class RecordedRequest {
+  final String method;
+  final String path;
+  final Map<String, dynamic> body;
+  final int status;
+  RecordedRequest(this.method, this.path, this.body, this.status);
 
-Future<void> _handleRequest(HttpRequest req) async {
-  // CORS for local dev
-  req.response.headers.add('Access-Control-Allow-Origin', '*');
-  req.response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  req.response.headers.add('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-  if (req.method == 'OPTIONS') {
-    req.response.statusCode = 204;
-    await req.response.close();
-    return;
-  }
-
-  final path = req.uri.path;
-  final method = req.method;
-
-  // WebSocket upgrade
-  if (WebSocketTransformer.isUpgradeRequest(req) && path == '/wss') {
-    await _handleWsUpgrade(req);
-    return;
-  }
-
-  // REST routes
-  if (method == 'POST' && path == '/v3.0/auth/otp/send') {
-    await _handleOtpSend(req);
-  } else if (method == 'POST' && path == '/v3.0/auth/otp/verify') {
-    await _handleOtpVerify(req);
-  } else if (method == 'POST' && path == '/v3.0/auth/session/refresh') {
-    await _handleSessionRefresh(req);
-  } else if (method == 'POST' && path == '/v3.0/auth/session/revoke') {
-    await _handleSessionRevoke(req);
-  } else if (method == 'GET' && path == '/v3.0/users/me') {
-    await _handleGetProfile(req);
-  } else if (method == 'PATCH' && path == '/v3.0/users/me') {
-    await _handlePatchProfile(req);
-  } else if (method == 'POST' && path == '/v3.0/users/username/check') {
-    await _handleCheckUsername(req);
-  } else if (method == 'GET' && path.startsWith('/v3.0/users/')) {
-    await _handleGetUser(req);
-  } else if (method == 'POST' && path == '/v3.0/contacts/lookup') {
-    await _handleContactLookup(req);
-  } else if (method == 'POST' && path == '/v3.0/push/topic') {
-    await _handlePushTopic(req);
-  } else if (method == 'POST' && path == '/v3.0/channels') {
-    await _handleCreateChannel(req);
-  } else if (method == 'DELETE' && path.startsWith('/v3.0/channels/')) {
-    await _handleDeleteChannel(req);
-  } else if (method == 'GET' && path == '/v3.0/sync/pending') {
-    await _handleSyncPending(req);
-  } else if (method == 'POST' && path == '/v3.0/_dev/seed-users') {
-    await _handleDevSeedUsers(req);
-  } else {
-    _respondJson(req, 404, {
-      'error': {'code': 'NOT_FOUND', 'message': 'Unknown route: $method $path'}
-    });
-  }
+  @override
+  String toString() => '$method $path -> $status ${jsonEncode(body)}';
 }
 
-// ---------------------------------------------------------------------------
-// Auth handlers
-// ---------------------------------------------------------------------------
-
-Future<void> _handleOtpSend(HttpRequest req) async {
-  final body = await _readJsonBody(req);
-  final phone = body['phone'] as String?;
-  final deviceId = body['deviceId'] as String?;
-  if (phone == null || deviceId == null) {
-    _respondJson(req, 400, {
-      'error': {'code': 'MALFORMED_REQUEST', 'message': 'phone and deviceId required'}
-    });
-    return;
-  }
-
-  final sessionId = state.generateUuid();
-  state.otpSessions[sessionId] = OtpSession(
-    sessionId: sessionId,
-    phone: phone,
-    deviceId: deviceId,
-    createdAt: DateTime.now().millisecondsSinceEpoch,
-  );
-
-  final existing = state.usersByPhone.containsKey(phone);
-  _log('OTP send: phone=$phone sessionId=$sessionId code=000000 existing=$existing');
-
-  _respondJson(req, 200, {
-    'sessionId': sessionId,
-    'resendAfterSec': 30,
-    'expiresInSec': 600,
-    'isExistingAccount': existing,
+/// One inbound WS envelope the server accepted or rejected, with the
+/// ACK reason it produced (null == ACK_SUCCESS).
+class RecordedEnvelope {
+  final String opId;
+  final String channelId;
+  final int resourceSeq;
+  final Uint8List payload;
+  final String? rejectReason;
+  RecordedEnvelope({
+    required this.opId,
+    required this.channelId,
+    required this.resourceSeq,
+    required this.payload,
+    required this.rejectReason,
   });
 }
 
-Future<void> _handleOtpVerify(HttpRequest req) async {
-  final body = await _readJsonBody(req);
-  final sessionId = body['sessionId'] as String?;
-  final code = body['code'] as String?;
-  final deviceId = body['deviceId'] as String?;
+/// Stored per-op outcome for the §7.1 dedup window. WS ops keep an ACK
+/// outcome; REST ops keep the literal response they got.
+class StoredOutcome {
+  final bool success;
+  final String? reason; // WS permanent-reject reason
+  final int? status; // REST status
+  final Map<String, dynamic>? body; // REST body
+  const StoredOutcome({
+    required this.success,
+    this.reason,
+    this.status,
+    this.body,
+  });
+}
 
-  if (sessionId == null || code == null || deviceId == null) {
-    _respondJson(req, 400, {
-      'error': {'code': 'MALFORMED_REQUEST', 'message': 'sessionId, code, deviceId required'}
-    });
-    return;
+/// The v3 mock chat-server, startable in-process.
+///
+/// `strict: true` (the default) turns it into a contract enforcer:
+/// per-resource sequencing, op_id prefix binding, WS batch cap,
+/// ChatPayload-or-0x53 payload shape, channel `kind`, op dedup and
+/// one-shot OTP verify are all enforced per docs/SYNC_PROTOCOL.md and
+/// docs/AUTH_CONTRACT.md. `strict: false` restores the permissive
+/// behaviour the CLI demo relied on.
+class MockServer {
+  final HttpServer _http;
+  final MockState state;
+
+  /// The seed peer user exists and is discoverable via contacts.
+  final bool seedPeerEnabled;
+
+  /// CLI demo behaviours: auto-create a DM with the seed peer on OTP
+  /// verify, auto-add the seed peer to every created channel, and
+  /// auto-echo replies / typing. Off for in-process tests (they drive
+  /// the peer explicitly via [injectPeerMessage]).
+  final bool demoMode;
+
+  /// Contract enforcement (SYNC_PROTOCOL §6, §6a.3, §7, §11.3).
+  final bool strict;
+
+  /// Every REST request handled, in order. Test hook.
+  final List<RecordedRequest> requests = [];
+
+  /// Every non-ephemeral WS envelope received, in order. Test hook.
+  final List<RecordedEnvelope> envelopes = [];
+
+  MockServer._(this._http, this.state,
+      {required this.seedPeerEnabled,
+      required this.demoMode,
+      required this.strict});
+
+  /// Bind and start serving. `port: 0` picks a free port.
+  static Future<MockServer> start({
+    int port = 0,
+    bool strict = true,
+    bool seedPeer = true,
+    bool demoMode = false,
+    String? statePath,
+    bool log = false,
+  }) async {
+    _logEnabled = log;
+    final state = MockState();
+    if (statePath != null) {
+      state.loadFromFile(statePath);
+      state.persistencePath = statePath;
+    }
+    final http = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    final server = MockServer._(
+      http,
+      state,
+      seedPeerEnabled: seedPeer,
+      demoMode: demoMode,
+      strict: strict,
+    );
+    if (seedPeer && !state.usersById.containsKey(seedPeerUserId)) {
+      state.createSeedPeer();
+    }
+    unawaited(server._serve());
+    return server;
   }
 
-  final otpSession = state.otpSessions.remove(sessionId);
-  if (otpSession == null) {
-    _respondJson(req, 404, {
-      'error': {'code': 'SESSION_NOT_FOUND', 'message': 'Unknown sessionId'}
-    });
-    return;
+  int get port => _http.port;
+  Uri get apiUrl => Uri.parse('http://127.0.0.1:$port');
+  Uri get wsUrl => Uri.parse('ws://127.0.0.1:$port/wss');
+
+  Future<void> _serve() async {
+    await for (final req in _http) {
+      try {
+        await _handleRequest(req);
+      } catch (e, st) {
+        _log('ERROR handling ${req.method} ${req.uri}: $e\n$st');
+        try {
+          _respondJson(req, 500, {
+            'error': {'code': 'INTERNAL_ERROR', 'message': '$e'}
+          });
+        } catch (_) {}
+      }
+    }
   }
 
-  // Accept any 6-digit code.
-  if (code.length != 6) {
-    _respondJson(req, 401, {
-      'error': {'code': 'INVALID_CODE', 'message': 'Code must be 6 digits'}
-    });
-    return;
+  /// Close every socket and stop listening.
+  Future<void> stop() async {
+    for (final t in _timers) {
+      t.cancel();
+    }
+    _timers.clear();
+    state._saveTimer?.cancel();
+    for (final sockets in state.wsConnections.values) {
+      for (final ws in sockets.toList()) {
+        try {
+          await ws.close();
+        } catch (_) {}
+      }
+    }
+    state.wsConnections.clear();
+    await _http.close(force: true);
   }
 
-  final isNew = !state.usersByPhone.containsKey(otpSession.phone);
-  final user = state.getOrCreateUser(otpSession.phone);
-  final session = state.createSession(user.userId, deviceId);
+  /// Demo timers, cancelled by [stop] so a test never leaks one.
+  final Set<Timer> _timers = {};
 
-  _log('OTP verify: phone=${otpSession.phone} userId=${user.userId} isNew=$isNew');
+  Timer _timer(Duration d, void Function() fn) {
+    late Timer t;
+    t = Timer(d, () {
+      _timers.remove(t);
+      fn();
+    });
+    _timers.add(t);
+    return t;
+  }
 
-  // If seed-peer is enabled and this user has no DM with the seed
-  // peer yet, create one. We trigger off "channel missing" rather than
-  // `isNew` so devs who enable --seed-peer on a previously-registered
-  // account also get the channel materialized on next login.
-  String? defaultChannelId;
-  if (seedPeerEnabled) {
-    defaultChannelId = 'dm-${user.userId}-$seedPeerUserId';
-    if (!state.channels.containsKey(defaultChannelId)) {
-      final createdAt = DateTime.now().millisecondsSinceEpoch;
-      state.channels[defaultChannelId] = ChannelRecord(
-        channelId: defaultChannelId,
-        kind: 'dm',
-        name: 'Seed Peer',
-        ownerUserId: user.userId,
-        members: {user.userId, seedPeerUserId},
+  // ---- Test hooks ------------------------------------------------------
+
+  /// The OTP code that will verify the session for [phone]. The mock
+  /// accepts any 6-digit code, so this is a constant; the method shape
+  /// keeps tests honest if that ever changes.
+  String sendOtpCodeFor(String phone) => devOtpCode;
+
+  /// The well-known peer user every account can discover via
+  /// `POST /v3.0/contacts/lookup`.
+  UserRecord get seedPeer => state.usersById[seedPeerUserId]!;
+
+  /// Inject an inbound chat message from [senderUserId] (defaults to
+  /// the seed peer) into [channelId]. Fans a real `WS_PUSH` carrying a
+  /// `ChatPayload{TYPE_MESSAGE_CREATE}` to every other member — live if
+  /// they have a socket, otherwise onto their undelivered queue.
+  ({String messageId, String opId}) injectPeerMessage({
+    required String channelId,
+    required String body,
+    String senderUserId = seedPeerUserId,
+  }) =>
+      _sendPeerMessage(channelId, senderUserId, body);
+
+  /// Materialize a server-side channel record without going through
+  /// `POST /v3.0/channels`. Lets a test line the server's roster up
+  /// with the client's optimistic state (or stand up a channel some
+  /// other user created). With [announce] the §10.2 `ChannelCreated`
+  /// event is fanned to every member except [ownerUserId].
+  void ensureChannel({
+    required String channelId,
+    required String kind,
+    required String ownerUserId,
+    required List<String> members,
+    String? name,
+    bool announce = false,
+  }) {
+    final existing = state.channels[channelId];
+    final createdAt = existing?.createdAt ?? DateTime.now().millisecondsSinceEpoch;
+    if (existing == null) {
+      state.channels[channelId] = ChannelRecord(
+        channelId: channelId,
+        kind: kind,
+        name: name,
+        ownerUserId: ownerUserId,
+        members: {...members},
         createdAt: createdAt,
       );
-      state.markDirty();
-      _log('Created seed-peer DM channel: $defaultChannelId');
-
-      // Enqueue ChannelCreated for the new user so on WS connect the
-      // client materializes the channel + member roster locally.
+    } else {
+      existing.members.addAll(members);
+    }
+    state.markDirty();
+    if (!announce) return;
+    for (final memberId in members) {
+      if (memberId == ownerUserId) continue;
       _enqueueChannelCreated(
-        recipientUserId: user.userId,
-        channelId: defaultChannelId,
-        kind: 'one_to_one',
-        name: 'Seed Peer',
-        members: [user.userId, seedPeerUserId],
-        creatorUserId: user.userId,
+        recipientUserId: memberId,
+        channelId: channelId,
+        kind: kind,
+        name: name ?? '',
+        members: members,
+        creatorUserId: ownerUserId,
         createdAtMs: createdAt,
       );
-      // Followed by a welcome message so the channel actually appears
-      // in the chat list — `watchChannelList` JOINs on `last_message_id`
-      // so a channel with no messages stays hidden.
-      _enqueueWelcomeMessage(
-        recipientUserId: user.userId,
-        channelId: defaultChannelId,
-        senderUserId: seedPeerUserId,
-        body: '👋 Welcome to Vartalap! Reply with anything and I\'ll echo it back.',
-      );
-    }
-  }
-
-  _respondJson(req, 200, {
-    'status': true,
-    'user_id': user.userId,
-    'username': user.username,
-    'phone': user.phone,
-    'accesskey': session.accesskey,
-    'refreshToken': session.refreshToken,
-    'accesskeyExpiresAt': session.accesskeyExpiresAt,
-    'refreshTokenExpiresAt': session.refreshTokenExpiresAt,
-    'isNew': isNew,
-    if (defaultChannelId != null) 'defaultChannelId': defaultChannelId,
-  });
-}
-
-Future<void> _handleSessionRefresh(HttpRequest req) async {
-  final body = await _readJsonBody(req);
-  final refreshToken = body['refreshToken'] as String?;
-  final deviceId = body['deviceId'] as String?;
-
-  if (refreshToken == null || deviceId == null) {
-    _respondJson(req, 400, {
-      'error': {'code': 'MALFORMED_REQUEST', 'message': 'refreshToken and deviceId required'}
-    });
-    return;
-  }
-
-  final oldSession = state.sessionsByRefresh[refreshToken];
-  if (oldSession == null || oldSession.deviceId != deviceId) {
-    _respondJson(req, 401, {
-      'error': {'code': 'INVALID_REFRESH_TOKEN', 'message': 'Invalid refresh token'}
-    });
-    return;
-  }
-
-  state.revokeSession(oldSession);
-  final newSession = state.createSession(oldSession.userId, deviceId);
-
-  _respondJson(req, 200, {
-    'user_id': oldSession.userId,
-    'accesskey': newSession.accesskey,
-    'refreshToken': newSession.refreshToken,
-    'accesskeyExpiresAt': newSession.accesskeyExpiresAt,
-    'refreshTokenExpiresAt': newSession.refreshTokenExpiresAt,
-  });
-}
-
-Future<void> _handleSessionRevoke(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  state.revokeSession(session);
-  _log('Session revoked: userId=${session.userId}');
-  _respondJson(req, 200, {'status': true});
-}
-
-// ---------------------------------------------------------------------------
-// Profile / contacts handlers
-// ---------------------------------------------------------------------------
-
-Future<void> _handleGetProfile(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  final user = state.usersById[session.userId];
-  if (user == null) {
-    _respondJson(req, 404, {
-      'error': {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
-    });
-    return;
-  }
-  _respondJson(req, 200, user.toProfileJson());
-}
-
-Future<void> _handlePatchProfile(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  final user = state.usersById[session.userId];
-  if (user == null) {
-    _respondJson(req, 404, {
-      'error': {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
-    });
-    return;
-  }
-  final body = await _readJsonBody(req);
-  // Track which fields actually changed so the fanout payload only
-  // includes the deltas (matches proto3 `optional` semantics).
-  String? newUsername;
-  String? newDisplayName;
-  String? newAvatarUrl;
-  String? newStatusText;
-  bool usernameTouched = false;
-  bool profileTouched = false;
-  if (body.containsKey('username')) {
-    user.username = body['username'] as String?;
-    newUsername = user.username;
-    usernameTouched = true;
-  }
-  if (body.containsKey('displayName')) {
-    user.displayName = body['displayName'] as String?;
-    newDisplayName = user.displayName;
-    profileTouched = true;
-  }
-  if (body.containsKey('avatarUrl')) {
-    user.avatarUrl = body['avatarUrl'] as String?;
-    newAvatarUrl = user.avatarUrl;
-    profileTouched = true;
-  }
-  if (body.containsKey('statusText')) {
-    user.statusText = body['statusText'] as String?;
-    newStatusText = user.statusText;
-    profileTouched = true;
-  }
-  state.markDirty();
-  _respondJson(req, 200, user.toProfileJson());
-
-  // SYNC_PROTOCOL §10.2 fanout: every user sharing at least one
-  // channel with the editor gets the corresponding ServerEventPayload.
-  // We collect the recipient set first, then emit at most one push of
-  // each kind to each recipient.
-  final recipients = <String>{};
-  for (final ch in state.channels.values) {
-    if (ch.members.contains(user.userId)) {
-      recipients.addAll(ch.members);
-    }
-  }
-  recipients.remove(user.userId); // skip the editor
-
-  _log('PATCH /v3.0/users/me: editor=${user.userId} '
-      'profileTouched=$profileTouched usernameTouched=$usernameTouched '
-      'recipients=${recipients.length}');
-
-  if (profileTouched && recipients.isNotEmpty) {
-    for (final recipient in recipients) {
-      _enqueueProfileEdited(
-        recipientUserId: recipient,
-        editorUserId: user.userId,
-        displayName: body.containsKey('displayName') ? newDisplayName : null,
-        displayNamePresent: body.containsKey('displayName'),
-        avatarUrl: body.containsKey('avatarUrl') ? newAvatarUrl : null,
-        avatarUrlPresent: body.containsKey('avatarUrl'),
-        statusText: body.containsKey('statusText') ? newStatusText : null,
-        statusTextPresent: body.containsKey('statusText'),
-      );
-    }
-  }
-  if (usernameTouched && recipients.isNotEmpty) {
-    for (final recipient in recipients) {
-      _enqueueUsernameChanged(
-        recipientUserId: recipient,
-        editorUserId: user.userId,
-        newUsername: newUsername ?? '',
-      );
-    }
-  }
-}
-
-// Username availability stub. Real server (TODO) needs:
-//   - case-insensitive uniqueness over the global users table
-//   - 1-change-per-90-days rate limit per user
-//   - reserved-word list (admin, support, …)
-//   - bot/abuse heuristics
-// This stub only does (1) — the rest are documented in
-// docs/V3_TODOS.md.
-Future<void> _handleCheckUsername(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  final body = await _readJsonBody(req);
-  final candidate = (body['username'] as String?)?.trim().toLowerCase();
-  if (candidate == null || candidate.isEmpty) {
-    _respondJson(req, 200, {'available': true});
-    return;
-  }
-  final taken = state.usersById.values.any(
-    (u) =>
-        u.userId != session.userId &&
-        u.username != null &&
-        u.username!.toLowerCase() == candidate,
-  );
-  _respondJson(req, 200, {
-    'available': !taken,
-    if (taken) 'reason': 'taken',
-  });
-}
-
-Future<void> _handleGetUser(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  final userId = req.uri.path.split('/').last;
-  final user = state.usersById[userId];
-  if (user == null) {
-    _respondJson(req, 404, {
-      'error': {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
-    });
-    return;
-  }
-  _respondJson(req, 200, user.toPublicJson());
-}
-
-Future<void> _handleContactLookup(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  // Simplified: return all registered users as matches for any hash.
-  // Echo the same SHA-256(phone) the client would have submitted, so
-  // chat_service can map matches back to device-side contact names via
-  // its `hashByName` lookup. The earlier `'hash_${u.phone}'` placeholder
-  // string broke that mapping — every contact ended up with a null
-  // `contact_book_name` in the local store, falling through to
-  // `@username` in the UI.
-  final matches = state.usersById.values
-      .where((u) => u.userId != session.userId)
-      .map((u) => {
-            'phoneHash': sha256.convert(utf8.encode(u.phone)).toString(),
-            'user_id': u.userId,
-            'username': u.username,
-          })
-      .toList();
-  _respondJson(req, 200, {'matches': matches});
-}
-
-// DEV-ONLY. Pre-registers N synthetic users with deterministic phones
-// and usernames so the New Chat screen can render a non-trivial contact
-// list against a single device. No auth required — the route is mock-
-// server-only and the chat-server has no equivalent. Idempotent: running
-// it twice with the same count just re-asserts the same set.
-//
-// Phones: +1900000000{N+1} (avoiding the seed peer's +10000000000 and
-// any real-looking range). Usernames: dummy_N. Display name: "Dummy N".
-Future<void> _handleDevSeedUsers(HttpRequest req) async {
-  final body = await _readJsonBody(req);
-  final raw = body['count'];
-  final count = raw is int ? raw : int.tryParse('${raw ?? ''}') ?? 5;
-  if (count < 1 || count > 50) {
-    _respondJson(req, 400, {
-      'error': {
-        'code': 'OUT_OF_RANGE',
-        'message': 'count must be 1..50 (got $count)'
+      // _enqueueChannelCreated only queues; flush it now if the
+      // recipient is online so the test doesn't have to pull.
+      final queued = state.drainUndelivered(memberId);
+      for (final frame in queued) {
+        _sendToUser(memberId, frame);
       }
-    });
-    return;
-  }
-  final created = <Map<String, dynamic>>[];
-  for (var i = 1; i <= count; i++) {
-    final phone = '+1900000000$i';
-    final user = state.getOrCreateUser(phone);
-    user.username ??= 'dummy_$i';
-    user.displayName ??= 'Dummy $i';
-    created.add({
-      'user_id': user.userId,
-      'phone': phone,
-      'username': user.username,
-      'display_name': user.displayName,
-    });
-  }
-  state.markDirty();
-  _log('DEV: seeded ${created.length} dummy user(s)');
-  _respondJson(req, 200, {'users': created, 'count': created.length});
-}
-
-Future<void> _handlePushTopic(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  _log('Push topic registered for userId=${session.userId}');
-  _respondJson(req, 200, {'status': true});
-}
-
-// Client-triggered pull. Returns base64 of raw WS_PUSH WsEnvelope frames
-// queued for this user; the queue is drained in the same call.
-// Client invokes this on startup / WS connect — server never pushes
-// spontaneously and never auto-drains on connect.
-Future<void> _handleSyncPending(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  final queued = state.drainUndelivered(session.userId);
-  final frames = queued.map(base64Encode).toList();
-  _log('Sync pull: userId=${session.userId} delivered=${frames.length} frame(s)');
-  _respondJson(req, 200, {'frames': frames});
-}
-
-// ---------------------------------------------------------------------------
-// Channel handler
-// ---------------------------------------------------------------------------
-
-Future<void> _handleCreateChannel(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-  final body = await _readJsonBody(req);
-  final channelId = body['channel_id'] as String? ?? state.generateUuid();
-  final kind = body['kind'] as String? ?? 'dm';
-  final name = body['name'] as String?;
-  final membersList = (body['members'] as List<dynamic>?)?.cast<String>() ?? [];
-
-  // Members the client explicitly asked for (creator + picked peers).
-  final clientRequested = <String>{session.userId, ...membersList};
-  // Final server-side roster — same as requested, plus the seed peer
-  // when --seed-peer is on so groups demo Echo replies.
-  final members = <String>{...clientRequested};
-  if (seedPeerEnabled) members.add(seedPeerUserId);
-
-  state.channels[channelId] = ChannelRecord(
-    channelId: channelId,
-    kind: kind,
-    name: name,
-    ownerUserId: session.userId,
-    members: members,
-    createdAt: DateTime.now().millisecondsSinceEpoch,
-  );
-  state.markDirty();
-
-  _log('Channel created: $channelId kind=$kind members=$members');
-
-  // If the server added members the client doesn't know about
-  // (currently just the seed peer when --seed-peer is on), emit a
-  // ChannelMemberAdded WS_PUSH so the client materializes the missing
-  // membership rows. Without this, group bubbles authored by the seed
-  // peer render with "Unknown" because the local `channel_members`
-  // join misses them.
-  final injected = members.difference(clientRequested);
-  if (injected.isNotEmpty) {
-    _enqueueChannelMemberAdded(
-      recipientUserId: session.userId,
-      channelId: channelId,
-      newMemberUserIds: injected.toList(),
-    );
-  }
-
-  _respondJson(req, 201, {
-    'channel_id': channelId,
-    'kind': kind,
-    'name': name,
-    'members': members.toList(),
-    'created_at': DateTime.now().millisecondsSinceEpoch,
-  });
-}
-
-// DELETE /v3.0/channels/{id} — drop the requesting user from the
-// channel's member roster and fan a ChannelMemberRemoved push to every
-// remaining member so their local membership table catches up. v3.0 is
-// deliberately minimal: we don't tombstone the channel server-side even
-// if it ends up empty — the channel record stays so re-joining (a v3.1
-// concern) can resurrect it cleanly.
-Future<void> _handleDeleteChannel(HttpRequest req) async {
-  final session = _authenticate(req);
-  if (session == null) return;
-
-  // /v3.0/channels/{id}
-  final path = req.uri.path;
-  final channelId = path.substring('/v3.0/channels/'.length);
-  if (channelId.isEmpty || channelId.contains('/')) {
-    _respondJson(req, 400, {
-      'error': {'code': 'MALFORMED_REQUEST', 'message': 'channel_id required'}
-    });
-    return;
-  }
-
-  // Drain the body so the request is fully consumed, but ignore the
-  // contents — RestTransport puts op_id/resource_seq/client_timestamp_ms
-  // in there, none of which we use here.
-  await _readJsonBody(req);
-
-  final channel = state.channels[channelId];
-  if (channel == null) {
-    _respondJson(req, 404, {
-      'error': {'code': 'NOT_FOUND', 'message': 'Unknown channel: $channelId'}
-    });
-    return;
-  }
-
-  if (!channel.members.contains(session.userId)) {
-    _respondJson(req, 403, {
-      'error': {'code': 'FORBIDDEN', 'message': 'Not a member of channel'}
-    });
-    return;
-  }
-
-  channel.members.remove(session.userId);
-  state.markDirty();
-  _log('Channel leave: $channelId user=${session.userId} '
-      'remaining=${channel.members}');
-
-  // Fan ChannelMemberRemoved to every remaining member.
-  final removedAtMs = DateTime.now().millisecondsSinceEpoch;
-  for (final memberId in channel.members) {
-    _enqueueChannelMemberRemoved(
-      recipientUserId: memberId,
-      channelId: channelId,
-      memberUserId: session.userId,
-      removedAtMs: removedAtMs,
-    );
-  }
-
-  _respondJson(req, 200, <String, dynamic>{});
-}
-
-// ---------------------------------------------------------------------------
-// WebSocket handler
-// ---------------------------------------------------------------------------
-
-Future<void> _handleWsUpgrade(HttpRequest req) async {
-  // Extract accesskey from Sec-WebSocket-Protocol: accesskey.<token>
-  final subprotocol = req.headers.value('sec-websocket-protocol');
-  if (subprotocol == null || !subprotocol.startsWith('accesskey.')) {
-    req.response.statusCode = 401;
-    req.response.write(jsonEncode({
-      'error': {'code': 'MISSING_ACCESSKEY', 'message': 'WebSocket subprotocol must carry accesskey'}
-    }));
-    await req.response.close();
-    return;
-  }
-
-  final token = subprotocol.substring('accesskey.'.length);
-  final session = state.lookupByAccesskey(token);
-  if (session == null) {
-    req.response.statusCode = 401;
-    req.response.write(jsonEncode({
-      'error': {'code': 'INVALID_ACCESSKEY', 'message': 'accesskey is not valid'}
-    }));
-    await req.response.close();
-    return;
-  }
-
-  final userId = session.userId;
-  final ws = await WebSocketTransformer.upgrade(
-    req,
-    protocolSelector: (protocols) => protocols.isNotEmpty ? protocols.first : '',
-  );
-
-  state.addWsConnection(userId, ws);
-  _log('WS connected: userId=$userId (${state.wsConnections[userId]?.length ?? 0} sockets)');
-
-  ws.listen(
-    (dynamic data) {
-      if (data is! List<int>) return;
-      _handleWsFrame(userId, Uint8List.fromList(data));
-    },
-    onError: (e) {
-      _log('WS error for userId=$userId: $e');
-      state.removeWsConnection(userId, ws);
-    },
-    onDone: () {
-      state.removeWsConnection(userId, ws);
-      _log('WS disconnected: userId=$userId');
-    },
-  );
-}
-
-void _handleWsFrame(String senderUserId, Uint8List bytes) {
-  pb.WsEnvelope wsEnv;
-  try {
-    wsEnv = pb.WsEnvelope.fromBuffer(bytes);
-  } catch (e) {
-    _log('WS malformed frame from $senderUserId: $e');
-    return;
-  }
-
-  if (wsEnv.type != pb.WsType.WS_OP) {
-    _log('WS unexpected type=${wsEnv.type} from $senderUserId');
-    return;
-  }
-
-  final acks = <pb.Ack>[];
-  for (final env in wsEnv.ops.envelopes) {
-    final ack = _processEnvelope(senderUserId, env);
-    if (ack != null) acks.add(ack);
-  }
-
-  if (acks.isEmpty) return; // ephemeral-only batch — no ACK frame.
-
-  // Send all ACKs back to sender.
-  final ackFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_ACK,
-    acks: pb.AckBatch(acks: acks),
-  );
-  _sendToUser(senderUserId, ackFrame.writeToBuffer());
-}
-
-pb.Ack? _processEnvelope(String senderUserId, pb.Envelope env) {
-  final channelId = env.channelId;
-  final opId = env.opId;
-  final now = DateTime.now().millisecondsSinceEpoch;
-
-  // Dedup check
-  if (state.hasSeenOp(senderUserId, channelId, opId)) {
-    _log('WS dedup: opId=$opId from $senderUserId');
-    return pb.Ack(
-      opId: opId,
-      outcome: pb.AckOutcome.ACK_SUCCESS,
-      serverTimestampMs: fixnum.Int64(now),
-    );
-  }
-
-  // Channel membership check
-  final channel = state.channels[channelId];
-  if (channel == null || !channel.members.contains(senderUserId)) {
-    _log('WS forbidden: $senderUserId not member of $channelId');
-    return pb.Ack(
-      opId: opId,
-      outcome: pb.AckOutcome.ACK_PERMANENT,
-      reason: 'forbidden',
-    );
-  }
-
-  // Ephemeral envelopes bypass dedup, deliverySeq, undelivered queue,
-  // ACK emission, and any of the post-fanout receipts. Fan to currently-
-  // connected members live and drop the rest. See v3-envelope.proto.
-  if (env.ephemeral) {
-    _fanoutEphemeral(env, senderUserId, channel, now);
-    if (seedPeerEnabled &&
-        senderUserId != seedPeerUserId &&
-        channel.members.contains(seedPeerUserId)) {
-      _scheduleSeedPeerTypingEcho(channelId, env.payload);
     }
-    // Return null-ish via a no-outcome Ack — the client ignores ACKs
-    // with op_ids it doesn't track. (Safer than skipping the return:
-    // the calling site builds an AckBatch from a List<Ack>.)
+  }
+
+  // ---- Strict validation (SYNC_PROTOCOL §6, §6a.3, §7.1, §11.3) --------
+
+  /// §3 / §6a.3 step 2 — `op_id` bits[62..26] must equal the
+  /// authenticated user_id. Layout per
+  /// packages/vartalap_sync/lib/src/uuid7.dart: the 36-bit user_id
+  /// spans the low 6 bits of byte 8 through the high 6 bits of byte 12.
+  /// Returns null when the binding holds, else the reject reason.
+  String? _checkOpIdPrefix(String userId, String opId) {
+    final hex = opId.replaceAll('-', '');
+    if (hex.length != 32) return 'validation_failed';
+    int b(int i) => int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+    int bits;
+    int expected;
+    try {
+      bits = ((b(8) & 0x3F) << 30) |
+          (b(9) << 22) |
+          (b(10) << 14) |
+          (b(11) << 6) |
+          (b(12) >> 2);
+      expected = int.parse(userId, radix: 16);
+    } on FormatException {
+      return 'validation_failed';
+    }
+    return bits == expected ? null : 'prefix_mismatch';
+  }
+
+  /// §6a.3 step 5 — `Envelope.payload` is either a server-event payload
+  /// (first byte 0x53, §10.2) or a `ChatPayload` protobuf. Anything
+  /// else (notably a JSON blob) is `validation_failed`.
+  bool _payloadIsWellFormed(List<int> payload) {
+    if (payload.isEmpty) return false;
+    if (payload[0] == 0x53) {
+      try {
+        pb.ServerEventPayload.fromBuffer(payload.sublist(1));
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    try {
+      final chat = pb.ChatPayload.fromBuffer(payload);
+      // A real ChatPayload always sets `type`; a byte soup that happens
+      // to survive the varint decoder does not.
+      return chat.type != pb.ChatPayloadType.TYPE_UNSPECIFIED;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Shared §11.2 preamble for REST writes: op_id prefix binding,
+  /// §7.1 dedup replay, §6 sequencing. Returns a [StoredOutcome] when
+  /// the request must NOT be applied (either a replay whose stored
+  /// response we echo, or a rejection), else null.
+  StoredOutcome? _validateRestOp({
+    required SessionRecord session,
+    required Map<String, dynamic> body,
+    required String resourceId,
+  }) {
+    if (!strict) return null;
+    final opId = body['op_id'];
+    final seq = body['resource_seq'];
+    if (opId is! String || opId.isEmpty || seq is! int) {
+      return const StoredOutcome(
+        success: false,
+        status: 400,
+        reason: 'validation_failed',
+      );
+    }
+    final replay = state.storedOutcome(session.userId, opId);
+    if (replay != null) return replay;
+
+    final prefix = _checkOpIdPrefix(session.userId, opId);
+    if (prefix != null) {
+      return StoredOutcome(success: false, status: 400, reason: prefix);
+    }
+    if (!state.acceptSeq(session.userId, resourceId, seq)) {
+      return const StoredOutcome(
+        success: false,
+        status: 400,
+        reason: 'out_of_order',
+      );
+    }
     return null;
   }
 
-  // Accept the op
-  state.markOpSeen(senderUserId, channelId, opId);
-  final deliverySeq = state.nextDeliverySeq(channelId);
-
-  _log('WS op: opId=$opId channel=$channelId sender=$senderUserId seq=$deliverySeq');
-
-  // Fanout WS_PUSH to other channel members
-  final pushEnv = pb.Envelope(
-    opId: opId,
-    channelId: channelId,
-    resourceSeq: env.resourceSeq,
-    clientTimestampMs: env.clientTimestampMs,
-    payload: env.payload,
-    senderUserId: senderUserId,
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(deliverySeq),
-  );
-
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  final pushBytes = pushFrame.writeToBuffer();
-
-  for (final memberId in channel.members) {
-    if (memberId == senderUserId) continue;
-    _sendToUser(memberId, pushBytes);
+  /// Emit a stored/rejected REST outcome and record it.
+  void _respondOutcome(
+    HttpRequest req,
+    Map<String, dynamic> body,
+    StoredOutcome outcome,
+  ) {
+    final status = outcome.status ?? (outcome.success ? 200 : 400);
+    final payload = outcome.body ??
+        {
+          'error': {
+            'code': outcome.reason ?? 'validation_failed',
+            'message': 'rejected: ${outcome.reason}'
+          }
+        };
+    _record(req, body, status);
+    _respondJson(req, status, payload);
   }
 
-  // Skip delivered-receipt + seed-peer echo for server-event payloads
-  // (e.g. client-originated MessageStateChanged{READ}). Those are
-  // already a state-change envelope being relayed; treating them as
-  // chat content would loop a delivered receipt back to the reader and
-  // produce an "Echo: <binary>" garbage reply.
-  final isServerEventPayload =
-      env.payload.isNotEmpty && env.payload[0] == 0x53;
+  void _record(HttpRequest req, Map<String, dynamic> body, int status) {
+    requests.add(RecordedRequest(req.method, req.uri.path, body, status));
+  }
 
-  // Send a MessageStateChanged{DELIVERED} back to the author so the
-  // local row flips from single tick to double. Only if there was at
-  // least one other channel member (otherwise nothing was delivered).
-  if (!isServerEventPayload && channel.members.length > 1) {
-    final messageId = _extractMessageId(env.payload);
-    if (messageId != null) {
-      _enqueueMessageStateChanged(
-        recipientUserId: senderUserId,
+  /// Server-side add of [userId] to [channelId], fanning the §10.2
+  /// `ChannelMemberAdded` event to the existing members.
+  void addChannelMember(String channelId, String userId) {
+    final channel = state.channels[channelId];
+    if (channel == null) throw StateError('unknown channel $channelId');
+    channel.members.add(userId);
+    state.markDirty();
+    for (final memberId in channel.members) {
+      if (memberId == userId) continue;
+      _enqueueChannelMemberAdded(
+        recipientUserId: memberId,
         channelId: channelId,
-        messageId: messageId,
-        newState: pb.MessageStateValue.MESSAGE_STATE_DELIVERED,
+        newMemberUserIds: [userId],
       );
-    } else {
-      _log('Skipping delivered receipt: no message_id extractable from '
-          'payload (opId=$opId, ${env.payload.length} bytes)');
     }
   }
 
-  // Seed peer auto-reply (and auto-mark-read so the author's tick
-  // goes blue without needing a second human device).
-  if (!isServerEventPayload &&
-      seedPeerEnabled &&
-      senderUserId != seedPeerUserId &&
-      channel.members.contains(seedPeerUserId)) {
-    _scheduleSeedPeerReply(channelId, senderUserId, env.payload);
-    final readId = _extractMessageId(env.payload);
-    if (readId != null) {
-      Timer(const Duration(milliseconds: 1500), () {
-        _enqueueMessageStateChanged(
-          recipientUserId: senderUserId,
-          channelId: channelId,
-          messageId: readId,
-          newState: pb.MessageStateValue.MESSAGE_STATE_READ,
-        );
+  // ---------------------------------------------------------------------------
+  // Request router
+  // ---------------------------------------------------------------------------
+
+  Future<void> _handleRequest(HttpRequest req) async {
+    // CORS for local dev
+    req.response.headers.add('Access-Control-Allow-Origin', '*');
+    req.response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    req.response.headers.add('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    if (req.method == 'OPTIONS') {
+      req.response.statusCode = 204;
+      await req.response.close();
+      return;
+    }
+
+    final path = req.uri.path;
+    final method = req.method;
+
+    // WebSocket upgrade
+    if (WebSocketTransformer.isUpgradeRequest(req) && path == '/wss') {
+      await _handleWsUpgrade(req);
+      return;
+    }
+
+    // REST routes
+    if (method == 'POST' && path == '/v3.0/auth/otp/send') {
+      await _handleOtpSend(req);
+    } else if (method == 'POST' && path == '/v3.0/auth/otp/verify') {
+      await _handleOtpVerify(req);
+    } else if (method == 'POST' && path == '/v3.0/auth/session/refresh') {
+      await _handleSessionRefresh(req);
+    } else if (method == 'POST' && path == '/v3.0/auth/session/revoke') {
+      await _handleSessionRevoke(req);
+    } else if (method == 'GET' && path == '/v3.0/users/me') {
+      await _handleGetProfile(req);
+    } else if (method == 'PATCH' && path == '/v3.0/users/me') {
+      await _handlePatchProfile(req);
+    } else if (method == 'POST' && path == '/v3.0/users/username/check') {
+      await _handleCheckUsername(req);
+    } else if (method == 'GET' && path.startsWith('/v3.0/users/')) {
+      await _handleGetUser(req);
+    } else if (method == 'POST' && path == '/v3.0/contacts/lookup') {
+      await _handleContactLookup(req);
+    } else if (method == 'POST' && path == '/v3.0/push/topic') {
+      await _handlePushTopic(req);
+    } else if (method == 'POST' && path == '/v3.0/channels') {
+      await _handleCreateChannel(req);
+    } else if (method == 'DELETE' && path.startsWith('/v3.0/channels/')) {
+      await _handleDeleteChannel(req);
+    } else if (method == 'GET' && path == '/v3.0/sync/pending') {
+      await _handleSyncPending(req);
+    } else if (method == 'POST' && path == '/v3.0/_dev/seed-users') {
+      await _handleDevSeedUsers(req);
+    } else {
+      _respondJson(req, 404, {
+        'error': {'code': 'NOT_FOUND', 'message': 'Unknown route: $method $path'}
       });
     }
   }
 
-  return pb.Ack(
-    opId: opId,
-    outcome: pb.AckOutcome.ACK_SUCCESS,
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(deliverySeq),
-  );
-}
+  // ---------------------------------------------------------------------------
+  // Auth handlers
+  // ---------------------------------------------------------------------------
 
-// Live-fanout to a user. If the user has no open WS, the frame is
-// enqueued in the per-user undelivered queue; the client picks it up
-// on its next call to GET /v3.0/sync/pending.
-void _sendToUser(String userId, Uint8List bytes) {
-  final sockets = state.wsConnections[userId];
-  if (sockets == null || sockets.isEmpty) {
-    state.enqueueUndelivered(userId, bytes);
-    return;
-  }
-  for (final ws in sockets) {
-    try {
-      ws.add(bytes);
-    } catch (e) {
-      _log('WS send error to $userId: $e');
+  Future<void> _handleOtpSend(HttpRequest req) async {
+    final body = await _readJsonBody(req);
+    final phone = body['phone'] as String?;
+    final deviceId = body['deviceId'] as String?;
+    if (phone == null || deviceId == null) {
+      _respondJson(req, 400, {
+        'error': {'code': 'MALFORMED_REQUEST', 'message': 'phone and deviceId required'}
+      });
+      return;
     }
+
+    final sessionId = state.generateUuid();
+    state.otpSessions[sessionId] = OtpSession(
+      sessionId: sessionId,
+      phone: phone,
+      deviceId: deviceId,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    final existing = state.usersByPhone.containsKey(phone);
+    _log('OTP send: phone=$phone sessionId=$sessionId code=000000 existing=$existing');
+
+    _respondJson(req, 200, {
+      'sessionId': sessionId,
+      'resendAfterSec': 30,
+      'expiresInSec': 600,
+      'isExistingAccount': existing,
+    });
   }
-}
 
-// Build a WS_PUSH WsEnvelope carrying a ChannelCreated ServerEventPayload
-// for [recipientUserId] and enqueue it in the user's undelivered queue.
-// Wire format: payload bytes are the serialized ServerEventPayload
-// PREPENDED with 0x53 per SYNC_PROTOCOL.md §10.2.
-void _enqueueChannelCreated({
-  required String recipientUserId,
-  required String channelId,
-  required String kind,
-  required String name,
-  required List<String> members,
-  required String creatorUserId,
-  required int createdAtMs,
-}) {
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.CHANNEL_CREATED,
-    channelCreated: pb.ChannelCreated(
-      channelId: channelId,
-      kind: kind,
-      name: name,
-      members: members,
-      creator: creatorUserId,
-      createdAtMs: fixnum.Int64(createdAtMs),
-    ),
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+  Future<void> _handleOtpVerify(HttpRequest req) async {
+    final body = await _readJsonBody(req);
+    final sessionId = body['sessionId'] as String?;
+    final code = body['code'] as String?;
+    final deviceId = body['deviceId'] as String?;
 
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: payload,
-    senderUserId: creatorUserId,
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  state.enqueueUndelivered(recipientUserId, pushFrame.writeToBuffer());
-  _log('Enqueued ChannelCreated for $recipientUserId channel=$channelId');
-}
+    if (sessionId == null || code == null || deviceId == null) {
+      _respondJson(req, 400, {
+        'error': {'code': 'MALFORMED_REQUEST', 'message': 'sessionId, code, deviceId required'}
+      });
+      return;
+    }
 
-// Build a WS_PUSH WsEnvelope carrying a ChannelMemberAdded
-// ServerEventPayload and enqueue it for [recipientUserId]. Used when
-// the server adds members the client didn't request (e.g. the seed
-// peer auto-injection in --seed-peer mode) so the local membership
-// table catches up. Without this, group bubbles authored by the
-// auto-added member render with "Unknown" because the local
-// channel_members join misses them.
-void _enqueueChannelMemberAdded({
-  required String recipientUserId,
-  required String channelId,
-  required List<String> newMemberUserIds,
-}) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.CHANNEL_MEMBER_ADDED,
-    memberAdded: pb.ChannelMemberAdded(
-      channelId: channelId,
-      members: newMemberUserIds,
-      addedAtMs: fixnum.Int64(now),
-    ),
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: payload,
-    senderUserId: '', // server-authored
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  // Live-fan if the recipient's WS is open; otherwise enqueue.
-  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-  _log('Sent ChannelMemberAdded to $recipientUserId '
-      'channel=$channelId added=$newMemberUserIds');
-}
+    final otpSession = strict
+        ? state.otpSessions[sessionId]
+        : state.otpSessions.remove(sessionId);
+    if (otpSession == null) {
+      _respondJson(req, 404, {
+        'error': {'code': 'SESSION_NOT_FOUND', 'message': 'Unknown sessionId'}
+      });
+      return;
+    }
+    // AUTH_CONTRACT §3.2 — verify is one-shot.
+    if (otpSession.consumed) {
+      _respondJson(req, 410, {
+        'error': {
+          'code': 'SESSION_CONSUMED',
+          'message': 'OTP session already verified'
+        }
+      });
+      return;
+    }
+    otpSession.consumed = true;
 
-// Build a WS_PUSH WsEnvelope carrying a ChannelMemberRemoved
-// ServerEventPayload and enqueue / live-fan it for [recipientUserId].
-// Used when a member leaves a group via DELETE /v3.0/channels/{id} so
-// the remaining members' local channel_members tables drop the row.
-void _enqueueChannelMemberRemoved({
-  required String recipientUserId,
-  required String channelId,
-  required String memberUserId,
-  required int removedAtMs,
-}) {
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.CHANNEL_MEMBER_REMOVED,
-    memberRemoved: pb.ChannelMemberRemoved(
-      channelId: channelId,
-      member: memberUserId,
-      removedAtMs: fixnum.Int64(removedAtMs),
-    ),
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(removedAtMs),
-    payload: payload,
-    senderUserId: '', // server-authored
-    serverTimestampMs: fixnum.Int64(removedAtMs),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  // Live-fan if the recipient's WS is open; otherwise enqueue.
-  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-  _log('Sent ChannelMemberRemoved to $recipientUserId '
-      'channel=$channelId member=$memberUserId');
-}
+    // Accept any 6-digit code.
+    if (code.length != 6) {
+      _respondJson(req, 401, {
+        'error': {'code': 'INVALID_CODE', 'message': 'Code must be 6 digits'}
+      });
+      return;
+    }
 
-// SYNC_PROTOCOL §10.2 ProfileEdited fanout. Each *Present flag carries
-// proto3-`optional` semantics: when true, the field is populated on
-// the wire (empty string == "user cleared this"); when false the
-// field is absent and recipients leave their cached value alone.
-//
-// Channel id on the envelope is intentionally a synthetic per-recipient
-// "profile" channel — recipients route on `payload[0]==0x53` and the
-// inner `ServerEventPayload.user_id`, not on Envelope.channel_id.
-// We use the channel that this fanout would be most relevant to
-// (any shared channel works); for simplicity we pick the first one.
-void _enqueueProfileEdited({
-  required String recipientUserId,
-  required String editorUserId,
-  required bool displayNamePresent,
-  String? displayName,
-  required bool avatarUrlPresent,
-  String? avatarUrl,
-  required bool statusTextPresent,
-  String? statusText,
-}) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final body = pb.ProfileEdited(
-    userId: editorUserId,
-    editedAtMs: fixnum.Int64(now),
-  );
-  if (displayNamePresent) body.displayName = displayName ?? '';
-  if (avatarUrlPresent) body.avatarUrl = avatarUrl ?? '';
-  if (statusTextPresent) body.statusText = statusText ?? '';
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.PROFILE_EDITED,
-    profileEdited: body,
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+    final isNew = !state.usersByPhone.containsKey(otpSession.phone);
+    final user = state.getOrCreateUser(otpSession.phone);
+    final session = state.createSession(user.userId, deviceId);
 
-  final channelId = state.channels.values
-      .firstWhere(
-        (ch) =>
-            ch.members.contains(editorUserId) &&
-            ch.members.contains(recipientUserId),
-        orElse: () => state.channels.values.first,
-      )
-      .channelId;
+    _log('OTP verify: phone=${otpSession.phone} userId=${user.userId} isNew=$isNew');
 
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: payload,
-    senderUserId: '', // server-authored
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-  _log('Sent ProfileEdited to=$recipientUserId editor=$editorUserId');
-}
+    // If seed-peer is enabled and this user has no DM with the seed
+    // peer yet, create one. We trigger off "channel missing" rather than
+    // `isNew` so devs who enable --seed-peer on a previously-registered
+    // account also get the channel materialized on next login.
+    String? defaultChannelId;
+    if (demoMode) {
+      defaultChannelId = 'dm-${user.userId}-$seedPeerUserId';
+      if (!state.channels.containsKey(defaultChannelId)) {
+        final createdAt = DateTime.now().millisecondsSinceEpoch;
+        state.channels[defaultChannelId] = ChannelRecord(
+          channelId: defaultChannelId,
+          kind: 'one_to_one',
+          name: 'Seed Peer',
+          ownerUserId: user.userId,
+          members: {user.userId, seedPeerUserId},
+          createdAt: createdAt,
+        );
+        state.markDirty();
+        _log('Created seed-peer DM channel: $defaultChannelId');
 
-// SYNC_PROTOCOL §10.2 UsernameChanged fanout. Empty `newUsername`
-// signals "user cleared their handle".
-void _enqueueUsernameChanged({
-  required String recipientUserId,
-  required String editorUserId,
-  required String newUsername,
-}) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.USERNAME_CHANGED,
-    usernameChanged: pb.UsernameChanged(
-      userId: editorUserId,
-      newUsername: newUsername,
-      changedAtMs: fixnum.Int64(now),
-    ),
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+        // Enqueue ChannelCreated for the new user so on WS connect the
+        // client materializes the channel + member roster locally.
+        _enqueueChannelCreated(
+          recipientUserId: user.userId,
+          channelId: defaultChannelId,
+          kind: 'one_to_one',
+          name: 'Seed Peer',
+          members: [user.userId, seedPeerUserId],
+          creatorUserId: user.userId,
+          createdAtMs: createdAt,
+        );
+        // Followed by a welcome message so the channel actually appears
+        // in the chat list — `watchChannelList` JOINs on `last_message_id`
+        // so a channel with no messages stays hidden.
+        _enqueueWelcomeMessage(
+          recipientUserId: user.userId,
+          channelId: defaultChannelId,
+          senderUserId: seedPeerUserId,
+          body: '👋 Welcome to Vartalap! Reply with anything and I\'ll echo it back.',
+        );
+      }
+    }
 
-  final channelId = state.channels.values
-      .firstWhere(
-        (ch) =>
-            ch.members.contains(editorUserId) &&
-            ch.members.contains(recipientUserId),
-        orElse: () => state.channels.values.first,
-      )
-      .channelId;
+    _respondJson(req, 200, {
+      'status': true,
+      'user_id': user.userId,
+      'username': user.username,
+      'phone': user.phone,
+      'accesskey': session.accesskey,
+      'refreshToken': session.refreshToken,
+      'accesskeyExpiresAt': session.accesskeyExpiresAt,
+      'refreshTokenExpiresAt': session.refreshTokenExpiresAt,
+      'isNew': isNew,
+      if (defaultChannelId != null) 'defaultChannelId': defaultChannelId,
+    });
+  }
 
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: payload,
-    senderUserId: '',
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-  _log('Sent UsernameChanged to=$recipientUserId editor=$editorUserId '
-      'new=$newUsername');
-}
+  Future<void> _handleSessionRefresh(HttpRequest req) async {
+    final body = await _readJsonBody(req);
+    final refreshToken = body['refreshToken'] as String?;
+    final deviceId = body['deviceId'] as String?;
 
-// SYNC_PROTOCOL §10.2 ChannelEdited fanout. *Present flags carry
-// proto3-`optional` semantics: when true, the field is populated on
-// the wire (empty string == "user cleared this"); when false the
-// field is absent and recipients leave their cached value alone.
-// Not wired to a REST route yet — call site for future PATCH
-// /v3.0/channels/{id} or manual testing.
-// ignore: unused_element
-void _enqueueChannelEdited({
-  required String recipientUserId,
-  required String channelId,
-  required bool namePresent,
-  String? name,
-  required bool avatarUrlPresent,
-  String? avatarUrl,
-}) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final body = pb.ChannelEdited(
-    channelId: channelId,
-    editedAtMs: fixnum.Int64(now),
-  );
-  if (namePresent) body.name = name ?? '';
-  if (avatarUrlPresent) body.avatarUrl = avatarUrl ?? '';
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.CHANNEL_EDITED,
-    channelEdited: body,
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: payload,
-    senderUserId: '', // server-authored
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-  _log('Sent ChannelEdited to=$recipientUserId channel=$channelId');
-}
+    if (refreshToken == null || deviceId == null) {
+      _respondJson(req, 400, {
+        'error': {'code': 'MALFORMED_REQUEST', 'message': 'refreshToken and deviceId required'}
+      });
+      return;
+    }
 
-// SYNC_PROTOCOL §10.2 ChannelDeleted fanout. Recipients tombstone the
-// channel locally. Not wired to a REST route yet — call site for
-// future DELETE /v3.0/channels/{id} or manual testing.
-// ignore: unused_element
-void _enqueueChannelDeleted({
-  required String recipientUserId,
-  required String channelId,
-}) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.CHANNEL_DELETED,
-    channelDeleted: pb.ChannelDeleted(
-      channelId: channelId,
-      deletedAtMs: fixnum.Int64(now),
-    ),
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: payload,
-    senderUserId: '', // server-authored
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-  _log('Sent ChannelDeleted to=$recipientUserId channel=$channelId');
-}
+    final oldSession = state.sessionsByRefresh[refreshToken];
+    if (oldSession == null || oldSession.deviceId != deviceId) {
+      _respondJson(req, 401, {
+        'error': {'code': 'INVALID_REFRESH_TOKEN', 'message': 'Invalid refresh token'}
+      });
+      return;
+    }
 
-// Build a WS_PUSH WsEnvelope carrying a ChatPayload TYPE_MESSAGE_CREATE
-// from [senderUserId] in [channelId] and enqueue it for [recipientUserId].
-// Used to seed an opening message into the seed-peer DM so the channel
-// shows up in the chat list (which JOINs on `last_message_id`, hiding
-// channels with no messages).
-void _enqueueWelcomeMessage({
-  required String recipientUserId,
-  required String channelId,
-  required String senderUserId,
-  required String body,
-}) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final messageId = state.generateUuid();
-  final chatPayload = pb.ChatPayload(
-    version: 1,
-    type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-    messageId: messageId,
-    body: body,
-    contentType: 'text/plain',
-  );
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(1),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: chatPayload.writeToBuffer(),
-    senderUserId: senderUserId,
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  state.enqueueUndelivered(recipientUserId, pushFrame.writeToBuffer());
-  _log('Enqueued welcome message for $recipientUserId channel=$channelId '
-      'body="$body"');
-}
+    state.revokeSession(oldSession);
+    final newSession = state.createSession(oldSession.userId, deviceId);
 
-// Build a WS_PUSH WsEnvelope carrying a MessageStateChanged
-// ServerEventPayload and either send it live (if the recipient — i.e.
-// the original message author — has an open WS) or enqueue it. Used to
-// flip the author's tick from sent → delivered (and later read).
-void _enqueueMessageStateChanged({
-  required String recipientUserId,
-  required String channelId,
-  required String messageId,
-  required pb.MessageStateValue newState,
-}) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.MESSAGE_STATE_CHANGED,
-    messageStateChanged: pb.MessageStateChanged(
-      channelId: channelId,
-      messageId: messageId,
-      newState: newState,
-      changedAtMs: fixnum.Int64(now),
-    ),
-  );
-  final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-  final pushEnv = pb.Envelope(
-    opId: state.generateUuid(),
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(0),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: payload,
-    senderUserId: '', // server-authored
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  // _sendToUser falls back to undelivered queue when offline.
-  _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-  _log('Sent MessageStateChanged{${newState.name}} '
-      'to=$recipientUserId channel=$channelId message=$messageId');
-}
+    _respondJson(req, 200, {
+      'user_id': oldSession.userId,
+      'accesskey': newSession.accesskey,
+      'refreshToken': newSession.refreshToken,
+      'accesskeyExpiresAt': newSession.accesskeyExpiresAt,
+      'refreshTokenExpiresAt': newSession.refreshTokenExpiresAt,
+    });
+  }
 
-// Fan an `ephemeral=true` envelope to currently-connected channel
-// members. Skips the undelivered queue, never produces an ACK, never
-// records op_id_seen — pure best-effort signal.
-void _fanoutEphemeral(
-  pb.Envelope env,
-  String senderUserId,
-  ChannelRecord channel,
-  int now,
-) {
-  final pushEnv = pb.Envelope(
-    opId: env.opId,
-    channelId: env.channelId,
-    resourceSeq: env.resourceSeq,
-    clientTimestampMs: env.clientTimestampMs,
-    payload: env.payload,
-    ephemeral: true,
-    senderUserId: senderUserId,
-    serverTimestampMs: fixnum.Int64(now),
-    // No delivery_sequence — ephemeral envelopes don't participate in
-    // recipient-side ordering. Field defaults to 0 on the wire.
-  );
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  final pushBytes = pushFrame.writeToBuffer();
-  for (final memberId in channel.members) {
-    if (memberId == senderUserId) continue;
-    final sockets = state.wsConnections[memberId];
-    if (sockets == null || sockets.isEmpty) continue; // drop if offline
-    for (final ws in sockets) {
-      try {
-        ws.add(pushBytes);
-      } catch (e) {
-        _log('Ephemeral fanout error to $memberId: $e');
+  Future<void> _handleSessionRevoke(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    state.revokeSession(session);
+    _log('Session revoked: userId=${session.userId}');
+    _respondJson(req, 200, {'status': true});
+  }
+
+  // ---------------------------------------------------------------------------
+  // Profile / contacts handlers
+  // ---------------------------------------------------------------------------
+
+  Future<void> _handleGetProfile(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final user = state.usersById[session.userId];
+    if (user == null) {
+      _respondJson(req, 404, {
+        'error': {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
+      });
+      return;
+    }
+    _respondJson(req, 200, user.toProfileJson());
+  }
+
+  Future<void> _handlePatchProfile(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final user = state.usersById[session.userId];
+    if (user == null) {
+      _respondJson(req, 404, {
+        'error': {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
+      });
+      return;
+    }
+    final body = await _readJsonBody(req);
+    // Track which fields actually changed so the fanout payload only
+    // includes the deltas (matches proto3 `optional` semantics).
+    String? newUsername;
+    String? newDisplayName;
+    String? newAvatarUrl;
+    String? newStatusText;
+    bool usernameTouched = false;
+    bool profileTouched = false;
+    if (body.containsKey('username')) {
+      user.username = body['username'] as String?;
+      newUsername = user.username;
+      usernameTouched = true;
+    }
+    if (body.containsKey('displayName')) {
+      user.displayName = body['displayName'] as String?;
+      newDisplayName = user.displayName;
+      profileTouched = true;
+    }
+    if (body.containsKey('avatarUrl')) {
+      user.avatarUrl = body['avatarUrl'] as String?;
+      newAvatarUrl = user.avatarUrl;
+      profileTouched = true;
+    }
+    if (body.containsKey('statusText')) {
+      user.statusText = body['statusText'] as String?;
+      newStatusText = user.statusText;
+      profileTouched = true;
+    }
+    state.markDirty();
+    _respondJson(req, 200, user.toProfileJson());
+
+    // SYNC_PROTOCOL §10.2 fanout: every user sharing at least one
+    // channel with the editor gets the corresponding ServerEventPayload.
+    // We collect the recipient set first, then emit at most one push of
+    // each kind to each recipient.
+    final recipients = <String>{};
+    for (final ch in state.channels.values) {
+      if (ch.members.contains(user.userId)) {
+        recipients.addAll(ch.members);
+      }
+    }
+    recipients.remove(user.userId); // skip the editor
+
+    _log('PATCH /v3.0/users/me: editor=${user.userId} '
+        'profileTouched=$profileTouched usernameTouched=$usernameTouched '
+        'recipients=${recipients.length}');
+
+    if (profileTouched && recipients.isNotEmpty) {
+      for (final recipient in recipients) {
+        _enqueueProfileEdited(
+          recipientUserId: recipient,
+          editorUserId: user.userId,
+          displayName: body.containsKey('displayName') ? newDisplayName : null,
+          displayNamePresent: body.containsKey('displayName'),
+          avatarUrl: body.containsKey('avatarUrl') ? newAvatarUrl : null,
+          avatarUrlPresent: body.containsKey('avatarUrl'),
+          statusText: body.containsKey('statusText') ? newStatusText : null,
+          statusTextPresent: body.containsKey('statusText'),
+        );
+      }
+    }
+    if (usernameTouched && recipients.isNotEmpty) {
+      for (final recipient in recipients) {
+        _enqueueUsernameChanged(
+          recipientUserId: recipient,
+          editorUserId: user.userId,
+          newUsername: newUsername ?? '',
+        );
       }
     }
   }
-}
 
-// Demo helper: when the human user types in a seed-peer DM, echo back
-// a typing indicator from the seed peer so the AppBar subtitle becomes
-// visible without a second device. Fires `is_typing=true`, then `false`
-// after 2.5s (well before the 6s recipient TTL on the human side).
-void _scheduleSeedPeerTypingEcho(String channelId, List<int> payload) {
-  // Only respond to typing-true events; ignore the user's own typing-false.
-  if (payload.length < 2 || payload[0] != 0x53) return;
-  pb.ServerEventPayload sep;
-  try {
-    sep = pb.ServerEventPayload.fromBuffer(payload.sublist(1));
-  } catch (_) {
-    return;
-  }
-  if (sep.whichBody() != pb.ServerEventPayload_Body.typing) return;
-  if (!sep.typing.isTyping) return;
-
-  void send(bool isTyping) {
-    final reply = pb.ServerEventPayload(
-      version: 1,
-      type: pb.ServerEventType.TYPING,
-      typing: pb.Typing(isTyping: isTyping),
+  // Username availability stub. Real server (TODO) needs:
+  //   - case-insensitive uniqueness over the global users table
+  //   - 1-change-per-90-days rate limit per user
+  //   - reserved-word list (admin, support, …)
+  //   - bot/abuse heuristics
+  // This stub only does (1) — the rest are documented in
+  // docs/V3_TODOS.md.
+  Future<void> _handleCheckUsername(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final body = await _readJsonBody(req);
+    final candidate = (body['username'] as String?)?.trim().toLowerCase();
+    if (candidate == null || candidate.isEmpty) {
+      _respondJson(req, 200, {'available': true});
+      return;
+    }
+    final taken = state.usersById.values.any(
+      (u) =>
+          u.userId != session.userId &&
+          u.username != null &&
+          u.username!.toLowerCase() == candidate,
     );
-    final replyBytes = Uint8List.fromList([0x53, ...reply.writeToBuffer()]);
+    _respondJson(req, 200, {
+      'available': !taken,
+      if (taken) 'reason': 'taken',
+    });
+  }
+
+  Future<void> _handleGetUser(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final userId = req.uri.path.split('/').last;
+    final user = state.usersById[userId];
+    if (user == null) {
+      _respondJson(req, 404, {
+        'error': {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
+      });
+      return;
+    }
+    _respondJson(req, 200, user.toPublicJson());
+  }
+
+  Future<void> _handleContactLookup(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    // Simplified: return all registered users as matches for any hash.
+    // Echo the same SHA-256(phone) the client would have submitted, so
+    // chat_service can map matches back to device-side contact names via
+    // its `hashByName` lookup. The earlier `'hash_${u.phone}'` placeholder
+    // string broke that mapping — every contact ended up with a null
+    // `contact_book_name` in the local store, falling through to
+    // `@username` in the UI.
+    final matches = state.usersById.values
+        .where((u) => u.userId != session.userId)
+        .map((u) => {
+              'phoneHash': sha256.convert(utf8.encode(u.phone)).toString(),
+              'user_id': u.userId,
+              'username': u.username,
+            })
+        .toList();
+    _respondJson(req, 200, {'matches': matches});
+  }
+
+  // DEV-ONLY. Pre-registers N synthetic users with deterministic phones
+  // and usernames so the New Chat screen can render a non-trivial contact
+  // list against a single device. No auth required — the route is mock-
+  // server-only and the chat-server has no equivalent. Idempotent: running
+  // it twice with the same count just re-asserts the same set.
+  //
+  // Phones: +1900000000{N+1} (avoiding the seed peer's +10000000000 and
+  // any real-looking range). Usernames: dummy_N. Display name: "Dummy N".
+  Future<void> _handleDevSeedUsers(HttpRequest req) async {
+    final body = await _readJsonBody(req);
+    final raw = body['count'];
+    final count = raw is int ? raw : int.tryParse('${raw ?? ''}') ?? 5;
+    if (count < 1 || count > 50) {
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'OUT_OF_RANGE',
+          'message': 'count must be 1..50 (got $count)'
+        }
+      });
+      return;
+    }
+    final created = <Map<String, dynamic>>[];
+    for (var i = 1; i <= count; i++) {
+      final phone = '+1900000000$i';
+      final user = state.getOrCreateUser(phone);
+      user.username ??= 'dummy_$i';
+      user.displayName ??= 'Dummy $i';
+      created.add({
+        'user_id': user.userId,
+        'phone': phone,
+        'username': user.username,
+        'display_name': user.displayName,
+      });
+    }
+    state.markDirty();
+    _log('DEV: seeded ${created.length} dummy user(s)');
+    _respondJson(req, 200, {'users': created, 'count': created.length});
+  }
+
+  Future<void> _handlePushTopic(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    _log('Push topic registered for userId=${session.userId}');
+    _respondJson(req, 200, {'status': true});
+  }
+
+  // Client-triggered pull. Returns base64 of raw WS_PUSH WsEnvelope frames
+  // queued for this user; the queue is drained in the same call.
+  // Client invokes this on startup / WS connect — server never pushes
+  // spontaneously and never auto-drains on connect.
+  Future<void> _handleSyncPending(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final queued = state.drainUndelivered(session.userId);
+    final frames = queued.map(base64Encode).toList();
+    _log('Sync pull: userId=${session.userId} delivered=${frames.length} frame(s)');
+    _respondJson(req, 200, {'frames': frames});
+  }
+
+  // ---------------------------------------------------------------------------
+  // Channel handler
+  // ---------------------------------------------------------------------------
+
+  Future<void> _handleCreateChannel(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final body = await _readJsonBody(req);
+    final channelId = body['channel_id'] as String? ?? state.generateUuid();
+    final kind = body['kind'] as String? ?? 'one_to_one';
+    final name = body['name'] as String?;
+    final membersList = (body['members'] as List<dynamic>?)?.cast<String>() ?? [];
+
+    final pre = _validateRestOp(
+      session: session,
+      body: body,
+      resourceId: channelId,
+    );
+    if (pre != null) {
+      _respondOutcome(req, body, pre);
+      return;
+    }
+    // §11.3 — `kind` is exactly "one_to_one" or "group". No "dm".
+    if (strict && kind != 'one_to_one' && kind != 'group') {
+      final outcome = StoredOutcome(
+        success: false,
+        status: 400,
+        reason: 'validation_failed',
+        body: {
+          'error': {
+            'code': 'validation_failed',
+            'message': 'kind must be one_to_one or group, got "$kind"'
+          }
+        },
+      );
+      state.recordOutcome(session.userId, body['op_id'] as String, outcome);
+      _respondOutcome(req, body, outcome);
+      return;
+    }
+
+    // Members the client explicitly asked for (creator + picked peers).
+    final clientRequested = <String>{session.userId, ...membersList};
+    // Final server-side roster — same as requested, plus the seed peer
+    // in demo mode so groups demo Echo replies.
+    final members = <String>{...clientRequested};
+    if (demoMode) members.add(seedPeerUserId);
+
+    state.channels[channelId] = ChannelRecord(
+      channelId: channelId,
+      kind: kind,
+      name: name,
+      ownerUserId: session.userId,
+      members: members,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    state.markDirty();
+
+    _log('Channel created: $channelId kind=$kind members=$members');
+
+    // If the server added members the client doesn't know about
+    // (currently just the seed peer when --seed-peer is on), emit a
+    // ChannelMemberAdded WS_PUSH so the client materializes the missing
+    // membership rows. Without this, group bubbles authored by the seed
+    // peer render with "Unknown" because the local `channel_members`
+    // join misses them.
+    final injected = members.difference(clientRequested);
+    if (injected.isNotEmpty) {
+      _enqueueChannelMemberAdded(
+        recipientUserId: session.userId,
+        channelId: channelId,
+        newMemberUserIds: injected.toList(),
+      );
+    }
+
+    final created = {
+      'channel_id': channelId,
+      'kind': kind,
+      'name': name,
+      'members': members.toList(),
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    };
+    final opId = body['op_id'];
+    if (opId is String) {
+      state.recordOutcome(session.userId, opId,
+          StoredOutcome(success: true, status: 201, body: created));
+    }
+    _record(req, body, 201);
+    _respondJson(req, 201, created);
+  }
+
+  // DELETE /v3.0/channels/{id} — drop the requesting user from the
+  // channel's member roster and fan a ChannelMemberRemoved push to every
+  // remaining member so their local membership table catches up. v3.0 is
+  // deliberately minimal: we don't tombstone the channel server-side even
+  // if it ends up empty — the channel record stays so re-joining (a v3.1
+  // concern) can resurrect it cleanly.
+  Future<void> _handleDeleteChannel(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+
+    // /v3.0/channels/{id}
+    final path = req.uri.path;
+    final channelId = path.substring('/v3.0/channels/'.length);
+    if (channelId.isEmpty || channelId.contains('/')) {
+      _respondJson(req, 400, {
+        'error': {'code': 'MALFORMED_REQUEST', 'message': 'channel_id required'}
+      });
+      return;
+    }
+
+    // §11.2 — the body carries op_id / resource_seq / client_timestamp_ms.
+    final body = await _readJsonBody(req);
+    final pre = _validateRestOp(
+      session: session,
+      body: body,
+      resourceId: channelId,
+    );
+    if (pre != null) {
+      _respondOutcome(req, body, pre);
+      return;
+    }
+
+    final channel = state.channels[channelId];
+    if (channel == null) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {'code': 'NOT_FOUND', 'message': 'Unknown channel: $channelId'}
+      });
+      return;
+    }
+
+    if (!channel.members.contains(session.userId)) {
+      _record(req, body, 403);
+      _respondJson(req, 403, {
+        'error': {'code': 'FORBIDDEN', 'message': 'Not a member of channel'}
+      });
+      return;
+    }
+
+    channel.members.remove(session.userId);
+    state.markDirty();
+    _log('Channel leave: $channelId user=${session.userId} '
+        'remaining=${channel.members}');
+
+    // Fan ChannelMemberRemoved to every remaining member.
+    final removedAtMs = DateTime.now().millisecondsSinceEpoch;
+    for (final memberId in channel.members) {
+      _enqueueChannelMemberRemoved(
+        recipientUserId: memberId,
+        channelId: channelId,
+        memberUserId: session.userId,
+        removedAtMs: removedAtMs,
+      );
+    }
+
+    final opId = body['op_id'];
+    if (opId is String) {
+      state.recordOutcome(session.userId, opId,
+          const StoredOutcome(success: true, status: 200, body: {}));
+    }
+    _record(req, body, 200);
+    _respondJson(req, 200, <String, dynamic>{});
+  }
+
+  // ---------------------------------------------------------------------------
+  // WebSocket handler
+  // ---------------------------------------------------------------------------
+
+  Future<void> _handleWsUpgrade(HttpRequest req) async {
+    // Extract accesskey from Sec-WebSocket-Protocol: accesskey.<token>
+    final subprotocol = req.headers.value('sec-websocket-protocol');
+    if (subprotocol == null || !subprotocol.startsWith('accesskey.')) {
+      req.response.statusCode = 401;
+      req.response.write(jsonEncode({
+        'error': {'code': 'MISSING_ACCESSKEY', 'message': 'WebSocket subprotocol must carry accesskey'}
+      }));
+      await req.response.close();
+      return;
+    }
+
+    final token = subprotocol.substring('accesskey.'.length);
+    final session = state.lookupByAccesskey(token);
+    if (session == null) {
+      req.response.statusCode = 401;
+      req.response.write(jsonEncode({
+        'error': {'code': 'INVALID_ACCESSKEY', 'message': 'accesskey is not valid'}
+      }));
+      await req.response.close();
+      return;
+    }
+
+    final userId = session.userId;
+    final ws = await WebSocketTransformer.upgrade(
+      req,
+      protocolSelector: (protocols) => protocols.isNotEmpty ? protocols.first : '',
+    );
+
+    state.addWsConnection(userId, ws);
+    _log('WS connected: userId=$userId (${state.wsConnections[userId]?.length ?? 0} sockets)');
+
+    ws.listen(
+      (dynamic data) {
+        if (data is! List<int>) return;
+        _handleWsFrame(userId, Uint8List.fromList(data));
+      },
+      onError: (e) {
+        _log('WS error for userId=$userId: $e');
+        state.removeWsConnection(userId, ws);
+      },
+      onDone: () {
+        state.removeWsConnection(userId, ws);
+        _log('WS disconnected: userId=$userId');
+      },
+    );
+  }
+
+  void _handleWsFrame(String senderUserId, Uint8List bytes) {
+    pb.WsEnvelope wsEnv;
+    try {
+      wsEnv = pb.WsEnvelope.fromBuffer(bytes);
+    } catch (e) {
+      _log('WS malformed frame from $senderUserId: $e');
+      return;
+    }
+
+    if (wsEnv.type != pb.WsType.WS_OP) {
+      _log('WS unexpected type=${wsEnv.type} from $senderUserId');
+      return;
+    }
+
+    // SYNC_PROTOCOL §5.2 — max 20 envelopes per WS_OP frame. Over the
+    // cap the whole frame is rejected: `validation_failed` for every
+    // envelope in it.
+    if (strict && wsEnv.ops.envelopes.length > 20) {
+      _log('WS batch too large (${wsEnv.ops.envelopes.length}) '
+          'from $senderUserId');
+      final rejects = [
+        for (final env in wsEnv.ops.envelopes)
+          pb.Ack(
+            opId: env.opId,
+            outcome: pb.AckOutcome.ACK_PERMANENT,
+            reason: 'validation_failed',
+          )
+      ];
+      _sendToUser(
+        senderUserId,
+        pb.WsEnvelope(type: pb.WsType.WS_ACK, acks: pb.AckBatch(acks: rejects))
+            .writeToBuffer(),
+      );
+      return;
+    }
+
+    final acks = <pb.Ack>[];
+    for (final env in wsEnv.ops.envelopes) {
+      final ack = _processEnvelope(senderUserId, env);
+      if (ack != null) acks.add(ack);
+    }
+
+    if (acks.isEmpty) return; // ephemeral-only batch — no ACK frame.
+
+    // Send all ACKs back to sender.
+    final ackFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_ACK,
+      acks: pb.AckBatch(acks: acks),
+    );
+    _sendToUser(senderUserId, ackFrame.writeToBuffer());
+  }
+
+  pb.Ack? _processEnvelope(String senderUserId, pb.Envelope env) {
+    final channelId = env.channelId;
+    final opId = env.opId;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    pb.Ack reject(String reason) {
+      _log('WS reject: opId=$opId reason=$reason from $senderUserId');
+      state.recordOutcome(
+          senderUserId, opId, StoredOutcome(success: false, reason: reason));
+      envelopes.add(RecordedEnvelope(
+        opId: opId,
+        channelId: channelId,
+        resourceSeq: env.resourceSeq.toInt(),
+        payload: Uint8List.fromList(env.payload),
+        rejectReason: reason,
+      ));
+      return pb.Ack(
+        opId: opId,
+        outcome: pb.AckOutcome.ACK_PERMANENT,
+        reason: reason,
+      );
+    }
+
+    // §7.1 dedup — a replayed op_id returns the stored outcome and is
+    // never re-applied.
+    if (!env.ephemeral) {
+      final stored = state.storedOutcome(senderUserId, opId);
+      if (stored != null) {
+        _log('WS dedup: opId=$opId from $senderUserId '
+            'success=${stored.success}');
+        return stored.success
+            ? pb.Ack(
+                opId: opId,
+                outcome: pb.AckOutcome.ACK_SUCCESS,
+                serverTimestampMs: fixnum.Int64(now),
+              )
+            : pb.Ack(
+                opId: opId,
+                outcome: pb.AckOutcome.ACK_PERMANENT,
+                reason: stored.reason,
+              );
+      }
+    }
+
+    // §6a.3 step 2 — op_id user_id bits must match the session.
+    if (strict) {
+      final prefix = _checkOpIdPrefix(senderUserId, opId);
+      if (prefix != null) return reject(prefix);
+    }
+
+    // Channel membership check
+    final channel = state.channels[channelId];
+    if (channel == null || !channel.members.contains(senderUserId)) {
+      return reject('forbidden');
+    }
+
+    // Ephemeral envelopes bypass dedup, deliverySeq, undelivered queue,
+    // ACK emission, and any of the post-fanout receipts. Fan to currently-
+    // connected members live and drop the rest. See v3-envelope.proto.
+    if (env.ephemeral) {
+      _fanoutEphemeral(env, senderUserId, channel, now);
+      if (demoMode &&
+          senderUserId != seedPeerUserId &&
+          channel.members.contains(seedPeerUserId)) {
+        _scheduleSeedPeerTypingEcho(channelId, env.payload);
+      }
+      // Return null-ish via a no-outcome Ack — the client ignores ACKs
+      // with op_ids it doesn't track. (Safer than skipping the return:
+      // the calling site builds an AckBatch from a List<Ack>.)
+      return null;
+    }
+
+    // §6a.3 step 4 — resource_seq must be exactly max_seen + 1 for
+    // this (user_id, channel_id); the first op on a resource is 1.
+    if (strict &&
+        !state.acceptSeq(senderUserId, channelId, env.resourceSeq.toInt())) {
+      return reject('out_of_order');
+    }
+
+    // §6a.3 step 5 — payload is a ChatPayload proto, or a 0x53-prefixed
+    // ServerEventPayload (§10.2). Nothing else is on the wire.
+    if (strict && !_payloadIsWellFormed(env.payload)) {
+      return reject('validation_failed');
+    }
+
+    // Accept the op
+    state.recordOutcome(
+        senderUserId, opId, const StoredOutcome(success: true));
+    envelopes.add(RecordedEnvelope(
+      opId: opId,
+      channelId: channelId,
+      resourceSeq: env.resourceSeq.toInt(),
+      payload: Uint8List.fromList(env.payload),
+      rejectReason: null,
+    ));
+    final deliverySeq = state.nextDeliverySeq(channelId);
+
+    _log('WS op: opId=$opId channel=$channelId sender=$senderUserId seq=$deliverySeq');
+
+    // Fanout WS_PUSH to other channel members
+    final pushEnv = pb.Envelope(
+      opId: opId,
+      channelId: channelId,
+      resourceSeq: env.resourceSeq,
+      clientTimestampMs: env.clientTimestampMs,
+      payload: env.payload,
+      senderUserId: senderUserId,
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(deliverySeq),
+    );
+
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    final pushBytes = pushFrame.writeToBuffer();
+
+    for (final memberId in channel.members) {
+      if (memberId == senderUserId) continue;
+      _sendToUser(memberId, pushBytes);
+    }
+
+    // Skip delivered-receipt + seed-peer echo for server-event payloads
+    // (e.g. client-originated MessageStateChanged{READ}). Those are
+    // already a state-change envelope being relayed; treating them as
+    // chat content would loop a delivered receipt back to the reader and
+    // produce an "Echo: <binary>" garbage reply.
+    final isServerEventPayload =
+        env.payload.isNotEmpty && env.payload[0] == 0x53;
+
+    // Send a MessageStateChanged{DELIVERED} back to the author so the
+    // local row flips from single tick to double. Only if there was at
+    // least one other channel member (otherwise nothing was delivered).
+    if (!isServerEventPayload && channel.members.length > 1) {
+      final messageId = _extractMessageId(env.payload);
+      if (messageId != null) {
+        _enqueueMessageStateChanged(
+          recipientUserId: senderUserId,
+          channelId: channelId,
+          messageId: messageId,
+          newState: pb.MessageStateValue.MESSAGE_STATE_DELIVERED,
+        );
+      } else {
+        _log('Skipping delivered receipt: no message_id extractable from '
+            'payload (opId=$opId, ${env.payload.length} bytes)');
+      }
+    }
+
+    // Seed peer auto-reply (and auto-mark-read so the author's tick
+    // goes blue without needing a second human device).
+    if (!isServerEventPayload &&
+        demoMode &&
+        senderUserId != seedPeerUserId &&
+        channel.members.contains(seedPeerUserId)) {
+      _scheduleSeedPeerReply(channelId, senderUserId, env.payload);
+      final readId = _extractMessageId(env.payload);
+      if (readId != null) {
+        _timer(const Duration(milliseconds: 1500), () {
+          _enqueueMessageStateChanged(
+            recipientUserId: senderUserId,
+            channelId: channelId,
+            messageId: readId,
+            newState: pb.MessageStateValue.MESSAGE_STATE_READ,
+          );
+        });
+      }
+    }
+
+    return pb.Ack(
+      opId: opId,
+      outcome: pb.AckOutcome.ACK_SUCCESS,
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(deliverySeq),
+    );
+  }
+
+  // Live-fanout to a user. If the user has no open WS, the frame is
+  // enqueued in the per-user undelivered queue; the client picks it up
+  // on its next call to GET /v3.0/sync/pending.
+  void _sendToUser(String userId, Uint8List bytes) {
+    final sockets = state.wsConnections[userId];
+    if (sockets == null || sockets.isEmpty) {
+      state.enqueueUndelivered(userId, bytes);
+      return;
+    }
+    for (final ws in sockets) {
+      try {
+        ws.add(bytes);
+      } catch (e) {
+        _log('WS send error to $userId: $e');
+      }
+    }
+  }
+
+  // Build a WS_PUSH WsEnvelope carrying a ChannelCreated ServerEventPayload
+  // for [recipientUserId] and enqueue it in the user's undelivered queue.
+  // Wire format: payload bytes are the serialized ServerEventPayload
+  // PREPENDED with 0x53 per SYNC_PROTOCOL.md §10.2.
+  void _enqueueChannelCreated({
+    required String recipientUserId,
+    required String channelId,
+    required String kind,
+    required String name,
+    required List<String> members,
+    required String creatorUserId,
+    required int createdAtMs,
+  }) {
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.CHANNEL_CREATED,
+      channelCreated: pb.ChannelCreated(
+        channelId: channelId,
+        kind: kind,
+        name: name,
+        members: members,
+        creator: creatorUserId,
+        createdAtMs: fixnum.Int64(createdAtMs),
+      ),
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+
     final now = DateTime.now().millisecondsSinceEpoch;
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
       resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
-      payload: replyBytes,
-      ephemeral: true,
-      senderUserId: seedPeerUserId,
+      payload: payload,
+      senderUserId: creatorUserId,
       serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
-    final frame = pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv);
-    final bytes = frame.writeToBuffer();
-    final channel = state.channels[channelId];
-    if (channel == null) return;
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    state.enqueueUndelivered(recipientUserId, pushFrame.writeToBuffer());
+    _log('Enqueued ChannelCreated for $recipientUserId channel=$channelId');
+  }
+
+  // Build a WS_PUSH WsEnvelope carrying a ChannelMemberAdded
+  // ServerEventPayload and enqueue it for [recipientUserId]. Used when
+  // the server adds members the client didn't request (e.g. the seed
+  // peer auto-injection in --seed-peer mode) so the local membership
+  // table catches up. Without this, group bubbles authored by the
+  // auto-added member render with "Unknown" because the local
+  // channel_members join misses them.
+  void _enqueueChannelMemberAdded({
+    required String recipientUserId,
+    required String channelId,
+    required List<String> newMemberUserIds,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.CHANNEL_MEMBER_ADDED,
+      memberAdded: pb.ChannelMemberAdded(
+        channelId: channelId,
+        members: newMemberUserIds,
+        addedAtMs: fixnum.Int64(now),
+      ),
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(0),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: payload,
+      senderUserId: '', // server-authored
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    // Live-fan if the recipient's WS is open; otherwise enqueue.
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+    _log('Sent ChannelMemberAdded to $recipientUserId '
+        'channel=$channelId added=$newMemberUserIds');
+  }
+
+  // Build a WS_PUSH WsEnvelope carrying a ChannelMemberRemoved
+  // ServerEventPayload and enqueue / live-fan it for [recipientUserId].
+  // Used when a member leaves a group via DELETE /v3.0/channels/{id} so
+  // the remaining members' local channel_members tables drop the row.
+  void _enqueueChannelMemberRemoved({
+    required String recipientUserId,
+    required String channelId,
+    required String memberUserId,
+    required int removedAtMs,
+  }) {
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.CHANNEL_MEMBER_REMOVED,
+      memberRemoved: pb.ChannelMemberRemoved(
+        channelId: channelId,
+        member: memberUserId,
+        removedAtMs: fixnum.Int64(removedAtMs),
+      ),
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(0),
+      clientTimestampMs: fixnum.Int64(removedAtMs),
+      payload: payload,
+      senderUserId: '', // server-authored
+      serverTimestampMs: fixnum.Int64(removedAtMs),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    // Live-fan if the recipient's WS is open; otherwise enqueue.
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+    _log('Sent ChannelMemberRemoved to $recipientUserId '
+        'channel=$channelId member=$memberUserId');
+  }
+
+  // SYNC_PROTOCOL §10.2 ProfileEdited fanout. Each *Present flag carries
+  // proto3-`optional` semantics: when true, the field is populated on
+  // the wire (empty string == "user cleared this"); when false the
+  // field is absent and recipients leave their cached value alone.
+  //
+  // Channel id on the envelope is intentionally a synthetic per-recipient
+  // "profile" channel — recipients route on `payload[0]==0x53` and the
+  // inner `ServerEventPayload.user_id`, not on Envelope.channel_id.
+  // We use the channel that this fanout would be most relevant to
+  // (any shared channel works); for simplicity we pick the first one.
+  void _enqueueProfileEdited({
+    required String recipientUserId,
+    required String editorUserId,
+    required bool displayNamePresent,
+    String? displayName,
+    required bool avatarUrlPresent,
+    String? avatarUrl,
+    required bool statusTextPresent,
+    String? statusText,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final body = pb.ProfileEdited(
+      userId: editorUserId,
+      editedAtMs: fixnum.Int64(now),
+    );
+    if (displayNamePresent) body.displayName = displayName ?? '';
+    if (avatarUrlPresent) body.avatarUrl = avatarUrl ?? '';
+    if (statusTextPresent) body.statusText = statusText ?? '';
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.PROFILE_EDITED,
+      profileEdited: body,
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+
+    final channelId = state.channels.values
+        .firstWhere(
+          (ch) =>
+              ch.members.contains(editorUserId) &&
+              ch.members.contains(recipientUserId),
+          orElse: () => state.channels.values.first,
+        )
+        .channelId;
+
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(0),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: payload,
+      senderUserId: '', // server-authored
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+    _log('Sent ProfileEdited to=$recipientUserId editor=$editorUserId');
+  }
+
+  // SYNC_PROTOCOL §10.2 UsernameChanged fanout. Empty `newUsername`
+  // signals "user cleared their handle".
+  void _enqueueUsernameChanged({
+    required String recipientUserId,
+    required String editorUserId,
+    required String newUsername,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.USERNAME_CHANGED,
+      usernameChanged: pb.UsernameChanged(
+        userId: editorUserId,
+        newUsername: newUsername,
+        changedAtMs: fixnum.Int64(now),
+      ),
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+
+    final channelId = state.channels.values
+        .firstWhere(
+          (ch) =>
+              ch.members.contains(editorUserId) &&
+              ch.members.contains(recipientUserId),
+          orElse: () => state.channels.values.first,
+        )
+        .channelId;
+
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(0),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: payload,
+      senderUserId: '',
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+    _log('Sent UsernameChanged to=$recipientUserId editor=$editorUserId '
+        'new=$newUsername');
+  }
+
+  // SYNC_PROTOCOL §10.2 ChannelEdited fanout. *Present flags carry
+  // proto3-`optional` semantics: when true, the field is populated on
+  // the wire (empty string == "user cleared this"); when false the
+  // field is absent and recipients leave their cached value alone.
+  // Not wired to a REST route yet — call site for future PATCH
+  // /v3.0/channels/{id} or manual testing.
+  // ignore: unused_element
+  void _enqueueChannelEdited({
+    required String recipientUserId,
+    required String channelId,
+    required bool namePresent,
+    String? name,
+    required bool avatarUrlPresent,
+    String? avatarUrl,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final body = pb.ChannelEdited(
+      channelId: channelId,
+      editedAtMs: fixnum.Int64(now),
+    );
+    if (namePresent) body.name = name ?? '';
+    if (avatarUrlPresent) body.avatarUrl = avatarUrl ?? '';
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.CHANNEL_EDITED,
+      channelEdited: body,
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(0),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: payload,
+      senderUserId: '', // server-authored
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+    _log('Sent ChannelEdited to=$recipientUserId channel=$channelId');
+  }
+
+  // SYNC_PROTOCOL §10.2 ChannelDeleted fanout. Recipients tombstone the
+  // channel locally. Not wired to a REST route yet — call site for
+  // future DELETE /v3.0/channels/{id} or manual testing.
+  // ignore: unused_element
+  void _enqueueChannelDeleted({
+    required String recipientUserId,
+    required String channelId,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.CHANNEL_DELETED,
+      channelDeleted: pb.ChannelDeleted(
+        channelId: channelId,
+        deletedAtMs: fixnum.Int64(now),
+      ),
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(0),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: payload,
+      senderUserId: '', // server-authored
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+    _log('Sent ChannelDeleted to=$recipientUserId channel=$channelId');
+  }
+
+  // Build a WS_PUSH WsEnvelope carrying a ChatPayload TYPE_MESSAGE_CREATE
+  // from [senderUserId] in [channelId] and enqueue it for [recipientUserId].
+  // Used to seed an opening message into the seed-peer DM so the channel
+  // shows up in the chat list (which JOINs on `last_message_id`, hiding
+  // channels with no messages).
+  void _enqueueWelcomeMessage({
+    required String recipientUserId,
+    required String channelId,
+    required String senderUserId,
+    required String body,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final messageId = state.generateUuid();
+    final chatPayload = pb.ChatPayload(
+      version: 1,
+      type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+      messageId: messageId,
+      body: body,
+      contentType: 'text/plain',
+    );
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(1),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: chatPayload.writeToBuffer(),
+      senderUserId: senderUserId,
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    state.enqueueUndelivered(recipientUserId, pushFrame.writeToBuffer());
+    _log('Enqueued welcome message for $recipientUserId channel=$channelId '
+        'body="$body"');
+  }
+
+  // Build a WS_PUSH WsEnvelope carrying a MessageStateChanged
+  // ServerEventPayload and either send it live (if the recipient — i.e.
+  // the original message author — has an open WS) or enqueue it. Used to
+  // flip the author's tick from sent → delivered (and later read).
+  void _enqueueMessageStateChanged({
+    required String recipientUserId,
+    required String channelId,
+    required String messageId,
+    required pb.MessageStateValue newState,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sep = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.MESSAGE_STATE_CHANGED,
+      messageStateChanged: pb.MessageStateChanged(
+        channelId: channelId,
+        messageId: messageId,
+        newState: newState,
+        changedAtMs: fixnum.Int64(now),
+      ),
+    );
+    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
+    final pushEnv = pb.Envelope(
+      opId: state.generateUuid(),
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(0),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: payload,
+      senderUserId: '', // server-authored
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    // _sendToUser falls back to undelivered queue when offline.
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
+    _log('Sent MessageStateChanged{${newState.name}} '
+        'to=$recipientUserId channel=$channelId message=$messageId');
+  }
+
+  // Fan an `ephemeral=true` envelope to currently-connected channel
+  // members. Skips the undelivered queue, never produces an ACK, never
+  // records op_id_seen — pure best-effort signal.
+  void _fanoutEphemeral(
+    pb.Envelope env,
+    String senderUserId,
+    ChannelRecord channel,
+    int now,
+  ) {
+    final pushEnv = pb.Envelope(
+      opId: env.opId,
+      channelId: env.channelId,
+      resourceSeq: env.resourceSeq,
+      clientTimestampMs: env.clientTimestampMs,
+      payload: env.payload,
+      ephemeral: true,
+      senderUserId: senderUserId,
+      serverTimestampMs: fixnum.Int64(now),
+      // No delivery_sequence — ephemeral envelopes don't participate in
+      // recipient-side ordering. Field defaults to 0 on the wire.
+    );
+    final pushFrame = pb.WsEnvelope(
+      type: pb.WsType.WS_PUSH,
+      push: pushEnv,
+    );
+    final pushBytes = pushFrame.writeToBuffer();
     for (final memberId in channel.members) {
-      if (memberId == seedPeerUserId) continue;
+      if (memberId == senderUserId) continue;
       final sockets = state.wsConnections[memberId];
-      if (sockets == null || sockets.isEmpty) continue;
+      if (sockets == null || sockets.isEmpty) continue; // drop if offline
       for (final ws in sockets) {
         try {
-          ws.add(bytes);
-        } catch (_) {}
+          ws.add(pushBytes);
+        } catch (e) {
+          _log('Ephemeral fanout error to $memberId: $e');
+        }
       }
     }
   }
 
-  // Heartbeat the seed-peer typing for ~6s so a realistic typing burst
-  // exercises the receiver-side TTL refresh path. Cadence matches the
-  // human client's 3s heartbeat in chat.dart.
-  send(true);
-  Timer(const Duration(milliseconds: 3000), () => send(true));
-  Timer(const Duration(milliseconds: 6000), () => send(false));
-}
-
-// Pull `message_id` out of an inbound ChatPayload (best-effort). The
-// production client encodes via protobuf; the v3 spike client (current
-// `ChatService._encodeChatPayload`) ships a JSON placeholder with
-// `message_id` / `type` / `body` keys. Try proto first, fall back to
-// JSON. Returns null if neither works — a prepended 0x53 means it's a
-// server event, not a chat op, so skip.
-String? _extractMessageId(List<int> payload) {
-  if (payload.isEmpty) return null;
-  if (payload[0] == 0x53) return null;
-  try {
-    final chat = pb.ChatPayload.fromBuffer(payload);
-    if (chat.messageId.isNotEmpty) return chat.messageId;
-  } catch (_) {
-    // Fall through to JSON.
-  }
-  try {
-    final decoded = jsonDecode(utf8.decode(payload));
-    if (decoded is Map<String, dynamic>) {
-      final id = decoded['message_id'];
-      if (id is String && id.isNotEmpty) return id;
-    }
-  } catch (_) {
-    // Not JSON either.
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Seed peer auto-reply
-// ---------------------------------------------------------------------------
-
-void _scheduleSeedPeerReply(
-    String channelId, String realUserId, List<int> incomingPayload) {
-  Timer(const Duration(seconds: 1), () {
-    _sendSeedPeerReply(channelId, realUserId, incomingPayload);
-  });
-}
-
-void _sendSeedPeerReply(
-    String channelId, String realUserId, List<int> incomingPayload) {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final deliverySeq = state.nextDeliverySeq(channelId);
-  final opId = state.generateUuid();
-
-  // Build a simple ChatPayload for the reply. This is the one place
-  // the mock server touches the payload schema.
-  final messageId = state.generateUuid();
-
-  // Try to extract original body for echo
-  String replyBody = 'Hello from Seed Peer!';
-  try {
-    final incoming = pb.ChatPayload.fromBuffer(incomingPayload);
-    if (incoming.body.isNotEmpty) {
-      replyBody = 'Echo: ${incoming.body}';
-    }
-  } catch (_) {
-    // Payload isn't a ChatPayload (could be JSON placeholder) — try JSON.
+  // Demo helper: when the human user types in a seed-peer DM, echo back
+  // a typing indicator from the seed peer so the AppBar subtitle becomes
+  // visible without a second device. Fires `is_typing=true`, then `false`
+  // after 2.5s (well before the 6s recipient TTL on the human side).
+  void _scheduleSeedPeerTypingEcho(String channelId, List<int> payload) {
+    // Only respond to typing-true events; ignore the user's own typing-false.
+    if (payload.length < 2 || payload[0] != 0x53) return;
+    pb.ServerEventPayload sep;
     try {
-      final json = jsonDecode(utf8.decode(incomingPayload)) as Map<String, dynamic>;
-      final body = json['body'] as String?;
-      if (body != null && body.isNotEmpty) {
-        replyBody = 'Echo: $body';
-      }
+      sep = pb.ServerEventPayload.fromBuffer(payload.sublist(1));
     } catch (_) {
-      // Can't decode — use default reply.
+      return;
     }
+    if (sep.whichBody() != pb.ServerEventPayload_Body.typing) return;
+    if (!sep.typing.isTyping) return;
+
+    void send(bool isTyping) {
+      final reply = pb.ServerEventPayload(
+        version: 1,
+        type: pb.ServerEventType.TYPING,
+        typing: pb.Typing(isTyping: isTyping),
+      );
+      final replyBytes = Uint8List.fromList([0x53, ...reply.writeToBuffer()]);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final pushEnv = pb.Envelope(
+        opId: state.generateUuid(),
+        channelId: channelId,
+        resourceSeq: fixnum.Int64(0),
+        clientTimestampMs: fixnum.Int64(now),
+        payload: replyBytes,
+        ephemeral: true,
+        senderUserId: seedPeerUserId,
+        serverTimestampMs: fixnum.Int64(now),
+      );
+      final frame = pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv);
+      final bytes = frame.writeToBuffer();
+      final channel = state.channels[channelId];
+      if (channel == null) return;
+      for (final memberId in channel.members) {
+        if (memberId == seedPeerUserId) continue;
+        final sockets = state.wsConnections[memberId];
+        if (sockets == null || sockets.isEmpty) continue;
+        for (final ws in sockets) {
+          try {
+            ws.add(bytes);
+          } catch (_) {}
+        }
+      }
+    }
+
+    // Heartbeat the seed-peer typing for ~6s so a realistic typing burst
+    // exercises the receiver-side TTL refresh path. Cadence matches the
+    // human client's 3s heartbeat in chat.dart.
+    send(true);
+    _timer(const Duration(milliseconds: 3000), () => send(true));
+    _timer(const Duration(milliseconds: 6000), () => send(false));
   }
 
-  final replyPayload = pb.ChatPayload(
-    version: 1,
-    type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-    messageId: messageId,
-    body: replyBody,
-    contentType: 'text/plain',
-  );
-
-  final pushEnv = pb.Envelope(
-    opId: opId,
-    channelId: channelId,
-    resourceSeq: fixnum.Int64(1),
-    clientTimestampMs: fixnum.Int64(now),
-    payload: replyPayload.writeToBuffer(),
-    senderUserId: seedPeerUserId,
-    serverTimestampMs: fixnum.Int64(now),
-    deliverySequence: fixnum.Int64(deliverySeq),
-  );
-
-  final pushFrame = pb.WsEnvelope(
-    type: pb.WsType.WS_PUSH,
-    push: pushEnv,
-  );
-  final pushBytes = pushFrame.writeToBuffer();
-
-  // Send to the real user only (seed peer has no WS connection).
-  final channel = state.channels[channelId];
-  if (channel == null) return;
-  for (final memberId in channel.members) {
-    if (memberId == seedPeerUserId) continue;
-    _sendToUser(memberId, pushBytes);
-  }
-
-  _log('Seed peer reply: channel=$channelId deliverySeq=$deliverySeq body="$replyBody"');
-}
-
-// ---------------------------------------------------------------------------
-// HTTP helpers
-// ---------------------------------------------------------------------------
-
-Future<Map<String, dynamic>> _readJsonBody(HttpRequest req) async {
-  final raw = await utf8.decodeStream(req);
-  if (raw.isEmpty) return {};
-  return jsonDecode(raw) as Map<String, dynamic>;
-}
-
-void _respondJson(HttpRequest req, int status, Map<String, dynamic> body) {
-  req.response.statusCode = status;
-  req.response.headers.contentType = ContentType.json;
-  req.response.write(jsonEncode(body));
-  req.response.close();
-}
-
-/// Returns the session if Authorization header is valid, else responds 401
-/// and returns null.
-SessionRecord? _authenticate(HttpRequest req) {
-  final authHeader = req.headers.value('authorization');
-  if (authHeader == null || !authHeader.startsWith('Bearer ')) {
-    _respondJson(req, 401, {
-      'error': {'code': 'MISSING_ACCESSKEY', 'message': 'Authorization header required'}
-    });
+  // Pull `message_id` out of an inbound ChatPayload. The wire carries
+  // `v3-chat-payload.proto` and nothing else (§6a.1) — a JSON body is
+  // rejected as `validation_failed` long before this, so there is no
+  // fallback here. A leading 0x53 means server event, not chat content.
+  String? _extractMessageId(List<int> payload) {
+    if (payload.isEmpty) return null;
+    if (payload[0] == 0x53) return null;
+    try {
+      final chat = pb.ChatPayload.fromBuffer(payload);
+      if (chat.messageId.isNotEmpty) return chat.messageId;
+    } catch (_) {
+      // Not a ChatPayload — nothing to receipt.
+    }
     return null;
   }
-  final token = authHeader.substring('Bearer '.length);
-  final session = state.lookupByAccesskey(token);
-  if (session == null) {
-    _respondJson(req, 401, {
-      'error': {'code': 'INVALID_ACCESSKEY', 'message': 'accesskey is not valid'}
+
+  // ---------------------------------------------------------------------------
+  // Seed peer auto-reply
+  // ---------------------------------------------------------------------------
+
+  void _scheduleSeedPeerReply(
+      String channelId, String realUserId, List<int> incomingPayload) {
+    // The wire is protobuf-only (§6a.1) — an undecodable payload never
+    // reaches here in strict mode, and in lax mode we fall back to a
+    // canned greeting rather than guessing at the encoding.
+    var replyBody = 'Hello from Seed Peer!';
+    try {
+      final incoming = pb.ChatPayload.fromBuffer(incomingPayload);
+      if (incoming.body.isNotEmpty) replyBody = 'Echo: ${incoming.body}';
+    } catch (_) {
+      // Leave the canned greeting.
+    }
+    _timer(const Duration(seconds: 1), () {
+      if (state.channels.containsKey(channelId)) {
+        _sendPeerMessage(channelId, seedPeerUserId, replyBody);
+      }
     });
-    return null;
   }
-  return session;
+
+  /// Fan a `ChatPayload{TYPE_MESSAGE_CREATE}` from [senderUserId] to
+  /// every other member of [channelId].
+  ({String messageId, String opId}) _sendPeerMessage(
+      String channelId, String senderUserId, String body) {
+    final channel = state.channels[channelId];
+    if (channel == null) throw StateError('unknown channel $channelId');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final deliverySeq = state.nextDeliverySeq(channelId);
+    final messageId = state.generateUuid();
+
+    final payload = pb.ChatPayload(
+      version: 1,
+      type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+      messageId: messageId,
+      body: body,
+      contentType: 'text/plain',
+    );
+
+    final opId = state.generateUuid();
+    final pushEnv = pb.Envelope(
+      opId: opId,
+      channelId: channelId,
+      resourceSeq: fixnum.Int64(1),
+      clientTimestampMs: fixnum.Int64(now),
+      payload: payload.writeToBuffer(),
+      senderUserId: senderUserId,
+      serverTimestampMs: fixnum.Int64(now),
+      deliverySequence: fixnum.Int64(deliverySeq),
+    );
+    final pushBytes =
+        pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv).writeToBuffer();
+
+    for (final memberId in channel.members) {
+      if (memberId == senderUserId) continue;
+      _sendToUser(memberId, pushBytes);
+    }
+    _log('Peer message: channel=$channelId from=$senderUserId '
+        'deliverySeq=$deliverySeq body="$body"');
+    return (messageId: messageId, opId: opId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // HTTP helpers
+  // ---------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> _readJsonBody(HttpRequest req) async {
+    final raw = await utf8.decodeStream(req);
+    if (raw.isEmpty) return {};
+    return jsonDecode(raw) as Map<String, dynamic>;
+  }
+
+  void _respondJson(HttpRequest req, int status, Map<String, dynamic> body) {
+    req.response.statusCode = status;
+    req.response.headers.contentType = ContentType.json;
+    req.response.write(jsonEncode(body));
+    req.response.close();
+  }
+
+  /// Returns the session if Authorization header is valid, else responds 401
+  /// and returns null.
+  SessionRecord? _authenticate(HttpRequest req) {
+    final authHeader = req.headers.value('authorization');
+    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
+      _respondJson(req, 401, {
+        'error': {'code': 'MISSING_ACCESSKEY', 'message': 'Authorization header required'}
+      });
+      return null;
+    }
+    final token = authHeader.substring('Bearer '.length);
+    final session = state.lookupByAccesskey(token);
+    if (session == null) {
+      _respondJson(req, 401, {
+        'error': {'code': 'INVALID_ACCESSKEY', 'message': 'accesskey is not valid'}
+      });
+      return null;
+    }
+    return session;
+  }
 }
