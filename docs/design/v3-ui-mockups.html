@@ -1279,14 +1279,14 @@ footer.foot code { font-family: var(--mono); font-size: 11.5px; }
             <div class="scrimlayer"></div>
             <div class="dialog">
               <div class="dt">Leave Kothrud Flat 3B?</div>
-              <div class="db">You will stop receiving messages and the group will be removed from Groups and from Chats. Other members stay in the group and can add you back.<br><br>This needs a connection &mdash; it is not a local-only change.</div>
+              <div class="db">You will stop receiving messages and the group will be removed from Groups and from Chats. Other members stay in the group and can add you back.<br><br>Applies right away and syncs when you are online.</div>
               <div class="dacts"><span class="no">Cancel</span><span class="go">Leave group</span></div>
             </div>
           </div>
         </div>
         <div class="cap">
           <span class="tag">e2 &middot; leave confirmation</span>
-          <p class="why">The copy names the two lists the group leaves, and flags that this is the one action here that needs the network &mdash; per the offline matrix, leaving is a server op while delete and clear are local.</p>
+          <p class="why">The copy names the two lists the group leaves. Like every other action, leaving applies locally at once and the server op syncs when a connection is available; only resolving a person you have never chatted with needs the network.</p>
         </div>
       </div>
 

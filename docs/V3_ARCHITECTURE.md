@@ -101,8 +101,9 @@ explicit yes/no before it ships.
 | Add member to group you own | yes | Queues; server validates on sync. Optimistic UI shows `pending`; rejection rolls back with user-visible error. |
 | Edit own profile | yes | Queues |
 | Start new chat with known contact | yes | If contact is already known locally |
-| Start new chat with phone number | **no** | Requires server lookup for Vartalap-user check. Timeout: 8s, retry toast on failure. |
-| Join group you don't own (via invite) | **no** | Requires server-side permission grant |
+| Resolve a person you have never chatted with (phone-hash or @username lookup) | **no** | A read, not a mutation: the server must map the handle to a user_id. Timeout: 8s, retry toast. Once resolved, creating the chat queues like everything else. (Revised 2026-09-20.) |
+| Leave group | yes | Local removal at once; queues DELETE /v3.0/channels/{id}. (Added 2026-09-20.) |
+| Join group you don't own (via invite) | **no** | Not in v3.0. |
 | Forward message | yes | Queues per target |
 | Archive / mute / pin | yes | Local-only metadata |
 | Clear chat history | yes | Local-only (server has no history) |

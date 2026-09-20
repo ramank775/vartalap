@@ -314,6 +314,12 @@ the ntfy wake server-side via `POST channels/{id}/settings` or a field on
 Product rules (owner, 2026-09-20), mocked up in
 `docs/design/v3-ui-mockups.html`:
 
+- **Local-first applies to every action.** Send, edit, delete, react,
+  create group, add or remove member, leave group, mute, profile and
+  photo edits all commit locally at once and sync when a connection
+  exists. The UI never says an action "needs a connection". The single
+  network-bound step is resolving a person you have never chatted with
+  (phone-hash or `@username` lookup), which is a read.
 - **Chats, Contacts, Groups are three separate things.** Chats lists
   only conversations with at least one message; a group or contact with
   no messages never appears there.
