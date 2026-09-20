@@ -34,6 +34,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
   /// Channel ids currently selected. Non-empty = selection mode.
   final Set<String> _selected = {};
 
+  /// Created once so `setState` calls (selection toggles, etc.) don't
+  /// resubscribe and re-run the underlying SQL query on every rebuild.
+  late final Stream<List<ChannelListEntry>> _channelsStream =
+      widget.chatService.watchChannels();
+
   bool get _selectionMode => _selected.isNotEmpty;
 
   void _exitSelection() => setState(_selected.clear);
@@ -62,7 +67,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
             ? _buildSelectionAppBar(context)
             : _buildDefaultAppBar(context, wsTransport, chatColors),
         body: StreamBuilder<List<ChannelListEntry>>(
-          stream: widget.chatService.watchChannels(),
+          stream: _channelsStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {

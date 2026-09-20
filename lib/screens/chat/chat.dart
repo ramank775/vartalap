@@ -40,6 +40,13 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<List<MessageRow>>? _readMarkerSub;
   String? _lastMarkedReadMessageId;
 
+  /// Created once (broadcast so both the read-receipt listener below and
+  /// the StreamBuilder in [build] share it) so `setState` calls — typing
+  /// timers, the `_sending` flag, etc. — don't resubscribe and re-run the
+  /// underlying SQL query on every rebuild.
+  late final Stream<List<MessageRow>> _messagesStream =
+      widget.chatService.watchMessages(widget.channelId).asBroadcastStream();
+
   /// Per-message keys so [Scrollable.ensureVisible] can jump to a row by
   /// id. Kept across rebuilds so a key created during the first build
   /// (when the search-jumped row was visible) is still valid when we
@@ -86,19 +93,20 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    widget.chatService.markRead(widget.channelId);
     _input.addListener(_onInputChanged);
     _typingSub = widget.chatService.typingEvents.listen(_onPeerTyping);
     if (widget.channelKind == 'group') _loadMemberNames();
     // While the chat is open, every new peer message that lands also
-    // counts as read. Subscribe once and re-mark whenever the latest
-    // message_id from a peer changes — `markRead` is idempotent on the
-    // local marker, and the read-receipt op is dedup'd by op_id on the
-    // server, so re-firing on every stream tick is safe.
+    // counts as read. Subscribe once (to the same stream the StreamBuilder
+    // below renders, so opening a chat runs one live query, not two) and
+    // re-mark whenever the latest message_id from a peer changes —
+    // `markRead` is idempotent on the local marker, and the read-receipt
+    // op is dedup'd by op_id on the server, so re-firing on every stream
+    // tick is safe. This also covers "mark read on open": the first
+    // emission is the initial query result, so there's no separate eager
+    // markRead call here (that used to double-enqueue the read-receipt op).
     final localUserId = widget.authService.currentUserId;
-    _readMarkerSub = widget.chatService
-        .watchMessages(widget.channelId)
-        .listen((rows) {
+    _readMarkerSub = _messagesStream.listen((rows) {
       if (localUserId == null) return;
       // Newest peer message first — `watchMessages` returns newest-first.
       MessageRow? latestPeer;
@@ -347,7 +355,7 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Expanded(
             child: StreamBuilder<List<MessageRow>>(
-              stream: widget.chatService.watchMessages(widget.channelId),
+              stream: _messagesStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData) {

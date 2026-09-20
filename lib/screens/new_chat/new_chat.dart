@@ -544,7 +544,7 @@ class _ContactPermissionDisclosure extends StatelessWidget {
 // Groups tab
 // ---------------------------------------------------------------------------
 
-class _GroupsTab extends StatelessWidget {
+class _GroupsTab extends StatefulWidget {
   final ChatService chatService;
   final AuthService authService;
 
@@ -553,6 +553,25 @@ class _GroupsTab extends StatelessWidget {
     required this.authService,
   });
 
+  @override
+  State<_GroupsTab> createState() => _GroupsTabState();
+}
+
+class _GroupsTabState extends State<_GroupsTab> {
+  /// Created once so this tab's own rebuilds don't resubscribe and
+  /// re-run the underlying SQL query.
+  Stream<List<ChannelListEntry>>? _groupsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    final userId = widget.authService.currentUserId;
+    if (userId != null) {
+      _groupsStream =
+          widget.chatService.watchMemberChannels(userId: userId, kind: 'group');
+    }
+  }
+
   void _openGroup(BuildContext context, ChannelListEntry entry) {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -560,8 +579,8 @@ class _GroupsTab extends StatelessWidget {
           channelId: entry.channelId,
           channelName: entry.name ?? entry.channelId,
           channelKind: 'group',
-          chatService: chatService,
-          authService: authService,
+          chatService: widget.chatService,
+          authService: widget.authService,
         ),
       ),
     );
@@ -571,8 +590,8 @@ class _GroupsTab extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GroupCreateScreen(
-          chatService: chatService,
-          authService: authService,
+          chatService: widget.chatService,
+          authService: widget.authService,
         ),
       ),
     );
@@ -581,13 +600,13 @@ class _GroupsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final userId = authService.currentUserId;
+    final userId = widget.authService.currentUserId;
     if (userId == null) {
       return const Center(child: Text('Not signed in.'));
     }
 
     return StreamBuilder<List<ChannelListEntry>>(
-      stream: chatService.watchMemberChannels(userId: userId, kind: 'group'),
+      stream: _groupsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
