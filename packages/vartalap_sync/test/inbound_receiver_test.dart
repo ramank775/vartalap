@@ -265,6 +265,9 @@ void main() {
         deliverySequence: 1,
       ));
       await _settleChannel(store, newChannel, present: true);
+      // The channel row lands before the member rows do, so "channel
+      // exists" is not "apply finished" — wait for the apply itself.
+      await receiver.drainPending();
 
       final chans = await store.db.query(
         'channels',

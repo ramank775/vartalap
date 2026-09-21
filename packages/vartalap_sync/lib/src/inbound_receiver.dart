@@ -8,9 +8,11 @@ import 'clock.dart';
 
 /// One typing-indicator event observed on the inbound WS stream. Emitted
 /// from `InboundReceiver.typingEvents` when an envelope marked
-/// `ephemeral=true` carries a `ServerEventPayload{Typing}` body. Lossy
-/// by design — recipients should treat absence as "not typing" and
-/// expire any active indicator after a short TTL.
+/// `ephemeral=true` carries a `ChatPayload{TYPE_TYPING}` body (decision
+/// 56) — or a server-authored `ServerEventPayload{Typing}`, which stays
+/// decodable in case the gateway ever emits one. Lossy by design —
+/// recipients should treat absence as "not typing" and expire any
+/// active indicator after a short TTL.
 class TypingEvent {
   final String channelId;
   final String userId;
@@ -58,6 +60,14 @@ class InboundReceiver {
 
   final Set<Future<void>> _inFlight = <Future<void>>{};
 
+  /// Applies run one at a time, in arrival order. Two frames delivered
+  /// in the same microtask batch would otherwise both clear the
+  /// `hasSeenOpId` check before either wrote `op_id_seen`, and the
+  /// loser blew up on the UNIQUE constraint — losing the apply. Serial
+  /// also means a live message can never overtake the
+  /// `ChannelCreated` it depends on.
+  Future<void> _chain = Future<void>.value();
+
   /// Ephemeral typing-event fanout. Broadcast so multiple chat screens
   /// can subscribe; never replayed because typing is intentionally lossy
   /// (see Typing proto contract).
@@ -81,7 +91,15 @@ class InboundReceiver {
     if (_running) return;
     _running = true;
     _sub = pushes.listen(
-      (env) => _track(_apply(env)),
+      (env) => _track(_chain = _chain.then((_) => _apply(env)).catchError(
+            (Object e) {
+              // Keep the chain alive: one bad frame must not stop every
+              // later one from applying.
+              // ignore: avoid_print
+              print('InboundReceiver: apply failed '
+                  'channel=${env.channelId} op_id=${env.opId}: $e');
+            },
+          )),
       onError: (_) {},
     );
   }
@@ -135,11 +153,10 @@ class InboundReceiver {
     }
 
     // Ephemeral envelopes (typing, future presence) bypass dedup, the
-    // op_id_seen table, and projection writes entirely. We decode the
-    // 0x53 ServerEventPayload directly and emit on the side-channel.
+    // op_id_seen table, and projection writes entirely. Decode and emit
+    // on the side-channel.
     if (env.ephemeral) {
-      if (payload[0] != 0x53) return; // unknown ephemeral shape
-      _handleEphemeral(env, payload.sublist(1));
+      _handleEphemeral(env, payload);
       return;
     }
 
@@ -240,6 +257,17 @@ class InboundReceiver {
           emoji: chat.emoji,
           nowMs: clock.nowMs(),
         );
+      case pb.ChatPayloadType.TYPE_READ_RECEIPT:
+        await _handleReadReceipt(env, chat);
+      case pb.ChatPayloadType.TYPE_TYPING:
+        // Typing must ride `ephemeral=true`; on the persistent path it
+        // would be a stale indicator by the time it applied. Drop it,
+        // but record op_id_seen so a re-fanout isn't re-evaluated.
+        await store.db.insert('op_id_seen', {
+          'channel_id': channelId,
+          'op_id': opId,
+          'seen_at': clock.nowMs(),
+        });
       case pb.ChatPayloadType.TYPE_UNSPECIFIED:
       default:
         // Unknown type from a future client version. Per v3-chat-
@@ -297,24 +325,71 @@ class InboundReceiver {
     }
   }
 
-  /// Decode and re-emit an ephemeral ServerEventPayload. The only
-  /// variant routed today is [pb.Typing]; anything else is a no-op
-  /// (forward-compat for future presence/reactions-bursts).
-  void _handleEphemeral(pb.Envelope env, List<int> bytes) {
-    pb.ServerEventPayload sep;
+  /// Decode and re-emit an ephemeral payload. Peers send
+  /// `ChatPayload{TYPE_TYPING}` (decision 56); a 0x53-prefixed
+  /// server-authored `ServerEventPayload{Typing}` is still accepted in
+  /// case the gateway ever emits one. Anything else is a no-op
+  /// (forward-compat for future presence / reaction bursts).
+  void _handleEphemeral(pb.Envelope env, List<int> payload) {
+    final bool? isTyping;
     try {
-      sep = pb.ServerEventPayload.fromBuffer(bytes);
+      if (payload[0] == 0x53) {
+        final sep = pb.ServerEventPayload.fromBuffer(payload.sublist(1));
+        isTyping = sep.whichBody() == pb.ServerEventPayload_Body.typing
+            ? sep.typing.isTyping
+            : null;
+      } else {
+        final chat = pb.ChatPayload.fromBuffer(payload);
+        isTyping = chat.type == pb.ChatPayloadType.TYPE_TYPING
+            ? chat.isTyping
+            : null;
+      }
     } catch (_) {
       return;
     }
-    if (sep.whichBody() != pb.ServerEventPayload_Body.typing) return;
+    if (isTyping == null) return;
     if (_typingCtrl.isClosed) return;
     _typingCtrl.add(TypingEvent(
       channelId: env.channelId,
       userId: env.senderUserId,
-      isTyping: sep.typing.isTyping,
+      isTyping: isTyping,
       emittedAtMs: env.clientTimestampMs.toInt(),
     ));
+  }
+
+  /// §6a read receipt (decision 56). [chat.messageId] is the sender's
+  /// read-up-to marker: every message the LOCAL user authored in this
+  /// channel at or before it flips to `read`. The authorship filter is
+  /// the §6a.3 gate — a receipt never touches a third party's rows, and
+  /// our own echo (sender == us) is ignored.
+  Future<void> _handleReadReceipt(
+    pb.Envelope env,
+    pb.ChatPayload chat,
+  ) async {
+    if (env.senderUserId != localUserId && chat.messageId.isNotEmpty) {
+      final rows = await store.db.rawQuery(
+        '''
+        SELECT message_id FROM messages
+        WHERE channel_id = ? AND author_user_id = ?
+          AND COALESCE(delivery_sequence, 0) <= (
+            SELECT COALESCE(delivery_sequence, 0) FROM messages
+            WHERE message_id = ?)
+        ''',
+        [env.channelId, localUserId, chat.messageId],
+      );
+      for (final row in rows) {
+        await store.applyMessageStateChange(
+          messageId: row['message_id'] as String,
+          newState: MessageState.read,
+          changedAtMs: env.serverTimestampMs.toInt(),
+        );
+      }
+    }
+    await store.db.insert('op_id_seen', {
+      'channel_id': env.channelId,
+      'op_id': env.opId,
+      'seen_at': clock.nowMs(),
+    });
   }
 
   /// §10.2 MessageStateChanged. Flip the local row's `message_state`

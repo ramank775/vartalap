@@ -26,6 +26,8 @@ const ChatPayloadType$json = {
     {'1': 'TYPE_REACTION_ADD', '2': 4},
     {'1': 'TYPE_REACTION_REMOVE', '2': 5},
     {'1': 'TYPE_MESSAGE_FORWARD', '2': 6},
+    {'1': 'TYPE_READ_RECEIPT', '2': 7},
+    {'1': 'TYPE_TYPING', '2': 8},
   ],
 };
 
@@ -34,7 +36,8 @@ final $typed_data.Uint8List chatPayloadTypeDescriptor = $convert.base64Decode(
     'Cg9DaGF0UGF5bG9hZFR5cGUSFAoQVFlQRV9VTlNQRUNJRklFRBAAEhcKE1RZUEVfTUVTU0FHRV'
     '9DUkVBVEUQARIXChNUWVBFX01FU1NBR0VfVVBEQVRFEAISFwoTVFlQRV9NRVNTQUdFX0RFTEVU'
     'RRADEhUKEVRZUEVfUkVBQ1RJT05fQUREEAQSGAoUVFlQRV9SRUFDVElPTl9SRU1PVkUQBRIYCh'
-    'RUWVBFX01FU1NBR0VfRk9SV0FSRBAG');
+    'RUWVBFX01FU1NBR0VfRk9SV0FSRBAGEhUKEVRZUEVfUkVBRF9SRUNFSVBUEAcSDwoLVFlQRV9U'
+    'WVBJTkcQCA==');
 
 @$core.Deprecated('Use chatPayloadDescriptor instead')
 const ChatPayload$json = {
@@ -76,6 +79,7 @@ const ChatPayload$json = {
       '6': '.vartalap.v3.payload.ForwardSource',
       '10': 'forwardSource'
     },
+    {'1': 'is_typing', '3': 50, '4': 1, '5': 8, '10': 'isTyping'},
     {
       '1': 'meta',
       '3': 100,
@@ -107,9 +111,9 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'bG9hZC5BdHRhY2htZW50UgthdHRhY2htZW50cxItChNyZXBseV90b19tZXNzYWdlX2lkGBQgAS'
     'gJUhByZXBseVRvTWVzc2FnZUlkEhQKBWVtb2ppGB4gASgJUgVlbW9qaRJJCg5mb3J3YXJkX3Nv'
     'dXJjZRgoIAEoCzIiLnZhcnRhbGFwLnYzLnBheWxvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZF'
-    'NvdXJjZRI+CgRtZXRhGGQgAygLMioudmFydGFsYXAudjMucGF5bG9hZC5DaGF0UGF5bG9hZC5N'
-    'ZXRhRW50cnlSBG1ldGEaNwoJTWV0YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5EhQKBXZhbHVlGA'
-    'IgASgJUgV2YWx1ZToCOAE=');
+    'NvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlzVHlwaW5nEj4KBG1ldGEYZCADKAsyKi52YXJ0'
+    'YWxhcC52My5wYXlsb2FkLkNoYXRQYXlsb2FkLk1ldGFFbnRyeVIEbWV0YRo3CglNZXRhRW50cn'
+    'kSEAoDa2V5GAEgASgJUgNrZXkSFAoFdmFsdWUYAiABKAlSBXZhbHVlOgI4AQ==');
 
 @$core.Deprecated('Use attachmentDescriptor instead')
 const Attachment$json = {

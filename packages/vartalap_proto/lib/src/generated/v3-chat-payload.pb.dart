@@ -42,6 +42,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     $core.String? replyToMessageId,
     $core.String? emoji,
     ForwardSource? forwardSource,
+    $core.bool? isTyping,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
   }) {
     final result = create();
@@ -54,6 +55,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (replyToMessageId != null) result.replyToMessageId = replyToMessageId;
     if (emoji != null) result.emoji = emoji;
     if (forwardSource != null) result.forwardSource = forwardSource;
+    if (isTyping != null) result.isTyping = isTyping;
     if (meta != null) result.meta.addEntries(meta);
     return result;
   }
@@ -84,6 +86,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     ..aOS(30, _omitFieldNames ? '' : 'emoji')
     ..aOM<ForwardSource>(40, _omitFieldNames ? '' : 'forwardSource',
         subBuilder: ForwardSource.create)
+    ..aOB(50, _omitFieldNames ? '' : 'isTyping')
     ..m<$core.String, $core.String>(100, _omitFieldNames ? '' : 'meta',
         entryClassName: 'ChatPayload.MetaEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -134,7 +137,9 @@ class ChatPayload extends $pb.GeneratedMessage {
   /// The message this payload acts on. For TYPE_MESSAGE_CREATE and
   /// TYPE_MESSAGE_FORWARD, this is the new message's id (client-
   /// generated UUIDv7). For UPDATE / DELETE / REACTION_*, this is
-  /// the existing message being targeted.
+  /// the existing message being targeted. For TYPE_READ_RECEIPT it is
+  /// the read-up-to marker: the newest message the sender has read.
+  /// Unused (empty) for TYPE_TYPING.
   @$pb.TagNumber(3)
   $core.String get messageId => $_getSZ(2);
   @$pb.TagNumber(3)
@@ -198,12 +203,22 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(40)
   ForwardSource ensureForwardSource() => $_ensure(8);
 
+  /// For TYPE_TYPING. False means "stopped typing".
+  @$pb.TagNumber(50)
+  $core.bool get isTyping => $_getBF(9);
+  @$pb.TagNumber(50)
+  set isTyping($core.bool value) => $_setBool(9, value);
+  @$pb.TagNumber(50)
+  $core.bool hasIsTyping() => $_has(9);
+  @$pb.TagNumber(50)
+  void clearIsTyping() => $_clearField(50);
+
   /// Free-form client metadata. Other clients MAY ignore unknown keys.
   /// Reserved keys:
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(9);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(10);
 }
 
 class Attachment extends $pb.GeneratedMessage {

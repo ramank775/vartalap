@@ -747,6 +747,116 @@ void main() {
       );
     });
 
+    // ---- 7f -------------------------------------------------------------
+    test('7f. read receipt + typing ride the ChatPayload schema; a '
+        'client-authored 0x53 is refused (decision 56)', () async {
+      h.peerInbox();
+
+      // Step 7d tombstoned the only peer message, so seed a live one —
+      // markRead's marker is the newest NON-tombstoned peer message.
+      final unread = h.mock.injectPeerMessage(
+        channelId: dmChannelId,
+        body: 'read this',
+      );
+      await h.waitForAsync(
+          () async => await h.store.fetchMessage(unread.messageId) != null);
+
+      // Outbound receipt: a normal WS op naming the newest peer message.
+      await h.chat.markRead(dmChannelId);
+      await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_READ_RECEIPT,
+          messageId: unread.messageId));
+      expect(
+        h.peerSaw(pb.ChatPayloadType.TYPE_READ_RECEIPT,
+            messageId: unread.messageId),
+        isTrue,
+        reason: 'Decision 56: markRead enqueues a '
+            'ChatPayload{TYPE_READ_RECEIPT} naming the read-up-to message, '
+            'and the server fans it to the channel like any other op.',
+      );
+      expect(
+        h.mock.envelopes.where((e) =>
+            e.rejectReason != null && e.rejectReason != 'forced_reject'),
+        isEmpty,
+        reason: 'Decision 56: the receipt rides the normal op path, so it '
+            'passes §6a.3 step 5 and consumes a resource_seq like any '
+            'other op.',
+      );
+
+      // Inbound receipt is read-UP-TO: both of these flip, not just the
+      // one the marker names.
+      final older = await h.sendAndSettle(dmChannelId, 'read me 1');
+      final newer = await h.sendAndSettle(dmChannelId, 'read me 2');
+      h.mock.injectPeerReadReceipt(
+        channelId: dmChannelId,
+        messageId: newer!.messageId,
+      );
+      await h.waitForAsync(() async =>
+          (await h.store.fetchMessage(older!.messageId))?.state ==
+          MessageState.read);
+      expect(
+        [
+          (await h.store.fetchMessage(older!.messageId))?.state,
+          (await h.store.fetchMessage(newer.messageId))?.state,
+        ],
+        everyElement(MessageState.read),
+        reason: 'v3-chat-payload.proto: message_id on a TYPE_READ_RECEIPT '
+            'is a read-up-to marker, and the §6a.3 authorship gate limits '
+            'the flip to the local user\'s own rows.',
+      );
+
+      // Outbound typing: an ephemeral ChatPayload, never a 0x53 forgery.
+      h.chat.notifyTyping(channelId: dmChannelId, isTyping: true);
+      await h.waitFor(() => h.mock.ephemeralEnvelopes.isNotEmpty);
+      final typed = pb.ChatPayload.fromBuffer(
+          h.mock.ephemeralEnvelopes.last.payload);
+      expect(
+        [typed.type, typed.isTyping],
+        [pb.ChatPayloadType.TYPE_TYPING, true],
+        reason: 'Decision 56: typing is a ChatPayload on an '
+            'ephemeral=true envelope, not a client-authored Typing event.',
+      );
+
+      // Inbound typing reaches the UI side-channel.
+      final typings = <TypingEvent>[];
+      final typingSub = h.chat.typingEvents.listen(typings.add);
+      addTearDown(typingSub.cancel);
+      await _pump();
+      h.mock.injectPeerTyping(channelId: dmChannelId, isTyping: true);
+      await h.waitFor(() =>
+          typings.any((t) => t.channelId == dmChannelId && t.isTyping));
+      expect(
+        typings.map((t) => '${t.userId}:${t.isTyping}'),
+        contains('$peerUserId:true'),
+        reason: 'InboundReceiver must decode a ChatPayload{TYPE_TYPING} on '
+            'an ephemeral envelope onto the typing side-channel.',
+      );
+
+      // And the forged server event the gateway refuses (§10.2).
+      final forgedOpId = Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(userIdA))
+          .next(nowMs: DateTime.now().millisecondsSinceEpoch);
+      h.ws.sendEphemeral(
+        opId: forgedOpId,
+        channelId: dmChannelId,
+        payload: Uint8List.fromList([
+          0x53,
+          ...pb.ServerEventPayload(
+            version: 1,
+            type: pb.ServerEventType.TYPING,
+            typing: pb.Typing(isTyping: true),
+          ).writeToBuffer(),
+        ]),
+      );
+      await h.waitFor(() => h.mock.envelopes.any((e) => e.opId == forgedOpId));
+      expect(
+        h.mock.envelopes
+            .firstWhere((e) => e.opId == forgedOpId)
+            .rejectReason,
+        'validation_failed',
+        reason: 'SYNC_PROTOCOL §10.2 / decision 56: server events are '
+            'server-authored. A client payload starting 0x53 is refused.',
+      );
+    });
+
     // ---- 8 --------------------------------------------------------------
     test('8. logout wipes the local store', () async {
       await h.authService.logout();
@@ -928,6 +1038,9 @@ void main() {
         reason: 'SYNC_PROTOCOL §10.2: every user sharing a channel with the '
             'editor gets a ProfileEdited carrying the new avatarUrl.',
       );
+    });
+
+    // ---- 12 -------------------------------------------------------------
     test('12. push: the ntfy endpoint reaches POST /v3.0/push/topic and '
         'round-trips out of storage', () async {
       // AUTH_CONTRACT §2.4: push/topic sits behind the USERNAME_REQUIRED
@@ -1017,6 +1130,8 @@ List<pb.ProfileEdited> _peerProfileEdits(_Harness h) {
     }
   }
   return out;
+}
+
 /// The ntfy app, minus Android. `PushService` only ever asks it for the
 /// distributor list and a registration; the endpoint arrives on the
 /// callback, which the test fires by hand.
