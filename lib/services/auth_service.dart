@@ -57,6 +57,12 @@ class AuthService {
   /// identifier for the OTP attempt (AUTH_CONTRACT §3.1).
   String? _otpSessionId;
 
+  /// Ran at the top of [logout], before the session is revoked — the
+  /// push topic deregistration (AUTH_CONTRACT §5.1) needs the accesskey
+  /// that revoke is about to invalidate. Set by `main.dart`; failures
+  /// are swallowed so a dead hook can never trap a user in a session.
+  Future<void> Function()? onBeforeLogout;
+
   /// Set after a successful [verifyOtp] if the server returned a
   /// default channel (mock-server seed-peer feature). Consumed once
   /// by the post-login bootstrap in `main.dart`.
@@ -356,6 +362,11 @@ class AuthService {
   /// store isn't a constructor arg — it is opened after this service
   /// in `main.dart` — so we reach it through [ChatStore.current].
   Future<void> logout() async {
+    try {
+      await onBeforeLogout?.call();
+    } catch (_) {
+      // best effort — a failed deregistration must not block logout
+    }
     try {
       await _client.revokeSession();
     } catch (_) {

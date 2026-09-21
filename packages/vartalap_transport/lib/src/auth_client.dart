@@ -315,9 +315,10 @@ class AuthClient implements AuthTokenProvider {
         .toList();
   }
 
-  /// `POST /v3.0/push/topic` — AUTH_CONTRACT §5.1.
+  /// `POST /v3.0/push/topic` — AUTH_CONTRACT §5.1. A null (or empty)
+  /// [topicUrl] deregisters this `(user_id, deviceId)`.
   Future<void> registerPushTopic({
-    required String topicUrl,
+    required String? topicUrl,
   }) async {
     final resp = await _post('/v3.0/push/topic',
         body: {'topicUrl': topicUrl}, headers: _authHeaders());

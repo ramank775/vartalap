@@ -12,7 +12,10 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/config/sentry_config.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/push_service.dart';
+import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/theme/theme.dart';
 
 export 'package:vartalap/config/sentry_config.dart'
@@ -347,6 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _seedDummyContacts,
             ),
           ],
+          _PushSection(scheme: scheme, textTheme: textTheme),
           const Divider(height: 1),
           _SectionHeader(label: 'Account', scheme: scheme,
               textTheme: textTheme),
@@ -394,6 +398,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ThemeMode.dark => 'Dark',
         ThemeMode.system => 'System default',
       };
+}
+
+/// Push state + the one action that can change it. The service comes
+/// from the root provider, so the whole section disappears when the
+/// screen is rendered without the service graph (widget tests).
+class _PushSection extends StatelessWidget {
+  final ColorScheme scheme;
+  final TextTheme textTheme;
+
+  const _PushSection({required this.scheme, required this.textTheme});
+
+  @override
+  Widget build(BuildContext context) {
+    final push = AppServicesProvider.maybeOf(context)?.pushService;
+    if (push == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<PushState>(
+      valueListenable: push.state,
+      builder: (context, state, _) {
+        final missing = state == PushState.distributorMissing;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Divider(height: 1),
+            _SectionHeader(
+                label: 'Notifications',
+                scheme: scheme,
+                textTheme: textTheme),
+            ListTile(
+              leading: Icon(Icons.notifications_outlined,
+                  color: scheme.onSurfaceVariant),
+              title: const Text('Push notifications'),
+              subtitle: Text(switch (state) {
+                PushState.registered => 'Registered. Vartalap is woken by '
+                    'ntfy when a message arrives.',
+                PushState.distributorMissing =>
+                  'The ntfy app is not installed — messages only arrive '
+                      'while Vartalap is open.',
+                PushState.disabled => 'Disabled.',
+                PushState.failed => 'Registration failed. Tap Retry.',
+                PushState.unknown => 'Checking…',
+              }),
+              trailing: TextButton(
+                onPressed: () => missing
+                    ? launchUrl(Uri.parse(kNtfyInstallUrl),
+                        mode: LaunchMode.externalApplication)
+                    : push.refresh(),
+                child: Text(missing ? 'Install' : 'Retry'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {

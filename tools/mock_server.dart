@@ -1458,10 +1458,35 @@ class MockServer {
     _respondJson(req, 200, {'users': created, 'count': created.length});
   }
 
+  /// AUTH_CONTRACT §5.1 — register, replace or (null/"") deregister the
+  /// ntfy topic of the calling device. Validates the HTTPS scheme and a
+  /// basic URL shape exactly like notification-ms; the mock has no
+  /// configured `--ntfy-base-url`, so the host prefix check is the one
+  /// server rule it cannot mirror.
   Future<void> _handlePushTopic(HttpRequest req) async {
     final session = _authenticate(req);
     if (session == null) return;
-    _log('Push topic registered for userId=${session.userId}');
+    final body = await _readJsonBody(req);
+    final topicUrl = body['topicUrl'] as String?;
+    if (topicUrl == null || topicUrl.isEmpty) {
+      _log('Push topic cleared for userId=${session.userId}');
+      _record(req, body, 200);
+      _respondJson(req, 200, {'status': true});
+      return;
+    }
+    final parsed = Uri.tryParse(topicUrl);
+    if (parsed == null || parsed.scheme != 'https' || parsed.host.isEmpty) {
+      _record(req, body, 400);
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'INVALID_TOPIC_URL',
+          'message': 'topicUrl must be an https URL'
+        }
+      });
+      return;
+    }
+    _log('Push topic registered for userId=${session.userId}: $topicUrl');
+    _record(req, body, 200);
     _respondJson(req, 200, {'status': true});
   }
 
