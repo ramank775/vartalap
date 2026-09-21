@@ -36,13 +36,6 @@ class AssetUploadTransport implements Transport {
   final _ackCtrl = StreamController<AckFrame>.broadcast();
   bool _disposed = false;
 
-  /// op_ids with an upload in flight. Unlike a WS or REST op — which
-  /// the server dedups by op_id (SYNC_PROTOCOL §7.1) — running an
-  /// upload twice mints two fileIds and sends two messages, so a
-  /// double dispatch has to be swallowed here. Cleared when the upload
-  /// settles, so a genuine retry still runs.
-  final Set<String> _uploading = {};
-
   AssetUploadTransport({
     required this.client,
     required this.network,
@@ -76,7 +69,14 @@ class AssetUploadTransport implements Transport {
     } catch (e) {
       throw StateError('AssetUploadTransport: payload not JSON: $e');
     }
-    if (!_uploading.add(op.opId)) return;
+    // No same-op_id dedup guard here: SyncScheduler._dispatchOnce is now
+    // single-flight (decision 59 / DECISIONS.md), so it can never hand
+    // this transport the same op_id twice before the first upload
+    // settles. Unlike RestTransport/WsTransport, that guarantee matters
+    // here specifically because a second upload of the same op would
+    // mint a second fileId and send a second message — the server has
+    // nothing to dedup against.
+    //
     // Like RestTransport: the network round-trip is not awaited by the
     // scheduler; outcomes come back on `acks`.
     unawaited(_upload(op.opId, spec));
@@ -107,8 +107,6 @@ class AssetUploadTransport implements Transport {
       _emit(opId, AckPermanentReject(reason: 'file_missing:${e.osError?.errorCode}'));
     } catch (e) {
       _emit(opId, AckTransientReject(reason: 'upload_error:${e.runtimeType}'));
-    } finally {
-      _uploading.remove(opId);
     }
   }
 

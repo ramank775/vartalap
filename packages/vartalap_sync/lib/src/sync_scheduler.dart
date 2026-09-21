@@ -64,6 +64,21 @@ class SyncScheduler {
   final _tickSoon = StreamController<void>.broadcast();
   bool _running = false;
 
+  /// Single-flight guard for Flow A (decision 59 / DECISIONS.md). Every
+  /// `tickSoon()` (enqueue, ACK, timeout sweep, reconnect) pushed a
+  /// fresh event onto [_tickSoon], and the listener below kicked off a
+  /// brand-new [_dispatchOnce] for each one with no guard against a
+  /// pass that was already running. Because [_dispatchOnce] awaits
+  /// `store.selectDispatchable()` (a plain SELECT) before any row is
+  /// flipped to `in_flight`, several wake-ups arriving close together
+  /// could each see the same row as still `pending` and dispatch it —
+  /// the same op sent more than once. `[_dispatching]` / `[_dispatchAgain]`
+  /// serialize the pass: a wake-up that lands mid-pass just asks for one
+  /// more pass after the current one finishes, instead of starting a
+  /// second overlapping SELECT.
+  bool _dispatching = false;
+  bool _dispatchAgain = false;
+
   /// Paused on AUTH_FAILURE until the auth layer refreshes. Flow A
   /// checks this at the top of each tick.
   bool _authPaused = false;
@@ -171,17 +186,34 @@ class SyncScheduler {
   // ---------------------------------------------------------------------
 
   Future<void> _dispatchOnce() async {
-    if (!_running || _authPaused) return;
-    final dispatchable = await store.selectDispatchable(now: clock.nowMs());
-    // Re-check after the await — stop() may have fired while we were
-    // suspended on the DB read. Hitting the store below with
-    // `_running == false` can still succeed if it hasn't been closed
-    // yet, but the guard keeps intent crisp: once stopped, do no more
-    // work.
-    if (!_running) return;
-    for (final op in dispatchable) {
-      if (!_running) return;
-      await _dispatchOne(op);
+    // Single-flight: if a pass is already selecting/sending, don't
+    // start a second overlapping SELECT — it would see the same rows
+    // the running pass hasn't flipped to `in_flight` yet. Just ask the
+    // running pass to loop once more after it finishes.
+    if (_dispatching) {
+      _dispatchAgain = true;
+      return;
+    }
+    _dispatching = true;
+    try {
+      do {
+        _dispatchAgain = false;
+        if (!_running || _authPaused) return;
+        final dispatchable =
+            await store.selectDispatchable(now: clock.nowMs());
+        // Re-check after the await — stop() may have fired while we
+        // were suspended on the DB read. Hitting the store below with
+        // `_running == false` can still succeed if it hasn't been
+        // closed yet, but the guard keeps intent crisp: once stopped,
+        // do no more work.
+        if (!_running) return;
+        for (final op in dispatchable) {
+          if (!_running) return;
+          await _dispatchOne(op);
+        }
+      } while (_dispatchAgain);
+    } finally {
+      _dispatching = false;
     }
   }
 
