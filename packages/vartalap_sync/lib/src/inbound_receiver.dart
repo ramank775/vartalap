@@ -6,6 +6,18 @@ import 'package:vartalap_store/vartalap_store.dart';
 
 import 'clock.dart';
 
+/// Public-profile fields needed to backfill a `contacts` row for a peer
+/// we've never discovered (decision 79) — a subset of `GET
+/// /v3.0/users/{user_id}`'s response, kept minimal so this pure-Dart
+/// package doesn't need `vartalap_transport`'s JSON shape.
+class ContactProfile {
+  final String? username;
+  final String? displayName;
+  final String? avatarUrl;
+
+  const ContactProfile({this.username, this.displayName, this.avatarUrl});
+}
+
 /// One typing-indicator event observed on the inbound WS stream. Emitted
 /// from `InboundReceiver.typingEvents` when an envelope marked
 /// `ephemeral=true` carries a `ChatPayload{TYPE_TYPING}` body (decision
@@ -55,10 +67,22 @@ class InboundReceiver {
   final String localUserId;
   final Clock clock;
 
+  /// Fetches a peer's public profile (`GET /v3.0/users/{user_id}`) for
+  /// the decision-79 "stranger DM" backfill — injected so this pure-Dart
+  /// package never depends on `vartalap_transport`. `null` disables the
+  /// backfill (e.g. in tests that don't care about it).
+  final Future<ContactProfile?> Function(String userId)? resolveProfile;
+
   StreamSubscription<pb.Envelope>? _sub;
   bool _running = false;
 
   final Set<Future<void>> _inFlight = <Future<void>>{};
+
+  /// user_ids with a [resolveProfile] call currently in flight — a
+  /// synchronous `add`/`remove` guard so a channel event that repeats
+  /// the same unknown member (ChannelCreated then MemberAdded in quick
+  /// succession) never fires a second fetch for it.
+  final Set<String> _profileFetchInFlight = <String>{};
 
   /// Applies run one at a time, in arrival order. Two frames delivered
   /// in the same microtask batch would otherwise both clear the
@@ -83,6 +107,7 @@ class InboundReceiver {
     required this.pushes,
     required this.localUserId,
     this.clock = Clock.system,
+    this.resolveProfile,
   });
 
   /// Subscribe to inbound pushes. Idempotent — re-calling after [stop]
@@ -572,6 +597,7 @@ class InboundReceiver {
       'op_id': env.opId,
       'seen_at': nowMs,
     });
+    _resolveUnknownMembers(body.members);
   }
 
   /// §10.2 ChannelMemberAdded. Out-of-order delivery (channel not yet
@@ -605,6 +631,7 @@ class InboundReceiver {
       'op_id': env.opId,
       'seen_at': nowMs,
     });
+    _resolveUnknownMembers(body.members);
   }
 
   /// §10.2 ChannelMemberRemoved. Soft-deletes the row; if the local user
@@ -637,6 +664,69 @@ class InboundReceiver {
       'op_id': env.opId,
       'seen_at': nowMs,
     });
+  }
+
+  /// Decision 79: schedule a best-effort [resolveProfile] fetch for every
+  /// member we don't already have a usable contact row for, so a DM
+  /// opened by a stranger stops rendering as "Unknown" (AUTH_CONTRACT
+  /// §2.4 resolver just needs `username` in the `contacts` table).
+  /// Fire-and-forget — never awaited by callers, so a slow or failing
+  /// fetch can't stall the channel/membership projection.
+  void _resolveUnknownMembers(Iterable<String> memberIds) {
+    final resolve = resolveProfile;
+    if (resolve == null) return;
+    for (final userId in memberIds) {
+      if (userId == localUserId) continue;
+      // Atomic check-and-claim: `Set.add` is synchronous, so two events
+      // for the same user_id in a row can't both slip past this guard.
+      if (!_profileFetchInFlight.add(userId)) continue;
+      unawaited(_fetchAndApplyProfile(userId, resolve));
+    }
+  }
+
+  Future<void> _fetchAndApplyProfile(
+    String userId,
+    Future<ContactProfile?> Function(String) resolve,
+  ) async {
+    try {
+      final rows = await store.db.query(
+        'contacts',
+        columns: const ['username'],
+        where: 'user_id = ?',
+        whereArgs: [userId],
+        limit: 1,
+      );
+      if (rows.isNotEmpty &&
+          (rows.single['username'] as String?)?.isNotEmpty == true) {
+        return; // already resolvable via @username.
+      }
+      final profile = await resolve(userId);
+      if (profile == null) return;
+      // applyProfileEdit/applyUsernameChange only ever touch the
+      // columns they're given — phone_hash and contact_book_name (set
+      // locally, never by the server) are left untouched either way.
+      await store.applyProfileEdit(
+        userId: userId,
+        displayName: (value: profile.displayName),
+        avatarUrl: (value: profile.avatarUrl),
+        nowMs: clock.nowMs(),
+      );
+      if (profile.username != null && profile.username!.isNotEmpty) {
+        await store.applyUsernameChange(
+          userId: userId,
+          newUsername: profile.username!,
+          nowMs: clock.nowMs(),
+        );
+      }
+    } catch (e) {
+      // Best-effort — the next ChannelCreated/ChannelMemberAdded that
+      // mentions this user_id will retry (the in-flight guard has
+      // already been released via `finally` below).
+      // ignore: avoid_print
+      print('InboundReceiver: profile fetch failed for user=$userId: $e');
+    } finally {
+      _profileFetchInFlight.remove(userId);
+    }
   }
 
   /// Fallback log for ServerEventPayload variants we don't yet apply.

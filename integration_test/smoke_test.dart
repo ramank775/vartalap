@@ -157,11 +157,21 @@ void main() {
     });
 
     await _waitFor(tester, find.byType(ChannelTile));
+    // Decision 79: this DM's ChannelCreated carries no name (one_to_one,
+    // peer never in our contacts) — the row must resolve the peer's
+    // profile and show "@<handle>", not fall back to "Unknown".
+    await _waitFor(tester, find.text('@${peer.username}'));
+    expect(find.text('Unknown'), findsNothing,
+        reason: 'decision 79: a stranger DM must not render as "Unknown" '
+            'in the chat list.');
     await _shot(tester, binding, '08-chats-row');
 
     // ---- 9. open the chat, see the bubble ------------------------------
     await tester.tap(find.byType(ChannelTile).first);
     await _waitFor(tester, find.text(inbound));
+    expect(find.text('@${peer.username}'), findsWidgets,
+        reason: 'decision 79: the chat header must also show the peer\'s '
+            '@handle, not "Unknown".');
     await _shot(tester, binding, '09-chat-inbound');
 
     // ---- 10. reply -----------------------------------------------------
@@ -257,6 +267,7 @@ class _Peer {
   final ChatService chat;
   InboundReceiver? inbound;
   String channelId = '';
+  String username = '';
 
   _Peer._(this.baseUrl, this.phone, this.store, this.authClient,
       this.authService, this.ws, this.rest, this.scheduler, this.chat);
@@ -301,7 +312,8 @@ class _Peer {
   Future<void> login() async {
     await authService.sendOtp(phone);
     await authService.verifyOtp(phone, await _devOtp(phone));
-    await authService.setUsername(_freshUsername());
+    username = _freshUsername();
+    await authService.setUsername(username);
     chat.reseedForUser(userId);
     final receiver = InboundReceiver(
       store: store,

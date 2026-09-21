@@ -591,6 +591,180 @@ void main() {
       expect(selfRow.single['removed_at'], 550);
     },
   );
+
+  // --- decision 79: unknown-peer profile backfill -------------------------
+
+  test(
+    'ChannelCreated for an unknown peer upserts a contact row via '
+    'resolveProfile',
+    () async {
+      final resolveCalls = <String>[];
+      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final withResolver = InboundReceiver(
+        store: store,
+        pushes: localPushes.stream,
+        localUserId: _selfUserId,
+        clock: clock,
+        resolveProfile: (userId) async {
+          resolveCalls.add(userId);
+          return const ContactProfile(username: 'strangerhandle');
+        },
+      );
+      await withResolver.start();
+      addTearDown(withResolver.stop);
+      addTearDown(localPushes.close);
+
+      const dmChannel = 'c-dm-stranger';
+      const strangerId = '0a111aaa1';
+      localPushes.add(_makeEnvelope(
+        channelId: dmChannel,
+        opId: 'op-dm-cc-1',
+        senderUserId: strangerId,
+        payload: _serverEventChannelCreated(
+          channelId: dmChannel,
+          kind: 'one_to_one',
+          name: '',
+          members: [strangerId, _selfUserId],
+          creator: strangerId,
+          createdAtMs: 2000,
+        ),
+        serverTimestampMs: 2000,
+        deliverySequence: 1,
+      ));
+
+      await _settleContactUsername(store, strangerId, 'strangerhandle');
+      expect(resolveCalls, [strangerId]);
+    },
+  );
+
+  test(
+    'resolveProfile failure leaves no contact row and does not throw',
+    () async {
+      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final withResolver = InboundReceiver(
+        store: store,
+        pushes: localPushes.stream,
+        localUserId: _selfUserId,
+        clock: clock,
+        resolveProfile: (userId) async => throw StateError('network down'),
+      );
+      await withResolver.start();
+      addTearDown(withResolver.stop);
+      addTearDown(localPushes.close);
+
+      const dmChannel = 'c-dm-fail';
+      const strangerId = '0a222bbb2';
+      localPushes.add(_makeEnvelope(
+        channelId: dmChannel,
+        opId: 'op-dm-cc-fail',
+        senderUserId: strangerId,
+        payload: _serverEventChannelCreated(
+          channelId: dmChannel,
+          kind: 'one_to_one',
+          name: '',
+          members: [strangerId, _selfUserId],
+          creator: strangerId,
+          createdAtMs: 2100,
+        ),
+        serverTimestampMs: 2100,
+        deliverySequence: 1,
+      ));
+
+      await _settleChannel(store, dmChannel, present: true);
+      await withResolver.drainPending();
+      await _pumpQueue();
+
+      final rows = await store.db.query(
+        'contacts',
+        where: 'user_id = ?',
+        whereArgs: [strangerId],
+      );
+      expect(rows, isEmpty);
+
+      // The chain must still be alive after a failed fetch — a follow-up
+      // event on the same channel still applies.
+      localPushes.add(_makeEnvelope(
+        channelId: dmChannel,
+        opId: 'op-dm-msg-after-fail',
+        senderUserId: strangerId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: 'm-after-fail',
+          body: 'still alive',
+        ),
+        serverTimestampMs: 2200,
+        deliverySequence: 2,
+      ));
+      await _settle(store, 'm-after-fail', present: true);
+    },
+  );
+
+  test(
+    'the same unknown user_id across two events is fetched only once '
+    'while a fetch is in flight',
+    () async {
+      var callCount = 0;
+      final gate = Completer<void>();
+      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final withResolver = InboundReceiver(
+        store: store,
+        pushes: localPushes.stream,
+        localUserId: _selfUserId,
+        clock: clock,
+        resolveProfile: (userId) async {
+          callCount++;
+          await gate.future;
+          return const ContactProfile(username: 'onlyonce');
+        },
+      );
+      await withResolver.start();
+      addTearDown(withResolver.stop);
+      addTearDown(localPushes.close);
+
+      const chanA = 'c-dup-a';
+      const chanB = 'c-dup-b';
+      const strangerId = '0a333ccc3';
+      localPushes.add(_makeEnvelope(
+        channelId: chanA,
+        opId: 'op-dup-cc-a',
+        senderUserId: strangerId,
+        payload: _serverEventChannelCreated(
+          channelId: chanA,
+          kind: 'one_to_one',
+          name: '',
+          members: [strangerId, _selfUserId],
+          creator: strangerId,
+          createdAtMs: 2300,
+        ),
+        serverTimestampMs: 2300,
+        deliverySequence: 1,
+      ));
+      localPushes.add(_makeEnvelope(
+        channelId: chanB,
+        opId: 'op-dup-cc-b',
+        senderUserId: strangerId,
+        payload: _serverEventChannelCreated(
+          channelId: chanB,
+          kind: 'one_to_one',
+          name: '',
+          members: [strangerId, _selfUserId],
+          creator: strangerId,
+          createdAtMs: 2300,
+        ),
+        serverTimestampMs: 2300,
+        deliverySequence: 1,
+      ));
+
+      await _settleChannel(store, chanA, present: true);
+      await _settleChannel(store, chanB, present: true);
+      await withResolver.drainPending();
+      await _pumpQueue();
+
+      expect(callCount, 1);
+      gate.complete();
+      await _settleContactUsername(store, strangerId, 'onlyonce');
+    },
+  );
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -748,6 +922,27 @@ Future<void> _settleMember(
   }
   fail('member $userId '
       '${present ? 'did not appear' : 'did not disappear'} in $channelId');
+}
+
+Future<void> _settleContactUsername(
+  ChatStore store,
+  String userId,
+  String expectedUsername,
+) async {
+  for (var i = 0; i < 50; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final rows = await store.db.query(
+      'contacts',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (rows.isNotEmpty && rows.single['username'] == expectedUsername) {
+      return;
+    }
+  }
+  fail('contact $userId username did not become $expectedUsername '
+      'within timeout');
 }
 
 Future<void> _settleOpSeen(

@@ -139,6 +139,7 @@ class AppServices {
       store: store,
       pushes: wsTransport.pushes,
       localUserId: userIdHex,
+      resolveProfile: (userId) => _resolveContactProfile(authClient, userId),
     );
     await next.start();
     inboundReceiver = next;
@@ -273,6 +274,22 @@ int _parseUserIdOrZero(String? userId) {
     // rebuilt on auth state change (see App._onAuthChange).
     return 0;
   }
+}
+
+/// [InboundReceiver.resolveProfile] callback — the one place the sync
+/// package's decision-79 stranger-DM backfill reaches into
+/// `vartalap_transport` (the receiver itself must stay transport-free).
+/// Errors propagate to the receiver's own best-effort catch.
+Future<ContactProfile?> _resolveContactProfile(
+  AuthClient client,
+  String userId,
+) async {
+  final json = await client.getUser(userId);
+  return ContactProfile(
+    username: json['username'] as String?,
+    displayName: json['displayName'] as String?,
+    avatarUrl: json['avatarUrl'] as String?,
+  );
 }
 
 /// Root widget. Subscribes to [AuthService.authStateChange] and swaps

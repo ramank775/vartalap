@@ -460,6 +460,66 @@ void main() {
       );
     });
 
+    // ---- 6b -------------------------------------------------------------
+    test(
+      '6b. stranger opens a DM with us (decision 79) → chat list shows '
+      '@handle instead of Unknown',
+      () async {
+        // A peer we have never discovered — no contacts row for them
+        // exists locally yet.
+        final stranger = h.mock.state.getOrCreateUser('+15550177777');
+        stranger.username = 'stranger_pat';
+        expect(
+          (await h.store.fetchContacts())
+              .where((c) => c.userId == stranger.userId),
+          isEmpty,
+          reason: 'sanity: the stranger must not already be a local contact.',
+        );
+
+        final strangerDmChannelId =
+            'stranger-dm-${DateTime.now().millisecondsSinceEpoch}';
+        h.mock.ensureChannel(
+          channelId: strangerDmChannelId,
+          kind: 'one_to_one',
+          ownerUserId: stranger.userId,
+          members: [stranger.userId, userIdA],
+          announce: true,
+        );
+
+        await h.waitForAsync(
+            () async => (await h.channelRow(strangerDmChannelId)) != null);
+
+        // fetchChannelList only surfaces channels with a last message
+        // (SPIKE_A_SCHEMA §13.1) — give it one, as a real stranger DM
+        // would open with a message.
+        h.mock.injectPeerMessage(
+          channelId: strangerDmChannelId,
+          body: 'hi, found you via search',
+          senderUserId: stranger.userId,
+        );
+
+        String? title;
+        await h.waitForAsync(() async {
+          final list = await h.store.fetchChannelList();
+          title = list
+              .where((e) => e.channelId == strangerDmChannelId)
+              .firstOrNull
+              ?.title;
+          return title == '@${stranger.username}';
+        });
+
+        expect(
+          title,
+          '@${stranger.username}',
+          reason: 'decision 79: a one_to_one ChannelCreated carries no name '
+              'for a peer we\'ve never discovered — the client must fetch '
+              'GET /v3.0/users/{user_id} and upsert a contacts row so '
+              'ChannelListEntry.title resolves to "@handle" instead of '
+              'falling back to "Unknown". Got "$title".',
+        );
+      },
+    );
+
     // ---- 7 --------------------------------------------------------------
     test('7. leave group → local tombstone + DELETE /v3.0/channels/{id}',
         () async {
@@ -1284,6 +1344,7 @@ class _Harness {
       store: store,
       pushes: ws.pushes,
       localUserId: userIdHex,
+      resolveProfile: (userId) => _resolveContactProfile(authClient, userId),
     );
     await next.start();
     inbound = next;
@@ -1453,6 +1514,21 @@ class _Harness {
 }
 
 Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 50));
+
+/// Mirrors lib/main.dart's `_resolveContactProfile` — the
+/// [InboundReceiver.resolveProfile] wiring for decision 79's stranger-DM
+/// backfill.
+Future<ContactProfile?> _resolveContactProfile(
+  AuthClient client,
+  String userId,
+) async {
+  final json = await client.getUser(userId);
+  return ContactProfile(
+    username: json['username'] as String?,
+    displayName: json['displayName'] as String?,
+    avatarUrl: json['avatarUrl'] as String?,
+  );
+}
 
 /// The ChatPayload type of an envelope payload, or null when the bytes
 /// are a §10.2 server event / not a ChatPayload at all.

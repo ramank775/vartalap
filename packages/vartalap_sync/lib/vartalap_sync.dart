@@ -13,6 +13,7 @@ export 'src/backoff.dart'
     show BackoffPolicy, ExponentialJitterBackoff, FixedBackoff;
 export 'src/clock.dart' show Clock, FakeClock;
 export 'src/failure_watch.dart' show watchFailures;
-export 'src/inbound_receiver.dart' show InboundReceiver, TypingEvent;
+export 'src/inbound_receiver.dart'
+    show InboundReceiver, TypingEvent, ContactProfile;
 export 'src/sync_scheduler.dart' show SyncScheduler;
 export 'src/uuid7.dart' show Uuid7Gen;
