@@ -97,6 +97,11 @@ class OpKind {
   static const String createChannel = 'create_channel';
   static const String addMembers = 'add_members';
   static const String removeMember = 'remove_member';
+
+  /// Decision 80 — `PATCH /v3.0/channels/{id}/members/{user_id}`.
+  /// Distinct from [editChannel] so a terminal reject knows to put the
+  /// member's role back.
+  static const String setMemberRole = 'set_member_role';
   static const String editChannel = 'edit_channel';
   static const String deleteChannel = 'delete_channel';
   static const String editProfile = 'edit_profile';

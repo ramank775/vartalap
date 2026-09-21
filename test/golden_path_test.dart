@@ -72,6 +72,8 @@ String peerCreatedChannelId = '';
 String extraMemberId = '';
 String keyedDmChannelId = '';
 String peerMessageId = '';
+String rolesChannelId = '';
+String succeededChannelId = '';
 
 void main() {
   group('golden path (strict mock)', () {
@@ -521,9 +523,10 @@ void main() {
     );
 
     // ---- 7 --------------------------------------------------------------
-    test('7. leave group → local tombstone + DELETE /v3.0/channels/{id}',
+    test('7. leave group → local tombstone + DELETE members/{self}',
         () async {
-      await h.chat.leaveGroup(groupChannelId);
+      final leavePath = '/v3.0/channels/$groupChannelId/members/$userIdA';
+      await h.chat.leaveGroup(groupChannelId, selfUserId: userIdA);
 
       expect(
         await h.channelRow(groupChannelId),
@@ -533,18 +536,17 @@ void main() {
             'before the server confirms.',
       );
 
-      await h.waitFor(() => h.mock.requests.any((r) =>
-          r.method == 'DELETE' && r.path == '/v3.0/channels/$groupChannelId'));
+      await h.waitFor(() => h.mock.requests
+          .any((r) => r.method == 'DELETE' && r.path == leavePath));
       final del = h.mock.requests
-          .where((r) =>
-              r.method == 'DELETE' &&
-              r.path == '/v3.0/channels/$groupChannelId')
+          .where((r) => r.method == 'DELETE' && r.path == leavePath)
           .toList();
       expect(
-        del,
-        isNotEmpty,
-        reason: 'SYNC_PROTOCOL §11.3: group leave must issue '
-            'DELETE /v3.0/channels/$groupChannelId. Requests seen: '
+        del.map((r) => r.status),
+        [200],
+        reason: 'decision 80: every leave, the owner\'s included, is '
+            'DELETE $leavePath — DELETE /v3.0/channels/{id} is now the '
+            'owner-only hard delete. Requests seen: '
             '${h.mock.requests.map((r) => '${r.method} ${r.path}').toList()}.',
       );
     });
@@ -1168,7 +1170,151 @@ void main() {
       push.dispose();
       restarted.dispose();
     });
+
+    // ---- 13 -------------------------------------------------------------
+    test('13. promote a member → PATCH members/{id} → the row reads Admin',
+        () async {
+      final selfId = h.authService.currentUserId!;
+      rolesChannelId = await h.chat.createGroup(
+        name: 'Roles Group',
+        creatorUserId: selfId,
+        memberUserIds: [peerUserId],
+      );
+      await h.waitFor(() => h.channelPosts(rolesChannelId).isNotEmpty);
+      expect(h.channelPosts(rolesChannelId).firstOrNull?.status, 201);
+
+      await h.chat.setMemberRole(
+        channelId: rolesChannelId,
+        userId: peerUserId,
+        role: 'admin',
+      );
+      final patchPath = '/v3.0/channels/$rolesChannelId/members/$peerUserId';
+      await h.waitFor(() => h.mock.requests
+          .any((r) => r.method == 'PATCH' && r.path == patchPath));
+      expect(
+        h.mock.requests
+            .where((r) => r.method == 'PATCH' && r.path == patchPath)
+            .map((r) => r.status),
+        [200],
+        reason: 'decision 80: an owner promoting a member is PATCH '
+            '$patchPath with {role: "admin"} and the usual op envelope. '
+            '${await h.opDebug(rolesChannelId)}',
+      );
+
+      await h.waitForAsync(() async =>
+          (await h.memberRole(rolesChannelId, peerUserId)) == 'admin');
+      expect(
+        await h.memberRole(rolesChannelId, peerUserId),
+        'admin',
+        reason: 'decision 80: the local projection carries the new role, '
+            'optimistically and again when the server re-announces it as '
+            'ChannelMemberAdded{role}.',
+      );
+    });
+
+    // ---- 14 -------------------------------------------------------------
+    test('14. the owner of somebody else\'s group leaves → the successor is '
+        're-announced and the local channel owner follows', () async {
+      final selfId = h.authService.currentUserId!;
+      succeededChannelId =
+          'succession-${DateTime.now().millisecondsSinceEpoch}';
+      h.mock.ensureChannel(
+        channelId: succeededChannelId,
+        kind: 'group',
+        ownerUserId: peerUserId,
+        members: [peerUserId, selfId],
+        name: 'Succession Group',
+        announce: true,
+      );
+      await h.waitForAsync(
+          () async => (await h.channelRow(succeededChannelId)) != null);
+
+      // The owner walks out. We are the only member left, so decision 9
+      // makes us the owner — no admin exists to take precedence.
+      h.mock.leaveChannel(succeededChannelId, peerUserId);
+
+      await h.waitForAsync(() async =>
+          (await h.memberRole(succeededChannelId, selfId)) == 'owner');
+      expect(
+        await h.memberRole(succeededChannelId, selfId),
+        'owner',
+        reason: 'decision 80: succession fans out as a re-announced '
+            'ChannelMemberAdded{members:[heir], role:"owner"}, which the '
+            'member projection must UPSERT rather than ignore.',
+      );
+      expect(
+        (await h.channelRow(succeededChannelId))?['owner_user_id'],
+        selfId,
+        reason: 'decision 80: a role="owner" announce also moves the '
+            "channel's owner_user_id, otherwise the group-info screen "
+            'never offers the new owner "Delete group".',
+      );
+    });
+
+    // ---- 15 -------------------------------------------------------------
+    test('15. owner deletes the group → DELETE /v3.0/channels/{id} → the '
+        'local row is tombstoned and the others get ChannelDeleted',
+        () async {
+      // Someone else is in the room to receive the fanout.
+      h.mock.addChannelMember(succeededChannelId, extraMemberId);
+      await h.waitForAsync(() async =>
+          (await h.store.fetchChannelMembers(succeededChannelId))
+              .any((m) => m.userId == extraMemberId));
+
+      await h.chat.deleteGroup(succeededChannelId);
+      expect(
+        (await h.channelRow(succeededChannelId))?['tombstoned'],
+        1,
+        reason: 'decision 9: the owner-delete path tombstones locally (the '
+            'same write the inbound ChannelDeleted makes), it does not '
+            'hard-delete the way a leave does.',
+      );
+
+      final path = '/v3.0/channels/$succeededChannelId';
+      await h.waitFor(() => h.mock.requests
+          .any((r) => r.method == 'DELETE' && r.path == path));
+      expect(
+        h.mock.requests
+            .where((r) => r.method == 'DELETE' && r.path == path)
+            .map((r) => r.status),
+        [200],
+        reason: 'decision 80: DELETE /v3.0/channels/{id} is the owner-only '
+            'hard delete. ${await h.opDebug(succeededChannelId)}',
+      );
+      expect(
+        h.mock.state.channels.containsKey(succeededChannelId),
+        isFalse,
+        reason: 'decision 9: the delete is hard server-side — nobody can '
+            'rejoin a group that is gone.',
+      );
+      expect(
+        _peerChannelDeletes(h, extraMemberId),
+        contains(succeededChannelId),
+        reason: 'decision 9: every remaining member is told with a §10.2 '
+            'ChannelDeleted so their local row is tombstoned too.',
+      );
+    });
   });
+}
+
+/// Channel ids in the §10.2 `ChannelDeleted` events queued for [userId].
+List<String> _peerChannelDeletes(_Harness h, String userId) {
+  final out = <String>[];
+  for (final frame in h.mock.state.drainUndelivered(userId)) {
+    try {
+      final env = pb.WsEnvelope.fromBuffer(frame);
+      if (env.type != pb.WsType.WS_PUSH) continue;
+      final payload = env.push.payload;
+      if (payload.isEmpty || payload[0] != 0x53) continue;
+      final sep = pb.ServerEventPayload.fromBuffer(payload.sublist(1));
+      if (sep.type == pb.ServerEventType.CHANNEL_DELETED) {
+        out.add(sep.channelDeleted.channelId);
+      }
+    } catch (_) {
+      // Not a server event — not our business here.
+    }
+  }
+  return out;
 }
 
 /// Server-authored §10.2 events queued for the seed peer. Drains, like
@@ -1426,6 +1572,19 @@ class _Harness {
     }
     peerInboxSeen.addAll(out);
     return out;
+  }
+
+  /// The role [userId] holds in [channelId], or null when there is no
+  /// active membership row.
+  Future<String?> memberRole(String channelId, String userId) async {
+    final rows = await store.db.query(
+      'channel_members',
+      columns: const ['role'],
+      where: 'channel_id = ? AND user_id = ? AND removed_at IS NULL',
+      whereArgs: [channelId, userId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.single['role'] as String?;
   }
 
   /// `user_id:emoji` for every reaction on [messageId].

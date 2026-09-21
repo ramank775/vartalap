@@ -304,13 +304,14 @@ void main() {
 
       // ---- 7 ------------------------------------------------------------
       test('7. B leaves the group → A sees the member drop off', () async {
-        await b.chat.leaveGroup(groupChannelId);
+        await b.chat.leaveGroup(groupChannelId, selfUserId: b.userId);
         await b.waitForAsync(() async => await b.opCount() == 0);
         expect(
           await b.opDebug(groupChannelId),
           contains('<empty>'),
-          reason: 'A non-owner DELETE /v3.0/channels/{id} is a leave and '
-              'must be accepted (the body carries op_id + resource_seq).',
+          reason: 'decision 80: a leave is DELETE /v3.0/channels/{id}/'
+              'members/{self} and must be accepted (the body carries '
+              'op_id + resource_seq).',
         );
 
         await a.waitForAsync(() async =>

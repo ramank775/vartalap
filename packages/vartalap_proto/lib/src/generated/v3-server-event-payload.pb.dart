@@ -424,11 +424,13 @@ class ChannelMemberAdded extends $pb.GeneratedMessage {
     $core.String? channelId,
     $core.Iterable<$core.String>? members,
     $fixnum.Int64? addedAtMs,
+    $core.String? role,
   }) {
     final result = create();
     if (channelId != null) result.channelId = channelId;
     if (members != null) result.members.addAll(members);
     if (addedAtMs != null) result.addedAtMs = addedAtMs;
+    if (role != null) result.role = role;
     return result;
   }
 
@@ -451,6 +453,7 @@ class ChannelMemberAdded extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(
         3, _omitFieldNames ? '' : 'addedAtMs', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(4, _omitFieldNames ? '' : 'role')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -495,6 +498,20 @@ class ChannelMemberAdded extends $pb.GeneratedMessage {
   $core.bool hasAddedAtMs() => $_has(2);
   @$pb.TagNumber(3)
   void clearAddedAtMs() => $_clearField(3);
+
+  /// Decision 80: the role every user in `members` now holds —
+  /// "owner" | "admin" | "member". Empty on a plain add_members
+  /// announce (recipients default to "member"). A role change and an
+  /// owner succession are fanned out as a RE-announce of the one
+  /// affected member carrying the new role; recipients UPSERT it.
+  @$pb.TagNumber(4)
+  $core.String get role => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set role($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasRole() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearRole() => $_clearField(4);
 }
 
 /// Emitted on REST `remove_member` to remaining members + the removed
@@ -957,19 +974,6 @@ class UsernameChanged extends $pb.GeneratedMessage {
   void clearChangedAtMs() => $_clearField(3);
 }
 
-/// Generic message receipt event: sent back to the message AUTHOR when
-/// the server observes the message transitioning to a new state. One
-/// event per transition. v3.0 emits this on:
-///   - delivered: server fans out to a recipient WS, or a recipient
-///     drains from undelivered queue.
-///   - read: a recipient client posts a read receipt.
-///   - rejected: server retracts a previously-acked message (moderation,
-///     quota, etc.) — rare; reserved.
-///
-/// Recipients flip the local `messages.message_state` accordingly.
-/// Out-of-order events are tolerated: states are monotonic in the
-/// author's UI (delivered cannot revert to sent), so a stale event is
-/// dropped client-side if `new_state` is "older" than what's stored.
 /// EPHEMERAL: typing indicator. Client-authored despite living under the
 /// 0x53 ServerEventPayload namespace (see the §10.2 routing-tag note —
 /// 0x53 is the wire discriminator, not a provenance claim).
@@ -1051,6 +1055,19 @@ class Typing extends $pb.GeneratedMessage {
   void clearIsTyping() => $_clearField(1);
 }
 
+/// Generic message receipt event: sent back to the message AUTHOR when
+/// the server observes the message transitioning to a new state. One
+/// event per transition. v3.0 emits this on:
+///   - delivered: server fans out to a recipient WS, or a recipient
+///     drains from undelivered queue.
+///   - read: a recipient client posts a read receipt.
+///   - rejected: server retracts a previously-acked message (moderation,
+///     quota, etc.) — rare; reserved.
+///
+/// Recipients flip the local `messages.message_state` accordingly.
+/// Out-of-order events are tolerated: states are monotonic in the
+/// author's UI (delivered cannot revert to sent), so a stale event is
+/// dropped client-side if `new_state` is "older" than what's stored.
 class MessageStateChanged extends $pb.GeneratedMessage {
   factory MessageStateChanged({
     $core.String? channelId,

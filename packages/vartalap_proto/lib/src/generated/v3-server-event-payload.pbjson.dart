@@ -202,13 +202,15 @@ const ChannelMemberAdded$json = {
     {'1': 'channel_id', '3': 1, '4': 1, '5': 9, '10': 'channelId'},
     {'1': 'members', '3': 2, '4': 3, '5': 9, '10': 'members'},
     {'1': 'added_at_ms', '3': 3, '4': 1, '5': 4, '10': 'addedAtMs'},
+    {'1': 'role', '3': 4, '4': 1, '5': 9, '10': 'role'},
   ],
 };
 
 /// Descriptor for `ChannelMemberAdded`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List channelMemberAddedDescriptor = $convert.base64Decode(
     'ChJDaGFubmVsTWVtYmVyQWRkZWQSHQoKY2hhbm5lbF9pZBgBIAEoCVIJY2hhbm5lbElkEhgKB2'
-    '1lbWJlcnMYAiADKAlSB21lbWJlcnMSHgoLYWRkZWRfYXRfbXMYAyABKARSCWFkZGVkQXRNcw==');
+    '1lbWJlcnMYAiADKAlSB21lbWJlcnMSHgoLYWRkZWRfYXRfbXMYAyABKARSCWFkZGVkQXRNcxIS'
+    'CgRyb2xlGAQgASgJUgRyb2xl');
 
 @$core.Deprecated('Use channelMemberRemovedDescriptor instead')
 const ChannelMemberRemoved$json = {

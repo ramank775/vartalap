@@ -152,7 +152,16 @@ class ChannelRecord {
   // ChannelEdited).
   String? name;
   String? avatarUrl;
-  final String ownerUserId;
+
+  // Decisions 9/80: exactly one owner, any number of admins, everyone
+  // else a member. Both move — owner on succession, admins on PATCH
+  // members/{user_id}.
+  String ownerUserId;
+  final Set<String> admins;
+
+  /// Insertion-ordered (Dart's default `Set` is a LinkedHashSet), which
+  /// is what makes "longest-standing" a `.first` — see [roleOf] and the
+  /// succession rule in [leaveChannel].
   final Set<String> members;
   final int createdAt;
 
@@ -162,9 +171,14 @@ class ChannelRecord {
     this.name,
     this.avatarUrl,
     required this.ownerUserId,
+    Set<String>? admins,
     required this.members,
     required this.createdAt,
-  });
+  }) : admins = admins ?? <String>{};
+
+  String roleOf(String userId) => userId == ownerUserId
+      ? 'owner'
+      : (admins.contains(userId) ? 'admin' : 'member');
 
   Map<String, dynamic> toPersistJson() => {
         'channelId': channelId,
@@ -172,6 +186,7 @@ class ChannelRecord {
         'name': name,
         'avatarUrl': avatarUrl,
         'ownerUserId': ownerUserId,
+        'admins': admins.toList(),
         'members': members.toList(),
         'createdAt': createdAt,
       };
@@ -182,6 +197,8 @@ class ChannelRecord {
         name: j['name'] as String?,
         avatarUrl: j['avatarUrl'] as String?,
         ownerUserId: j['ownerUserId'] as String,
+        admins:
+            (j['admins'] as List<dynamic>? ?? []).cast<String>().toSet(),
         members: (j['members'] as List<dynamic>).cast<String>().toSet(),
         createdAt: j['createdAt'] as int,
       );
@@ -964,6 +981,7 @@ class MockServer {
         recipientUserId: memberId,
         channelId: channelId,
         newMemberUserIds: [userId],
+        role: 'member',
       );
     }
   }
@@ -1018,6 +1036,8 @@ class MockServer {
       await _handlePushTopic(req);
     } else if (method == 'POST' && path == '/v3.0/channels') {
       await _handleCreateChannel(req);
+    } else if (method == 'DELETE' && _memberPath(path) != null) {
+      await _handleDeleteChannelMember(req, _memberPath(path)!);
     } else if (method == 'DELETE' && path.startsWith('/v3.0/channels/')) {
       await _handleDeleteChannel(req);
     } else if (method == 'GET' && path == '/v3.0/sync/pending') {
@@ -1657,12 +1677,21 @@ class MockServer {
     _respondJson(req, 201, created);
   }
 
-  // DELETE /v3.0/channels/{id} — drop the requesting user from the
-  // channel's member roster and fan a ChannelMemberRemoved push to every
-  // remaining member so their local membership table catches up. v3.0 is
-  // deliberately minimal: we don't tombstone the channel server-side even
-  // if it ends up empty — the channel record stays so re-joining (a v3.1
-  // concern) can resurrect it cleanly.
+  /// `(channelId, userId)` of `/v3.0/channels/{id}/members/{user_id}`,
+  /// or null when [path] is not that shape.
+  static ({String channelId, String userId})? _memberPath(String path) {
+    const prefix = '/v3.0/channels/';
+    if (!path.startsWith(prefix)) return null;
+    final parts = path.substring(prefix.length).split('/');
+    if (parts.length != 3 || parts[1] != 'members') return null;
+    if (parts[0].isEmpty || parts[2].isEmpty) return null;
+    return (channelId: parts[0], userId: parts[2]);
+  }
+
+  // DELETE /v3.0/channels/{id} — decision 9 hard delete, owner only.
+  // The channel record goes; every other member is told with a §10.2
+  // ChannelDeleted so their local row is tombstoned. Plain members and
+  // admins get 403 — leaving is DELETE …/members/{self}.
   Future<void> _handleDeleteChannel(HttpRequest req) async {
     final session = _authenticate(req);
     if (session == null) return;
@@ -1697,7 +1726,6 @@ class MockServer {
       });
       return;
     }
-
     if (!channel.members.contains(session.userId)) {
       _record(req, body, 403);
       _respondJson(req, 403, {
@@ -1705,22 +1733,21 @@ class MockServer {
       });
       return;
     }
-
-    channel.members.remove(session.userId);
-    state.markDirty();
-    _log('Channel leave: $channelId user=${session.userId} '
-        'remaining=${channel.members}');
-
-    // Fan ChannelMemberRemoved to every remaining member.
-    final removedAtMs = DateTime.now().millisecondsSinceEpoch;
-    for (final memberId in channel.members) {
-      _enqueueChannelMemberRemoved(
-        recipientUserId: memberId,
-        channelId: channelId,
-        memberUserId: session.userId,
-        removedAtMs: removedAtMs,
-      );
+    if (channel.ownerUserId != session.userId) {
+      _record(req, body, 403);
+      _respondJson(req, 403, {
+        'error': {
+          'code': 'FORBIDDEN',
+          'message': 'Only the owner can delete a group'
+        }
+      });
+      return;
     }
+
+    final recipients = channel.members.where((m) => m != session.userId).toList();
+    state.channels.remove(channelId);
+    state.markDirty();
+    _log('Channel deleted: $channelId by=${session.userId}');
 
     final opId = body['op_id'];
     if (opId is String) {
@@ -1729,6 +1756,159 @@ class MockServer {
     }
     _record(req, body, 200);
     _respondJson(req, 200, <String, dynamic>{});
+
+    for (final memberId in recipients) {
+      _enqueueChannelDeleted(
+        recipientUserId: memberId,
+        channelId: channelId,
+      );
+    }
+  }
+
+  // DELETE /v3.0/channels/{id}/members/{user_id} — decision 80. Target
+  // == self is "leave" and is open to every member, the owner included
+  // (succession happens in [leaveChannel]). Target != self is "remove
+  // from group": owner and admins only, and never the owner.
+  Future<void> _handleDeleteChannelMember(
+    HttpRequest req,
+    ({String channelId, String userId}) target,
+  ) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+
+    final body = await _readJsonBody(req);
+    final pre = _validateRestOp(
+      session: session,
+      body: body,
+      resourceId: target.channelId,
+    );
+    if (pre != null) {
+      _respondOutcome(req, body, pre);
+      return;
+    }
+
+    final channel = state.channels[target.channelId];
+    if (channel == null) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {
+          'code': 'NOT_FOUND',
+          'message': 'Unknown channel: ${target.channelId}'
+        }
+      });
+      return;
+    }
+    if (!channel.members.contains(session.userId)) {
+      _record(req, body, 403);
+      _respondJson(req, 403, {
+        'error': {'code': 'FORBIDDEN', 'message': 'Not a member of channel'}
+      });
+      return;
+    }
+    if (!channel.members.contains(target.userId)) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {
+          'code': 'NOT_FOUND',
+          'message': 'Not a member: ${target.userId}'
+        }
+      });
+      return;
+    }
+    if (target.userId != session.userId) {
+      final actorRole = channel.roleOf(session.userId);
+      if (actorRole == 'member') {
+        _record(req, body, 403);
+        _respondJson(req, 403, {
+          'error': {
+            'code': 'FORBIDDEN',
+            'message': 'Only the owner or an admin can remove a member'
+          }
+        });
+        return;
+      }
+      if (target.userId == channel.ownerUserId) {
+        _record(req, body, 403);
+        _respondJson(req, 403, {
+          'error': {
+            'code': 'FORBIDDEN',
+            'message': 'The owner cannot be removed'
+          }
+        });
+        return;
+      }
+    }
+
+    leaveChannel(target.channelId, target.userId);
+
+    final opId = body['op_id'];
+    if (opId is String) {
+      state.recordOutcome(session.userId, opId,
+          const StoredOutcome(success: true, status: 200, body: {}));
+    }
+    _record(req, body, 200);
+    _respondJson(req, 200, <String, dynamic>{});
+  }
+
+  /// Server-side membership removal with decision 9 succession, shared
+  /// by the REST route and tests that need another user to walk out.
+  ///
+  /// The leaver always gets a `ChannelMemberRemoved` (so a kicked
+  /// client tombstones), as does everyone left. If the leaver was the
+  /// owner, the longest-standing admin — else the longest-standing
+  /// remaining member — is re-announced as
+  /// `ChannelMemberAdded{role:"owner"}`. The last member out takes the
+  /// channel with them and gets a `ChannelDeleted`.
+  void leaveChannel(String channelId, String userId) {
+    final channel = state.channels[channelId];
+    if (channel == null || !channel.members.contains(userId)) return;
+    channel.members.remove(userId);
+    channel.admins.remove(userId);
+    final removedAtMs = DateTime.now().millisecondsSinceEpoch;
+
+    if (channel.members.isEmpty) {
+      state.channels.remove(channelId);
+      state.markDirty();
+      _log('Channel emptied by last member: $channelId user=$userId');
+      _enqueueChannelDeleted(
+        recipientUserId: userId,
+        channelId: channelId,
+      );
+      return;
+    }
+
+    String? successor;
+    if (channel.ownerUserId == userId) {
+      // Insertion order on both sets is join order — `.first` is the
+      // longest-standing.
+      successor = channel.admins.isNotEmpty
+          ? channel.admins.first
+          : channel.members.first;
+      channel.ownerUserId = successor;
+      channel.admins.remove(successor);
+      _log('Ownership of $channelId passed to $successor');
+    }
+    state.markDirty();
+    _log('Channel leave: $channelId user=$userId '
+        'remaining=${channel.members}');
+
+    for (final memberId in {userId, ...channel.members}) {
+      _enqueueChannelMemberRemoved(
+        recipientUserId: memberId,
+        channelId: channelId,
+        memberUserId: userId,
+        removedAtMs: removedAtMs,
+      );
+    }
+    if (successor == null) return;
+    for (final memberId in channel.members) {
+      _enqueueChannelMemberAdded(
+        recipientUserId: memberId,
+        channelId: channelId,
+        newMemberUserIds: [successor],
+        role: 'owner',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2102,10 +2282,15 @@ class MockServer {
   // table catches up. Without this, group bubbles authored by the
   // auto-added member render with "Unknown" because the local
   // channel_members join misses them.
+  //
+  // Decision 80 re-uses it as the role-change / succession fanout:
+  // [role] re-announces an EXISTING member so recipients upsert the new
+  // role. Left empty on a plain add (recipients default to "member").
   void _enqueueChannelMemberAdded({
     required String recipientUserId,
     required String channelId,
     required List<String> newMemberUserIds,
+    String role = '',
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final sep = pb.ServerEventPayload(
@@ -2115,6 +2300,7 @@ class MockServer {
         channelId: channelId,
         members: newMemberUserIds,
         addedAtMs: fixnum.Int64(now),
+        role: role,
       ),
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
@@ -2334,7 +2520,6 @@ class MockServer {
   // SYNC_PROTOCOL §10.2 ChannelDeleted fanout. Recipients tombstone the
   // channel locally. Not wired to a REST route yet — call site for
   // future DELETE /v3.0/channels/{id} or manual testing.
-  // ignore: unused_element
   void _enqueueChannelDeleted({
     required String recipientUserId,
     required String channelId,
@@ -2757,6 +2942,10 @@ class MockServer {
       await _handleBlob(req, method, path);
       return true;
     }
+    if (method == 'PATCH' && _memberPath(path) != null) {
+      await _handlePatchChannelMember(req, _memberPath(path)!);
+      return true;
+    }
     if (method == 'PATCH' && path.startsWith('/v3.0/channels/')) {
       await _handlePatchChannel(req, path);
       return true;
@@ -2902,6 +3091,109 @@ class MockServer {
       'contentType': record.contentType,
       'url': '${apiUrl.toString()}/v3.0/_blob/$fileId',
     });
+  }
+
+  /// `PATCH /v3.0/channels/{id}/members/{user_id}` — decision 80's role
+  /// change. Owner and admins only; never on yourself and never on the
+  /// owner. Fanned out to every member (the actor included) as a
+  /// `ChannelMemberAdded{members:[target], role}` re-announce, which is
+  /// what makes the projection an upsert rather than an insert.
+  Future<void> _handlePatchChannelMember(
+    HttpRequest req,
+    ({String channelId, String userId}) target,
+  ) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+
+    final body = await _readJsonBody(req);
+    final pre = _validateRestOp(
+      session: session,
+      body: body,
+      resourceId: target.channelId,
+    );
+    if (pre != null) {
+      _respondOutcome(req, body, pre);
+      return;
+    }
+
+    final role = body['role'];
+    if (role != 'admin' && role != 'member') {
+      _record(req, body, 400);
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'validation_failed',
+          'message': 'role must be "admin" or "member"'
+        }
+      });
+      return;
+    }
+
+    final channel = state.channels[target.channelId];
+    if (channel == null) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {
+          'code': 'NOT_FOUND',
+          'message': 'Unknown channel: ${target.channelId}'
+        }
+      });
+      return;
+    }
+    if (!channel.members.contains(session.userId) ||
+        channel.roleOf(session.userId) == 'member' ||
+        target.userId == session.userId ||
+        target.userId == channel.ownerUserId) {
+      _record(req, body, 403);
+      _respondJson(req, 403, {
+        'error': {
+          'code': 'FORBIDDEN',
+          'message': 'Only the owner or an admin can change another '
+              "member's role"
+        }
+      });
+      return;
+    }
+    if (!channel.members.contains(target.userId)) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {
+          'code': 'NOT_FOUND',
+          'message': 'Not a member: ${target.userId}'
+        }
+      });
+      return;
+    }
+
+    if (role == 'admin') {
+      channel.admins.add(target.userId);
+    } else {
+      channel.admins.remove(target.userId);
+    }
+    state.markDirty();
+    _log('Role change: ${target.channelId} ${target.userId} -> $role '
+        'by=${session.userId}');
+
+    final result = {
+      'channel_id': target.channelId,
+      'user_id': target.userId,
+      'role': role,
+    };
+    final opId = body['op_id'];
+    if (opId is String) {
+      state.recordOutcome(session.userId, opId,
+          StoredOutcome(success: true, status: 200, body: result));
+    }
+    _record(req, body, 200);
+    _respondJson(req, 200, result);
+
+    for (final memberId in channel.members) {
+      _enqueueChannelMemberAdded(
+        recipientUserId: memberId,
+        channelId: target.channelId,
+        newMemberUserIds: [target.userId],
+        role: role as String,
+      );
+    }
   }
 
   /// `PATCH /v3.0/channels/{id}` — name / avatarUrl, fanned out as

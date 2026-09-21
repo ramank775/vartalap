@@ -171,6 +171,13 @@ message ChannelMemberAdded {
 
   // When the server applied the add, ms since epoch.
   uint64 added_at_ms = 3;
+
+  // Decision 80: the role every user in `members` now holds —
+  // "owner" | "admin" | "member". Empty on a plain add_members
+  // announce (recipients default to "member"). A role change and an
+  // owner succession are fanned out as a RE-announce of the one
+  // affected member carrying the new role; recipients UPSERT it.
+  string role = 4;
 }
 
 // Emitted on REST `remove_member` to remaining members + the removed

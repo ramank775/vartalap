@@ -6,7 +6,15 @@
 /// is local-only; Leave group sits alone at the bottom, in error red,
 /// below a rule, behind a confirm, and is the one action here that
 /// enqueues a server op.
+///
+/// Decisions 9/80/81 add roles on top of that: the owner also gets
+/// "Delete group" (the group dies for everyone), the owner and admins
+/// get Make admin / Dismiss as admin off each member row, and the
+/// owner's Leave confirm names the successor the server is about to
+/// promote.
 library vartalap.screens.chat_info;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
@@ -17,6 +25,30 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/chat_action_sheets.dart';
 import 'package:vartalap_store/vartalap_store.dart';
+
+/// Decision 9's succession rule, computed locally so the owner's Leave
+/// confirm can name the person: the longest-standing admin, else the
+/// longest-standing remaining member. `joined_at` is the clock, with
+/// `user_id` as a deterministic tiebreaker. Null when the owner is the
+/// only member left (the group goes with them).
+ChannelMemberRow? successorAfterOwnerLeaves(
+  List<ChannelMemberRow> members,
+  String ownerUserId,
+) {
+  final rest = members.where((m) => m.userId != ownerUserId).toList()
+    ..sort((a, b) => a.joinedAt == b.joinedAt
+        ? a.userId.compareTo(b.userId)
+        : a.joinedAt.compareTo(b.joinedAt));
+  if (rest.isEmpty) return null;
+  return rest.firstWhere((m) => m.role == 'admin', orElse: () => rest.first);
+}
+
+/// What a member row is labelled with. Members carry no badge.
+String? roleBadge(String role) => switch (role) {
+      'owner' => 'Owner',
+      'admin' => 'Admin',
+      _ => null,
+    };
 
 class ChatInfoScreen extends StatefulWidget {
   final String channelId;
@@ -71,12 +103,41 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     }
   }
 
+  /// Role ops that already produced a toast, so one failure is reported
+  /// once however often the failure stream re-emits.
+  final Set<String> _reportedFailures = {};
+  StreamSubscription<List<OutboundOpRow>>? _failureSub;
+
   @override
   void initState() {
     super.initState();
     _membersFuture = widget.chatService.fetchChannelMembers(widget.channelId);
     _mediaFuture = widget.chatService.fetchMedia(widget.channelId);
     _reloadChannel();
+    // A rejected role change is rolled back in the store
+    // (`_rollbackMemberRole`); the screen's job is to say so and show
+    // the restored roster.
+    _failureSub = widget.chatService.watchFailures().listen((ops) {
+      final failed = ops.where((op) =>
+          op.kind == OpKind.setMemberRole &&
+          op.targetChannelId == widget.channelId &&
+          _reportedFailures.add(op.opId));
+      if (failed.isEmpty || !mounted) return;
+      setState(_reloadMembers);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not change that role')),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _failureSub?.cancel();
+    super.dispose();
+  }
+
+  void _reloadMembers() {
+    _membersFuture = widget.chatService.fetchChannelMembers(widget.channelId);
   }
 
   Future<void> _reloadChannel() async {
@@ -204,7 +265,11 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 _MembersSection(
                   members: members,
                   localUserId: localUserId,
+                  // Decision 81: the owner and every admin can promote
+                  // and demote; a plain member sees no menu at all.
+                  canManageRoles: _roleOf(members, localUserId) != 'member',
                   loading: snap.connectionState == ConnectionState.waiting,
+                  onSetRole: _setMemberRole,
                 ),
               ],
               const Divider(),
@@ -241,8 +306,20 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                       'disappears from Groups too.',
                   iconColor: scheme.error,
                   titleColor: scheme.error,
-                  onTap: () => _confirmLeave(context),
+                  onTap: () => _confirmLeave(context, members),
                 ),
+                // Decision 9: only the owner can end the group for
+                // everyone, and it is never the same tap as leaving.
+                if (_roleOf(members, localUserId) == 'owner')
+                  _InfoTile(
+                    icon: Icons.delete_forever_outlined,
+                    title: 'Delete group',
+                    subtitle: 'Ends the group for every member. Only you '
+                        'can do this.',
+                    iconColor: scheme.error,
+                    titleColor: scheme.error,
+                    onTap: () => _confirmDelete(context),
+                  ),
               ],
               const SizedBox(height: kSpaceXl),
             ],
@@ -265,16 +342,49 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
-  void _confirmLeave(BuildContext context) {
+  static String _roleOf(List<ChannelMemberRow> members, String? userId) =>
+      members
+          .where((m) => m.userId == userId)
+          .map((m) => m.role)
+          .firstOrNull ??
+      'member';
+
+  /// Decision 80: the change lands locally at once and rides the
+  /// outbound queue; a terminal reject rolls the row back and the
+  /// failure subscription in [initState] raises the toast.
+  Future<void> _setMemberRole(ChannelMemberRow member, String role) async {
+    await widget.chatService.setMemberRole(
+      channelId: widget.channelId,
+      userId: member.userId,
+      role: role,
+    );
+    if (!mounted) return;
+    setState(_reloadMembers);
+  }
+
+  void _confirmLeave(BuildContext context, List<ChannelMemberRow> members) {
+    final localUserId = widget.authService.currentUserId;
+    // Decision 9: an owner may leave, and the group carries on under
+    // somebody else. Naming them here is the whole point of the
+    // confirm — the server applies the same rule.
+    final successor = _roleOf(members, localUserId) == 'owner'
+        ? successorAfterOwnerLeaves(members, localUserId ?? '')
+        : null;
+    final successorName = successor == null
+        ? null
+        : (successor.contact?.displayLabel ?? 'Unknown');
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Leave ${widget.channelName}?'),
-        content: const Text(
+        content: Text(
           'You will stop receiving messages and the group will be '
           'removed from Groups and from Chats. Other members stay in '
           'the group and can add you back. Applies right away and '
-          'syncs when you are online.',
+          'syncs when you are online.'
+          '${successorName == null ? '' : ' $successorName will become '
+              'the owner.'}',
         ),
         actions: [
           TextButton(
@@ -285,7 +395,10 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
             onPressed: () async {
               Navigator.of(ctx).pop();
               try {
-                await widget.chatService.leaveGroup(widget.channelId);
+                await widget.chatService.leaveGroup(
+                  widget.channelId,
+                  selfUserId: localUserId ?? '',
+                );
               } catch (e) {
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -298,6 +411,50 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
             },
             child: Text(
               'Leave group',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Owner only, and the one action on this screen that cannot be
+  /// undone by anybody — hence the bluntest sentence in the app.
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${widget.channelName}?'),
+        content: const Text(
+          'Everyone loses this group. Every member loses the chat and '
+          'its history, and it cannot be undone. To walk away without '
+          'ending it for the others, leave the group instead.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                await widget.chatService.deleteGroup(widget.channelId);
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not delete group: $e')),
+                );
+                return;
+              }
+              if (!context.mounted) return;
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            child: Text(
+              'Delete group',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.error,
               ),
@@ -396,12 +553,16 @@ class _DmIdentityBlock extends StatelessWidget {
 class _MembersSection extends StatelessWidget {
   final List<ChannelMemberRow> members;
   final String? localUserId;
+  final bool canManageRoles;
   final bool loading;
+  final Future<void> Function(ChannelMemberRow, String) onSetRole;
 
   const _MembersSection({
     required this.members,
     required this.localUserId,
+    required this.canManageRoles,
     required this.loading,
+    required this.onSetRole,
   });
 
   @override
@@ -429,7 +590,17 @@ class _MembersSection extends StatelessWidget {
           )
         else
           for (final m in members)
-            _MemberTile(member: m, isYou: m.userId == localUserId),
+            _MemberTile(
+              member: m,
+              isYou: m.userId == localUserId,
+              // Decision 80: the owner is never a target, and nobody
+              // changes their own role — the server answers 403 either
+              // way, so the menu is not offered.
+              canManageRoles: canManageRoles &&
+                  m.role != 'owner' &&
+                  m.userId != localUserId,
+              onSetRole: onSetRole,
+            ),
       ],
     );
   }
@@ -438,14 +609,58 @@ class _MembersSection extends StatelessWidget {
 class _MemberTile extends StatelessWidget {
   final ChannelMemberRow member;
   final bool isYou;
+  final bool canManageRoles;
+  final Future<void> Function(ChannelMemberRow, String) onSetRole;
 
-  const _MemberTile({required this.member, required this.isYou});
+  const _MemberTile({
+    required this.member,
+    required this.isYou,
+    required this.canManageRoles,
+    required this.onSetRole,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final name = isYou ? 'You' : (member.contact?.displayLabel ?? 'Unknown');
-    final subtitle = member.role == 'owner' ? 'Owner' : null;
+    final badge = roleBadge(member.role);
+    final isAdmin = member.role == 'admin';
+    // Frame e2: one action, so a menu entry rather than a submenu —
+    // the row long-presses into the same thing the trailing button
+    // opens, because a long-press is what a phone user tries first.
+    void promptRole() {
+      if (!canManageRoles) return;
+      showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetCtx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(
+                  isAdmin
+                      ? Icons.person_remove_outlined
+                      : Icons.shield_outlined,
+                ),
+                title: Text(isAdmin ? 'Dismiss as admin' : 'Make admin'),
+                subtitle: Text(
+                  isAdmin
+                      ? '$name goes back to being a member.'
+                      : '$name can add and remove members and manage '
+                          'admins.',
+                ),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  onSetRole(member, isAdmin ? 'member' : 'admin');
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ListTile(
       leading: Avator(
         text: name,
@@ -455,9 +670,17 @@ class _MemberTile extends StatelessWidget {
         height: kAvatarMd,
       ),
       title: Text(name),
-      subtitle: subtitle != null
-          ? Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant))
+      subtitle: badge != null
+          ? Text(badge, style: TextStyle(color: scheme.onSurfaceVariant))
           : null,
+      trailing: canManageRoles
+          ? IconButton(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'Member options',
+              onPressed: promptRole,
+            )
+          : null,
+      onLongPress: canManageRoles ? promptRole : null,
     );
   }
 }

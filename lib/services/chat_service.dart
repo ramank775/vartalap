@@ -550,17 +550,80 @@ class ChatService {
   Future<void> clearMessages(String channelId) =>
       _store.clearChannelMessages(channelId);
 
-  /// Leave a group: enqueue a REST `DELETE /v3.0/channels/{id}` op for
-  /// the server to drop our membership, then locally drop the channel +
-  /// cascade for an optimistic UI. Throws if [channelId] is not a group.
+  /// Leave a group (decision 9/80): `DELETE /v3.0/channels/{id}/members/
+  /// {selfUserId}`, for owners too — the server promotes the
+  /// longest-standing admin (else the longest-standing member) and
+  /// re-announces them as owner. Locally the channel row is dropped
+  /// straight away (cascading members + messages) for an optimistic UI.
   ///
   /// The server's eventual `ChannelMemberRemoved` fanout reaches the
   /// remaining members; the leaver's own copy of that fanout is a no-op
   /// because the local channel row is already gone.
-  Future<void> leaveGroup(String channelId) async {
-    // Resolve channel kind first so we never enqueue a DELETE op for a
-    // DM. `leaveGroupLocal` re-validates and throws on non-group, but
-    // doing the check up front keeps the outbound queue clean.
+  Future<void> leaveGroup(
+    String channelId, {
+    required String selfUserId,
+  }) =>
+      _channelMembershipOp(
+        channelId: channelId,
+        caller: 'leaveGroup',
+        kind: OpKind.removeMember,
+        method: 'DELETE',
+        path: '/v3.0/channels/$channelId/members/$selfUserId',
+        payload: const [],
+        applyLocal: () => _store.leaveGroupLocal(channelId),
+      );
+
+  /// Delete a group for everyone (decision 9, owner only):
+  /// `DELETE /v3.0/channels/{id}`. The server hard-deletes and fans
+  /// `ChannelDeleted`; locally the channel is tombstoned now, the same
+  /// write that fanout makes on every other member.
+  Future<void> deleteGroup(String channelId) => _channelMembershipOp(
+        channelId: channelId,
+        caller: 'deleteGroup',
+        kind: OpKind.deleteChannel,
+        method: 'DELETE',
+        path: '/v3.0/channels/$channelId',
+        payload: const [],
+        applyLocal: () => _store.deleteGroupLocal(channelId),
+      );
+
+  /// Promote or demote a member (decision 80):
+  /// `PATCH /v3.0/channels/{id}/members/{user_id}` with
+  /// `{role: "admin"|"member"}`. Owner and admins only — the server
+  /// answers 403 otherwise, and a terminal reject puts the local row
+  /// back (`ChatStore._rollbackMemberRole`).
+  Future<void> setMemberRole({
+    required String channelId,
+    required String userId,
+    required String role,
+  }) =>
+      _channelMembershipOp(
+        channelId: channelId,
+        caller: 'setMemberRole',
+        kind: OpKind.setMemberRole,
+        method: 'PATCH',
+        path: '/v3.0/channels/$channelId/members/$userId',
+        payload: utf8.encode(jsonEncode({'role': role})),
+        applyLocal: () => _store.setMemberRoleLocal(
+          channelId: channelId,
+          userId: userId,
+          role: role,
+        ),
+      );
+
+  /// The shape all three group-membership writes share: refuse to touch
+  /// a DM, enqueue the REST op, apply the local projection, kick the
+  /// scheduler. Resolving the channel kind up front keeps the outbound
+  /// queue clean even though the store methods re-validate.
+  Future<void> _channelMembershipOp({
+    required String channelId,
+    required String caller,
+    required String kind,
+    required String method,
+    required String path,
+    required List<int> payload,
+    required Future<void> Function() applyLocal,
+  }) async {
     final rows = await _store.db.query(
       'channels',
       columns: const ['kind'],
@@ -572,28 +635,26 @@ class ChatService {
       // Channel already gone locally — nothing to do, no op to enqueue.
       return;
     }
-    final kind = rows.single['kind'] as String;
-    if (kind != 'group') {
+    final channelKind = rows.single['kind'] as String;
+    if (channelKind != 'group') {
       throw StateError(
-        'leaveGroup called on non-group channel ($kind). '
+        '$caller called on non-group channel ($channelKind). '
         'DM channels must not be deleted — clear messages instead.',
       );
     }
 
     final now = _clock.nowMs();
-    final opId = _uuidGen.next(nowMs: now);
-
     final op = OutboundOpRow(
-      opId: opId,
+      opId: _uuidGen.next(nowMs: now),
       transport: OpTransport.rest,
-      kind: OpKind.deleteChannel,
-      restMethod: 'DELETE',
-      restPath: '/v3.0/channels/$channelId',
+      kind: kind,
+      restMethod: method,
+      restPath: path,
       resourceId: channelId,
       // RestTransport tolerates an empty payload — it sends just the
       // standard op_id / resource_seq / client_timestamp_ms envelope
       // fields with no endpoint-specific body.
-      payload: const [],
+      payload: payload,
       status: OpStatus.pending,
       attempts: 0,
       nextRetryAt: now,
@@ -606,7 +667,7 @@ class ChatService {
     );
 
     await _store.enqueueOutboundOp(op);
-    await _store.leaveGroupLocal(channelId);
+    await applyLocal();
     _scheduler.tickSoon();
   }
 

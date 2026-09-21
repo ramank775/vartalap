@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -370,7 +371,6 @@ class ChatStore {
     required int nowMs,
   }) async {
     await db.transaction((txn) async {
-      final kind = await _opKind(txn, opId);
       await txn.update(
         'outbound_ops',
         {
@@ -381,10 +381,13 @@ class ChatStore {
         where: 'op_id = ?',
         whereArgs: [opId],
       );
-      await _rollbackForTerminalOp(txn, kind, messageId, nowMs);
+      await _rollbackForTerminalOp(txn, opId, messageId, nowMs);
     });
     _notify(
-      messageId != null ? {'outbound_ops', 'messages'} : {'outbound_ops'},
+      messageId != null
+          ? const {'outbound_ops', 'messages'}
+          // A channel-scoped op (role change) rolls back channel_members.
+          : const {'outbound_ops', 'channel_members'},
     );
   }
 
@@ -399,13 +402,29 @@ class ChatStore {
   ///     landed (`last_edit_ms` is stamped only on ACK);
   ///   * a delete lifts its tombstone — the message comes back;
   ///   * a reaction is non-destructive (decision 11 excludes it), so
-  ///     the local row stays and the UI just reports the failure.
+  ///     the local row stays and the UI just reports the failure;
+  ///   * a role change ([OpKind.setMemberRole], decision 80) puts the
+  ///     member back on the role it must have held.
   Future<void> _rollbackForTerminalOp(
     DatabaseExecutor txn,
-    String kind,
+    String opId,
     String? messageId,
     int nowMs,
   ) async {
+    final opRows = await txn.query(
+      'outbound_ops',
+      columns: const ['kind', 'rest_path', 'payload', 'target_channel_id'],
+      where: 'op_id = ?',
+      whereArgs: [opId],
+      limit: 1,
+    );
+    // The pre-kind default preserves old behaviour when the row is gone.
+    final kind =
+        opRows.isEmpty ? OpKind.chatPayload : opRows.single['kind'] as String;
+    if (kind == OpKind.setMemberRole) {
+      await _rollbackMemberRole(txn, opRows.single);
+      return;
+    }
     if (messageId == null) return;
     switch (kind) {
       case OpKind.messageEdit:
@@ -441,19 +460,38 @@ class ChatStore {
     }
   }
 
-  /// The `kind` of [opId], or [OpKind.chatPayload] when the row is
-  /// gone (the pre-kind default preserves old behaviour).
-  Future<String> _opKind(DatabaseExecutor txn, String opId) async {
-    final rows = await txn.query(
-      'outbound_ops',
-      columns: const ['kind'],
-      where: 'op_id = ?',
-      whereArgs: [opId],
-      limit: 1,
+  /// Compensating write for a rejected `PATCH channels/{id}/members/
+  /// {user_id}`: put the member back where they were.
+  ///
+  /// ponytail: the previous role is inferred, not snapshotted — the
+  /// only assignable roles are `admin` and `member` (decision 80 makes
+  /// the owner a forbidden target), so a rejected promote rolls back to
+  /// `member` and a rejected demote to `admin`. Snapshot the old role
+  /// on the op row if a third assignable role ever appears.
+  Future<void> _rollbackMemberRole(
+    DatabaseExecutor txn,
+    Map<String, Object?> op,
+  ) async {
+    final channelId = op['target_channel_id'] as String?;
+    final path = op['rest_path'] as String?;
+    if (channelId == null || path == null) return;
+    final userId = path.split('/').last;
+    final bytes = op['payload'];
+    if (bytes is! List<int> || bytes.isEmpty) return;
+    final String requested;
+    try {
+      requested =
+          (jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>)['role']
+              as String;
+    } catch (_) {
+      return;
+    }
+    await txn.update(
+      'channel_members',
+      {'role': requested == 'admin' ? 'member' : 'admin'},
+      where: 'channel_id = ? AND user_id = ?',
+      whereArgs: [channelId, userId],
     );
-    return rows.isEmpty
-        ? OpKind.chatPayload
-        : rows.single['kind'] as String;
   }
 
   /// Permanent reject. Roll back message projection, mark op rejected,
@@ -468,7 +506,6 @@ class ChatStore {
     required int nowMs,
   }) async {
     await db.transaction((txn) async {
-      final kind = await _opKind(txn, opId);
       await txn.update(
         'outbound_ops',
         {
@@ -480,7 +517,7 @@ class ChatStore {
         whereArgs: [opId],
       );
 
-      await _rollbackForTerminalOp(txn, kind, messageId, nowMs);
+      await _rollbackForTerminalOp(txn, opId, messageId, nowMs);
 
       // Cascade: any later-sequenced op on the same resource is
       // guaranteed to fail because the parent failed. Mark them so the
@@ -498,7 +535,7 @@ class ChatStore {
         ['parent_rejected:$reason', resourceId, rejectedSeq],
       );
     });
-    _notify(const {'outbound_ops', 'messages'});
+    _notify(const {'outbound_ops', 'messages', 'channel_members'});
   }
 
   /// User tapped "dismiss" on a failure toast. Marks the terminal op
@@ -1124,6 +1161,74 @@ class ChatStore {
     _notify(const {'channel_members'});
   }
 
+  /// Upsert a membership row, role included — decision 80. Role changes
+  /// and owner succession reach every client as a RE-announced
+  /// `ChannelMemberAdded{members:[user], role}`, so the projection has
+  /// to overwrite the role of a row it already has (plain
+  /// [insertChannelMember] is INSERT OR IGNORE and would drop it).
+  /// Also clears `removed_at`, so a re-add resurrects the row.
+  ///
+  /// An empty [role] means the announce carried none: a new row lands as
+  /// `member` and an existing row keeps whatever role it holds.
+  ///
+  /// A `role = 'owner'` announce is the succession event: the channel's
+  /// `owner_user_id` moves with it, and the outgoing owner (if still a
+  /// member) falls back to `member`.
+  Future<void> upsertChannelMember({
+    required String channelId,
+    required String userId,
+    required String role,
+    required int joinedAt,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.rawInsert(
+        'INSERT INTO channel_members '
+        '  (channel_id, user_id, role, joined_at, removed_at) '
+        'VALUES (?, ?, ?, ?, NULL) '
+        'ON CONFLICT(channel_id, user_id) DO UPDATE SET '
+        "  role = CASE WHEN ? = '' THEN channel_members.role "
+        '              ELSE excluded.role END, '
+        '  removed_at = NULL',
+        [channelId, userId, role.isEmpty ? 'member' : role, joinedAt, role],
+      );
+      if (role != 'owner') return;
+      await txn.rawUpdate(
+        "UPDATE channel_members SET role = 'member' "
+        ' WHERE channel_id = ? AND user_id != ? AND role = ?',
+        [channelId, userId, 'owner'],
+      );
+      await txn.update(
+        'channels',
+        {'owner_user_id': userId},
+        where: 'channel_id = ?',
+        whereArgs: [channelId],
+      );
+    });
+    _notify(
+      role == 'owner'
+          ? const {'channel_members', 'channels'}
+          : const {'channel_members'},
+    );
+  }
+
+  /// Local projection of a role change the local user just made — the
+  /// optimistic half of `PATCH channels/{id}/members/{user_id}`. The
+  /// server's re-announce lands on the same row via
+  /// [upsertChannelMember].
+  Future<void> setMemberRoleLocal({
+    required String channelId,
+    required String userId,
+    required String role,
+  }) async {
+    await db.update(
+      'channel_members',
+      {'role': role},
+      where: 'channel_id = ? AND user_id = ?',
+      whereArgs: [channelId, userId],
+    );
+    _notify(const {'channel_members'});
+  }
+
   /// Soft-delete a membership row by stamping `removed_at`. Used by the
   /// inbound ChannelMemberRemoved handler (SYNC_PROTOCOL.md §10.2). The
   /// channel itself is untouched — see [tombstoneChannel] for the
@@ -1585,6 +1690,31 @@ class ChatStore {
       whereArgs: [channelId],
     );
     _notify(const {'channels', 'channel_members', 'messages'});
+  }
+
+  /// Owner "Delete group" (decision 9) — the optimistic local half of
+  /// `DELETE /v3.0/channels/{id}`. Tombstones rather than hard-deletes,
+  /// exactly like the inbound `ChannelDeleted` this action will fan to
+  /// everyone else ([applyChannelDelete]), so the owner's own copy of
+  /// that fanout is a no-op instead of resurrecting anything. Throws on
+  /// a non-group channel, same rule as [leaveGroupLocal].
+  Future<void> deleteGroupLocal(String channelId) async {
+    final rows = await db.query(
+      'channels',
+      columns: const ['kind'],
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final kind = rows.single['kind'] as String;
+    if (kind != 'group') {
+      throw StateError(
+        'deleteGroupLocal called on non-group channel ($kind). '
+        'DM channels cannot be deleted — clear messages instead.',
+      );
+    }
+    await tombstoneChannel(channelId);
   }
 
   /// Local-only pin flag — V3_ARCHITECTURE decision 3 offline matrix.

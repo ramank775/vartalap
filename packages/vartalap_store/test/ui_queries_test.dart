@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:test/test.dart';
@@ -693,6 +694,156 @@ void main() {
 
       expect(
         () => store.leaveGroupLocal('dm-1'),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
+  group('setMemberRoleLocal rollback (decision 80)', () {
+    Future<ChatStore> groupWithPendingRoleOp(String role) async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'g-role',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Team',
+      );
+      await store.insertChannelMember(
+        channelId: 'g-role',
+        userId: 'u-peer',
+        role: role == 'admin' ? 'member' : 'admin',
+        joinedAt: 100,
+      );
+      await store.enqueueOutboundOp(OutboundOpRow(
+        opId: 'op-role',
+        transport: OpTransport.rest,
+        kind: OpKind.setMemberRole,
+        restMethod: 'PATCH',
+        restPath: '/v3.0/channels/g-role/members/u-peer',
+        resourceId: 'g-role',
+        payload: utf8.encode(jsonEncode({'role': role})),
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: 0,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: 100,
+        targetMessageId: null,
+        targetChannelId: 'g-role',
+      ));
+      await store.setMemberRoleLocal(
+        channelId: 'g-role',
+        userId: 'u-peer',
+        role: role,
+      );
+      return store;
+    }
+
+    Future<String?> roleOf(ChatStore store) async => (await store.db.query(
+          'channel_members',
+          columns: const ['role'],
+          where: 'channel_id = ? AND user_id = ?',
+          whereArgs: ['g-role', 'u-peer'],
+        )).single['role'] as String?;
+
+    test('a rejected promote puts the member back', () async {
+      final store = await groupWithPendingRoleOp('admin');
+      expect(await roleOf(store), 'admin');
+
+      await store.applyPermanentReject(
+        opId: 'op-role',
+        resourceId: 'g-role',
+        rejectedSeq: 1,
+        reason: 'forbidden',
+        messageId: null,
+        nowMs: 200,
+      );
+
+      expect(await roleOf(store), 'member');
+    });
+
+    test('a dead-lettered demote puts the admin back', () async {
+      final store = await groupWithPendingRoleOp('member');
+      expect(await roleOf(store), 'member');
+
+      await store.markOpDeadLetter(
+        opId: 'op-role',
+        reason: 'retry_limit_exceeded',
+        messageId: null,
+        nowMs: 200,
+      );
+
+      expect(await roleOf(store), 'admin');
+    });
+  });
+
+  group('deleteGroupLocal', () {
+    test('tombstones rather than dropping, so the inbound ChannelDeleted '
+        'echo is a no-op', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+
+      await store.insertChannel(
+        channelId: 'g-del',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Team',
+      );
+      await store.insertChannelMember(
+        channelId: 'g-del',
+        userId: 'u-self',
+        role: 'owner',
+        joinedAt: 100,
+      );
+      await _insertSentMessage(
+        store: store,
+        channelId: 'g-del',
+        messageId: 'm-del',
+        body: 'hi',
+        authorUserId: 'u-self',
+        clientTimestampMs: 110,
+        deliverySequence: 1,
+      );
+
+      await store.deleteGroupLocal('g-del');
+
+      final rows = await store.db
+          .query('channels', where: 'channel_id = ?', whereArgs: ['g-del']);
+      expect(rows.single['tombstoned'], 1);
+      expect(
+        (await store.fetchChannelList())
+            .where((c) => c.channelId == 'g-del'),
+        isEmpty,
+        reason: 'the chat list filters on tombstoned = 0.',
+      );
+
+      // The server's own ChannelDeleted lands next and changes nothing.
+      await store.applyChannelDelete(channelId: 'g-del', deletedAtMs: 200);
+      expect(
+        (await store.db.query('channels',
+                where: 'channel_id = ?', whereArgs: ['g-del']))
+            .single['tombstoned'],
+        1,
+      );
+    });
+
+    test('refuses to delete a DM channel', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+
+      await store.insertChannel(
+        channelId: 'dm-del',
+        kind: 'one_to_one',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+      );
+
+      expect(
+        () => store.deleteGroupLocal('dm-del'),
         throwsA(isA<StateError>()),
       );
     });

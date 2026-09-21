@@ -603,6 +603,12 @@ class InboundReceiver {
   /// §10.2 ChannelMemberAdded. Out-of-order delivery (channel not yet
   /// local) is dropped silently but op_id_seen is still recorded — the
   /// dedup table is the source of truth for "have I processed this op."
+  ///
+  /// Decision 80: the same event carries role changes and owner
+  /// succession as a RE-announce of an existing member, so the write is
+  /// an upsert. An empty `role` leaves an existing member's role alone
+  /// (and lands a new row as `member`); `owner` also moves
+  /// `channels.owner_user_id`.
   Future<void> _handleChannelMemberAdded(
     pb.Envelope env,
     pb.ChannelMemberAdded body,
@@ -618,10 +624,10 @@ class InboundReceiver {
     if (existing.isNotEmpty) {
       final addedAt = body.addedAtMs.toInt();
       for (final userId in body.members) {
-        await store.insertChannelMember(
+        await store.upsertChannelMember(
           channelId: body.channelId,
           userId: userId,
-          role: 'member',
+          role: body.role,
           joinedAt: addedAt,
         );
       }

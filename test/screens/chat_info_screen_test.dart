@@ -136,7 +136,153 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, 'Leave group'));
     await tester.pumpAndSettle();
 
-    expect(svc.calls, ['leaveGroup(c-1)']);
+    expect(svc.calls, ['leaveGroup(c-1,u-self)']);
+  });
+
+  // ---- decisions 9 / 80 / 81: roles -------------------------------------
+
+  testWidgets('member rows carry Owner and Admin badges, members none',
+      (tester) async {
+    await _pumpInfo(
+      tester,
+      _FakeChatService(members: _roster()),
+      kind: 'group',
+    );
+
+    expect(find.text('Owner'), findsOneWidget);
+    expect(find.text('Admin'), findsOneWidget);
+    expect(find.text('Member'), findsNothing);
+  });
+
+  testWidgets('the owner sees Delete group as well as Leave group',
+      (tester) async {
+    await _pumpInfo(
+      tester,
+      _FakeChatService(members: _roster(selfRole: 'owner')),
+      kind: 'group',
+    );
+    await _scrollTo(tester, 'Delete group');
+
+    final scheme = lightThemeData.colorScheme;
+    expect(find.text('Leave group'), findsOneWidget);
+    expect(_titleColor(tester, 'Delete group'), scheme.error);
+  });
+
+  testWidgets('an admin sees Leave group but never Delete group',
+      (tester) async {
+    await _pumpInfo(
+      tester,
+      _FakeChatService(members: _roster(selfRole: 'admin')),
+      kind: 'group',
+    );
+    await _scrollTo(tester, 'Leave group');
+
+    expect(find.text('Delete group'), findsNothing);
+  });
+
+  testWidgets('a plain member sees neither Delete group nor a role menu',
+      (tester) async {
+    await _pumpInfo(
+      tester,
+      _FakeChatService(members: _roster(selfRole: 'member')),
+      kind: 'group',
+    );
+
+    expect(find.text('Delete group'), findsNothing);
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+  });
+
+  testWidgets("the owner's Leave confirm names the successor", (tester) async {
+    await _pumpInfo(
+      tester,
+      _FakeChatService(members: _roster(selfRole: 'owner')),
+      kind: 'group',
+    );
+    await _scrollTo(tester, 'Leave group');
+    await tester.tap(find.text('Leave group'));
+    await tester.pumpAndSettle();
+
+    // Decision 9: the longest-standing admin, not the earliest joiner.
+    expect(
+      find.textContaining('Ravi will become the owner'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Delete group confirms that everyone loses it', (tester) async {
+    final svc = _FakeChatService(members: _roster(selfRole: 'owner'));
+    await _pumpInfo(tester, svc, kind: 'group');
+    await _scrollTo(tester, 'Delete group');
+    await tester.tap(find.text('Delete group'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Everyone loses this group'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Delete group'));
+    await tester.pumpAndSettle();
+    expect(svc.calls, ['deleteGroup(c-1)']);
+  });
+
+  testWidgets('owner and admins can promote a member off its row',
+      (tester) async {
+    final svc = _FakeChatService(members: _roster(selfRole: 'admin'));
+    await _pumpInfo(tester, svc, kind: 'group');
+
+    // Ravi and Meena are both actionable (the owner is never a target
+    // and you are not your own).
+    await tester.ensureVisible(_rowMenu('Meena'));
+    await tester.pumpAndSettle();
+    await tester.tap(_rowMenu('Meena'));
+    await tester.pumpAndSettle();
+    expect(find.text('Make admin'), findsOneWidget);
+
+    await tester.tap(find.text('Make admin'));
+    await tester.pumpAndSettle();
+    expect(svc.calls, ['setMemberRole(c-1,u-meena,admin)']);
+  });
+
+  testWidgets('an existing admin is offered Dismiss as admin instead',
+      (tester) async {
+    final svc = _FakeChatService(
+      members: _roster(selfRole: 'owner'),
+    );
+    await _pumpInfo(tester, svc, kind: 'group');
+
+    // Long-press is the other way in, and lands on the same sheet.
+    await tester.ensureVisible(find.widgetWithText(ListTile, 'Ravi'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.widgetWithText(ListTile, 'Ravi'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dismiss as admin'), findsOneWidget);
+
+    await tester.tap(find.text('Dismiss as admin'));
+    await tester.pumpAndSettle();
+    expect(svc.calls, ['setMemberRole(c-1,u-ravi,member)']);
+  });
+
+  test('the successor is the longest-standing admin, else the '
+      'longest-standing member', () {
+    final roster = _roster(selfRole: 'owner');
+    expect(
+      successorAfterOwnerLeaves(roster, 'u-self')?.userId,
+      'u-ravi',
+      reason: 'decision 9: an admin wins even though Meena joined first.',
+    );
+    expect(
+      successorAfterOwnerLeaves(
+        roster.where((m) => m.role != 'admin').toList(),
+        'u-self',
+      )?.userId,
+      'u-meena',
+      reason: 'decision 9: with no admin left it is the earliest joiner.',
+    );
+    expect(
+      successorAfterOwnerLeaves(
+        roster.where((m) => m.userId == 'u-self').toList(),
+        'u-self',
+      ),
+      isNull,
+      reason: 'the last member out takes the group with them.',
+    );
   });
 
   testWidgets('a DM has no Leave group at all', (tester) async {
@@ -175,6 +321,12 @@ Future<void> _pumpInfo(
   await tester.pumpAndSettle();
 }
 
+/// The trailing role menu on one member's row.
+Finder _rowMenu(String name) => find.descendant(
+      of: find.widgetWithText(ListTile, name),
+      matching: find.byIcon(Icons.more_vert),
+    );
+
 /// The destructive block sits below the fold in the test viewport.
 Future<void> _scrollTo(WidgetTester tester, String text) =>
     tester.scrollUntilVisible(find.text(text), 200);
@@ -183,6 +335,35 @@ Color? _titleColor(WidgetTester tester, String title) {
   final text = tester.widget<Text>(find.text(title));
   return text.style?.color;
 }
+
+/// Self (owner by default), one admin who joined late, one member who
+/// joined first — so "longest-standing admin" and "earliest joiner"
+/// disagree and the successor rule is actually exercised.
+List<ChannelMemberRow> _roster({String selfRole = 'owner'}) => [
+      _member('u-self', selfRole, 100),
+      _member('u-ravi', 'admin', 300, 'Ravi'),
+      _member('u-meena', 'member', 200, 'Meena'),
+    ];
+
+ChannelMemberRow _member(
+  String userId,
+  String role,
+  int joinedAt, [
+  String? name,
+]) =>
+    ChannelMemberRow(
+      channelId: _channelId,
+      userId: userId,
+      role: role,
+      joinedAt: joinedAt,
+      contact: name == null
+          ? null
+          : ContactRow(
+              userId: userId,
+              contactBookName: name,
+              lastRefreshedMs: 1,
+            ),
+    );
 
 MessageRow _imageMessage(String id) => MessageRow(
       messageId: id,
@@ -205,16 +386,36 @@ MessageRow _imageMessage(String id) => MessageRow(
 class _FakeChatService implements ChatService {
   final List<String> calls = [];
   final List<MessageRow> media;
+  final List<ChannelMemberRow> members;
   int? mutedUntilMs;
 
   _FakeChatService({
     this.media = const [],
+    this.members = const [],
     this.mutedUntilMs,
   });
 
   @override
   Future<List<ChannelMemberRow>> fetchChannelMembers(String channelId) async =>
-      const [];
+      members;
+
+  @override
+  Stream<List<OutboundOpRow>> watchFailures() =>
+      const Stream<List<OutboundOpRow>>.empty();
+
+  @override
+  Future<void> deleteGroup(String channelId) async {
+    calls.add('deleteGroup($channelId)');
+  }
+
+  @override
+  Future<void> setMemberRole({
+    required String channelId,
+    required String userId,
+    required String role,
+  }) async {
+    calls.add('setMemberRole($channelId,$userId,$role)');
+  }
 
   @override
   Future<List<MessageRow>> fetchMedia(String channelId) async => media;
@@ -240,8 +441,11 @@ class _FakeChatService implements ChatService {
   }
 
   @override
-  Future<void> leaveGroup(String channelId) async {
-    calls.add('leaveGroup($channelId)');
+  Future<void> leaveGroup(
+    String channelId, {
+    required String selfUserId,
+  }) async {
+    calls.add('leaveGroup($channelId,$selfUserId)');
   }
 
   @override

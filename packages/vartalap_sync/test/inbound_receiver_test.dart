@@ -455,6 +455,163 @@ void main() {
   );
 
   test(
+    'decision 80: a re-announced member UPSERTS the role',
+    () async {
+      const grp = 'c-grp-role';
+      await store.insertChannel(
+        channelId: grp,
+        kind: 'group',
+        ownerUserId: _selfUserId,
+        createdAt: 200,
+      );
+      await store.insertChannelMember(
+        channelId: grp,
+        userId: _selfUserId,
+        role: 'owner',
+        joinedAt: 200,
+      );
+      await store.insertChannelMember(
+        channelId: grp,
+        userId: _peerUserId,
+        role: 'member',
+        joinedAt: 210,
+      );
+
+      pushes.add(_makeEnvelope(
+        channelId: grp,
+        opId: 'op-role-1',
+        senderUserId: _selfUserId,
+        payload: _serverEventMemberAdded(
+          channelId: grp,
+          members: [_peerUserId],
+          addedAtMs: 300,
+          role: 'admin',
+        ),
+        serverTimestampMs: 300,
+        deliverySequence: 1,
+      ));
+      await _settleMemberRole(store, grp, _peerUserId, 'admin');
+
+      final peer = await store.db.query(
+        'channel_members',
+        where: 'channel_id = ? AND user_id = ?',
+        whereArgs: [grp, _peerUserId],
+      );
+      expect(peer.single['role'], 'admin');
+      expect(
+        peer.single['joined_at'],
+        210,
+        reason: 'a re-announce is not a re-join — the clock does not reset.',
+      );
+    },
+  );
+
+  test(
+    'decision 80: a role="owner" announce moves owner_user_id and demotes '
+    'the outgoing owner',
+    () async {
+      const grp = 'c-grp-succession';
+      await store.insertChannel(
+        channelId: grp,
+        kind: 'group',
+        ownerUserId: _peerUserId,
+        createdAt: 200,
+      );
+      await store.insertChannelMember(
+        channelId: grp,
+        userId: _peerUserId,
+        role: 'owner',
+        joinedAt: 200,
+      );
+      await store.insertChannelMember(
+        channelId: grp,
+        userId: _selfUserId,
+        role: 'member',
+        joinedAt: 210,
+      );
+
+      pushes.add(_makeEnvelope(
+        channelId: grp,
+        opId: 'op-succession-1',
+        senderUserId: _peerUserId,
+        payload: _serverEventMemberAdded(
+          channelId: grp,
+          members: [_selfUserId],
+          addedAtMs: 400,
+          role: 'owner',
+        ),
+        serverTimestampMs: 400,
+        deliverySequence: 1,
+      ));
+      await _settleMemberRole(store, grp, _selfUserId, 'owner');
+
+      final channel = await store.db.query(
+        'channels',
+        where: 'channel_id = ?',
+        whereArgs: [grp],
+      );
+      expect(
+        channel.single['owner_user_id'],
+        _selfUserId,
+        reason: 'decision 80: the promoted user owns the channel row too.',
+      );
+      final old = await store.db.query(
+        'channel_members',
+        where: 'channel_id = ? AND user_id = ?',
+        whereArgs: [grp, _peerUserId],
+      );
+      expect(
+        old.single['role'],
+        'member',
+        reason: 'exactly one owner — the previous one falls back.',
+      );
+    },
+  );
+
+  test(
+    'decision 80: an announce with no role leaves an existing role alone',
+    () async {
+      const grp = 'c-grp-roleless';
+      await store.insertChannel(
+        channelId: grp,
+        kind: 'group',
+        ownerUserId: _selfUserId,
+        createdAt: 200,
+      );
+      await store.insertChannelMember(
+        channelId: grp,
+        userId: _peerUserId,
+        role: 'admin',
+        joinedAt: 210,
+      );
+
+      pushes.add(_makeEnvelope(
+        channelId: grp,
+        opId: 'op-roleless-1',
+        senderUserId: _selfUserId,
+        payload: _serverEventMemberAdded(
+          channelId: grp,
+          members: [_peerUserId, _thirdUserId],
+          addedAtMs: 300,
+        ),
+        serverTimestampMs: 300,
+        deliverySequence: 1,
+      ));
+      await _settleMember(store, grp, _thirdUserId, present: true);
+
+      final rows = await store.db.query(
+        'channel_members',
+        where: 'channel_id = ?',
+        whereArgs: [grp],
+      );
+      expect(
+        {for (final r in rows) r['user_id']: r['role']},
+        {_peerUserId: 'admin', _thirdUserId: 'member'},
+      );
+    },
+  );
+
+  test(
     'TYPE_CHANNEL_MEMBER_ADDED for unknown channel is silently dropped '
     '(op_id_seen still recorded)',
     () async {
@@ -848,6 +1005,7 @@ List<int> _serverEventMemberAdded({
   required String channelId,
   required List<String> members,
   required int addedAtMs,
+  String role = '',
 }) {
   final sep = pb.ServerEventPayload(
     version: 1,
@@ -856,6 +1014,7 @@ List<int> _serverEventMemberAdded({
       channelId: channelId,
       members: members,
       addedAtMs: fixnum.Int64(addedAtMs),
+      role: role,
     ),
   );
   return _withDistinguisher(sep.writeToBuffer());
@@ -902,6 +1061,26 @@ Future<void> _settleChannel(
   }
   fail('channel $channelId '
       '${present ? 'did not appear' : 'did not disappear'} within timeout');
+}
+
+Future<void> _settleMemberRole(
+  ChatStore store,
+  String channelId,
+  String userId,
+  String role,
+) async {
+  for (var i = 0; i < 50; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final rows = await store.db.query(
+      'channel_members',
+      columns: const ['role'],
+      where: 'channel_id = ? AND user_id = ?',
+      whereArgs: [channelId, userId],
+      limit: 1,
+    );
+    if (rows.isNotEmpty && rows.single['role'] == role) return;
+  }
+  fail('member $userId never reached role "$role" in $channelId');
 }
 
 Future<void> _settleMember(
