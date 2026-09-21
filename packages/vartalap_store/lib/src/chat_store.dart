@@ -1515,6 +1515,29 @@ class ChatStore {
     return rows.map(_rowToMessage).toList();
   }
 
+  /// A single channel with its local settings, for the group-info
+  /// header and its "Muted until …" bar. Unlike [fetchChannelList]
+  /// this does not require the channel to have messages — group info
+  /// opens on empty and locally deleted groups too.
+  Future<ChannelListEntry?> fetchChannel(String channelId) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT c.channel_id, c.kind, c.name, c.avatar_url,
+             c.last_activity_ms, c.unread_count,
+             c.pinned, c.muted_until_ms,
+             m.body AS last_message_preview,
+             m.author_user_id AS last_message_author,
+             m.tombstoned AS last_message_tombstoned
+      FROM channels c
+      LEFT JOIN messages m ON m.message_id = c.last_message_id
+      WHERE c.channel_id = ?
+      ''',
+      [channelId],
+    );
+    if (rows.isEmpty) return null;
+    return _rowToChannelListEntry(rows.single);
+  }
+
   /// Channels where the current user is an active member, optionally
   /// filtered by `kind`. Powers the Groups tab in the new-chat picker.
   /// Sort: alphabetical by name, falling back to channel_id.

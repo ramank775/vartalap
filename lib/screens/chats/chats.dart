@@ -1,7 +1,17 @@
 /// Chat list — reactive over `chatService.watchChannels()`.
+///
+/// One merged inbox (frame a1). Per-chat actions live in the long-press
+/// sheet (frame a2), not in a selection app bar: every one of them is
+/// local-only, so there is nothing to batch and nothing to confirm at
+/// the top of the screen.
+///
+/// Frame b (3.1) splits this list into Personal and Other with a
+/// segmented row between the app bar and the list. That is a filter
+/// over the same rows, not a redesign — see `_filterSlot` below.
 library vartalap.screens.chats.chats;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
@@ -11,6 +21,7 @@ import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/chat_action_sheets.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -31,21 +42,34 @@ class ChatsScreen extends StatefulWidget {
 }
 
 class _ChatsScreenState extends State<ChatsScreen> {
-  /// Channel ids currently selected. Non-empty = selection mode.
-  final Set<String> _selected = {};
-
-  /// Created once so `setState` calls (selection toggles, etc.) don't
-  /// resubscribe and re-run the underlying SQL query on every rebuild.
+  /// Created once so rebuilds don't resubscribe and re-run the
+  /// underlying SQL query.
   late final Stream<List<ChannelListEntry>> _channelsStream =
       widget.chatService.watchChannels();
 
-  bool get _selectionMode => _selected.isNotEmpty;
+  /// userId → label, for the "Vikram:" sender prefix on group rows.
+  /// Loaded once from the local contacts cache.
+  ///
+  // ponytail: replace with the shared resolver after merge — it is
+  // being written in parallel on the identity branch and will know
+  // about the contact-book-name / @username precedence this map only
+  // approximates.
+  Map<String, String> _senderLabels = const {};
 
-  void _exitSelection() => setState(_selected.clear);
+  @override
+  void initState() {
+    super.initState();
+    _loadSenderLabels();
+  }
 
-  void _toggleSelection(String channelId) {
+  Future<void> _loadSenderLabels() async {
+    // No phones passed → local cache read, no network.
+    final contacts = await widget.chatService.discoverContacts();
+    if (!mounted) return;
     setState(() {
-      if (!_selected.remove(channelId)) _selected.add(channelId);
+      _senderLabels = {
+        for (final c in contacts) c.userId: c.displayLabel,
+      };
     });
   }
 
@@ -53,69 +77,81 @@ class _ChatsScreenState extends State<ChatsScreen> {
   Widget build(BuildContext context) {
     final wsTransport = AppServicesProvider.of(context).services.wsTransport;
     final chatColors = VartalapTheme.chatColorsOf(context);
+    final localUserId = widget.authService.currentUserId;
 
-    // Intercept system back while in selection mode so it cancels the
-    // selection rather than leaving the chat list.
-    return PopScope(
-      canPop: !_selectionMode,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        if (_selectionMode) _exitSelection();
-      },
-      child: Scaffold(
-        appBar: _selectionMode
-            ? _buildSelectionAppBar(context)
-            : _buildDefaultAppBar(context, wsTransport, chatColors),
-        body: StreamBuilder<List<ChannelListEntry>>(
-          stream: _channelsStream,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            }
-            final channels = snapshot.data ?? const [];
-            if (channels.isEmpty) {
-              return const _EmptyChats();
-            }
-            // Cull selection ids that are no longer in the list (e.g.,
-            // a parallel clear from another screen). Keeps the count
-            // accurate without an explicit refresh.
-            final visibleIds = channels.map((c) => c.channelId).toSet();
-            _selected.removeWhere((id) => !visibleIds.contains(id));
-            return ListView.separated(
-              itemCount: channels.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (ctx, i) {
-                final entry = channels[i];
-                final selected = _selected.contains(entry.channelId);
-                return _ChannelTile(
-                  entry: entry,
-                  chatColors: chatColors,
-                  selected: selected,
-                  onTap: () {
-                    if (_selectionMode) {
-                      _toggleSelection(entry.channelId);
-                    } else {
-                      _openChat(context, entry);
-                    }
+    return Scaffold(
+      appBar: _buildDefaultAppBar(context, wsTransport, chatColors),
+      body: Column(
+        children: [
+          // 3.1 slot: the Personal | Other segmented row drops in here
+          // (frame b). In 3.0 it renders nothing and the list below is
+          // merged — same rows, same sorting, same sheet.
+          ..._filterSlot,
+          Expanded(
+            child: StreamBuilder<List<ChannelListEntry>>(
+              stream: _channelsStream,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
+                final channels = snapshot.data ?? const [];
+                if (channels.isEmpty) {
+                  return const _EmptyChats();
+                }
+                return ListView.separated(
+                  itemCount: channels.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (ctx, i) {
+                    final entry = channels[i];
+                    return ChannelTile(
+                      entry: entry,
+                      chatColors: chatColors,
+                      displayName: _displayName(entry),
+                      senderPrefix: _senderPrefix(entry, localUserId),
+                      onTap: () => _openChat(context, entry),
+                      onLongPress: () => showChatActionsSheet(
+                        context: context,
+                        chatService: widget.chatService,
+                        entry: entry,
+                        displayName: _displayName(entry),
+                      ),
+                    );
                   },
-                  onLongPress: () => _toggleSelection(entry.channelId),
                 );
               },
-            );
-          },
-        ),
-        floatingActionButton: _selectionMode
-            ? null
-            : FloatingActionButton(
-                onPressed: () => _newChat(context),
-                child: const Icon(Icons.chat),
-              ),
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _newChat(context),
+        child: const Icon(Icons.chat),
       ),
     );
+  }
+
+  /// Empty in 3.0. See the class doc.
+  List<Widget> get _filterSlot => const [];
+
+  String _displayName(ChannelListEntry entry) =>
+      entry.name ?? entry.channelId;
+
+  /// "Vikram: " / "You: " in front of a group preview, so a group row
+  /// is legible without reading the name (frame a1). DMs get no prefix
+  /// — there is only one other person in the room.
+  ///
+  // ponytail: see `_senderLabels`.
+  String? _senderPrefix(ChannelListEntry entry, String? localUserId) {
+    if (entry.kind != 'group') return null;
+    final author = entry.lastMessageAuthor;
+    if (author == null) return null;
+    if (author == localUserId) return 'You: ';
+    final label = _senderLabels[author];
+    return label == null ? null : '$label: ';
   }
 
   AppBar _buildDefaultAppBar(
@@ -206,71 +242,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  AppBar _buildSelectionAppBar(BuildContext context) {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.close),
-        onPressed: _exitSelection,
-        tooltip: 'Cancel',
-      ),
-      title: Text('${_selected.length}'),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.cleaning_services_outlined),
-          tooltip: 'Clear messages',
-          onPressed: _confirmClearSelected,
-        ),
-      ],
-    );
-  }
-
-  void _confirmClearSelected() {
-    final count = _selected.length;
-    if (count == 0) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(count == 1 ? 'Clear messages?' : 'Clear $count chats?'),
-        content: Text(
-          count == 1
-              ? 'All messages in this chat will be removed from this device. '
-                  'The contact or group stays in your list.'
-              : 'All messages in the selected chats will be removed from '
-                  'this device. The contacts and groups stay in your list.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              final ids = _selected.toList();
-              _exitSelection();
-              try {
-                for (final id in ids) {
-                  await widget.chatService.clearMessages(id);
-                }
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Could not clear messages: $e')),
-                );
-              }
-            },
-            child: Text(
-              'Clear',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   PopupMenuItem<String> _menuItem(
     BuildContext context, {
     required String value,
@@ -307,9 +278,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
   static String _statusLabel(TransportState state) {
     switch (state) {
       case TransportState.connecting:
-        return 'Connecting\u2026';
+        return 'Connecting…';
       case TransportState.disconnected:
-        return 'Waiting for network\u2026';
+        return 'Waiting for network…';
       case TransportState.connected:
         return '';
     }
@@ -331,7 +302,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       MaterialPageRoute(
         builder: (_) => ChatScreen(
           channelId: entry.channelId,
-          channelName: entry.name ?? entry.channelId,
+          channelName: _displayName(entry),
           channelKind: entry.kind,
           chatService: widget.chatService,
           authService: widget.authService,
@@ -339,7 +310,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
       ),
     );
   }
-
 }
 
 class _EmptyChats extends StatelessWidget {
@@ -387,104 +357,205 @@ class _EmptyChats extends StatelessWidget {
   }
 }
 
-class _ChannelTile extends StatelessWidget {
+/// One row of the chat list (frame a1). Public so widget tests can
+/// pump a row on its own, and so the 3.1 split can reuse it verbatim.
+class ChannelTile extends StatelessWidget {
   final ChannelListEntry entry;
   final ChatColors chatColors;
-  final bool selected;
+  final String displayName;
+  final String? senderPrefix;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
-  const _ChannelTile({
+
+  const ChannelTile({
+    super.key,
     required this.entry,
     required this.chatColors,
+    required this.displayName,
+    this.senderPrefix,
     required this.onTap,
-    this.selected = false,
     this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final displayName = entry.name ?? entry.channelId;
+    final muted = entry.isMutedAt(DateTime.now().millisecondsSinceEpoch);
+    final hasUnread = entry.unreadCount > 0;
+
+    return ListTile(
+      leading: Avator(
+        text: displayName,
+        // Seeded on the id, not the name: renaming a group must not
+        // repaint its avatar.
+        seed: entry.channelId,
+        avatarUrl: entry.avatarUrl,
+        isGroup: entry.kind == 'group',
+        width: kAvatarMd,
+        height: kAvatarMd,
+      ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              displayName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+          if (muted) ...[
+            const SizedBox(width: kSpaceXs),
+            Icon(
+              Icons.notifications_off_outlined,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+              semanticLabel: 'Muted',
+            ),
+          ],
+          if (entry.pinned) ...[
+            const SizedBox(width: kSpaceXs),
+            Icon(
+              Icons.push_pin,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+              semanticLabel: 'Pinned',
+            ),
+          ],
+        ],
+      ),
+      subtitle: _subtitle(context, scheme, hasUnread),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _formatTime(entry.lastActivityMs),
+            style: TextStyle(
+              fontSize: 12,
+              color: hasUnread && !muted
+                  ? chatColors.unreadBadge
+                  : scheme.onSurfaceVariant,
+            ),
+          ),
+          if (hasUnread) ...[
+            const SizedBox(height: kSpaceXs),
+            _UnreadBadge(
+              count: entry.unreadCount,
+              chatColors: chatColors,
+              muted: muted,
+            ),
+          ],
+        ],
+      ),
+      onTap: onTap,
+      onLongPress: onLongPress,
+    );
+  }
+
+  /// The preview line, or the failed-send indicator when an op
+  /// targeting this channel has dead-lettered — a row can only say one
+  /// thing, and "Not sent" outranks the last message.
+  Widget _subtitle(
+    BuildContext context,
+    ColorScheme scheme,
+    bool hasUnread,
+  ) {
+    if (entry.hasFailedOp) {
+      return Row(
+        children: [
+          Icon(Icons.error_outline, size: 14, color: scheme.error),
+          const SizedBox(width: kSpaceXs),
+          Expanded(
+            child: Text(
+              'Not sent · tap to retry',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: scheme.error),
+            ),
+          ),
+        ],
+      );
+    }
+
     final preview = entry.lastMessageTombstoned
         ? '(message deleted)'
         : entry.lastMessagePreview ?? '';
-    final hasUnread = entry.unreadCount > 0;
+    return Text.rich(
+      TextSpan(
+        children: [
+          if (senderPrefix != null)
+            TextSpan(
+              text: senderPrefix,
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+          TextSpan(text: preview),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontStyle:
+            entry.lastMessageTombstoned ? FontStyle.italic : FontStyle.normal,
+        color: hasUnread ? scheme.onSurface : scheme.onSurfaceVariant,
+      ),
+    );
+  }
 
-    // Selected: avatar overlaid with a primary check, tile tinted.
-    final Widget leading = selected
-        ? Stack(
-            children: [
-              Avator(
-                text: displayName,
-                width: kAvatarMd,
-                height: kAvatarMd,
-              ),
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: scheme.primary.withValues(alpha: 0.85),
-                  ),
-                  child: Icon(
-                    Icons.check,
-                    color: scheme.onPrimary,
-                    size: kAvatarMd * 0.55,
-                  ),
-                ),
-              ),
-            ],
-          )
-        : Avator(text: displayName, width: kAvatarMd, height: kAvatarMd);
+  static String _formatTime(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final days = today.difference(DateTime(d.year, d.month, d.day)).inDays;
+    if (days == 0) return DateFormat.jm().format(d);
+    if (days == 1) return 'Yesterday';
+    if (days < 7) return DateFormat.E().format(d);
+    if (d.year == now.year) return DateFormat.MMMd().format(d);
+    return DateFormat.yMd().format(d);
+  }
+}
 
-    return ListTile(
-      tileColor:
-          selected ? scheme.primaryContainer.withValues(alpha: 0.25) : null,
-      leading: leading,
-      title: Text(
-        displayName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+/// Filled when the chat alerts, outlined when it is muted — a muted
+/// chat still counts, it just stops shouting.
+class _UnreadBadge extends StatelessWidget {
+  final int count;
+  final ChatColors chatColors;
+  final bool muted;
+
+  const _UnreadBadge({
+    required this.count,
+    required this.chatColors,
+    required this.muted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: kSpaceSm,
+        vertical: kSpaceXs,
+      ),
+      constraints: const BoxConstraints(minWidth: 24),
+      decoration: BoxDecoration(
+        color: muted ? Colors.transparent : chatColors.unreadBadge,
+        border: muted
+            ? Border.all(color: scheme.outline)
+            : null,
+        borderRadius: BorderRadius.circular(kRadiusFull),
+      ),
+      child: Text(
+        '$count',
+        textAlign: TextAlign.center,
         style: TextStyle(
-          fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
+          color: muted ? scheme.onSurfaceVariant : chatColors.unreadBadgeText,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
         ),
       ),
-      subtitle: Text(
-        preview,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontStyle: entry.lastMessageTombstoned
-              ? FontStyle.italic
-              : FontStyle.normal,
-          color: hasUnread
-              ? scheme.onSurface
-              : scheme.onSurfaceVariant,
-        ),
-      ),
-      trailing: hasUnread
-          ? Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: kSpaceSm,
-                vertical: kSpaceXs,
-              ),
-              constraints: const BoxConstraints(minWidth: 24),
-              decoration: BoxDecoration(
-                color: chatColors.unreadBadge,
-                borderRadius: BorderRadius.circular(kRadiusFull),
-              ),
-              child: Text(
-                '${entry.unreadCount}',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: chatColors.unreadBadgeText,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            )
-          : null,
-      onTap: onTap,
-      onLongPress: onLongPress,
     );
   }
 }

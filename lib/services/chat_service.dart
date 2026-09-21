@@ -575,7 +575,50 @@ class ChatService {
   /// Reactive failure surface — SPIKE_B_SYNC.md §10. The UI can bind a
   /// toast or inline retry affordance to this.
   Stream<List<OutboundOpRow>> watchFailures() => failureStream(_store);
+
+  // --- local-only chat settings ------------------------------------------
+  //
+  // Pin, mute and delete-chat are device-local metadata
+  // (V3_ARCHITECTURE decision 3 offline matrix). None of them enqueues
+  // an outbound op, so none of them can fail or need a connection —
+  // which is why they have no error path and no "needs a connection"
+  // affordance in the UI.
+
+  /// Pin [channelId] to the top of the chat list, or unpin it.
+  Future<void> setPinned(String channelId, bool pinned) =>
+      _store.setChannelPinned(channelId, pinned);
+
+  /// Mute [channelId] until [untilMs] (epoch ms). `null` unmutes;
+  /// [kMuteAlways] is the sheet's "Always" option.
+  ///
+  /// Gating the ntfy wake on this value is server-side work
+  /// (V3_RELEASE_PLAN open item 13); today the flag only drives the
+  /// outline unread badge and the group-info mute bar.
+  Future<void> setMuted(String channelId, int? untilMs) =>
+      _store.setChannelMuted(channelId, untilMs);
+
+  /// "Delete chat" — local-only, and not "leave group". Erases history
+  /// and drops the row from Chats; membership is untouched, the group
+  /// keeps showing under Groups, and the next message brings the chat
+  /// back. See [leaveGroup] for the server-op counterpart.
+  Future<void> deleteChat(String channelId) =>
+      _store.deleteChatLocal(channelId);
+
+  /// One channel plus its local settings — powers the group-info
+  /// header. Null when the channel is not in the local store.
+  Future<ChannelListEntry?> fetchChannel(String channelId) =>
+      _store.fetchChannel(channelId);
+
+  /// Image messages in [channelId], newest first. Powers "Media, links
+  /// and docs".
+  Future<List<MessageRow>> fetchMedia(String channelId) =>
+      _store.fetchChannelMedia(channelId);
 }
+
+/// "Always" in the mute sheet — a `muted_until_ms` far enough out that
+/// it never elapses, so the same `until > now` comparison covers every
+/// mute option and no "muted forever" special case is needed.
+const int kMuteAlways = 253402300800000; // 9999-01-01T00:00:00Z
 
 /// Top-level helper so UI code doesn't need to import
 /// `package:vartalap_sync` directly for the failure stream.
