@@ -1,0 +1,102 @@
+name: "ci"
+
+on:
+  push:
+    branches:
+      - "v3.0"
+      - "master"
+  pull_request:
+    branches:
+      - "v3.0"
+      - "master"
+
+env:
+  FLUTTER_VERSION: "3.41.9"
+
+jobs:
+  analyze-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+      - run: flutter pub get
+      # Nested pub workspaces (packages/*, tools/) resolve their own deps.
+      # `flutter analyze` walks the whole tree, so it needs these fetched
+      # first or it reports every `package:test` import as unresolved.
+      - name: pub get in packages/* and tools/
+        run: |
+          for d in packages/*/ tools/; do
+            (cd "$d" && dart pub get)
+          done
+      - run: flutter analyze
+      - name: flutter test (excluding test/integration, needs a live server)
+        run: flutter test $(find test -mindepth 1 -maxdepth 1 ! -name integration)
+      - name: dart test in packages/*
+        run: |
+          for d in packages/*/; do
+            echo "== dart test: $d =="
+            (cd "$d" && dart test)
+          done
+      - name: dart analyze tools/
+        run: (cd tools && dart analyze)
+
+  degoogle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/degoogle_gate.sh
+
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+      - run: flutter pub get
+      # ponytail: no release signing secrets configured yet. Generate a
+      # throwaway debug keystore so `--release` (which android/app/build.gradle
+      # always points at signingConfigs.release) has something to sign with.
+      # Swap for a real secrets-backed keystore + key.properties when this
+      # app actually ships to a store.
+      - name: Generate throwaway signing key
+        run: |
+          keytool -genkeypair -v -keystore ci-release.jks -alias ciupload \
+            -keyalg RSA -keysize 2048 -validity 1 \
+            -storepass ci-throwaway -keypass ci-throwaway \
+            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
+          cat > android/key.properties <<EOF
+          storePassword=ci-throwaway
+          keyPassword=ci-throwaway
+          keyAlias=ciupload
+          storeFile=${{ github.workspace }}/ci-release.jks
+          EOF
+      - name: Build dev-flavor release APK
+        run: |
+          flutter build apk --release --flavor dev \
+            --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.org' }} \
+            --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.org/wss' }} \
+            --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
+      # Release plan §5: the shipped classes.dex is the release-time half of
+      # the degoogle gate (scripts/degoogle_gate.sh only checks source/config).
+      - name: Verify no Firebase/GMS classes in the built APK
+        run: |
+          mkdir dex_check
+          unzip -o -j build/app/outputs/flutter-apk/app-dev-release.apk 'classes*.dex' -d dex_check
+          if strings dex_check/*.dex | grep -E 'Lcom/google/firebase|Lcom/google/android/gms'; then
+            echo "FAIL: Firebase/Google Play Services classes found in APK" >&2
+            exit 1
+          fi
+          echo "OK: no Firebase/GMS classes in APK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vartalap-dev-release-apk
+          path: build/app/outputs/flutter-apk/app-dev-release.apk
