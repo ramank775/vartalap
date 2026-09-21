@@ -17,6 +17,12 @@ class AppServicesProvider extends InheritedWidget {
     required super.child,
   });
 
+  /// Null when there is no provider above [context] — screens rendered
+  /// standalone (widget tests) take that path.
+  static AppServices? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<AppServicesProvider>()
+      ?.services;
+
   static AppServicesProvider of(BuildContext context) {
     final provider =
         context.dependOnInheritedWidgetOfExactType<AppServicesProvider>();

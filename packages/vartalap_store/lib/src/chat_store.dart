@@ -1648,6 +1648,54 @@ class ChatStore {
     return rows.map(_rowToMessage).toList();
   }
 
+  /// Non-image attachments in [channelId], newest first — the file
+  /// list under the media grid. Mirror image of [fetchChannelMedia];
+  /// a message with no attachment blob is neither.
+  Future<List<MessageRow>> fetchChannelFiles(
+    String channelId, {
+    int limit = 200,
+  }) async {
+    final rows = await db.query(
+      'messages',
+      where: "channel_id = ? AND tombstoned = 0 AND attachments IS NOT NULL "
+          "AND (content_type IS NULL OR content_type NOT LIKE 'image/%')",
+      whereArgs: [channelId],
+      orderBy: 'client_timestamp_ms DESC',
+      limit: limit,
+    );
+    return rows.map(_rowToMessage).toList();
+  }
+
+  /// Replace a message's `attachments` BLOB in place — used once an
+  /// upload completes and the placeholder local file path in the
+  /// `Attachment` becomes the server-side fileId. Leaves every other
+  /// column (and the message's position in the channel view) alone.
+  Future<void> setMessageAttachments({
+    required String messageId,
+    required Uint8List attachments,
+  }) async {
+    await db.update(
+      'messages',
+      {'attachments': attachments},
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+    );
+    _notify(const {'messages'});
+  }
+
+  /// Local projection of a group photo change. The server's own
+  /// `ChannelEdited` fanout writes the same column for every other
+  /// member; this is the editor's optimistic copy.
+  Future<void> setChannelAvatar(String channelId, String? avatarUrl) async {
+    await db.update(
+      'channels',
+      {'avatar_url': avatarUrl},
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+    );
+    _notify(const {'channels'});
+  }
+
   /// A single channel with its local settings, for the group-info
   /// header and its "Muted until …" bar. Unlike [fetchChannelList]
   /// this does not require the channel to have messages — group info
@@ -1988,7 +2036,8 @@ class ChatStore {
         'body': m.body,
         'content_type': m.contentType,
         'reply_to_message_id': m.replyToMessageId,
-        'attachments': null,
+        'attachments':
+            m.attachments == null ? null : Uint8List.fromList(m.attachments!),
         'forward_source': null,
         'client_timestamp_ms': m.clientTimestampMs,
         'server_timestamp_ms': m.serverTimestampMs,

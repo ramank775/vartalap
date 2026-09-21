@@ -2,9 +2,13 @@
 library vartalap.screens.chat.chat;
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/chat_search.dart';
@@ -12,6 +16,8 @@ import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/services/asset_cache.dart';
+import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -539,6 +545,98 @@ class _ChatScreenState extends State<ChatScreen> {
         .commitDelete(channelId: widget.channelId, messageId: id);
   }
 
+  /// Composer attach button (frame d1). One sheet, two sources: the
+  /// gallery for photos (which we can size for the bubble) and the
+  /// system file picker for everything else.
+  Future<void> _onAttach() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Photo'),
+              onTap: () => Navigator.of(ctx).pop('image'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.attach_file),
+              title: const Text('File'),
+              onTap: () => Navigator.of(ctx).pop('file'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    String? sourcePath;
+    var width = 0;
+    var height = 0;
+    try {
+      if (choice == 'image') {
+        final picked =
+            await ImagePicker().pickImage(source: ImageSource.gallery);
+        if (picked == null) return;
+        sourcePath = picked.path;
+        // Sender-declared dimensions let the bubble reserve the right
+        // aspect ratio before the bytes land.
+        final size = await _decodeSize(picked.path);
+        width = size?.$1 ?? 0;
+        height = size?.$2 ?? 0;
+      } else {
+        final result = await FilePicker.platform.pickFiles();
+        sourcePath = result?.files.single.path;
+        if (sourcePath == null) return;
+      }
+    } on PlatformException catch (e) {
+      _toast('Could not open the picker: ${e.code}');
+      return;
+    }
+
+    final userId = widget.authService.currentUserId;
+    if (userId == null) return;
+    setState(() => _sending = true);
+    try {
+      // Out of the picker's temp dir before the OS sweeps it — the
+      // upload op may not run for hours.
+      final path = await widget.chatService.assets.importPicked(sourcePath);
+      await widget.chatService.sendAttachment(
+        channelId: widget.channelId,
+        authorUserId: userId,
+        path: path,
+        replyToMessageId: _replyTo?.messageId,
+        width: width,
+        height: height,
+      );
+      if (mounted) setState(() => _replyTo = null);
+    } on ArgumentError catch (e) {
+      _toast('${e.message}');
+    } catch (e) {
+      _toast('Could not attach that file.');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// Intrinsic pixel size of a picked image, or null if it will not
+  /// decode (the bubble then falls back to a fixed height).
+  Future<(int, int)?> _decodeSize(String path) async {
+    try {
+      final codec = await ui.instantiateImageCodec(
+        await File(path).readAsBytes(),
+      );
+      final frame = await codec.getNextFrame();
+      final size = (frame.image.width, frame.image.height);
+      frame.image.dispose();
+      codec.dispose();
+      return size;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _onSend() async {
     final body = _input.text.trim();
     if (body.isEmpty) return;
@@ -755,6 +853,7 @@ class _ChatScreenState extends State<ChatScreen> {
             controller: _input,
             sending: _sending,
             onSend: _onSend,
+            onAttach: _onAttach,
             editing: _editingMessageId != null,
             replyPreview: _replyTo?.body,
             onCancelCompose:
@@ -819,6 +918,9 @@ class _MessageInput extends StatelessWidget {
   final bool sending;
   final VoidCallback onSend;
 
+  /// Opens the attachment sheet (frame d1's paperclip).
+  final VoidCallback onAttach;
+
   /// Composer is in edit mode — the send button applies a
   /// MESSAGE_UPDATE to an existing message instead of sending a new one.
   final bool editing;
@@ -833,6 +935,7 @@ class _MessageInput extends StatelessWidget {
     required this.controller,
     required this.sending,
     required this.onSend,
+    required this.onAttach,
     this.editing = false,
     this.replyPreview,
     this.onCancelCompose,
@@ -907,6 +1010,12 @@ class _MessageInput extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            IconButton(
+              icon: const Icon(Icons.attach_file),
+              tooltip: 'Attach',
+              color: scheme.onSurfaceVariant,
+              onPressed: sending ? null : onAttach,
+            ),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -1448,9 +1557,11 @@ class _ReplyQuote extends StatelessWidget {
   }
 }
 
-/// Inbound attachment. An image mime type renders inline; anything else
-/// gets a file row. Sending attachments is not wired yet, so everything
-/// here comes off the wire with a server-side URL.
+/// One attachment on a bubble. An image mime type renders inline and
+/// opens full-screen on tap; anything else is a file row that fetches
+/// on tap. `attachment.url` is a local path while our own upload is
+/// still in flight and a media-ms fileId afterwards — [AssetCache]
+/// resolves both.
 class _AttachmentView extends StatelessWidget {
   final pb.Attachment attachment;
   final Color tint;
@@ -1459,11 +1570,32 @@ class _AttachmentView extends StatelessWidget {
 
   bool get _isImage => attachment.mimeType.startsWith('image/');
 
+  String get _name =>
+      attachment.filename.isEmpty ? 'Attachment' : attachment.filename;
+
+  Future<void> _openFile(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final cache = AssetCache.instance;
+    if (cache == null) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text('Downloading $_name…')),
+    );
+    final bytes = await cache.bytes(attachment.url);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Text(bytes == null
+          ? "Couldn't download $_name"
+          : '$_name saved to your Vartalap files'),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_isImage) {
       return Padding(
         padding: const EdgeInsets.only(bottom: kSpaceXs),
+        child: InkWell(
+        onTap: () => _openFile(context),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1475,9 +1607,7 @@ class _AttachmentView extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    attachment.filename.isEmpty
-                        ? 'Attachment'
-                        : attachment.filename,
+                    _name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: tint, fontSize: 14),
@@ -1492,7 +1622,10 @@ class _AttachmentView extends StatelessWidget {
                 ],
               ),
             ),
+            Icon(Icons.download_outlined,
+                size: 18, color: tint.withValues(alpha: 0.7)),
           ],
+        ),
         ),
       );
     }
@@ -1501,37 +1634,32 @@ class _AttachmentView extends StatelessWidget {
     // bubble doesn't jump when the bytes land.
     final w = attachment.width;
     final h = attachment.height;
-    final image = Image.network(
-      attachment.url,
+    final image = AssetImageView(
+      uri: attachment.url,
       fit: BoxFit.cover,
-      loadingBuilder: (context, child, progress) => progress == null
-          ? child
-          : Container(
-              alignment: Alignment.center,
-              color: tint.withValues(alpha: 0.08),
-              child: const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-      errorBuilder: (context, _, __) => Container(
-        alignment: Alignment.center,
-        color: tint.withValues(alpha: 0.08),
-        padding: const EdgeInsets.all(kSpaceMd),
-        child: Icon(Icons.broken_image_outlined, color: tint),
+      placeholder: AssetImagePlaceholder(tint: tint),
+      fallback: AssetImagePlaceholder(
+        tint: tint,
+        icon: Icons.broken_image_outlined,
       ),
     );
 
     return Padding(
       padding: const EdgeInsets.only(bottom: kSpaceXs),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(kRadiusMd),
-        child: SizedBox(
-          width: 220,
-          child: (w > 0 && h > 0)
-              ? AspectRatio(aspectRatio: w / h, child: image)
-              : SizedBox(height: 160, child: image),
+      child: GestureDetector(
+        onTap: () => showAssetViewer(
+          context,
+          uri: attachment.url,
+          title: attachment.filename.isEmpty ? null : attachment.filename,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(kRadiusMd),
+          child: SizedBox(
+            width: 220,
+            child: (w > 0 && h > 0)
+                ? AspectRatio(aspectRatio: w / h, child: image)
+                : SizedBox(height: 160, child: image),
+          ),
         ),
       ),
     );

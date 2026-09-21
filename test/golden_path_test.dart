@@ -23,8 +23,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -36,6 +38,17 @@ const String phoneA = '+15550100001';
 const String phoneB = '+15550100002';
 const String peerPhone = '+10000000000'; // the mock's seed peer
 const String usernameA = 'golden_alice';
+const String usernameB = 'golden_bob';
+
+/// A real 1x1 PNG, so the mock signs `image/png` and the bytes that
+/// come back out of the blob store can be compared to what went in.
+final Uint8List onePixelPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM'
+  'IQAAAABJRU5ErkJggg==',
+);
+
+String attachmentChannelId = '';
+String attachmentMessageId = '';
 const Duration budget = Duration(seconds: 10);
 
 /// A send the server accepted. `sent` OR any later lifecycle state:
@@ -881,7 +894,276 @@ void main() {
             "account's data. The store still holds $counts from $userIdA.",
       );
     });
+
+    // ---- 10 -------------------------------------------------------------
+    test('10. send an image attachment → upload op ACKs → MESSAGE_CREATE '
+        'carries the fileId → peer receives it and can resolve a download',
+        () async {
+      // No platform channel for path_provider under `flutter test`.
+      AssetCache.dirProvider =
+          () async => Directory('${h.tmpDir.path}/assets');
+      await h.authService.setUsername(usernameB);
+      final userId = h.authService.currentUserId!;
+      await h.chat.discoverContacts(
+        normalizedPhones: const [peerPhone],
+        contactBookNamesByPhone: const {peerPhone: 'Seed Peer'},
+      );
+      peerUserId = h.mock.seedPeer.userId;
+      attachmentChannelId = await h.chat.startDirectMessage(
+        localUserId: userId,
+        peerUserId: peerUserId,
+        peerName: 'Seed Peer',
+      );
+      await h.waitFor(() => h.channelPosts(attachmentChannelId).isNotEmpty);
+
+      final picked = File('${h.tmpDir.path}/holiday.png')
+        ..writeAsBytesSync(onePixelPng);
+      attachmentMessageId = await h.chat.sendAttachment(
+        channelId: attachmentChannelId,
+        authorUserId: userId,
+        path: picked.path,
+        width: 1,
+        height: 1,
+      );
+
+      // One op at first — the upload. The MESSAGE_CREATE cannot exist
+      // until media-ms has minted a fileId.
+      await h.waitForAsync(() async {
+        final m = await h.store.fetchMessage(attachmentMessageId);
+        return m != null &&
+            m.state != MessageState.pending &&
+            m.state != MessageState.sending;
+      });
+      final row = await h.store.fetchMessage(attachmentMessageId);
+      expect(
+        row?.state,
+        isAcked,
+        reason: 'V3_RELEASE_PLAN §4.2: presign → PUT → status → '
+            'MESSAGE_CREATE, all through the outbound queue. '
+            '${await h.opDebug(attachmentChannelId)}',
+      );
+
+      final stored =
+          pb.ChatPayload.fromBuffer(row!.attachments!).attachments.single;
+      expect(
+        stored.url,
+        isNot(picked.path),
+        reason: 'Once the upload ACKs the local path is replaced by the '
+            'media-ms fileId — that is what the peer can resolve.',
+      );
+      expect(stored.mimeType, 'image/png');
+      expect(stored.sizeBytes.toInt(), onePixelPng.length);
+      expect(
+        h.mock.assets.containsKey(stored.url),
+        isTrue,
+        reason: 'The fileId in the message must be one media-ms actually '
+            'issued (decision 36).',
+      );
+
+      // The peer's copy carries the same fileId.
+      await h.waitFor(() => h.peerSaw(
+            pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+            messageId: attachmentMessageId,
+          ));
+      final seen = h.peerInboxSeen
+          .where((p) => p.messageId == attachmentMessageId)
+          .single;
+      expect(
+        seen.attachments.single.url,
+        stored.url,
+        reason: 'SYNC_PROTOCOL §6a.1: the recipient gets the same '
+            'Attachment the sender stored.',
+      );
+
+      // …and resolving it yields the bytes that went up. The seed peer
+      // has no client in this harness, so we exercise the same
+      // authenticated presign-download the peer would.
+      final assetClient = AssetClient(
+        baseUrl: h.mock.apiUrl,
+        auth: h.authClient,
+      );
+      final url = await assetClient.downloadUrl(seen.attachments.single.url);
+      expect(url, startsWith('http'));
+      expect(
+        await assetClient.download(url),
+        onePixelPng,
+        reason: 'The presigned GET returns exactly the bytes the presigned '
+            'PUT accepted.',
+      );
+      assetClient.dispose();
+    });
+
+    // ---- 11 -------------------------------------------------------------
+    test('11. set profile photo → PATCH /v3.0/users/me → ProfileEdited '
+        'fanout carries the avatarUrl', () async {
+      final picked = File('${h.tmpDir.path}/me.png')
+        ..writeAsBytesSync(onePixelPng);
+      final edits = <pb.ProfileEdited>[];
+
+      await h.chat.setOwnAvatar(picked.path);
+      await h.waitFor(() {
+        edits.addAll(_peerProfileEdits(h));
+        return edits.any((e) => e.avatarUrl.isNotEmpty);
+      });
+
+      final patch = h.mock.requests
+          .where((r) =>
+              r.method == 'PATCH' &&
+              r.path == '/v3.0/users/me' &&
+              r.body.containsKey('avatarUrl'))
+          .lastOrNull;
+      expect(
+        patch,
+        isNotNull,
+        reason: 'V3_RELEASE_PLAN §4.2 / AUTH_CONTRACT §4.5: the photo is '
+            'set by PATCH /v3.0/users/me {avatarUrl}, enqueued as an '
+            'ordinary REST op once the upload ACKs.',
+      );
+      final fileId = patch!.body['avatarUrl'] as String;
+      expect(
+        fileId,
+        isNot(picked.path),
+        reason: 'The server is told the fileId, never a path on our disk.',
+      );
+      expect(h.mock.assets.containsKey(fileId), isTrue);
+      expect(
+        await h.chat.ownAvatarUrl(),
+        anyOf(isNull, fileId),
+        reason: 'The local pointer follows the upload (null only where '
+            'shared_preferences has no platform channel).',
+      );
+      expect(
+        edits.map((e) => e.avatarUrl),
+        contains(fileId),
+        reason: 'SYNC_PROTOCOL §10.2: every user sharing a channel with the '
+            'editor gets a ProfileEdited carrying the new avatarUrl.',
+      );
+    });
+
+    // ---- 12 -------------------------------------------------------------
+    test('12. push: the ntfy endpoint reaches POST /v3.0/push/topic and '
+        'round-trips out of storage', () async {
+      // AUTH_CONTRACT §2.4: push/topic sits behind the USERNAME_REQUIRED
+      // gate, so the handle comes first — same order the app uses
+      // (main.dart registers off usernameChange).
+      await h.authService.setUsername('golden_bob');
+
+      final storage = _InMemoryStorage();
+      final distributor = _FakeDistributor();
+      final push = PushService(
+        authClient: h.authClient,
+        unifiedPush: distributor,
+        storage: storage,
+        notifyWake: () async {},
+        requestPermission: () async {},
+      );
+      await push.start();
+
+      const endpoint = 'https://ntfy.example/u/goldenpath32chars';
+      await distributor.emitEndpoint(endpoint);
+      // The distributor callback is fire-and-forget (`void Function`),
+      // so the POST it kicks off settles on its own schedule.
+      await h.waitFor(() => push.state.value == PushState.registered);
+
+      final posts = h.mock.requests
+          .where((r) => r.method == 'POST' && r.path == '/v3.0/push/topic')
+          .toList();
+      expect(
+        posts.map((r) => r.body['topicUrl']),
+        [endpoint],
+        reason: 'AUTH_CONTRACT §5.1: the endpoint the distributor hands the '
+            'client is posted verbatim as topicUrl.',
+      );
+      expect(posts.single.status, 200);
+      expect(push.state.value, PushState.registered);
+
+      // Survives a restart: a fresh service on the same storage finds
+      // the endpoint and does not re-post it.
+      final restarted = PushService(
+        authClient: h.authClient,
+        unifiedPush: _FakeDistributor(),
+        storage: storage,
+        notifyWake: () async {},
+        requestPermission: () async {},
+      );
+      await restarted.start();
+      expect(restarted.endpoint, endpoint);
+      expect(restarted.state.value, PushState.registered);
+      expect(
+        h.mock.requests
+            .where((r) => r.path == '/v3.0/push/topic')
+            .length,
+        1,
+        reason: 'the stored endpoint is already registered for this user',
+      );
+
+      // AUTH_CONTRACT §5.1: null deregisters, and the mock validates it
+      // the way notification-ms does.
+      await push.deregister();
+      final last = h.mock.requests
+          .lastWhere((r) => r.path == '/v3.0/push/topic');
+      expect(last.body['topicUrl'], isNull);
+      expect(last.status, 200);
+
+      push.dispose();
+      restarted.dispose();
+    });
   });
+}
+
+/// Server-authored §10.2 events queued for the seed peer. Drains, like
+/// [_Harness.peerInbox], and keeps only the profile edits.
+List<pb.ProfileEdited> _peerProfileEdits(_Harness h) {
+  final out = <pb.ProfileEdited>[];
+  for (final frame in h.mock.state.drainUndelivered(peerUserId)) {
+    try {
+      final env = pb.WsEnvelope.fromBuffer(frame);
+      if (env.type != pb.WsType.WS_PUSH) continue;
+      final payload = env.push.payload;
+      if (payload.isEmpty || payload[0] != 0x53) continue;
+      final sep = pb.ServerEventPayload.fromBuffer(payload.sublist(1));
+      if (sep.type == pb.ServerEventType.PROFILE_EDITED) {
+        out.add(sep.profileEdited);
+      }
+    } catch (_) {
+      // Not a server event — not our business here.
+    }
+  }
+  return out;
+}
+
+/// The ntfy app, minus Android. `PushService` only ever asks it for the
+/// distributor list and a registration; the endpoint arrives on the
+/// callback, which the test fires by hand.
+class _FakeDistributor implements UnifiedPushApi {
+  void Function(String)? _onNewEndpoint;
+
+  @override
+  Future<void> initialize({
+    required void Function(String endpointUrl) onNewEndpoint,
+    required void Function() onUnregistered,
+    required void Function() onMessage,
+    required void Function(String reason) onRegistrationFailed,
+  }) async {
+    _onNewEndpoint = onNewEndpoint;
+  }
+
+  @override
+  Future<List<String>> getDistributors() async => [kNtfyDistributorPackage];
+
+  @override
+  Future<void> saveDistributor(String distributor) async {}
+
+  @override
+  Future<void> register() async {}
+
+  @override
+  Future<void> unregister() async {}
+
+  Future<void> emitEndpoint(String url) async {
+    _onNewEndpoint!(url);
+    await Future<void>.delayed(Duration.zero);
+  }
 }
 
 // ---------------------------------------------------------------------------

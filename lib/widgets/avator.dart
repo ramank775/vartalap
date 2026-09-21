@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/utils/color_helper.dart';
+import 'package:vartalap/widgets/asset_image.dart';
 
 /// One avatar for people and groups alike.
 ///
@@ -14,10 +16,15 @@ class Avator extends StatelessWidget {
   final double width;
   final double height;
 
-  /// Remote photo. Null or empty falls straight through to the
-  /// generated avatar; a load error or a slow load shows it too, so
-  /// there is never a blank hole in a list row.
+  /// The stored photo pointer: a media-ms fileId, an http url, or a
+  /// local path for one we have picked but not uploaded yet. All three
+  /// resolve through [AssetCache]. Null or empty falls straight through
+  /// to the generated avatar; a load error or a slow load shows it too,
+  /// so there is never a blank hole in a list row.
   final String? avatarUrl;
+
+  /// Injected by tests; null uses [AssetCache.instance].
+  final AssetCache? cache;
 
   /// Colour seed. Defaults to [text] for callers that have no id.
   final String? seed;
@@ -34,6 +41,7 @@ class Avator extends StatelessWidget {
     this.avatarUrl,
     this.seed,
     this.isGroup = false,
+    this.cache,
   });
 
   @override
@@ -43,16 +51,14 @@ class Avator extends StatelessWidget {
     if (url == null || url.isEmpty) return fallback;
 
     return ClipOval(
-      child: Image.network(
-        url,
+      child: AssetImageView(
+        uri: url,
+        cache: cache,
         width: width,
         height: height,
-        fit: BoxFit.cover,
         // Both the in-flight and the failed case land on the generated
         // avatar rather than a spinner or a broken-image glyph.
-        loadingBuilder: (context, child, progress) =>
-            progress == null ? child : fallback,
-        errorBuilder: (context, _, __) => fallback,
+        placeholder: fallback,
       ),
     );
   }
@@ -122,5 +128,59 @@ class Avator extends StatelessWidget {
     // that isn't a common ASCII symbol is probably a letter (e.g. á, ñ,
     // 你). Good enough for an avatar initial.
     return code > 0x7F;
+  }
+}
+
+/// [Avator] with the camera affordance from mockup frames e (group
+/// photo) and h2 (own photo). Tapping anywhere on it runs [onTap].
+class EditableAvator extends StatelessWidget {
+  final Widget avatar;
+  final VoidCallback onTap;
+
+  /// Shown instead of the badge while an upload is being prepared.
+  final bool busy;
+
+  const EditableAvator({
+    super.key,
+    required this.avatar,
+    required this.onTap,
+    this.busy = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: busy ? null : onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          avatar,
+          Positioned(
+            right: -2,
+            bottom: -2,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.primary,
+                border: Border.all(color: scheme.surface, width: 2),
+              ),
+              child: busy
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: scheme.onPrimary,
+                      ),
+                    )
+                  : Icon(Icons.photo_camera,
+                      size: 16, color: scheme.onPrimary),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

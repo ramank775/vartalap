@@ -10,6 +10,7 @@ library vartalap.screens.chat_info;
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -46,6 +47,29 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   ChannelListEntry? _channel;
 
   bool get _isGroup => widget.channelKind == 'group';
+
+  /// True between picking a group photo and the local row being
+  /// updated — the upload itself runs in the op queue afterwards.
+  bool _settingPhoto = false;
+
+  /// Frame e — tap the group avatar to replace the photo. Local first:
+  /// the new image shows straight away and the upload + `PATCH
+  /// /v3.0/channels/{id}` ride the outbound queue.
+  Future<void> _pickGroupPhoto() async {
+    final path = await pickPhoto(widget.chatService.assets);
+    if (path == null || !mounted) return;
+    setState(() => _settingPhoto = true);
+    try {
+      await widget.chatService.setChannelAvatar(
+        channelId: widget.channelId,
+        path: path,
+      );
+      final channel = await widget.chatService.fetchChannel(widget.channelId);
+      if (mounted) setState(() => _channel = channel);
+    } finally {
+      if (mounted) setState(() => _settingPhoto = false);
+    }
+  }
 
   @override
   void initState() {
@@ -97,14 +121,24 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
               Center(
                 child: Column(
                   children: [
-                    Avator(
-                      text: widget.channelName,
-                      seed: widget.channelId,
-                      avatarUrl: _channel?.avatarUrl,
-                      isGroup: _isGroup,
-                      width: kAvatarXl,
-                      height: kAvatarXl,
-                    ),
+                    Builder(builder: (_) {
+                      final avatar = Avator(
+                        text: widget.channelName,
+                        seed: widget.channelId,
+                        avatarUrl: _channel?.avatarUrl,
+                        isGroup: _isGroup,
+                        width: kAvatarXl,
+                        height: kAvatarXl,
+                      );
+                      // Frame e: only a group photo is ours to change.
+                      // A DM's avatar belongs to the peer.
+                      if (!_isGroup) return avatar;
+                      return EditableAvator(
+                        avatar: avatar,
+                        busy: _settingPhoto,
+                        onTap: _pickGroupPhoto,
+                      );
+                    }),
                     const SizedBox(height: kSpaceMd),
                     Text(widget.channelName, style: textTheme.headlineSmall),
                     const SizedBox(height: kSpaceXs),

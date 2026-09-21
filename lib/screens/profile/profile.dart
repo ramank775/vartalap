@@ -6,9 +6,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/username.dart';
+import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
 
 /// What the profile QR encodes — the handle, never the number
@@ -26,10 +29,16 @@ class ProfileScreen extends StatefulWidget {
   final AuthService authService;
   final ConfigStore config;
 
+  /// Optional: without it the photo affordance (frame h2) is hidden —
+  /// picking, uploading and `PATCH /v3.0/users/me {avatarUrl}` all
+  /// belong to [ChatService].
+  final ChatService? chatService;
+
   const ProfileScreen({
     super.key,
     required this.authService,
     required this.config,
+    this.chatService,
   });
 
   @override
@@ -42,9 +51,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _signOutArmed = false;
   Timer? _signOutResetTimer;
 
+  /// Own photo: a local path until the upload lands, then the
+  /// media-ms fileId. Both render through [AssetCache].
+  String? _avatarUrl;
+  bool _settingPhoto = false;
+
+  /// Frame h2 — tap the avatar to set a photo. Shows immediately; the
+  /// upload and the profile PATCH ride the outbound queue, and the
+  /// server's `ProfileEdited` fanout tells everyone else.
+  Future<void> _pickPhoto() async {
+    final chat = widget.chatService;
+    if (chat == null) return;
+    final path = await pickPhoto(chat.assets);
+    if (path == null || !mounted) return;
+    setState(() {
+      _settingPhoto = true;
+      _avatarUrl = path;
+    });
+    try {
+      await chat.setOwnAvatar(path);
+    } finally {
+      if (mounted) setState(() => _settingPhoto = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    widget.chatService?.ownAvatarUrl().then((url) {
+      if (mounted && url != null) setState(() => _avatarUrl = url);
+    });
     _subs.add(widget.authService.displayNameChange
         .listen((_) => _refreshIfMounted()));
     _subs.add(widget.authService.usernameChange
@@ -83,7 +119,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _ProfileAvatar(name: name, phone: phone),
+              _ProfileAvatar(
+                name: name,
+                avatarUrl: _avatarUrl,
+                busy: _settingPhoto,
+                onPickPhoto: widget.chatService == null ? null : _pickPhoto,
+              ),
               const SizedBox(height: kSpaceSm),
               // The handle, prominent: it is the public identity
               // (AUTH_CONTRACT §2.4), the number below it is not.
@@ -659,30 +700,60 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
 
 class _ProfileAvatar extends StatelessWidget {
   final String? name;
-  final String? phone;
-  const _ProfileAvatar({required this.name, required this.phone});
+  final String? avatarUrl;
+  final bool busy;
+
+  /// Null hides the camera badge — see [ProfileScreen.chatService].
+  final VoidCallback? onPickPhoto;
+
+  const _ProfileAvatar({
+    required this.name,
+    required this.avatarUrl,
+    required this.busy,
+    required this.onPickPhoto,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final hasName = name != null && name!.trim().isNotEmpty;
-    if (hasName) {
-      return Avator(text: name!, width: kAvatarXl, height: kAvatarXl);
-    }
-    return Container(
-      width: kAvatarXl,
-      height: kAvatarXl,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: scheme.primaryContainer,
-      ),
-      alignment: Alignment.center,
-      child: Icon(
-        Icons.person_rounded,
-        size: kAvatarXl * 0.5,
-        color: scheme.onPrimaryContainer,
-      ),
-    );
+    final Widget face = hasName
+        ? Avator(
+            text: name!,
+            avatarUrl: avatarUrl,
+            width: kAvatarXl,
+            height: kAvatarXl,
+          )
+        : ClipOval(
+            child: Container(
+              width: kAvatarXl,
+              height: kAvatarXl,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.primaryContainer,
+              ),
+              alignment: Alignment.center,
+              child: avatarUrl == null || avatarUrl!.isEmpty
+                  ? Icon(
+                      Icons.person_rounded,
+                      size: kAvatarXl * 0.5,
+                      color: scheme.onPrimaryContainer,
+                    )
+                  : AssetImageView(
+                      uri: avatarUrl!,
+                      width: kAvatarXl,
+                      height: kAvatarXl,
+                      placeholder: Icon(
+                        Icons.person_rounded,
+                        size: kAvatarXl * 0.5,
+                        color: scheme.onPrimaryContainer,
+                      ),
+                    ),
+            ),
+          );
+    final pick = onPickPhoto;
+    if (pick == null) return face;
+    return EditableAvator(avatar: face, busy: busy, onTap: pick);
   }
 }
 

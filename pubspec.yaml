@@ -38,6 +38,8 @@ dependencies:
   path_provider: ^2.1.2
   qr_flutter: ^4.1.0
   connectivity_plus: ^7.1.1
+  image_picker: ^1.1.2
+  file_picker: ^10.1.9
   sentry_flutter: ^9.0.0
 
   vartalap_proto:
@@ -49,6 +51,14 @@ dependencies:
   vartalap_sync:
     path: packages/vartalap_sync
   intl: ^0.20.2
+  unifiedpush: ^6.2.0
+  flutter_local_notifications: ^22.3.1
+  # Pinned: unifiedpush_android 3.5.0 ships a build.gradle.kts that uses
+  # the `kotlin { compilerOptions }` DSL without applying the Kotlin
+  # plugin to its own project, which fails to compile under Flutter's
+  # plugin loader. 3.4.0 is the same connector with a working Groovy
+  # build file. Unpin when upstream fixes the build script.
+  unifiedpush_android: 3.4.0
 
 dev_dependencies:
   flutter_test:
