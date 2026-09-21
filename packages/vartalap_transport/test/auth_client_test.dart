@@ -213,6 +213,93 @@ void main() {
     });
   });
 
+  group('patchOwnProfile', () {
+    test('absent stays absent, explicit null clears — AUTH_CONTRACT §4.5',
+        () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+      Map<String, dynamic>? sent;
+
+      server.handler = (req) async {
+        expect(req.method, 'PATCH');
+        expect(req.uri.path, '/v3.0/users/me');
+        sent = jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
+        _respond(req, 200, {'user_id': 'u', 'username': 'alice'});
+      };
+
+      await client.patchOwnProfile(
+        username: (value: 'alice'),
+        usernameKey: (value: '4821'),
+        statusText: (value: null),
+      );
+
+      expect(sent!['username'], 'alice');
+      expect(sent!['usernameKey'], '4821');
+      expect(
+        sent!.containsKey('statusText'),
+        isTrue,
+        reason: '§4.5: explicit null is the only way to clear a field.',
+      );
+      expect(sent!['statusText'], isNull);
+      expect(
+        sent!.containsKey('displayName'),
+        isFalse,
+        reason: '§4.5: an absent key means "unchanged".',
+      );
+    });
+  });
+
+  group('lookupByUsername', () {
+    test('200 returns the public profile, key goes on the query string',
+        () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+
+      server.handler = (req) async {
+        expect(req.method, 'GET');
+        expect(req.uri.path, '/v3.0/users/by-username/kavya_m');
+        expect(req.uri.queryParameters['key'], '4821');
+        _respond(req, 200, {
+          'user_id': 'a3f2e8c5d',
+          'username': 'kavya_m',
+          'displayName': 'Kavya Menon',
+          'avatarUrl': null,
+          'statusText': 'Back in Kochi',
+        });
+      };
+
+      final profile =
+          await client.lookupByUsername('Kavya_M', key: '4821');
+      expect(profile['user_id'], 'a3f2e8c5d');
+      expect(
+        profile.containsKey('phone'),
+        isFalse,
+        reason: 'AUTH_CONTRACT §2.5: no other user\'s phone, ever.',
+      );
+    });
+
+    test('404 surfaces the error code so the picker can ask for a key',
+        () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+
+      server.handler = (req) async {
+        expect(req.uri.queryParameters.containsKey('key'), isFalse);
+        _respond(req, 404, {
+          'error': {
+            'code': 'USERNAME_KEY_REQUIRED',
+            'message': 'This handle requires a key',
+          }
+        });
+      };
+
+      try {
+        await client.lookupByUsername('kavya_m');
+        fail('should throw');
+      } on AuthClientException catch (e) {
+        expect(e.statusCode, 404);
+        expect(e.errorCode, 'USERNAME_KEY_REQUIRED');
+      }
+    });
+  });
+
   group('lookupContacts', () {
     test('200 returns ContactMatch list', () async {
       client.restoreSession(accesskey: 'ak', userId: 'u');

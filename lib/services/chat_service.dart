@@ -382,13 +382,50 @@ class ChatService {
       await _store.upsertContact(
         userId: m.userId,
         username: m.username,
-        displayName: m.username,
+        // AUTH_CONTRACT §7.2: a phone-hash match reveals user_id and
+        // username, nothing else. Seeding display_name from the handle
+        // would mask the §2.4 `@username` rung of the resolver.
         phoneHash: m.phoneHash,
         contactBookName: hashByName[m.phoneHash],
         nowMs: now,
       );
     }
     return _store.fetchContacts();
+  }
+
+  /// `GET /v3.0/users/by-username/{username}` — AUTH_CONTRACT §7.6.
+  ///
+  /// The one network-bound discovery path for somebody who is not in
+  /// the address book. Caches the resolved profile as a local contact
+  /// row (no `contactBookName` — we have no address-book entry for
+  /// them) and returns it, so the caller can open Contact info or start
+  /// a DM straight away.
+  ///
+  /// Throws [AuthClientException]; `errorCode == 'USERNAME_KEY_REQUIRED'`
+  /// means the handle exists but is gated by a 4-digit key (§4.5) and
+  /// the caller should ask for one. A wrong key is indistinguishable
+  /// from a nonexistent handle — both are a plain `USER_NOT_FOUND`.
+  Future<ContactRow> findByUsername(String username, {String? key}) async {
+    final profile = await _authClient.lookupByUsername(username, key: key);
+    final userId = profile['user_id'] as String;
+    final now = _clock.nowMs();
+    final existing = (await _store.fetchContacts())
+        .where((c) => c.userId == userId)
+        .firstOrNull;
+    await _store.upsertContact(
+      userId: userId,
+      username: profile['username'] as String?,
+      displayName: profile['displayName'] as String?,
+      avatarUrl: profile['avatarUrl'] as String?,
+      statusText: profile['statusText'] as String?,
+      // upsertContact is INSERT OR REPLACE — carry the address-book
+      // fields forward so a handle lookup never erases them.
+      phoneHash: existing?.phoneHash,
+      contactBookName: existing?.contactBookName,
+      nowMs: now,
+    );
+    return (await _store.fetchContacts())
+        .firstWhere((c) => c.userId == userId);
   }
 
   /// Create a group channel locally with [creatorUserId] as owner and
@@ -550,6 +587,14 @@ class ChatService {
   /// where one exists. Powers the chat-info member list.
   Future<List<ChannelMemberRow>> fetchChannelMembers(String channelId) =>
       _store.fetchChannelMembers(channelId);
+
+  /// One-shot read of the channels [userId] is a member of, optionally
+  /// filtered by [kind]. The reactive variant is [watchMemberChannels].
+  Future<List<ChannelListEntry>> fetchMemberChannels({
+    required String userId,
+    String? kind,
+  }) =>
+      _store.fetchMemberChannels(userId: userId, kind: kind);
 
   /// Substring search restricted to [channelId]. Powers chat-info's
   /// "Search in conversation" sheet.

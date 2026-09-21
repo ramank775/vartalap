@@ -160,6 +160,7 @@ class AuthClient implements AuthTokenProvider {
             (json['refreshTokenExpiresAt'] as int) - DateTime.now().millisecondsSinceEpoch,
       ),
       isNewUser: json['isNew'] as bool? ?? false,
+      username: json['username'] as String?,
       defaultChannelId: json['defaultChannelId'] as String?,
     );
   }
@@ -213,27 +214,49 @@ class AuthClient implements AuthTokenProvider {
   }
 
   /// `PATCH /v3.0/users/me` — AUTH_CONTRACT §4.5.
+  ///
+  /// Each field is a `($PresentField, value)` tuple, the same tri-state
+  /// shape `ChatStore.applyProfileEdit` uses: outer `null` = absent
+  /// (leave unchanged), `(value: null)` = explicit JSON `null` (clear),
+  /// `(value: 'x')` = set. A bare empty string is NOT "clear" — the
+  /// contract reserves `null` for that.
   Future<Map<String, dynamic>> patchOwnProfile({
-    String? username,
-    String? displayName,
-    String? avatarUrl,
-    String? statusText,
+    ({String? value})? username,
+    ({String? value})? usernameKey,
+    ({String? value})? displayName,
+    ({String? value})? avatarUrl,
+    ({String? value})? statusText,
   }) async {
     final body = <String, dynamic>{};
-    // Explicit null means "clear"; absent means "unchanged". We only
-    // include fields the caller actually passed. Dart doesn't
-    // distinguish "not passed" from "passed as null" at this level,
-    // so we include all non-null values. To clear a field the caller
-    // must use a separate clearProfile method or the UI must send the
-    // raw JSON directly — acceptable for v3.0.
-    if (username != null) body['username'] = username;
-    if (displayName != null) body['displayName'] = displayName;
-    if (avatarUrl != null) body['avatarUrl'] = avatarUrl;
-    if (statusText != null) body['statusText'] = statusText;
+    if (username != null) body['username'] = username.value;
+    if (usernameKey != null) body['usernameKey'] = usernameKey.value;
+    if (displayName != null) body['displayName'] = displayName.value;
+    if (avatarUrl != null) body['avatarUrl'] = avatarUrl.value;
+    if (statusText != null) body['statusText'] = statusText.value;
 
     final resp = await _patch('/v3.0/users/me',
         body: body, headers: _authHeaders());
     _assertOk(resp, 'patchOwnProfile');
+    return _decodeJson(resp);
+  }
+
+  /// `GET /v3.0/users/by-username/{username}` — AUTH_CONTRACT §7.6.
+  ///
+  /// Exact, case-insensitive match. Returns the public profile (no
+  /// `phone`, §2.5). Throws [AuthClientException] with `statusCode 404`
+  /// on a miss; when the target has a `usernameKey` set and [key] was
+  /// omitted the mock answers 404 with `errorCode`
+  /// `USERNAME_KEY_REQUIRED` so the picker knows to show the key field.
+  /// A *wrong* key stays indistinguishable from a miss (§7.6).
+  Future<Map<String, dynamic>> lookupByUsername(
+    String username, {
+    String? key,
+  }) async {
+    final path = '/v3.0/users/by-username/'
+        '${Uri.encodeComponent(username.trim().toLowerCase())}'
+        '${key == null || key.isEmpty ? '' : '?key=${Uri.encodeQueryComponent(key)}'}';
+    final resp = await _get(path, headers: _authHeaders());
+    _assertOk(resp, 'lookupByUsername');
     return _decodeJson(resp);
   }
 
@@ -465,6 +488,11 @@ class OtpVerifyResult {
   final Duration refreshTokenTtl;
   final bool isNewUser;
 
+  /// The account's current username, or null when the mandatory
+  /// "choose username" step (AUTH_CONTRACT §2.4) is still outstanding.
+  /// Always null for a fresh signup.
+  final String? username;
+
   /// Server-provided default channel (mock-server seed-peer feature).
   /// Null on production servers. Client uses this to bootstrap a local
   /// channel row on first login against the mock server.
@@ -477,6 +505,7 @@ class OtpVerifyResult {
     required this.accesskeyTtl,
     required this.refreshTokenTtl,
     required this.isNewUser,
+    this.username,
     this.defaultChannelId,
   });
 }

@@ -209,27 +209,39 @@ class ContactRow {
   });
 
   /// Display name resolution per AUTH_CONTRACT §2.4:
-  /// contact-book name → username → userId fallback.
+  /// contact-book name → `@username` → server displayName → userId.
   ///
   /// `userId` is the ultimate fallback so non-UI callers (logging,
   /// sorting, debugging) always get a non-empty, stable string. UI
   /// surfaces should use [displayLabel] instead — exposing a raw
   /// 9-hex-char user_id to the user is jarring.
   String get resolvedName =>
-      contactBookName ?? displayName ?? username ?? userId;
+      contactBookName ?? (username == null ? null : '@$username') ??
+          displayName ?? userId;
 
-  /// UI-safe variant of [resolvedName]. Returns the contact-book name,
-  /// then displayName, then `@username`, and finally a generic
-  /// placeholder — never the raw user_id.
+  /// **The** display-name resolver for another user — AUTH_CONTRACT
+  /// §2.4. Every UI surface that labels someone other than the signed-in
+  /// user routes through here (directly, or via [ChannelListEntry.title]
+  /// for a channel row). The order is the contract's:
+  ///
+  /// 1. contact-book name — the viewer chose what to call this person;
+  /// 2. `@username` — the required public identifier;
+  /// 3. the server-side displayName — only reachable for a contact we
+  ///    learned about through a `ProfileEdited` fanout before their
+  ///    handle ever landed;
+  /// 4. a generic placeholder.
+  ///
+  /// A phone number is never in this chain, in any form (§2.5) — the
+  /// client does not hold another user's number at all.
   String get displayLabel {
     if (contactBookName != null && contactBookName!.isNotEmpty) {
       return contactBookName!;
     }
-    if (displayName != null && displayName!.isNotEmpty) {
-      return displayName!;
-    }
     if (username != null && username!.isNotEmpty) {
       return '@$username';
+    }
+    if (displayName != null && displayName!.isNotEmpty) {
+      return displayName!;
     }
     return 'Unknown';
   }
@@ -262,6 +274,14 @@ class ChannelListEntry {
   /// UI renders as "message deleted" rather than empty.
   final bool lastMessageTombstoned;
 
+  /// For a `one_to_one` channel: the peer's local `contacts` row, when
+  /// we have one. Null for groups and for peers we have never
+  /// discovered. Exists so [title] can run the AUTH_CONTRACT §2.4
+  /// resolver live instead of trusting the `channels.name` snapshot,
+  /// which is frozen at creation time and, for a DM the *peer* created,
+  /// carries their label for us rather than ours for them.
+  final ContactRow? peerContact;
+
   const ChannelListEntry({
     required this.channelId,
     required this.kind,
@@ -272,5 +292,19 @@ class ChannelListEntry {
     required this.lastMessagePreview,
     required this.lastMessageAuthor,
     required this.lastMessageTombstoned,
+    this.peerContact,
   });
+
+  /// The label to render for this row. Groups own their name; a DM
+  /// defers to the one resolver ([ContactRow.displayLabel]) and only
+  /// falls back to the stored snapshot when the peer is undiscovered.
+  /// Never the raw channel_id, never a phone number.
+  String get title {
+    if (kind == 'one_to_one') {
+      final resolved = peerContact?.displayLabel;
+      if (resolved != null && resolved != 'Unknown') return resolved;
+      return name ?? 'Unknown';
+    }
+    return name ?? 'Unnamed group';
+  }
 }

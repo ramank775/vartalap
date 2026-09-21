@@ -7,6 +7,135 @@ import 'package:vartalap_store/vartalap_store.dart';
 /// Covers the UI-facing reactive-query methods added to [ChatStore]
 /// for the v3 scaffold (SPIKE_A_SCHEMA.md §13.1, §13.2, §10).
 void main() {
+  group('ChannelListEntry.title (AUTH_CONTRACT §2.4)', () {
+    Future<ChatStore> dmWith({
+      String? contactBookName,
+      String? username,
+      String? displayName,
+      bool withContact = true,
+      String? channelName,
+    }) async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'c-dm',
+        kind: 'one_to_one',
+        ownerUserId: 'u-self',
+        createdAt: 1000,
+        name: channelName,
+      );
+      await store.insertChannelMember(
+        channelId: 'c-dm',
+        userId: 'u-peer',
+        role: 'member',
+        joinedAt: 1000,
+      );
+      if (withContact) {
+        await store.upsertContact(
+          userId: 'u-peer',
+          username: username,
+          displayName: displayName,
+          contactBookName: contactBookName,
+          nowMs: 1000,
+        );
+      }
+      await _insertSentMessage(
+        store: store,
+        channelId: 'c-dm',
+        messageId: 'm-1',
+        body: 'hi',
+        authorUserId: 'u-peer',
+        clientTimestampMs: 1100,
+        deliverySequence: 1,
+      );
+      await store.db.update(
+        'channels',
+        {'last_activity_ms': 1100, 'last_message_id': 'm-1'},
+        where: 'channel_id = ?',
+        whereArgs: ['c-dm'],
+      );
+      return store;
+    }
+
+    test('contact-book name wins over the handle', () async {
+      final store = await dmWith(
+        contactBookName: 'Kavya Menon',
+        username: 'kavya_m',
+        channelName: 'stale snapshot',
+      );
+      final list = await store.fetchChannelList();
+      expect(list.single.title, 'Kavya Menon');
+    });
+
+    test('no contact-book entry falls to @username, not the snapshot',
+        () async {
+      final store = await dmWith(
+        username: 'kavya_m',
+        displayName: 'Kavya Menon',
+        channelName: 'stale snapshot',
+      );
+      final list = await store.fetchChannelList();
+      expect(
+        list.single.title,
+        '@kavya_m',
+        reason: '§2.4: the required public identifier is the fallback, '
+            'ahead of whatever displayName the server volunteered.',
+      );
+    });
+
+    test('an undiscovered peer falls back to the name, never the channel_id',
+        () async {
+      final store = await dmWith(withContact: false, channelName: 'Kavya');
+      final list = await store.fetchChannelList();
+      expect(list.single.title, 'Kavya');
+
+      final anon = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(anon.close);
+      expect(
+        const ChannelListEntry(
+          channelId: 'c-xyz',
+          kind: 'one_to_one',
+          name: null,
+          avatarUrl: null,
+          lastActivityMs: 0,
+          unreadCount: 0,
+          lastMessagePreview: null,
+          lastMessageAuthor: null,
+          lastMessageTombstoned: false,
+        ).title,
+        'Unknown',
+      );
+    });
+
+    test('a group keeps its own name and ignores the peer subqueries',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'c-g',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 1000,
+        name: 'Pune Trek Crew',
+      );
+      await store.insertChannelMember(
+        channelId: 'c-g',
+        userId: 'u-peer',
+        role: 'member',
+        joinedAt: 1000,
+      );
+      await store.upsertContact(
+        userId: 'u-peer',
+        contactBookName: 'Kavya Menon',
+        nowMs: 1000,
+      );
+      final list =
+          await store.fetchMemberChannels(userId: 'u-peer', kind: 'group');
+      expect(list.single.title, 'Pune Trek Crew');
+      expect(list.single.peerContact, isNull);
+    });
+  });
+
   group('fetchChannelList', () {
     test('orders by last_activity_ms DESC and returns preview fields',
         () async {

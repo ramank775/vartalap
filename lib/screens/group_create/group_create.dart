@@ -413,7 +413,9 @@ class _SelectableContactTile extends StatelessWidget {
         ],
       ),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: contact.username != null
+      // Suppress the handle subtitle when displayLabel already fell
+      // through to "@username" — same rule as the new-chat tile.
+      subtitle: (contact.username != null && !name.startsWith('@'))
           ? Text(
               '@${contact.username}',
               style: TextStyle(color: scheme.onSurfaceVariant),

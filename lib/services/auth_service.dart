@@ -24,6 +24,7 @@ const String _keyPhone = 'v3.phone';
 const String _keyDisplayName = 'v3.displayName';
 const String _keyUsername = 'v3.username';
 const String _keyStatusText = 'v3.statusText';
+const String _keyUsernameKey = 'v3.usernameKey';
 
 class AuthService {
   final AuthClient _client;
@@ -38,6 +39,12 @@ class AuthService {
   String? _phoneNumber;
   String? _displayName;
   String? _username;
+
+  /// AUTH_CONTRACT §4.5 optional 4-digit discovery key. The server
+  /// stores it hashed and never echoes it, so this device-local copy is
+  /// the only place the plaintext lives — it is what the profile row
+  /// renders.
+  String? _usernameKey;
   String? _statusText;
   final StreamController<String?> _displayNameChange =
       StreamController<String?>.broadcast();
@@ -102,6 +109,7 @@ class AuthService {
         await _storage.read(key: _keyOtpPhone);
     _displayName = await _storage.read(key: _keyDisplayName);
     _username = await _storage.read(key: _keyUsername);
+    _usernameKey = await _storage.read(key: _keyUsernameKey);
     _statusText = await _storage.read(key: _keyStatusText);
   }
 
@@ -142,7 +150,7 @@ class AuthService {
     _displayNameChange.add(_displayName);
     if (isLoggedIn) {
       try {
-        await _client.patchOwnProfile(displayName: _displayName ?? '');
+        await _client.patchOwnProfile(displayName: (value: _displayName));
       } catch (_) {/* offline / 5xx → local-only */}
     }
   }
@@ -169,21 +177,53 @@ class AuthService {
     }
   }
 
+  /// Set (or, with null/empty, clear) the username.
+  ///
+  /// Unlike the other profile setters this one is NOT local-first: the
+  /// username is the account's public identity and the server owns
+  /// uniqueness, so a rejected PATCH must not leave the device
+  /// believing it holds a handle it does not. The server write happens
+  /// first and throws on failure; local state only moves after it
+  /// lands.
   Future<void> setUsername(String? value) async {
     final trimmed = value?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      _username = null;
+    final next = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    if (isLoggedIn) {
+      await _client.patchOwnProfile(username: (value: next));
+    }
+    _username = next;
+    if (next == null) {
       await _storage.delete(key: _keyUsername);
+      // §4.5: clearing the handle clears the key server-side too.
+      _usernameKey = null;
+      await _storage.delete(key: _keyUsernameKey);
     } else {
-      _username = trimmed;
-      await _storage.write(key: _keyUsername, value: trimmed);
+      await _storage.write(key: _keyUsername, value: next);
     }
     _usernameChange.add(_username);
+  }
+
+  /// The 4-digit username key, or null when discovery by handle is
+  /// ungated. AUTH_CONTRACT §4.5.
+  String? get usernameKey => _usernameKey;
+
+  /// Set or clear the username key. Server-first for the same reason
+  /// as [setUsername] — the server validates the 4-digit shape and the
+  /// "only while a username is set" rule, and the value it stores is
+  /// the one that actually gates §7.6 lookups.
+  Future<void> setUsernameKey(String? value) async {
+    final trimmed = value?.trim();
+    final next = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
     if (isLoggedIn) {
-      try {
-        await _client.patchOwnProfile(username: _username ?? '');
-      } catch (_) {/* offline / 5xx → local-only */}
+      await _client.patchOwnProfile(usernameKey: (value: next));
     }
+    _usernameKey = next;
+    if (next == null) {
+      await _storage.delete(key: _keyUsernameKey);
+    } else {
+      await _storage.write(key: _keyUsernameKey, value: next);
+    }
+    _usernameChange.add(_username);
   }
 
   String? get statusText => _statusText;
@@ -201,7 +241,7 @@ class AuthService {
     _statusTextChange.add(_statusText);
     if (isLoggedIn) {
       try {
-        await _client.patchOwnProfile(statusText: _statusText ?? '');
+        await _client.patchOwnProfile(statusText: (value: _statusText));
       } catch (_) {/* offline / 5xx → local-only */}
     }
   }
@@ -246,6 +286,16 @@ class AuthService {
     await _storage.write(key: _keyPhone, value: phone);
     _otpSessionId = null;
     _phoneNumber = phone;
+    // AUTH_CONTRACT §2.4: null here (always so for a fresh signup, and
+    // possible for a returning account) is exactly the signal that the
+    // mandatory "choose username" screen must come next.
+    _username = result.username;
+    if (_username == null) {
+      await _storage.delete(key: _keyUsername);
+    } else {
+      await _storage.write(key: _keyUsername, value: _username);
+    }
+    _usernameChange.add(_username);
     lastDefaultChannelId = result.defaultChannelId;
     await _storage.delete(key: _keyOtpSessionId);
     await _storage.delete(key: _keyOtpPhone);
@@ -317,6 +367,7 @@ class AuthService {
     await _storage.delete(key: _keyPhone);
     await _storage.delete(key: _keyDisplayName);
     await _storage.delete(key: _keyUsername);
+    await _storage.delete(key: _keyUsernameKey);
     await _storage.delete(key: _keyStatusText);
     _client.clearSession();
     // AUTH_CONTRACT §8 — the local store is account state too. Without
@@ -326,6 +377,7 @@ class AuthService {
     _phoneNumber = null;
     _displayName = null;
     _username = null;
+    _usernameKey = null;
     _statusText = null;
     _otpSessionId = null;
     _authState.add(false);

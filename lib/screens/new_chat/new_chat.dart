@@ -10,17 +10,23 @@
 /// I'm in regardless of message state."
 library vartalap.screens.new_chat;
 
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' hide PermissionStatus;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/contact_info/contact_info.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/phone_number.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/utils/username.dart';
 import 'package:vartalap_store/vartalap_store.dart';
+import 'package:vartalap_transport/vartalap_transport.dart';
 
 class NewChatScreen extends StatefulWidget {
   final ChatService chatService;
@@ -91,6 +97,13 @@ class _ContactsTabState extends State<_ContactsTab>
   Future<List<ContactRow>>? _contactsFuture;
   PermissionStatus? _lastStatus;
 
+  final TextEditingController _search = TextEditingController();
+
+  /// phone_hash → the saved E.164 number, kept in memory only. Lets the
+  /// search match digits the user types without the number ever being
+  /// rendered or stored (AUTH_CONTRACT §2.5).
+  final Map<String, String> _phoneByHash = {};
+
   @override
   void initState() {
     super.initState();
@@ -101,6 +114,7 @@ class _ContactsTabState extends State<_ContactsTab>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _search.dispose();
     super.dispose();
   }
 
@@ -142,10 +156,34 @@ class _ContactsTabState extends State<_ContactsTab>
 
   Future<List<ContactRow>> _fetchAndDiscover() async {
     final (phones, names) = await _readDeviceContacts();
+    _phoneByHash
+      ..clear()
+      ..addEntries(phones.map(
+          (p) => MapEntry(sha256.convert(utf8.encode(p)).toString(), p)));
     return widget.chatService.discoverContacts(
       normalizedPhones: phones,
       contactBookNamesByPhone: names,
     );
+  }
+
+  /// Contacts tab filter — contact-book name, `@username`, and the
+  /// digits of a number already saved on this device. An unsaved number
+  /// is never matched and never shown (mockup c1).
+  List<ContactRow> _filter(List<ContactRow> all) {
+    final q = _search.text.trim().toLowerCase();
+    if (q.isEmpty) return all;
+    final digits = q.replaceAll(RegExp(r'[^0-9]'), '');
+    return all.where((c) {
+      if (c.displayLabel.toLowerCase().contains(q)) return true;
+      if ((c.username ?? '').toLowerCase().contains(q)) return true;
+      if (digits.isNotEmpty && c.phoneHash != null) {
+        final phone = _phoneByHash[c.phoneHash];
+        if (phone != null && phone.replaceAll('+', '').contains(digits)) {
+          return true;
+        }
+      }
+      return false;
+    }).toList();
   }
 
   /// Walks the device address book once and returns:
@@ -247,11 +285,35 @@ class _ContactsTabState extends State<_ContactsTab>
         }
         // Permission granted — fetch on first build.
         _contactsFuture ??= _fetchAndDiscover();
-        return _ContactsList(
-          contactsFuture: _contactsFuture!,
-          creating: _creating,
-          onTap: _onContactTap,
-          onRetry: _loadContacts,
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
+              child: TextField(
+                controller: _search,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search name, @username or phone',
+                  isDense: true,
+                ),
+              ),
+            ),
+            Expanded(
+              child: _ContactsList(
+                contactsFuture: _contactsFuture!,
+                creating: _creating,
+                onTap: _onContactTap,
+                onRetry: _loadContacts,
+                filter: _filter,
+                footer: _FindByUsername(
+                  chatService: widget.chatService,
+                  authService: widget.authService,
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -263,12 +325,18 @@ class _ContactsList extends StatelessWidget {
   final bool creating;
   final ValueChanged<ContactRow> onTap;
   final VoidCallback onRetry;
+  final List<ContactRow> Function(List<ContactRow>) filter;
+
+  /// Pinned below the rows — the "Not in your contacts" escape hatch.
+  final Widget footer;
 
   const _ContactsList({
     required this.contactsFuture,
     required this.creating,
     required this.onTap,
     required this.onRetry,
+    required this.filter,
+    required this.footer,
   });
 
   @override
@@ -326,7 +394,7 @@ class _ContactsList extends StatelessWidget {
           );
         }
 
-        final contacts = snapshot.data ?? [];
+        final contacts = filter(snapshot.data ?? []);
         if (contacts.isEmpty) {
           return Center(
             child: Padding(
@@ -366,16 +434,17 @@ class _ContactsList extends StatelessWidget {
                     icon: const Icon(Icons.refresh),
                     label: const Text('Refresh'),
                   ),
+                  footer,
                 ],
               ),
             ),
           );
         }
 
-        return ListView.separated(
-          itemCount: contacts.length,
-          separatorBuilder: (_, __) => const Divider(height: 1),
+        return ListView.builder(
+          itemCount: contacts.length + 1,
           itemBuilder: (ctx, i) {
+            if (i == contacts.length) return footer;
             final contact = contacts[i];
             return _ContactTile(
               contact: contact,
@@ -417,6 +486,179 @@ class _ContactTile extends StatelessWidget {
             )
           : null,
       onTap: onTap,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// "Not in your contacts" — reach anyone by exact @handle.
+// AUTH_CONTRACT §7.6, mockup frame c1.
+// ---------------------------------------------------------------------------
+
+class _FindByUsername extends StatefulWidget {
+  final ChatService chatService;
+  final AuthService authService;
+
+  const _FindByUsername({
+    required this.chatService,
+    required this.authService,
+  });
+
+  @override
+  State<_FindByUsername> createState() => _FindByUsernameState();
+}
+
+class _FindByUsernameState extends State<_FindByUsername> {
+  final TextEditingController _handle = TextEditingController();
+  final TextEditingController _key = TextEditingController();
+
+  /// The server told us this handle is gated by a 4-digit key. Only
+  /// then does the Key field exist — the design is explicit that it
+  /// appears "only when the server says that handle requires one".
+  bool _keyRequired = false;
+  bool _searching = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _handle.dispose();
+    _key.dispose();
+    super.dispose();
+  }
+
+  Future<void> _lookup() async {
+    final handle = _handle.text.trim().toLowerCase();
+    final invalid = validateUsername(handle);
+    if (invalid != null) {
+      setState(() => _error = invalid);
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _error = null;
+    });
+    try {
+      final contact = await widget.chatService.findByUsername(
+        handle,
+        key: _keyRequired ? _key.text.trim() : null,
+      );
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ContactInfoScreen(
+            contact: contact,
+            chatService: widget.chatService,
+            authService: widget.authService,
+          ),
+        ),
+      );
+    } on AuthClientException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (e.errorCode == 'USERNAME_KEY_REQUIRED') {
+          _keyRequired = true;
+          _error = '@$handle asks for a 4-digit key';
+        } else if (e.statusCode == 404) {
+          // §7.6: a wrong key is deliberately indistinguishable from a
+          // handle that does not exist, so this copy covers both.
+          _error = _keyRequired
+              ? 'No match — check the handle and the key'
+              : 'No one on Vartalap uses @$handle';
+        } else {
+          _error = e.message ?? 'Lookup failed. Try again.';
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Lookup failed. Try again.');
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: kSpaceLg),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: kSpaceMd),
+          child: Text(
+            'Not in your contacts',
+            style: text.titleSmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
+          child: TextField(
+            controller: _handle,
+            autocorrect: false,
+            textCapitalization: TextCapitalization.none,
+            onSubmitted: (_) => _lookup(),
+            onChanged: (_) {
+              // A new handle needs its own key verdict.
+              if (_keyRequired || _error != null) {
+                setState(() {
+                  _keyRequired = false;
+                  _error = null;
+                });
+              }
+            },
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.alternate_email_rounded),
+              hintText: 'Find by @username',
+              isDense: true,
+              suffixIcon: IconButton(
+                onPressed: _searching ? null : _lookup,
+                icon: _searching
+                    ? SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      )
+                    : const Icon(Icons.arrow_forward),
+                tooltip: 'Find',
+              ),
+            ),
+          ),
+        ),
+        if (_keyRequired)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kSpaceMd, 0, kSpaceMd, kSpaceXs),
+            child: SizedBox(
+              width: 140,
+              child: TextField(
+                controller: _key,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                onSubmitted: (_) => _lookup(),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.lock_outline),
+                  hintText: 'Key',
+                  counterText: '',
+                  isDense: true,
+                ),
+              ),
+            ),
+          ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kSpaceMd, 0, kSpaceMd, kSpaceSm),
+            child: Text(
+              _error!,
+              style: text.bodySmall?.copyWith(
+                color: _keyRequired ? scheme.onSurfaceVariant : scheme.error,
+              ),
+            ),
+          ),
+        const SizedBox(height: kSpaceMd),
+      ],
     );
   }
 }
@@ -577,7 +819,7 @@ class _GroupsTabState extends State<_GroupsTab> {
       MaterialPageRoute(
         builder: (_) => ChatScreen(
           channelId: entry.channelId,
-          channelName: entry.name ?? entry.channelId,
+          channelName: entry.title,
           channelKind: 'group',
           chatService: widget.chatService,
           authService: widget.authService,
@@ -652,7 +894,7 @@ class _GroupTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = entry.name ?? entry.channelId;
+    final name = entry.title;
     return ListTile(
       leading: Avator(text: name, width: kAvatarMd, height: kAvatarMd),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),

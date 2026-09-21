@@ -36,6 +36,7 @@ dependencies:
   crypto: ^3.0.3
   shared_preferences: ^2.2.2
   path_provider: ^2.1.2
+  qr_flutter: ^4.1.0
 
   vartalap_proto:
     path: packages/vartalap_proto

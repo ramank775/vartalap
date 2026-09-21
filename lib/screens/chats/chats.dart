@@ -331,7 +331,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       MaterialPageRoute(
         builder: (_) => ChatScreen(
           channelId: entry.channelId,
-          channelName: entry.name ?? entry.channelId,
+          channelName: entry.title,
           channelKind: entry.kind,
           chatService: widget.chatService,
           authService: widget.authService,
@@ -404,7 +404,7 @@ class _ChannelTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final displayName = entry.name ?? entry.channelId;
+    final displayName = entry.title;
     final preview = entry.lastMessageTombstoned
         ? '(message deleted)'
         : entry.lastMessagePreview ?? '';

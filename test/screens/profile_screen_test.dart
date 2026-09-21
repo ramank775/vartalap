@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -13,6 +14,10 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 void main() {
+  test('QR payload is the handle, never the number (AUTH_CONTRACT §2.5)', () {
+    expect(usernameQrPayload('raman'), 'vartalap://u/raman');
+  });
+
   Future<void> pumpProfile(
     WidgetTester tester, {
     required AuthService authService,
@@ -35,12 +40,15 @@ void main() {
     final auth = _FakeAuthService(
       phone: '+919876543210',
       name: 'Raman Jay',
+      username: 'raman',
     );
     await pumpProfile(tester, authService: auth);
 
     expect(find.text('Profile'), findsOneWidget); // app bar
     expect(find.text('Raman Jay'), findsOneWidget);
     expect(find.text('+91 98765 43210'), findsOneWidget); // formatted
+    // The handle sits under the avatar AND in its editable row.
+    expect(find.text('@raman'), findsNWidgets(2));
 
     // Row labels (read mode) — top of the list.
     expect(find.text('Name'), findsOneWidget);
@@ -170,8 +178,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(auth.setUsernameCalls, ['raman']);
-    // Read-mode shows the value with the @ prefix.
-    expect(find.text('@raman'), findsOneWidget);
+    // Read-mode shows the value with the @ prefix — in the row, and
+    // again in the header under the avatar.
+    expect(find.text('@raman'), findsNWidgets(2));
   });
 
   testWidgets('status row edit calls setStatusText', (tester) async {
@@ -189,25 +198,128 @@ void main() {
     expect(find.text('Available'), findsOneWidget);
   });
 
-  testWidgets('QR row tap toggles inline expansion', (tester) async {
-    final auth = _FakeAuthService(phone: '+919876543210', name: 'Raman');
+  testWidgets('QR row expands to a real QR of the handle', (tester) async {
+    final auth = _FakeAuthService(
+      phone: '+919876543210',
+      name: 'Raman',
+      username: 'raman',
+    );
     await pumpProfile(tester, authService: auth);
 
-    expect(find.text('QR sharing coming soon'), findsNothing);
-    expect(find.text('Scan to add me'), findsOneWidget);
+    // The QR row lives below the fold on the test surface.
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+
+    // No stub copy anywhere, and the row advertises the handle.
+    expect(find.textContaining('coming soon'), findsNothing);
+    expect(find.text('Shares @raman, not your number'), findsOneWidget);
+    expect(find.byType(QrImageView), findsNothing);
 
     final qrRow = find.widgetWithText(ListTile, 'QR code');
     await tester.tap(qrRow);
     await tester.pumpAndSettle();
 
-    expect(find.text('QR sharing coming soon'), findsOneWidget);
     expect(find.text('Tap to hide'), findsOneWidget);
+    expect(find.byType(QrImageView), findsOneWidget);
 
     // Tap again to collapse.
     await tester.tap(qrRow);
     await tester.pumpAndSettle();
-    expect(find.text('QR sharing coming soon'), findsNothing);
-    expect(find.text('Scan to add me'), findsOneWidget);
+    expect(find.byType(QrImageView), findsNothing);
+  });
+
+  testWidgets('QR row is absent until a username exists', (tester) async {
+    final auth = _FakeAuthService(phone: '+919876543210', name: 'Raman');
+    await pumpProfile(tester, authService: auth);
+    expect(find.text('QR code'), findsNothing);
+    expect(find.text('No username yet'), findsOneWidget);
+  });
+
+  testWidgets('phone row is marked private', (tester) async {
+    final auth = _FakeAuthService(
+      phone: '+919876543210',
+      name: 'Raman',
+      username: 'raman',
+    );
+    await pumpProfile(tester, authService: auth);
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    expect(find.text('Only you can see this'), findsOneWidget);
+  });
+
+  testWidgets('username key row reads "Not set" with the explainer',
+      (tester) async {
+    final auth = _FakeAuthService(
+      phone: '+919876543210',
+      name: 'Raman',
+      username: 'raman',
+    );
+    await pumpProfile(tester, authService: auth);
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Username key (optional)'), findsOneWidget);
+    expect(find.text('Not set'), findsOneWidget);
+    expect(
+      find.text('People who message you by username must enter this.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('username key row saves 4 digits and rejects anything else',
+      (tester) async {
+    final auth = _FakeAuthService(
+      phone: '+919876543210',
+      name: 'Raman',
+      username: 'raman',
+    );
+    await pumpProfile(tester, authService: auth);
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Not set'));
+    await tester.pumpAndSettle();
+
+    // Too short — AUTH_CONTRACT §4.5 wants exactly 4 digits, so the
+    // check button is disabled and nothing is saved.
+    await tester.enterText(find.byType(TextField), '12');
+    await tester.pumpAndSettle();
+    expect(find.text('Exactly 4 digits'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.check));
+    await tester.pumpAndSettle();
+    expect(auth.setUsernameKeyCalls, isEmpty);
+
+    await tester.enterText(find.byType(TextField), '4821');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.check));
+    await tester.pumpAndSettle();
+
+    expect(auth.setUsernameKeyCalls, ['4821']);
+    expect(find.text('4821'), findsOneWidget);
+  });
+
+  testWidgets('username row refuses to clear the handle', (tester) async {
+    final auth = _FakeAuthService(
+      phone: '+919876543210',
+      name: 'Raman',
+      username: 'raman',
+    );
+    await pumpProfile(tester, authService: auth);
+
+    await tester.tap(find.widgetWithText(ListTile, 'Username'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+    expect(find.text('Pick a username'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.check));
+    await tester.pumpAndSettle();
+    expect(
+      auth.setUsernameCalls,
+      isEmpty,
+      reason: 'AUTH_CONTRACT §2.4: clearing re-arms the USERNAME_REQUIRED '
+          'gate, so the client must not expose a bare clear action.',
+    );
   });
 
   testWidgets(
@@ -265,19 +377,27 @@ class _FakeAuthService extends AuthService {
   final String? _phone;
   String? _name;
   String? _username;
+  String? _usernameKey;
   String? _statusText;
   int logoutCalls = 0;
   final List<String?> setDisplayNameCalls = [];
   final List<String?> setUsernameCalls = [];
+  final List<String?> setUsernameKeyCalls = [];
   final List<String?> setStatusTextCalls = [];
 
   final _nameStream = StreamController<String?>.broadcast();
   final _usernameStream = StreamController<String?>.broadcast();
   final _statusStream = StreamController<String?>.broadcast();
 
-  _FakeAuthService({required String? phone, required String? name})
-      : _phone = phone,
+  _FakeAuthService({
+    required String? phone,
+    required String? name,
+    String? username,
+    String? usernameKey,
+  })  : _phone = phone,
         _name = name,
+        _username = username,
+        _usernameKey = usernameKey,
         super(
           client: AuthClient(baseUrl: Uri.parse('https://example.invalid')),
           storage: _NoopStorage(),
@@ -309,6 +429,16 @@ class _FakeAuthService extends AuthService {
   Future<void> setUsername(String? value) async {
     setUsernameCalls.add(value);
     _username = value?.trim();
+    _usernameStream.add(_username);
+  }
+
+  @override
+  String? get usernameKey => _usernameKey;
+
+  @override
+  Future<void> setUsernameKey(String? value) async {
+    setUsernameKeyCalls.add(value);
+    _usernameKey = value?.trim();
     _usernameStream.add(_username);
   }
 

@@ -34,6 +34,7 @@ import '../tools/mock_server.dart';
 const String phoneA = '+15550100001';
 const String phoneB = '+15550100002';
 const String peerPhone = '+10000000000'; // the mock's seed peer
+const String usernameA = 'golden_alice';
 const Duration budget = Duration(seconds: 10);
 
 /// A send the server accepted. `sent` OR any later lifecycle state:
@@ -55,6 +56,7 @@ String dmChannelId = '';
 String groupChannelId = '';
 String peerCreatedChannelId = '';
 String extraMemberId = '';
+String keyedDmChannelId = '';
 
 void main() {
   group('golden path (strict mock)', () {
@@ -82,6 +84,64 @@ void main() {
         isTrue,
         reason: 'AUTH_CONTRACT §2: user_id is exactly 9 lowercase hex '
             'characters (36 bits). Got "$userIdA".',
+      );
+    });
+
+    // ---- 1b -------------------------------------------------------------
+    test('1b. USERNAME_REQUIRED gate blocks channels until username set',
+        () async {
+      expect(
+        h.authService.username,
+        isNull,
+        reason: 'AUTH_CONTRACT §3.2: otp/verify never picks a username; a '
+            'fresh signup comes back with username: null.',
+      );
+
+      // Every non-exempt authenticated route is 403 while the handle is
+      // unset — contact discovery is the one the picker hits first.
+      AuthClientException? blocked;
+      try {
+        await h.chat.discoverContacts(
+          normalizedPhones: const [peerPhone],
+          contactBookNamesByPhone: const {peerPhone: 'Seed Peer'},
+        );
+      } on AuthClientException catch (e) {
+        blocked = e;
+      }
+      expect(
+        blocked?.statusCode,
+        403,
+        reason: 'AUTH_CONTRACT §2.4: every authenticated route except the '
+            'users/me + username/check + auth/* exempt list must answer '
+            '403 USERNAME_REQUIRED while username is null. Got '
+            '${blocked?.statusCode} ${blocked?.errorCode}.',
+      );
+      expect(blocked?.errorCode, 'USERNAME_REQUIRED');
+
+      // The mandatory step: PATCH /v3.0/users/me. It is on the exempt
+      // list, so it works from inside the gate.
+      await h.authService.setUsername(usernameA);
+      expect(h.authService.username, usernameA);
+      final patches = h.mock.requests
+          .where((r) => r.method == 'PATCH' && r.path == '/v3.0/users/me')
+          .toList();
+      expect(
+        patches.map((r) => r.body['username']),
+        contains(usernameA),
+        reason: 'AUTH_CONTRACT §4.5: PATCH /v3.0/users/me is the only path '
+            'that writes username.',
+      );
+
+      // …and the gate is down.
+      final contacts = await h.chat.discoverContacts(
+        normalizedPhones: const [peerPhone],
+        contactBookNamesByPhone: const {peerPhone: 'Seed Peer'},
+      );
+      expect(
+        contacts,
+        isNotEmpty,
+        reason: 'AUTH_CONTRACT §2.4: with a username set the gate lifts and '
+            'the previously-403 route succeeds.',
       );
     });
 
@@ -129,6 +189,75 @@ void main() {
             '{one_to_one, group} with 400 validation_failed. The client sent '
             'kind="${posts.first.body['kind']}" and the mock answered '
             '${posts.first.status}.',
+      );
+    });
+
+    // ---- 2b -------------------------------------------------------------
+    test('2b. find peer by @username (keyed) → contact upserted → DM',
+        () async {
+      // No key supplied: the handle exists but is gated (§4.5/§7.6).
+      AuthClientException? gated;
+      try {
+        await h.chat.findByUsername(keyedPeerUsername);
+      } on AuthClientException catch (e) {
+        gated = e;
+      }
+      expect(
+        gated?.errorCode,
+        'USERNAME_KEY_REQUIRED',
+        reason: 'CONTRACT ADDITION (mock_server._handleGetUserByUsername): a '
+            '*missing* key answers 404 USERNAME_KEY_REQUIRED so the picker '
+            'knows to show its Key field. Got ${gated?.errorCode}.',
+      );
+
+      // Wrong key: indistinguishable from "no such handle" (§7.6).
+      AuthClientException? wrong;
+      try {
+        await h.chat.findByUsername(keyedPeerUsername, key: '0000');
+      } on AuthClientException catch (e) {
+        wrong = e;
+      }
+      expect(
+        wrong?.errorCode,
+        'USER_NOT_FOUND',
+        reason: 'AUTH_CONTRACT §7.6: a wrong key MUST NOT be reported '
+            'differently from a nonexistent username.',
+      );
+
+      final found =
+          await h.chat.findByUsername(keyedPeerUsername, key: keyedPeerKey);
+      expect(found.userId, keyedPeerUserId);
+      expect(found.username, keyedPeerUsername);
+      expect(
+        found.displayLabel,
+        '@$keyedPeerUsername',
+        reason: 'AUTH_CONTRACT §2.4: with no contact-book entry the label '
+            'is the handle. Never a phone number.',
+      );
+
+      final cached = (await h.store.fetchContacts())
+          .where((c) => c.userId == keyedPeerUserId)
+          .toList();
+      expect(
+        cached,
+        isNotEmpty,
+        reason: 'AUTH_CONTRACT §7.6 + §2.2: the client caches the resolved '
+            '(username → user_id) pair as a local contact row.',
+      );
+
+      keyedDmChannelId = await h.chat.startDirectMessage(
+        localUserId: userIdA,
+        peerUserId: keyedPeerUserId,
+        peerName: found.displayLabel,
+      );
+      final local = await h.channelRow(keyedDmChannelId);
+      expect(local?['kind'], 'one_to_one');
+      await h.waitFor(() => h.channelPosts(keyedDmChannelId).isNotEmpty);
+      expect(
+        h.channelPosts(keyedDmChannelId).firstOrNull?.status,
+        201,
+        reason: 'SYNC_PROTOCOL §11.3: a username-initiated DM is an ordinary '
+            'POST /v3.0/channels once the handle has been resolved.',
       );
     });
 

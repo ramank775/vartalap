@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
+import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -223,7 +224,12 @@ class App extends StatefulWidget {
 class _AppState extends State<App> {
   late bool _isLogin;
   late bool _consentAccepted;
+  /// AUTH_CONTRACT §2.4 — null means the mandatory "choose username"
+  /// step is still outstanding, for a fresh signup AND for a restored
+  /// session whose stored profile has no handle.
+  String? _username;
   late StreamSubscription<bool> _authSub;
+  late StreamSubscription<String?> _usernameSub;
   StreamSubscription<TransportState>? _wsStateSub;
   StreamSubscription<void>? _authFailureSub;
   StreamSubscription<void>? _reauthRequiredSub;
@@ -238,6 +244,9 @@ class _AppState extends State<App> {
     super.initState();
     _consentAccepted = widget.services.consentAccepted;
     _isLogin = widget.services.authService.isLoggedIn;
+    _username = widget.services.authService.username;
+    _usernameSub = widget.services.authService.usernameChange
+        .listen((u) => setState(() => _username = u));
     _authSub = widget.services.authService.authStateChange.listen((loggedIn) {
       if (!loggedIn) {
         // Tear down any pushed routes (Profile, Settings, Chat, …) so
@@ -311,6 +320,13 @@ class _AppState extends State<App> {
     if (!_isLogin) {
       return IntroductionScreen(authService: widget.services.authService);
     }
+    if (_username == null) {
+      // §2.4: not a route the user can pop out of — every other
+      // authenticated route is 403 USERNAME_REQUIRED until this lands.
+      return ChooseUsernameScreen(
+        authService: widget.services.authService,
+      );
+    }
     return ChatsScreen(
       chatService: widget.services.chatService,
       authService: widget.services.authService,
@@ -374,6 +390,7 @@ class _AppState extends State<App> {
   @override
   void dispose() {
     _authSub.cancel();
+    _usernameSub.cancel();
     _wsStateSub?.cancel();
     _authFailureSub?.cancel();
     _reauthRequiredSub?.cancel();

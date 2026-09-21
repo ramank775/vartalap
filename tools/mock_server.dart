@@ -33,6 +33,11 @@ class UserRecord {
   final String userId;
   final String phone;
   String? username;
+
+  /// AUTH_CONTRACT §4.5 optional 4-digit discovery key. Stored in the
+  /// clear — this is a mock; the real server stores a hash (§4.5).
+  /// Never echoed by any response.
+  String? usernameKey;
   String? displayName;
   String? avatarUrl;
   String? statusText;
@@ -66,6 +71,7 @@ class UserRecord {
         'userId': userId,
         'phone': phone,
         'username': username,
+        'usernameKey': usernameKey,
         'displayName': displayName,
         'avatarUrl': avatarUrl,
         'statusText': statusText,
@@ -78,6 +84,7 @@ class UserRecord {
         createdAt: j['createdAt'] as int,
       )
         ..username = j['username'] as String?
+        ..usernameKey = j['usernameKey'] as String?
         ..displayName = j['displayName'] as String?
         ..avatarUrl = j['avatarUrl'] as String?
         ..statusText = j['statusText'] as String?;
@@ -399,6 +406,19 @@ class MockState {
     user.username = 'seed_peer';
     usersByPhone[phone] = user;
     usersById[user.userId] = user;
+    // A second well-known peer whose handle is gated by a username key
+    // (AUTH_CONTRACT §4.5/§7.6) so tests can exercise both branches of
+    // the by-username lookup.
+    final keyed = UserRecord(
+      userId: keyedPeerUserId,
+      phone: keyedPeerPhone,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    keyed.displayName = 'Keyed Peer';
+    keyed.username = keyedPeerUsername;
+    keyed.usernameKey = keyedPeerKey;
+    usersByPhone[keyedPeerPhone] = keyed;
+    usersById[keyed.userId] = keyed;
     markDirty();
     return user;
   }
@@ -409,6 +429,13 @@ class MockState {
 // ---------------------------------------------------------------------------
 
 const String seedPeerUserId = '000000001';
+
+/// A second seeded peer, discoverable only via
+/// `GET /v3.0/users/by-username/{username}?key=` (AUTH_CONTRACT §7.6).
+const String keyedPeerUserId = '000000002';
+const String keyedPeerPhone = '+10000000002';
+const String keyedPeerUsername = 'keyed_peer';
+const String keyedPeerKey = '4821';
 
 /// The dev OTP code. The mock accepts any 6-digit code; tests use this.
 const String devOtpCode = '000000';
@@ -867,6 +894,9 @@ class MockServer {
       await _handlePatchProfile(req);
     } else if (method == 'POST' && path == '/v3.0/users/username/check') {
       await _handleCheckUsername(req);
+    } else if (method == 'GET' &&
+        path.startsWith('/v3.0/users/by-username/')) {
+      await _handleGetUserByUsername(req);
     } else if (method == 'GET' && path.startsWith('/v3.0/users/')) {
       await _handleGetUser(req);
     } else if (method == 'POST' && path == '/v3.0/contacts/lookup') {
@@ -1060,7 +1090,7 @@ class MockServer {
   }
 
   Future<void> _handleSessionRevoke(HttpRequest req) async {
-    final session = _authenticate(req);
+    final session = _authenticate(req, usernameExempt: true);
     if (session == null) return;
     state.revokeSession(session);
     _log('Session revoked: userId=${session.userId}');
@@ -1072,7 +1102,7 @@ class MockServer {
   // ---------------------------------------------------------------------------
 
   Future<void> _handleGetProfile(HttpRequest req) async {
-    final session = _authenticate(req);
+    final session = _authenticate(req, usernameExempt: true);
     if (session == null) return;
     final user = state.usersById[session.userId];
     if (user == null) {
@@ -1085,7 +1115,7 @@ class MockServer {
   }
 
   Future<void> _handlePatchProfile(HttpRequest req) async {
-    final session = _authenticate(req);
+    final session = _authenticate(req, usernameExempt: true);
     if (session == null) return;
     final user = state.usersById[session.userId];
     if (user == null) {
@@ -1104,9 +1134,51 @@ class MockServer {
     bool usernameTouched = false;
     bool profileTouched = false;
     if (body.containsKey('username')) {
-      user.username = body['username'] as String?;
+      final raw = body['username'] as String?;
+      if (raw != null &&
+          !RegExp(r'^[a-z][a-z0-9._]{2,29}$').hasMatch(raw)) {
+        _respondJson(req, 400, {
+          'error': {
+            'code': 'INVALID_USERNAME',
+            'message': 'username must match ^[a-z][a-z0-9._]{2,29}\$'
+          }
+        });
+        return;
+      }
+      final taken = raw != null &&
+          state.usersById.values.any((u) =>
+              u.userId != user.userId &&
+              u.username != null &&
+              u.username!.toLowerCase() == raw.toLowerCase());
+      if (taken) {
+        _respondJson(req, 409, {
+          'error': {'code': 'USERNAME_TAKEN', 'message': 'username taken'}
+        });
+        return;
+      }
+      user.username = raw;
+      // §4.5: clearing the handle also clears the key — a key with no
+      // handle to gate is meaningless.
+      if (raw == null) user.usernameKey = null;
       newUsername = user.username;
       usernameTouched = true;
+    }
+    if (body.containsKey('usernameKey')) {
+      final raw = body['usernameKey'] as String?;
+      if (raw != null &&
+          (user.username == null || !RegExp(r'^\d{4}$').hasMatch(raw))) {
+        _respondJson(req, 400, {
+          'error': {
+            'code': 'INVALID_USERNAME_KEY',
+            'message': 'usernameKey must be exactly 4 digits, and only '
+                'while a username is set'
+          }
+        });
+        return;
+      }
+      // Stored in the clear — mock. Never echoed: toProfileJson() has
+      // no usernameKey field (§4.5).
+      user.usernameKey = raw;
     }
     if (body.containsKey('displayName')) {
       user.displayName = body['displayName'] as String?;
@@ -1124,6 +1196,7 @@ class MockServer {
       profileTouched = true;
     }
     state.markDirty();
+    _record(req, body, 200);
     _respondJson(req, 200, user.toProfileJson());
 
     // SYNC_PROTOCOL §10.2 fanout: every user sharing at least one
@@ -1175,7 +1248,7 @@ class MockServer {
   // This stub only does (1) — the rest are documented in
   // docs/V3_TODOS.md.
   Future<void> _handleCheckUsername(HttpRequest req) async {
-    final session = _authenticate(req);
+    final session = _authenticate(req, usernameExempt: true);
     if (session == null) return;
     final body = await _readJsonBody(req);
     final candidate = (body['username'] as String?)?.trim().toLowerCase();
@@ -1205,6 +1278,49 @@ class MockServer {
         'error': {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
       });
       return;
+    }
+    _respondJson(req, 200, user.toPublicJson());
+  }
+
+  /// `GET /v3.0/users/by-username/{username}[?key=NNNN]` —
+  /// AUTH_CONTRACT §7.6. Exact case-insensitive match, public profile
+  /// only (no `phone`, §2.5).
+  ///
+  /// CONTRACT ADDITION (confirm before folding into AUTH_CONTRACT
+  /// §7.6/§11.2): §7.6 makes "no such handle" and "wrong key"
+  /// deliberately indistinguishable, but gives the client no way to
+  /// learn that a key is needed at all — so the picker could never
+  /// decide whether to show its Key field. This mock answers a
+  /// *missing* key with `404 USERNAME_KEY_REQUIRED` while a *wrong*
+  /// key stays a plain `404 USER_NOT_FOUND`. The key value itself
+  /// leaks nothing; only "this public handle is gated" does, which the
+  /// UI has to surface regardless.
+  Future<void> _handleGetUserByUsername(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final handle = Uri.decodeComponent(
+            req.uri.path.substring('/v3.0/users/by-username/'.length))
+        .toLowerCase();
+    final key = req.uri.queryParameters['key'];
+    void notFound([String code = 'USER_NOT_FOUND']) => _respondJson(req, 404, {
+          'error': {'code': code, 'message': 'No such user'}
+        });
+    final user = state.usersById.values
+        .where((u) => u.username?.toLowerCase() == handle)
+        .firstOrNull;
+    if (user == null) {
+      notFound();
+      return;
+    }
+    if (user.usernameKey != null) {
+      if (key == null || key.isEmpty) {
+        notFound('USERNAME_KEY_REQUIRED');
+        return;
+      }
+      if (key != user.usernameKey) {
+        notFound();
+        return;
+      }
     }
     _respondJson(req, 200, user.toPublicJson());
   }
@@ -2349,7 +2465,17 @@ class MockServer {
 
   /// Returns the session if Authorization header is valid, else responds 401
   /// and returns null.
-  SessionRecord? _authenticate(HttpRequest req) {
+  /// AUTH_CONTRACT §2.4: authenticate, then enforce the
+  /// `403 USERNAME_REQUIRED` gate. Pass [usernameExempt] for the short
+  /// exempt list — `GET`/`PATCH /v3.0/users/me`,
+  /// `POST /v3.0/users/username/check`, `POST /v3.0/auth/session/*`,
+  /// `POST /v3.0/auth/phone/rebind/*`.
+  ///
+  /// ponytail: the WS upgrade (§6) is deliberately NOT gated — a client
+  /// that has not picked a handle yet has nothing to send and the
+  /// reconnect dance buys nothing. Gate it in `_handleWsUpgrade` if a
+  /// server-side test ever needs it.
+  SessionRecord? _authenticate(HttpRequest req, {bool usernameExempt = false}) {
     final authHeader = req.headers.value('authorization');
     if (authHeader == null || !authHeader.startsWith('Bearer ')) {
       _respondJson(req, 401, {
@@ -2362,6 +2488,15 @@ class MockServer {
     if (session == null) {
       _respondJson(req, 401, {
         'error': {'code': 'INVALID_ACCESSKEY', 'message': 'accesskey is not valid'}
+      });
+      return null;
+    }
+    if (!usernameExempt && state.usersById[session.userId]?.username == null) {
+      _respondJson(req, 403, {
+        'error': {
+          'code': 'USERNAME_REQUIRED',
+          'message': 'Set a username via PATCH /v3.0/users/me first'
+        }
       });
       return null;
     }

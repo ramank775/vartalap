@@ -1225,6 +1225,22 @@ class ChatStore {
       '''
       SELECT c.channel_id, c.kind, c.name, c.avatar_url,
              c.last_activity_ms, c.unread_count,
+             (SELECT ct.username FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_username,
+             (SELECT ct.display_name FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_display_name,
+             (SELECT ct.contact_book_name FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_contact_book_name,
+             (SELECT ct.user_id FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
              m.body AS last_message_preview,
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned
@@ -1258,7 +1274,9 @@ class ChatStore {
     controller = StreamController<List<ChannelListEntry>>(
       onListen: () {
         changeSub = tableChanges.listen((tables) {
-          if (tables.contains('channels') || tables.contains('messages')) {
+          if (tables.contains('channels') ||
+              tables.contains('messages') ||
+              tables.contains('contacts')) {
             emit();
           }
         });
@@ -1453,6 +1471,22 @@ class ChatStore {
       '''
       SELECT c.channel_id, c.kind, c.name, c.avatar_url,
              c.last_activity_ms, c.unread_count,
+             (SELECT ct.username FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_username,
+             (SELECT ct.display_name FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_display_name,
+             (SELECT ct.contact_book_name FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_contact_book_name,
+             (SELECT ct.user_id FROM channel_members pm
+                JOIN contacts ct ON ct.user_id = pm.user_id
+               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
              m.body AS last_message_preview,
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned
@@ -1486,7 +1520,8 @@ class ChatStore {
       onListen: () {
         changeSub = tableChanges.listen((tables) {
           if (tables.contains('channels') ||
-              tables.contains('channel_members')) {
+              tables.contains('channel_members') ||
+              tables.contains('contacts')) {
             emit();
           }
         });
@@ -1512,6 +1547,18 @@ class ChatStore {
         lastMessageAuthor: r['last_message_author'] as String?,
         lastMessageTombstoned:
             ((r['last_message_tombstoned'] as int?) ?? 0) != 0,
+        // Only the `one_to_one` subqueries above ever produce a peer;
+        // the AUTH_CONTRACT §2.4 resolution itself stays in
+        // ContactRow.displayLabel, this just supplies it the row.
+        peerContact: r['peer_user_id'] == null
+            ? null
+            : ContactRow(
+                userId: r['peer_user_id'] as String,
+                username: r['peer_username'] as String?,
+                displayName: r['peer_display_name'] as String?,
+                contactBookName: r['peer_contact_book_name'] as String?,
+                lastRefreshedMs: 0,
+              ),
       );
 
   // --- row marshalling ---------------------------------------------------

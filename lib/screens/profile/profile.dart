@@ -4,30 +4,21 @@ library vartalap.screens.profile;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/username.dart';
 import 'package:vartalap/widgets/avator.dart';
 
-/// Sync-only validator for usernames. Charset/length only — server has
-/// the final say on uniqueness (via the availability check) and on
-/// reserved-word policy (the `reason` of an unavailable response). We
-/// keep the rules close to AUTH_CONTRACT §4.5 so users don't burn the
-/// rate limit on obviously-bad input. Lower-case a-z, 0-9, dot, and
-/// underscore. 3-30 chars. Must start with a letter.
-String? _validateUsername(String value) {
+/// What the profile QR encodes — the handle, never the number
+/// (AUTH_CONTRACT §2.5, mockup frame h2).
+String usernameQrPayload(String username) => 'vartalap://u/$username';
+
+/// AUTH_CONTRACT §4.5 — exactly 4 digits, or empty to clear.
+String? _validateUsernameKey(String value) {
   if (value.isEmpty) return null; // empty = clear, allowed
-  if (value.length < 3) return 'At least 3 characters';
-  if (value.length > 30) return 'At most 30 characters';
-  if (!RegExp(r'^[a-z]').hasMatch(value)) {
-    return 'Must start with a letter';
-  }
-  if (!RegExp(r'^[a-z0-9._]+$').hasMatch(value)) {
-    return 'Only a-z, 0-9, _ and . allowed';
-  }
-  if (value.contains('..') || value.contains('__')) {
-    return 'No double dots or underscores';
-  }
+  if (!RegExp(r'^\d{4}$').hasMatch(value)) return 'Exactly 4 digits';
   return null;
 }
 
@@ -93,6 +84,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _ProfileAvatar(name: name, phone: phone),
+              const SizedBox(height: kSpaceSm),
+              // The handle, prominent: it is the public identity
+              // (AUTH_CONTRACT §2.4), the number below it is not.
+              Text(
+                auth.username == null ? 'No username yet' : '@${auth.username}',
+                style: textTheme.titleMedium?.copyWith(
+                  color: scheme.primary,
+                  fontStyle: auth.username == null
+                      ? FontStyle.italic
+                      : FontStyle.normal,
+                ),
+              ),
               const SizedBox(height: kSpaceMd),
             ],
           ),
@@ -115,7 +118,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             textCapitalization: TextCapitalization.none,
             valuePrefix: '@',
             onSave: (v) => auth.setUsername(v),
-            validator: _validateUsername,
+            validator: validateUsername,
+            // §2.4: clearing re-arms the USERNAME_REQUIRED gate, so the
+            // contract says not to offer it as a bare UI action.
+            allowEmpty: false,
             unavailableMessage: 'That username is taken',
             availabilityCheck: (candidate) async {
               // Skip the network round-trip when the user retypes
@@ -142,35 +148,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onSave: (v) => auth.setStatusText(v),
           ),
           const Divider(height: 1, indent: kSpaceMd, endIndent: kSpaceMd),
-          // Phone — read-only.
+          // Phone — read-only, and private: §2.5 means the server never
+          // hands this to anyone but its owner, so say so.
           ListTile(
-            leading: Icon(Icons.phone_outlined, color: scheme.onSurfaceVariant),
+            leading: Icon(Icons.lock_outline, color: scheme.onSurfaceVariant),
             title: const Text('Phone'),
-            subtitle: Text(
-              _formatPhone(phone),
-              style: TextStyle(
-                color: scheme.onSurfaceVariant,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _formatPhone(phone),
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                Text(
+                  'Only you can see this',
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
             ),
           ),
           const Divider(height: 1, indent: kSpaceMd, endIndent: kSpaceMd),
-          // QR — inline expand/collapse instead of a popup.
-          ListTile(
-            leading: Icon(Icons.qr_code_2_rounded,
-                color: scheme.onSurfaceVariant),
-            title: const Text('QR code'),
-            subtitle: Text(
-              _qrOpen ? 'Tap to hide' : 'Scan to add me',
-              style: TextStyle(color: scheme.onSurfaceVariant),
-            ),
-            trailing: Icon(_qrOpen ? Icons.expand_less : Icons.expand_more),
-            onTap: () => setState(() => _qrOpen = !_qrOpen),
+          // Optional 4-digit discovery key — AUTH_CONTRACT §4.5 / §7.6.
+          _InlineEditableRow(
+            icon: Icons.lock_outline,
+            label: 'Username key (optional)',
+            value: auth.usernameKey,
+            placeholder: 'Not set',
+            caption: 'People who message you by username must enter this.',
+            maxLength: 4,
+            textCapitalization: TextCapitalization.none,
+            onSave: (v) => auth.setUsernameKey(v),
+            validator: _validateUsernameKey,
           ),
+          const Divider(height: 1, indent: kSpaceMd, endIndent: kSpaceMd),
+          // QR — inline expand/collapse instead of a popup. Hidden
+          // entirely until there is a handle to encode: the QR carries
+          // the username, never the number (§2.5).
+          if (auth.username != null)
+            ListTile(
+              leading: Icon(Icons.qr_code_2_rounded,
+                  color: scheme.onSurfaceVariant),
+              title: const Text('QR code'),
+              subtitle: Text(
+                _qrOpen
+                    ? 'Tap to hide'
+                    : 'Shares @${auth.username}, not your number',
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+              trailing: Icon(_qrOpen ? Icons.expand_less : Icons.expand_more),
+              onTap: () => setState(() => _qrOpen = !_qrOpen),
+            ),
           AnimatedSize(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOut,
-            child: _qrOpen
+            child: (_qrOpen && auth.username != null)
                 ? Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: kSpaceLg,
@@ -179,31 +215,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: AspectRatio(
                       aspectRatio: 1,
                       child: Container(
+                        padding: const EdgeInsets.all(kSpaceMd),
                         decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHighest,
+                          // Always light behind the modules — a QR on a
+                          // dark surface does not scan.
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(kRadiusLg),
                           border: Border.all(
                             color: scheme.outlineVariant,
                             width: 1,
                           ),
                         ),
-                        alignment: Alignment.center,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.qr_code_2_rounded,
-                              size: 96,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(height: kSpaceSm),
-                            Text(
-                              'QR sharing coming soon',
-                              style: textTheme.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
+                        child: QrImageView(
+                          data: usernameQrPayload(auth.username!),
+                          version: QrVersions.auto,
+                          backgroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
                         ),
                       ),
                     ),
@@ -284,6 +311,13 @@ class _InlineEditableRow extends StatefulWidget {
   final _RowAvailabilityCheck? availabilityCheck;
   final String? unavailableMessage;
 
+  /// Always-on explanatory line under the value in read mode.
+  final String? caption;
+
+  /// When false, an empty field is a validation error rather than
+  /// "clear this".
+  final bool allowEmpty;
+
   const _InlineEditableRow({
     required this.icon,
     required this.label,
@@ -296,6 +330,8 @@ class _InlineEditableRow extends StatefulWidget {
     this.validator,
     this.availabilityCheck,
     this.unavailableMessage,
+    this.caption,
+    this.allowEmpty = true,
   });
 
   @override
@@ -368,7 +404,7 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
     final validator = widget.validator;
     final asyncCheck = widget.availabilityCheck;
     setState(() {
-      _validationError = (next.isEmpty || validator == null)
+      _validationError = (next.isEmpty && widget.allowEmpty) || validator == null
           ? null
           : validator(next);
       // Don't fire the network check for unchanged or sync-invalid input.
@@ -586,14 +622,26 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
     return ListTile(
       leading: Icon(widget.icon, color: scheme.onSurfaceVariant),
       title: Text(widget.label),
-      subtitle: Text(
-        displayValue,
-        style: textTheme.bodyMedium?.copyWith(
-          color: hasValue ? scheme.onSurface : scheme.onSurfaceVariant,
-          fontStyle: hasValue ? FontStyle.normal : FontStyle.italic,
-        ),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            displayValue,
+            style: textTheme.bodyMedium?.copyWith(
+              color: hasValue ? scheme.onSurface : scheme.onSurfaceVariant,
+              fontStyle: hasValue ? FontStyle.normal : FontStyle.italic,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (widget.caption != null)
+            Text(
+              widget.caption!,
+              style: textTheme.bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+        ],
       ),
       trailing: Icon(
         Icons.edit_outlined,
