@@ -261,6 +261,17 @@ class ChannelListEntry {
   final int lastActivityMs;
   final int unreadCount;
 
+  /// Local-only pin flag. Pinned rows sort above everything else.
+  final bool pinned;
+
+  /// Local-only mute expiry in epoch ms. `null` = not muted; a
+  /// far-future value is the "Always" option from the mute sheet.
+  final int? mutedUntilMs;
+
+  /// `true` when at least one outbound op targeting this channel is in
+  /// `dead_letter` — the chat list shows a "Not sent" indicator.
+  final bool hasFailedOp;
+
   /// Body text of the last non-tombstoned message. `null` if the
   /// channel has no messages yet (or the last message row is missing).
   final String? lastMessagePreview;
@@ -282,6 +293,10 @@ class ChannelListEntry {
   /// carries their label for us rather than ours for them.
   final ContactRow? peerContact;
 
+  /// Muted *right now*. An expired `muted_until_ms` reads as unmuted
+  /// without needing a sweep job.
+  bool isMutedAt(int nowMs) => mutedUntilMs != null && mutedUntilMs! > nowMs;
+
   const ChannelListEntry({
     required this.channelId,
     required this.kind,
@@ -289,6 +304,9 @@ class ChannelListEntry {
     required this.avatarUrl,
     required this.lastActivityMs,
     required this.unreadCount,
+    this.pinned = false,
+    this.mutedUntilMs,
+    this.hasFailedOp = false,
     required this.lastMessagePreview,
     required this.lastMessageAuthor,
     required this.lastMessageTombstoned,
