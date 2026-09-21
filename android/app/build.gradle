@@ -102,6 +102,20 @@ flutter {
     source '../..'
 }
 
+// The UnifiedPush connector ships Tink for Android (WebPush payload
+// crypto — Apache-2.0, no Play Services); `webcrypto` pulls the JVM
+// build of the same library, and the two collide at dex time on every
+// class. Upstream's documented fix: substitute one for the other.
+configurations.all {
+    resolutionStrategy {
+        def tinkAndroid = 'com.google.crypto.tink:tink-android:1.19.0'
+        force tinkAndroid
+        dependencySubstitution {
+            substitute module('com.google.crypto.tink:tink') using module(tinkAndroid)
+        }
+    }
+}
+
 dependencies {
     implementation 'androidx.browser:browser:1.4.0'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7"

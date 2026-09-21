@@ -806,13 +806,13 @@ packages:
     source: hosted
     version: "6.2.0"
   unifiedpush_android:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: unifiedpush_android
-      sha256: a902e505e91c8e28b54b379bb27f255f66df409274a97af24d6719f12f0d13dc
+      sha256: "556796c81e8151ee8e4275baea2f7191119e8b1412ec35523cc2ac1c44c348bf"
       url: "https://pub.dev"
     source: hosted
-    version: "3.5.0"
+    version: "3.4.0"
   unifiedpush_linux:
     dependency: transitive
     description:
