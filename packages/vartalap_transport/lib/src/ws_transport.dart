@@ -112,6 +112,22 @@ class WsTransport implements Transport {
     await _connect();
   }
 
+  /// Close the socket and stop reconnecting, leaving the transport
+  /// reusable — [start] re-opens it and the `pushes` / `acks` streams
+  /// stay live so a bound InboundReceiver survives. Models the app
+  /// losing the network or being backgrounded, where [dispose] (which
+  /// is terminal) would be wrong.
+  Future<void> stop() async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectAttempt = 0;
+    await _closeChannel();
+    _buffering = false;
+    _pushBuffer.clear();
+    _ackBuffer.clear();
+    _setState(TransportState.disconnected);
+  }
+
   /// Close the connection and stop reconnecting. After dispose the
   /// streams are closed and the transport cannot be restarted.
   Future<void> dispose() async {

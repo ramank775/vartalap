@@ -60,6 +60,14 @@ class InboundReceiver {
 
   final Set<Future<void>> _inFlight = <Future<void>>{};
 
+  /// Applies run one at a time, in arrival order. Two frames delivered
+  /// in the same microtask batch would otherwise both clear the
+  /// `hasSeenOpId` check before either wrote `op_id_seen`, and the
+  /// loser blew up on the UNIQUE constraint — losing the apply. Serial
+  /// also means a live message can never overtake the
+  /// `ChannelCreated` it depends on.
+  Future<void> _chain = Future<void>.value();
+
   /// Ephemeral typing-event fanout. Broadcast so multiple chat screens
   /// can subscribe; never replayed because typing is intentionally lossy
   /// (see Typing proto contract).
@@ -83,7 +91,15 @@ class InboundReceiver {
     if (_running) return;
     _running = true;
     _sub = pushes.listen(
-      (env) => _track(_apply(env)),
+      (env) => _track(_chain = _chain.then((_) => _apply(env)).catchError(
+            (Object e) {
+              // Keep the chain alive: one bad frame must not stop every
+              // later one from applying.
+              // ignore: avoid_print
+              print('InboundReceiver: apply failed '
+                  'channel=${env.channelId} op_id=${env.opId}: $e');
+            },
+          )),
       onError: (_) {},
     );
   }

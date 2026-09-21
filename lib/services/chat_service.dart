@@ -268,7 +268,12 @@ class ChatService {
       'channel_id': channelId,
       'kind': kind,
       'name': name,
-      'members': memberUserIds,
+      // SYNC_PROTOCOL §11.3: the roster the server stores is the one it
+      // is sent, and the creator must be in it — the real gateway
+      // answers 403 `forbidden` ("creator must be in members") when it
+      // isn't. A Set keeps the call idempotent if a caller passes the
+      // owner in [memberUserIds] too.
+      'members': <String>{ownerUserId, ...memberUserIds}.toList(),
     }));
 
     final op = OutboundOpRow(
