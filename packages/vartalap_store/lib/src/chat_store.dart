@@ -1260,10 +1260,8 @@ class ChatStore {
     late StreamController<List<ChannelListEntry>> controller;
     StreamSubscription<Set<String>>? changeSub;
 
-    Future<void> emit() async {
-      if (controller.isClosed) return;
-      controller.add(await fetchChannelList(limit: limit));
-    }
+    Future<void> emit() =>
+        _safeEmit(controller, () => fetchChannelList(limit: limit));
 
     controller = StreamController<List<ChannelListEntry>>(
       onListen: () {
@@ -1282,6 +1280,28 @@ class ChatStore {
       },
     );
     return controller.stream;
+  }
+
+  /// Re-query and emit, unless the stream or the database went away
+  /// while the query was in flight.
+  ///
+  /// Closing a store that still has live watchers is ordinary teardown
+  /// — on logout, or at the end of a test — but the queued re-query
+  /// has already been handed to sqflite by then, and it comes back as
+  /// "This database has already been closed". Surfacing that as a
+  /// stream error would make every watcher's last act an error the
+  /// caller has no way to act on.
+  Future<void> _safeEmit<T>(
+    StreamController<T> controller,
+    Future<T> Function() query,
+  ) async {
+    if (controller.isClosed || !db.isOpen) return;
+    try {
+      final result = await query();
+      if (!controller.isClosed) controller.add(result);
+    } on DatabaseException {
+      if (db.isOpen) rethrow;
+    }
   }
 
   /// §13.2 — Channel chat view, newest-first, non-tombstoned only.
@@ -1317,10 +1337,8 @@ class ChatStore {
     late StreamController<List<MessageRow>> controller;
     StreamSubscription<Set<String>>? changeSub;
 
-    Future<void> emit() async {
-      if (controller.isClosed) return;
-      controller.add(await fetchChannelMessages(channelId, limit: limit));
-    }
+    Future<void> emit() => _safeEmit(
+        controller, () => fetchChannelMessages(channelId, limit: limit));
 
     controller = StreamController<List<MessageRow>>(
       onListen: () {
@@ -1574,10 +1592,8 @@ class ChatStore {
     late StreamController<List<ChannelListEntry>> controller;
     StreamSubscription<Set<String>>? changeSub;
 
-    Future<void> emit() async {
-      if (controller.isClosed) return;
-      controller.add(await fetchMemberChannels(userId: userId, kind: kind));
-    }
+    Future<void> emit() => _safeEmit(
+        controller, () => fetchMemberChannels(userId: userId, kind: kind));
 
     controller = StreamController<List<ChannelListEntry>>(
       onListen: () {
