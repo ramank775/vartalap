@@ -24,9 +24,11 @@ import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/screens/login/introduction.dart';
+import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap_store/vartalap_store.dart';
@@ -35,9 +37,16 @@ import 'package:vartalap_transport/vartalap_transport.dart';
 
 final ConfigStore configStore = ConfigStore();
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final services = await initializeApp();
+
+  // The ntfy distributor starts this entrypoint in a background engine
+  // to deliver a wake (`unifiedpush` README). Everything the wake needs
+  // — pull `/sync/pending`, reconnect the WS, post the local
+  // notification — is already wired by initializeApp; there is no UI to
+  // run, so we stop short of runApp and let the callback fire.
+  if (args.contains('--unifiedpush-bg')) return;
 
   // Decision 8 (docs/V3_ARCHITECTURE.md): Sentry is only initialized when
   // the user has already opted in from Settings. Off (the default) means
@@ -68,7 +77,12 @@ class AppServices {
   final SyncScheduler scheduler;
   final WsTransport wsTransport;
   final RestTransport restTransport;
+  final PushService pushService;
   final bool consentAccepted;
+
+  /// False until the user has answered the "install ntfy" prompt once
+  /// (decision 6 first-run onboarding). Only ever gates the prompt.
+  final bool pushPromptSeen;
 
   /// Inbound WS_PUSH fanout applier. Null pre-login: it's constructed
   /// by [rebuildInboundReceiverForUser] on [AuthService.authStateChange]
@@ -86,7 +100,9 @@ class AppServices {
     required this.scheduler,
     required this.wsTransport,
     required this.restTransport,
+    required this.pushService,
     required this.consentAccepted,
+    required this.pushPromptSeen,
     this.inboundReceiver,
   });
 
@@ -199,6 +215,8 @@ Future<AppServices> initializeApp() async {
     clock: Clock.system,
   );
 
+  final pushService = PushService(authClient: authClient);
+
   final services = AppServices(
     store: store,
     authClient: authClient,
@@ -207,8 +225,25 @@ Future<AppServices> initializeApp() async {
     scheduler: scheduler,
     wsTransport: wsTransport,
     restTransport: restTransport,
+    pushService: pushService,
     consentAccepted: consentAccepted,
+    pushPromptSeen: prefs.getBool(kPushPromptSeenKey) ?? false,
   );
+
+  // SYNC_PROTOCOL §12.3 — the wake says nothing, so the client owns
+  // the follow-up: WS back up, then drain whatever was queued.
+  pushService.onWake = () async {
+    await wsTransport.start();
+    await services.pullPendingSync();
+  };
+  // AUTH_CONTRACT §5.1 — deregister while the accesskey still works.
+  authService.onBeforeLogout = pushService.deregister;
+  try {
+    await pushService.start();
+  } catch (e) {
+    // No distributor plugin (desktop, tests) — push is simply off.
+    debugPrint('Push init failed: $e');
+  }
 
   // If we already have a signed-in session (restoreSession populated
   // currentUserId), stand up the inbound receiver now so push frames
@@ -253,6 +288,7 @@ class App extends StatefulWidget {
 class _AppState extends State<App> {
   late bool _isLogin;
   late bool _consentAccepted;
+  late bool _pushPromptSeen;
   /// AUTH_CONTRACT §2.4 — null means the mandatory "choose username"
   /// step is still outstanding, for a fresh signup AND for a restored
   /// session whose stored profile has no handle.
@@ -272,6 +308,11 @@ class _AppState extends State<App> {
   void initState() {
     super.initState();
     _consentAccepted = widget.services.consentAccepted;
+    _pushPromptSeen = widget.services.pushPromptSeen;
+    // The wake is content-free, so a tap can only mean "show me the
+    // app" — the chat list is the root route.
+    widget.services.pushService.onNotificationTap =
+        () => _navKey.currentState?.popUntil((route) => route.isFirst);
     _isLogin = widget.services.authService.isLoggedIn;
     _username = widget.services.authService.username;
     _usernameSub = widget.services.authService.usernameChange
@@ -303,6 +344,9 @@ class _AppState extends State<App> {
           // Kick the WS transport so it connects now that we have an
           // accesskey. If already connected this is a no-op.
           unawaited(widget.services.wsTransport.start());
+          // AUTH_CONTRACT §5.1: the topic is stored per (user, device),
+          // so a new session must re-post the endpoint it holds.
+          unawaited(widget.services.pushService.refresh());
         }
       }
       setState(() => _isLogin = loggedIn);
@@ -356,11 +400,29 @@ class _AppState extends State<App> {
         authService: widget.services.authService,
       );
     }
-    return ChatsScreen(
+    final chats = ChatsScreen(
       chatService: widget.services.chatService,
       authService: widget.services.authService,
       config: configStore,
     );
+    if (_pushPromptSeen) return chats;
+    // Decision 6 first-run onboarding: the one screen that asks for the
+    // ntfy app, shown after the username step and only while the
+    // distributor is actually missing.
+    return ValueListenableBuilder<PushState>(
+      valueListenable: widget.services.pushService.state,
+      builder: (context, pushState, child) =>
+          pushState == PushState.distributorMissing
+              ? PushOnboardingScreen(onDone: _onPushPromptDone)
+              : child!,
+      child: chats,
+    );
+  }
+
+  Future<void> _onPushPromptDone() async {
+    setState(() => _pushPromptSeen = true);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kPushPromptSeenKey, true);
   }
 
   @override
@@ -423,6 +485,7 @@ class _AppState extends State<App> {
     _wsStateSub?.cancel();
     _authFailureSub?.cancel();
     _reauthRequiredSub?.cancel();
+    widget.services.pushService.dispose();
     unawaited(widget.services.inboundReceiver?.stop());
     unawaited(widget.services.scheduler.stop());
     unawaited(widget.services.authService.dispose());
