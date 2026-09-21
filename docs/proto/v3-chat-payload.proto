@@ -58,7 +58,9 @@ message ChatPayload {
   // The message this payload acts on. For TYPE_MESSAGE_CREATE and
   // TYPE_MESSAGE_FORWARD, this is the new message's id (client-
   // generated UUIDv7). For UPDATE / DELETE / REACTION_*, this is
-  // the existing message being targeted.
+  // the existing message being targeted. For TYPE_READ_RECEIPT it is
+  // the read-up-to marker: the newest message the sender has read.
+  // Unused (empty) for TYPE_TYPING.
   string message_id = 3;
 
   // Fields populated per `type`. Recipients MUST validate the
@@ -78,6 +80,9 @@ message ChatPayload {
 
   // For TYPE_MESSAGE_FORWARD.
   ForwardSource forward_source = 40;
+
+  // For TYPE_TYPING. False means "stopped typing".
+  bool is_typing = 50;
 
   // Free-form client metadata. Other clients MAY ignore unknown keys.
   // Reserved keys:
@@ -114,6 +119,18 @@ enum ChatPayloadType {
   // Identical to TYPE_MESSAGE_CREATE plus `forward_source` metadata
   // for recipient UI ("Forwarded from …").
   TYPE_MESSAGE_FORWARD = 6;
+
+  // Sender has read this channel up to and including `message_id`.
+  // Recipients flip their OWN authored messages at or before that
+  // marker to "read" — authorship gating per SYNC_PROTOCOL.md §6a.3
+  // means a receipt never touches a third party's rows. Rides a
+  // normal (non-ephemeral) WS op, so it consumes a resource_seq.
+  TYPE_READ_RECEIPT = 7;
+
+  // Ephemeral "is typing" signal. MUST ride an envelope with
+  // `ephemeral = true` (v3-envelope.proto): no ACK, no resource_seq,
+  // no persistence, lossy by design. `is_typing` carries the state.
+  TYPE_TYPING = 8;
 
   // Future client-defined types: pinned messages, polls, replies-as-
   // first-class, ephemeral messages, etc. Adding a new value here

@@ -50,6 +50,20 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static const ChatPayloadType TYPE_MESSAGE_FORWARD =
       ChatPayloadType._(6, _omitEnumNames ? '' : 'TYPE_MESSAGE_FORWARD');
 
+  /// Sender has read this channel up to and including `message_id`.
+  /// Recipients flip their OWN authored messages at or before that
+  /// marker to "read" — authorship gating per SYNC_PROTOCOL.md §6a.3
+  /// means a receipt never touches a third party's rows. Rides a
+  /// normal (non-ephemeral) WS op, so it consumes a resource_seq.
+  static const ChatPayloadType TYPE_READ_RECEIPT =
+      ChatPayloadType._(7, _omitEnumNames ? '' : 'TYPE_READ_RECEIPT');
+
+  /// Ephemeral "is typing" signal. MUST ride an envelope with
+  /// `ephemeral = true` (v3-envelope.proto): no ACK, no resource_seq,
+  /// no persistence, lossy by design. `is_typing` carries the state.
+  static const ChatPayloadType TYPE_TYPING =
+      ChatPayloadType._(8, _omitEnumNames ? '' : 'TYPE_TYPING');
+
   static const $core.List<ChatPayloadType> values = <ChatPayloadType>[
     TYPE_UNSPECIFIED,
     TYPE_MESSAGE_CREATE,
@@ -58,10 +72,12 @@ class ChatPayloadType extends $pb.ProtobufEnum {
     TYPE_REACTION_ADD,
     TYPE_REACTION_REMOVE,
     TYPE_MESSAGE_FORWARD,
+    TYPE_READ_RECEIPT,
+    TYPE_TYPING,
   ];
 
   static final $core.List<ChatPayloadType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 6);
+      $pb.ProtobufEnum.$_initByValueList(values, 8);
   static ChatPayloadType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

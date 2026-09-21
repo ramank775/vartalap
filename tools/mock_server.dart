@@ -575,6 +575,10 @@ class MockServer {
   /// Every non-ephemeral WS envelope received, in order. Test hook.
   final List<RecordedEnvelope> envelopes = [];
 
+  /// Every accepted `ephemeral=true` WS envelope, in order. They never
+  /// reach [envelopes] (no ACK, no dedup, no sequencing). Test hook.
+  final List<RecordedEnvelope> ephemeralEnvelopes = [];
+
   MockServer._(this._http, this.state,
       {required this.seedPeerEnabled,
       required this.demoMode,
@@ -741,6 +745,52 @@ class MockServer {
         ),
       );
 
+  /// Inject a peer-authored read receipt marking [messageId] (and
+  /// everything before it) as read by [senderUserId] — decision 56's
+  /// `ChatPayload{TYPE_READ_RECEIPT}`, not a server event.
+  ({String messageId, String opId}) injectPeerReadReceipt({
+    required String channelId,
+    required String messageId,
+    String senderUserId = seedPeerUserId,
+  }) =>
+      _fanoutPeerChatPayload(
+        channelId,
+        senderUserId,
+        pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_READ_RECEIPT,
+          messageId: messageId,
+        ),
+      );
+
+  /// Inject a peer typing indicator as an `ephemeral=true` WS_PUSH —
+  /// live-only, no ACK, no dedup, dropped for offline members.
+  void injectPeerTyping({
+    required String channelId,
+    required bool isTyping,
+    String senderUserId = seedPeerUserId,
+  }) {
+    final channel = state.channels[channelId];
+    if (channel == null) throw StateError('unknown channel $channelId');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _fanoutEphemeral(
+      pb.Envelope(
+        opId: state.generateUuid(),
+        channelId: channelId,
+        clientTimestampMs: fixnum.Int64(now),
+        payload: pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_TYPING,
+          isTyping: isTyping,
+        ).writeToBuffer(),
+        ephemeral: true,
+      ),
+      senderUserId,
+      channel,
+      now,
+    );
+  }
+
   /// Reject the next [count] chat-content ops with ACK_PERMANENT, so a
   /// test can drive the client's dead-letter / Retry path without
   /// waiting out a retry budget. Consumed one op at a time.
@@ -821,19 +871,12 @@ class MockServer {
     return bits == expected ? null : 'prefix_mismatch';
   }
 
-  /// §6a.3 step 5 — `Envelope.payload` is either a server-event payload
-  /// (first byte 0x53, §10.2) or a `ChatPayload` protobuf. Anything
-  /// else (notably a JSON blob) is `validation_failed`.
+  /// §6a.3 step 5 — a client `Envelope.payload` is a `ChatPayload`
+  /// protobuf and nothing else. A leading 0x53 (a forged server event)
+  /// is rejected earlier in [_processEnvelope]; a JSON blob or byte
+  /// soup is `validation_failed` here.
   bool _payloadIsWellFormed(List<int> payload) {
     if (payload.isEmpty) return false;
-    if (payload[0] == 0x53) {
-      try {
-        pb.ServerEventPayload.fromBuffer(payload.sublist(1));
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
     try {
       final chat = pb.ChatPayload.fromBuffer(payload);
       // A real ChatPayload always sets `type`; a byte soup that happens
@@ -1793,10 +1836,25 @@ class MockServer {
       return reject('forbidden');
     }
 
+    // §10.2 / decision 56 — server events are server-authored. A client
+    // that prepends the 0x53 distinguisher is forging one; the real
+    // gateway answers `validation_failed` and so do we. Checked ahead of
+    // the ephemeral split so a forged typing frame is rejected too.
+    if (strict && env.payload.isNotEmpty && env.payload[0] == 0x53) {
+      return reject('validation_failed');
+    }
+
     // Ephemeral envelopes bypass dedup, deliverySeq, undelivered queue,
     // ACK emission, and any of the post-fanout receipts. Fan to currently-
     // connected members live and drop the rest. See v3-envelope.proto.
     if (env.ephemeral) {
+      ephemeralEnvelopes.add(RecordedEnvelope(
+        opId: opId,
+        channelId: channelId,
+        resourceSeq: env.resourceSeq.toInt(),
+        payload: Uint8List.fromList(env.payload),
+        rejectReason: null,
+      ));
       _fanoutEphemeral(env, senderUserId, channel, now);
       if (demoMode &&
           senderUserId != seedPeerUserId &&
@@ -1816,17 +1874,17 @@ class MockServer {
       return reject('out_of_order');
     }
 
-    // §6a.3 step 5 — payload is a ChatPayload proto, or a 0x53-prefixed
-    // ServerEventPayload (§10.2). Nothing else is on the wire.
+    // §6a.3 step 5 — a client payload is a ChatPayload proto. Nothing
+    // else is on the wire (§10.2 server events are server-authored).
     if (strict && !_payloadIsWellFormed(env.payload)) {
       return reject('validation_failed');
     }
 
     // Test hook. Placed after the sequence check on purpose: the seq
     // has been consumed server-side either way, so the client's next
-    // op (or its manual retry) still lines up at max_seen + 1.
-    final isServerEvent = env.payload.isNotEmpty && env.payload[0] == 0x53;
-    if (rejectNextChatOps > 0 && !isServerEvent) {
+    // op (or its manual retry) still lines up at max_seen + 1. A read
+    // receipt is not chat content and never consumes the budget.
+    if (rejectNextChatOps > 0 && !_isReadReceipt(env.payload)) {
       rejectNextChatOps--;
       return reject('forced_reject');
     }
@@ -1868,19 +1926,13 @@ class MockServer {
       _sendToUser(memberId, pushBytes);
     }
 
-    // Skip delivered-receipt + seed-peer echo for server-event payloads
-    // (e.g. client-originated MessageStateChanged{READ}). Those are
-    // already a state-change envelope being relayed; treating them as
-    // chat content would loop a delivered receipt back to the reader and
-    // produce an "Echo: <binary>" garbage reply.
-    final isServerEventPayload =
-        env.payload.isNotEmpty && env.payload[0] == 0x53;
-
     // Send a MessageStateChanged{DELIVERED} back to the author so the
     // local row flips from single tick to double. Only if there was at
     // least one other channel member (otherwise nothing was delivered).
-    if (!isServerEventPayload &&
-        channel.members.length > 1 &&
+    // `_isMessageCreate` is what keeps receipts/edits/reactions out:
+    // re-announcing their lifecycle would loop a receipt back at the
+    // reader and produce an "Echo: <binary>" garbage reply.
+    if (channel.members.length > 1 &&
         _isMessageCreate(env.payload)) {
       final messageId = _extractMessageId(env.payload);
       if (messageId != null) {
@@ -1898,8 +1950,7 @@ class MockServer {
 
     // Seed peer auto-reply (and auto-mark-read so the author's tick
     // goes blue without needing a second human device).
-    if (!isServerEventPayload &&
-        _isMessageCreate(env.payload) &&
+    if (_isMessageCreate(env.payload) &&
         demoMode &&
         senderUserId != seedPeerUserId &&
         channel.members.contains(seedPeerUserId)) {
@@ -2390,23 +2441,24 @@ class MockServer {
   // after 2.5s (well before the 6s recipient TTL on the human side).
   void _scheduleSeedPeerTypingEcho(String channelId, List<int> payload) {
     // Only respond to typing-true events; ignore the user's own typing-false.
-    if (payload.length < 2 || payload[0] != 0x53) return;
-    pb.ServerEventPayload sep;
+    if (payload.isEmpty) return;
+    pb.ChatPayload chat;
     try {
-      sep = pb.ServerEventPayload.fromBuffer(payload.sublist(1));
+      chat = pb.ChatPayload.fromBuffer(payload);
     } catch (_) {
       return;
     }
-    if (sep.whichBody() != pb.ServerEventPayload_Body.typing) return;
-    if (!sep.typing.isTyping) return;
+    if (chat.type != pb.ChatPayloadType.TYPE_TYPING) return;
+    if (!chat.isTyping) return;
 
     void send(bool isTyping) {
-      final reply = pb.ServerEventPayload(
+      // The seed peer is a client, so it echoes a ChatPayload, not a
+      // server event (decision 56).
+      final replyBytes = pb.ChatPayload(
         version: 1,
-        type: pb.ServerEventType.TYPING,
-        typing: pb.Typing(isTyping: isTyping),
-      );
-      final replyBytes = Uint8List.fromList([0x53, ...reply.writeToBuffer()]);
+        type: pb.ChatPayloadType.TYPE_TYPING,
+        isTyping: isTyping,
+      ).writeToBuffer();
       final now = DateTime.now().millisecondsSinceEpoch;
       final pushEnv = pb.Envelope(
         opId: state.generateUuid(),
@@ -2450,15 +2502,24 @@ class MockServer {
   /// message. An edit / delete / reaction targets a message that was
   /// already delivered, so receipting them would re-announce a
   /// lifecycle transition that already happened.
-  bool _isMessageCreate(List<int> payload) {
-    if (payload.isEmpty || payload[0] == 0x53) return false;
+  /// The `ChatPayload.type` of a client payload, or null when the bytes
+  /// aren't one (a server event, or soup).
+  pb.ChatPayloadType? _chatTypeOf(List<int> payload) {
+    if (payload.isEmpty || payload[0] == 0x53) return null;
     try {
-      final type = pb.ChatPayload.fromBuffer(payload).type;
-      return type == pb.ChatPayloadType.TYPE_MESSAGE_CREATE ||
-          type == pb.ChatPayloadType.TYPE_MESSAGE_FORWARD;
+      return pb.ChatPayload.fromBuffer(payload).type;
     } catch (_) {
-      return false;
+      return null;
     }
+  }
+
+  bool _isReadReceipt(List<int> payload) =>
+      _chatTypeOf(payload) == pb.ChatPayloadType.TYPE_READ_RECEIPT;
+
+  bool _isMessageCreate(List<int> payload) {
+    final type = _chatTypeOf(payload);
+    return type == pb.ChatPayloadType.TYPE_MESSAGE_CREATE ||
+        type == pb.ChatPayloadType.TYPE_MESSAGE_FORWARD;
   }
 
   String? _extractMessageId(List<int> payload) {

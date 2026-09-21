@@ -17,7 +17,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -61,41 +60,28 @@ Uint8List _encodeChatOp({
       emoji: emoji,
     ).writeToBuffer();
 
-/// Build the WS_OP payload for an outbound typing indicator. Same
-/// `0x53 || ServerEventPayload{Typing}` shape as other server-event
-/// envelopes; the routing distinguisher is the envelope's `ephemeral`
-/// flag, not the payload bytes. Channel/sender/timestamp ride on the
-/// envelope, not duplicated in the body.
-Uint8List _encodeTyping({required bool isTyping}) {
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.TYPING,
-    typing: pb.Typing(isTyping: isTyping),
-  );
-  return Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-}
+/// Build the WS_OP payload for an outbound typing indicator — a
+/// `ChatPayload{TYPE_TYPING}` (decision 56: the gateway refuses any
+/// client-authored `0x53` server event, SYNC_PROTOCOL §10.2). The
+/// routing distinguisher is the envelope's `ephemeral` flag, not the
+/// payload bytes; channel/sender/timestamp ride on the envelope.
+Uint8List _encodeTyping({required bool isTyping}) => pb.ChatPayload(
+      version: 1,
+      type: pb.ChatPayloadType.TYPE_TYPING,
+      isTyping: isTyping,
+    ).writeToBuffer();
 
 /// Build the WS_OP payload for an outbound read receipt — a
-/// `ServerEventPayload{MessageStateChanged}` prefixed with the §10.2
-/// `0x53` distinguisher byte. Server fans this verbatim to the rest of
-/// the channel; the original message's author flips their tick to read.
-Uint8List _encodeReadReceipt({
-  required String channelId,
-  required String messageId,
-  required int nowMs,
-}) {
-  final sep = pb.ServerEventPayload(
-    version: 1,
-    type: pb.ServerEventType.MESSAGE_STATE_CHANGED,
-    messageStateChanged: pb.MessageStateChanged(
-      channelId: channelId,
+/// `ChatPayload{TYPE_READ_RECEIPT}` naming the read-up-to message
+/// (decision 56). A normal, non-ephemeral op: it is ACKed and it
+/// consumes a `resource_seq` on the channel. The server fans the
+/// opaque bytes on; every recipient flips its OWN messages at or
+/// before the marker to read.
+Uint8List _encodeReadReceipt({required String messageId}) => pb.ChatPayload(
+      version: 1,
+      type: pb.ChatPayloadType.TYPE_READ_RECEIPT,
       messageId: messageId,
-      newState: pb.MessageStateValue.MESSAGE_STATE_READ,
-      changedAtMs: fixnum.Int64(nowMs),
-    ),
-  );
-  return Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-}
+    ).writeToBuffer();
 
 class ChatService {
   final ChatStore _store;
@@ -311,9 +297,9 @@ class ChatService {
 
   /// Advances the local read marker, zeroes `unread_count`, and (if
   /// the user is logged in and the channel has at least one peer
-  /// message) enqueues an outbound `MessageStateChanged{READ}` so the
-  /// author's tick flips to read on their device. Best-effort: if the
-  /// op enqueue fails the local read marker still moves.
+  /// message) enqueues an outbound `ChatPayload{TYPE_READ_RECEIPT}` so
+  /// the author's tick flips to read on their device. Best-effort: if
+  /// the op enqueue fails the local read marker still moves.
   Future<void> markRead(String channelId) async {
     final now = _clock.nowMs();
     await _store.markChannelRead(channelId, now);
@@ -333,11 +319,7 @@ class ChatService {
       restMethod: null,
       restPath: null,
       resourceId: channelId,
-      payload: _encodeReadReceipt(
-        channelId: channelId,
-        messageId: messageId,
-        nowMs: now,
-      ),
+      payload: _encodeReadReceipt(messageId: messageId),
       status: OpStatus.pending,
       attempts: 0,
       nextRetryAt: now,
