@@ -27,7 +27,20 @@ const List<String> ddl = [
     last_message_id         TEXT,
     unread_count            INTEGER NOT NULL DEFAULT 0,
     last_read_message_id    TEXT,
-    tombstoned              INTEGER NOT NULL DEFAULT 0
+    tombstoned              INTEGER NOT NULL DEFAULT 0,
+
+    -- Local-only chat metadata (V3_ARCHITECTURE decision 3 offline
+    -- matrix: archive / mute / pin never leave the device). Kept as
+    -- columns on `channels` rather than a `channel_settings` side
+    -- table — one row per channel either way, and the chat-list query
+    -- reads them without a join.
+    pinned                  INTEGER NOT NULL DEFAULT 0,
+    muted_until_ms          INTEGER,
+
+    -- "Delete chat" tombstone. Local-only and distinct from
+    -- `tombstoned` (a server-side ChannelDeleted): membership and the
+    -- Groups listing are untouched, and the next message clears it.
+    deleted_locally         INTEGER NOT NULL DEFAULT 0
   )
   ''',
   '''

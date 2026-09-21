@@ -121,7 +121,12 @@ class ChatStore {
       await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
       await txn.update(
         'channels',
-        {'last_activity_ms': nowMs, 'last_message_id': message.messageId},
+        {
+          'last_activity_ms': nowMs,
+          'last_message_id': message.messageId,
+          // Writing into a chat the user deleted brings it back.
+          'deleted_locally': 0,
+        },
         where: 'channel_id = ?',
         whereArgs: [message.channelId],
       );
@@ -667,10 +672,11 @@ class ChatStore {
         bumpUnread
             ? 'UPDATE channels '
                 'SET last_activity_ms = ?, last_message_id = ?, '
-                '    unread_count = unread_count + 1 '
+                '    unread_count = unread_count + 1, deleted_locally = 0 '
                 'WHERE channel_id = ?'
             : 'UPDATE channels '
-                'SET last_activity_ms = ?, last_message_id = ? '
+                'SET last_activity_ms = ?, last_message_id = ?, '
+                '    deleted_locally = 0 '
                 'WHERE channel_id = ?',
         [serverTimestampMs, messageId, channelId],
       );
@@ -1225,13 +1231,17 @@ class ChatStore {
       '''
       SELECT c.channel_id, c.kind, c.name, c.avatar_url,
              c.last_activity_ms, c.unread_count,
+             c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
              m.author_user_id AS last_message_author,
-             m.tombstoned AS last_message_tombstoned
+             m.tombstoned AS last_message_tombstoned,
+             EXISTS (SELECT 1 FROM outbound_ops o
+                     WHERE o.target_channel_id = c.channel_id
+                       AND o.status = 'dead_letter') AS has_failed_op
       FROM channels c
       JOIN messages m ON m.message_id = c.last_message_id
-      WHERE c.tombstoned = 0
-      ORDER BY c.last_activity_ms DESC
+      WHERE c.tombstoned = 0 AND c.deleted_locally = 0
+      ORDER BY c.pinned DESC, c.last_activity_ms DESC
       LIMIT ?
       ''',
       [limit],
@@ -1258,7 +1268,9 @@ class ChatStore {
     controller = StreamController<List<ChannelListEntry>>(
       onListen: () {
         changeSub = tableChanges.listen((tables) {
-          if (tables.contains('channels') || tables.contains('messages')) {
+          if (tables.contains('channels') ||
+              tables.contains('messages') ||
+              tables.contains('outbound_ops')) {
             emit();
           }
         });
@@ -1442,6 +1454,67 @@ class ChatStore {
     _notify(const {'channels', 'channel_members', 'messages'});
   }
 
+  /// Local-only pin flag — V3_ARCHITECTURE decision 3 offline matrix.
+  /// Pinned channels sort first in [fetchChannelList]. No outbound op.
+  Future<void> setChannelPinned(String channelId, bool pinned) async {
+    await db.update(
+      'channels',
+      {'pinned': pinned ? 1 : 0},
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+    );
+    _notify(const {'channels'});
+  }
+
+  /// Local-only mute — `null` clears it, a far-future epoch-ms value is
+  /// the mute sheet's "Always". Push gating against this column is
+  /// server-side work (V3_RELEASE_PLAN open item 13); today it only
+  /// drives the UI.
+  Future<void> setChannelMuted(String channelId, int? untilMs) async {
+    await db.update(
+      'channels',
+      {'muted_until_ms': untilMs},
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+    );
+    _notify(const {'channels'});
+  }
+
+  /// "Delete chat" — local-only, and deliberately *not*
+  /// [leaveGroupLocal]. Erases history and hides the row from the chat
+  /// list; the channel row, its membership and its place in the Groups
+  /// listing all survive, and the next message in either direction
+  /// clears `deleted_locally` and brings the chat back.
+  Future<void> deleteChatLocal(String channelId) async {
+    await clearChannelMessages(channelId);
+    await db.update(
+      'channels',
+      {'deleted_locally': 1},
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+    );
+    _notify(const {'channels'});
+  }
+
+  /// Image-bearing messages in [channelId], newest first. Powers the
+  /// "Media, links and docs" screen. Attachment blobs land with the
+  /// attachment work; the query is real now, so the screen fills
+  /// itself the moment image messages exist.
+  Future<List<MessageRow>> fetchChannelMedia(
+    String channelId, {
+    int limit = 200,
+  }) async {
+    final rows = await db.query(
+      'messages',
+      where: "channel_id = ? AND tombstoned = 0 "
+          "AND content_type LIKE 'image/%'",
+      whereArgs: [channelId],
+      orderBy: 'client_timestamp_ms DESC',
+      limit: limit,
+    );
+    return rows.map(_rowToMessage).toList();
+  }
+
   /// Channels where the current user is an active member, optionally
   /// filtered by `kind`. Powers the Groups tab in the new-chat picker.
   /// Sort: alphabetical by name, falling back to channel_id.
@@ -1453,6 +1526,7 @@ class ChatStore {
       '''
       SELECT c.channel_id, c.kind, c.name, c.avatar_url,
              c.last_activity_ms, c.unread_count,
+             c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned
@@ -1508,6 +1582,9 @@ class ChatStore {
         avatarUrl: r['avatar_url'] as String?,
         lastActivityMs: r['last_activity_ms'] as int,
         unreadCount: r['unread_count'] as int,
+        pinned: ((r['pinned'] as int?) ?? 0) != 0,
+        mutedUntilMs: r['muted_until_ms'] as int?,
+        hasFailedOp: ((r['has_failed_op'] as int?) ?? 0) != 0,
         lastMessagePreview: r['last_message_preview'] as String?,
         lastMessageAuthor: r['last_message_author'] as String?,
         lastMessageTombstoned:
