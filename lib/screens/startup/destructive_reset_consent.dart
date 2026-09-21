@@ -4,6 +4,7 @@ library vartalap.screens.startup.destructive_reset_consent;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -93,7 +94,9 @@ class _DestructiveResetConsentScreenState
                   'Vartalap v3 is a clean relaunch. Your previous chats and '
                   'login are not carried over. Continuing will clear local '
                   'v2 data and require you to sign in again.\n\n'
-                  'Install or keep Vartalap v2 if you need your existing history.',
+                  'Install or keep Vartalap v2 if you need your existing '
+                  'history. v3 cannot run alongside the old data, so '
+                  'declining this reset will close the app.',
                   textAlign: TextAlign.center,
                   style: textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurface,
@@ -134,6 +137,8 @@ class _DestructiveResetConsentScreenState
   }
 
   void _onCancel() {
-    // Intentionally empty — cancel re-shows on next launch.
+    // v3 cannot proceed without the reset — declining exits rather than
+    // silently re-showing this screen (which used to be a no-op).
+    SystemNavigator.pop();
   }
 }

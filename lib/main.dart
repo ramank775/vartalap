@@ -12,11 +12,14 @@ library vartalap.main;
 
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/sentry_config.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
@@ -35,7 +38,23 @@ final ConfigStore configStore = ConfigStore();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final services = await initializeApp();
-  runApp(App(services: services));
+
+  // Decision 8 (docs/V3_ARCHITECTURE.md): Sentry is only initialized when
+  // the user has already opted in from Settings. Off (the default) means
+  // nothing is initialized here and no events can ever be sent — the
+  // toggle itself starts/stops the SDK at runtime for the already-running
+  // app (see lib/config/sentry_config.dart).
+  final prefs = await SharedPreferences.getInstance();
+  final sentryOptIn = prefs.getBool(kSentryOptInPrefKey) ?? false;
+  final sentryDsn = sentryOptIn ? await effectiveSentryDsn() : '';
+  if (sentryOptIn && sentryDsn.isNotEmpty) {
+    await SentryFlutter.init(
+      (options) => options.dsn = sentryDsn,
+      appRunner: () => runApp(App(services: services)),
+    );
+  } else {
+    runApp(App(services: services));
+  }
 }
 
 /// Bundle of long-lived services wired up at app boot. Passed to the
@@ -137,7 +156,17 @@ Future<AppServices> initializeApp() async {
   await authService.init();
 
   final wsTransport = WsTransport(endpoint: wsUrl, auth: authClient);
-  final restTransport = RestTransport(baseUrl: apiUrl, auth: authClient);
+  // `connectivity_plus` is Flutter-only, so the pure-Dart transport
+  // package takes a plain `Stream<bool>` instead of depending on it
+  // directly — mapped here from "no connectivity path at all" to the
+  // scheduler-visible connected/disconnected state (§4.7 plumbing).
+  final restTransport = RestTransport(
+    baseUrl: apiUrl,
+    auth: authClient,
+    connectivityStream: Connectivity()
+        .onConnectivityChanged
+        .map((results) => !results.contains(ConnectivityResult.none)),
+  );
 
   // --- sync scheduler -------------------------------------------------------
   //

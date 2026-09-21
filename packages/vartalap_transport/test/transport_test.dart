@@ -390,6 +390,49 @@ void main() {
       );
     });
 
+    test('injected connectivity stream drives state: disconnected/connected',
+        () async {
+      final connectivityCtrl = StreamController<bool>();
+      final transport = RestTransport(
+        baseUrl: server.uri,
+        auth: _FakeAuth('acc-rest'),
+        connectivityStream: connectivityCtrl.stream,
+      );
+      addTearDown(transport.dispose);
+      addTearDown(connectivityCtrl.close);
+
+      expect(transport.currentState, TransportState.connected);
+
+      final states = <TransportState>[];
+      final sub = transport.state.listen(states.add);
+      addTearDown(sub.cancel);
+
+      connectivityCtrl.add(false);
+      await pumpEventQueue();
+      expect(transport.currentState, TransportState.disconnected);
+      expect(states, [TransportState.disconnected]);
+
+      connectivityCtrl.add(true);
+      await pumpEventQueue();
+      expect(transport.currentState, TransportState.connected);
+      expect(states, [TransportState.disconnected, TransportState.connected]);
+
+      // Duplicate values don't re-emit.
+      connectivityCtrl.add(true);
+      await pumpEventQueue();
+      expect(states, [TransportState.disconnected, TransportState.connected]);
+    });
+
+    test('no connectivity stream injected → stays connected', () async {
+      final transport = RestTransport(
+        baseUrl: server.uri,
+        auth: _FakeAuth('acc-rest'),
+      );
+      addTearDown(transport.dispose);
+
+      expect(transport.currentState, TransportState.connected);
+    });
+
     test('classifyHttpStatus maps across the §8.1 table', () {
       expect(classifyHttpStatus(200), isA<AckSuccess>());
       expect(classifyHttpStatus(201), isA<AckSuccess>());

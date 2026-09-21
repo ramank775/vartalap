@@ -30,20 +30,35 @@ class RestTransport implements Transport {
   final _stateCtrl = StreamController<TransportState>.broadcast();
 
   bool _disposed = false;
+  StreamSubscription<bool>? _connectivitySub;
 
-  // TODO(v3-step-10): replace hard-coded `connected` with
-  // `connectivity_plus`-backed state so the scheduler pauses Flow A
-  // when there's no network at all. For now REST is treated as always
-  // available — `RestTransport.send` surfaces transport failures via
-  // its ACK stream (transient on IO error) rather than via state.
+  // Connectivity-backed: `disconnected` when the injected stream reports
+  // no network, `connected` otherwise (SPIKE_B §7). The stream's value is
+  // a plain bool ("has some network path") rather than a `connectivity_plus`
+  // type directly, so this pure-Dart package doesn't need a Flutter-only
+  // dependency — the app wires `Connectivity().onConnectivityChanged` into
+  // it at construction time (see main.dart). No stream injected → treated
+  // as always connected, matching the previous hard-coded behavior; wire
+  // failures still surface via the ACK stream (transient on IO error).
   TransportState _state = TransportState.connected;
 
   RestTransport({
     required this.baseUrl,
     required this.auth,
     http.Client? httpClient,
+    Stream<bool>? connectivityStream,
   })  : _client = httpClient ?? http.Client(),
-        _ownsClient = httpClient == null;
+        _ownsClient = httpClient == null {
+    _connectivitySub = connectivityStream?.listen(_onConnectivityChanged);
+  }
+
+  void _onConnectivityChanged(bool hasConnectivity) {
+    final next =
+        hasConnectivity ? TransportState.connected : TransportState.disconnected;
+    if (_disposed || _state == next) return;
+    _state = next;
+    if (!_stateCtrl.isClosed) _stateCtrl.add(next);
+  }
 
   @override
   Stream<AckFrame> get acks => _ackCtrl.stream;
@@ -56,6 +71,7 @@ class RestTransport implements Transport {
 
   Future<void> dispose() async {
     _disposed = true;
+    await _connectivitySub?.cancel();
     if (_ownsClient) _client.close();
     await _ackCtrl.close();
     await _stateCtrl.close();
