@@ -10,13 +10,14 @@
 /// not raw SQL.
 library vartalap_store;
 
-export 'src/chat_store.dart' show ChatStore;
+export 'src/chat_store.dart' show ChatStore, MessageWindow;
 export 'src/schema.dart' show schemaVersion;
 export 'src/types.dart'
     show
         ChannelListEntry,
         ChannelMemberRow,
         ContactRow,
+        MessageReaction,
         MessageRow,
         MessageState,
         OpKind,

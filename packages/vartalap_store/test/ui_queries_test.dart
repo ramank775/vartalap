@@ -400,6 +400,98 @@ void main() {
       final msgs = await store.fetchChannelMessages('c-1');
       expect(msgs.map((m) => m.messageId), ['m-new', 'm-old']);
     });
+
+    test('tombstoned rows stay in the chat view, with their reactions',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'c-1',
+        kind: 'one_to_one',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+      );
+      await _insertSentMessage(
+        store: store,
+        channelId: 'c-1',
+        messageId: 'm-live',
+        body: 'still here',
+        authorUserId: 'u-peer',
+        clientTimestampMs: 100,
+        deliverySequence: 1,
+      );
+      await _insertSentMessage(
+        store: store,
+        channelId: 'c-1',
+        messageId: 'm-gone',
+        body: null,
+        authorUserId: 'u-peer',
+        clientTimestampMs: 200,
+        deliverySequence: 2,
+        tombstoned: true,
+      );
+      await store.applyInboundReactionAdd(
+        channelId: 'c-1',
+        opId: 'op-r1',
+        messageId: 'm-live',
+        senderUserId: 'u-peer',
+        emoji: '\u{1F44D}',
+        nowMs: 300,
+      );
+
+      final msgs = await store.fetchChannelMessages('c-1');
+      expect(
+        msgs.map((m) => m.messageId),
+        ['m-gone', 'm-live'],
+        reason: 'V3_ARCHITECTURE decision 11: a deleted message keeps its '
+            'place as "This message was deleted".',
+      );
+      expect(msgs.first.tombstoned, isTrue);
+      final live = msgs.last;
+      expect(live.reactions, hasLength(1));
+      expect(live.reactions.single.emoji, '\u{1F44D}');
+      expect(live.reactions.single.userId, 'u-peer');
+    });
+
+    test('a MessageWindow grows the live query in place', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'c-1',
+        kind: 'one_to_one',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+      );
+      for (var i = 0; i < 5; i++) {
+        await _insertSentMessage(
+          store: store,
+          channelId: 'c-1',
+          messageId: 'm-$i',
+          body: 'msg $i',
+          authorUserId: 'u-peer',
+          clientTimestampMs: 100 + i,
+          deliverySequence: i + 1,
+        );
+      }
+
+      final window = MessageWindow(limit: 2);
+      final seen = <int>[];
+      final sub = store
+          .watchChannelMessages('c-1', window: window)
+          .listen((rows) => seen.add(rows.length));
+      addTearDown(sub.cancel);
+      await _pumpEventLoop();
+      expect(seen.last, 2);
+
+      window.grow(3);
+      await _pumpEventLoop();
+      expect(
+        seen.last,
+        5,
+        reason: 'Load-older must re-run the one live query with a bigger '
+            'page, not open a second stream.',
+      );
+    });
   });
 
   group('markChannelRead', () {

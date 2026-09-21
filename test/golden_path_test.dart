@@ -57,6 +57,7 @@ String groupChannelId = '';
 String peerCreatedChannelId = '';
 String extraMemberId = '';
 String keyedDmChannelId = '';
+String peerMessageId = '';
 
 void main() {
   group('golden path (strict mock)', () {
@@ -346,6 +347,7 @@ void main() {
         channelId: dmChannelId,
         body: 'ping from the peer',
       );
+      peerMessageId = injected.messageId;
 
       await h.waitForAsync(() async =>
           (await h.store.fetchMessage(injected.messageId)) != null);
@@ -470,6 +472,264 @@ void main() {
         reason: 'SYNC_PROTOCOL §11.3: group leave must issue '
             'DELETE /v3.0/channels/$groupChannelId. Requests seen: '
             '${h.mock.requests.map((r) => '${r.method} ${r.path}').toList()}.',
+      );
+    });
+
+    // ---- 7b -------------------------------------------------------------
+    test('7b. react on the peer message → REACTION_ADD reaches the peer; '
+        'a peer reaction lands locally', () async {
+      h.peerInbox(); // drop anything queued by earlier steps
+      await h.chat.reactToMessage(
+        channelId: dmChannelId,
+        messageId: peerMessageId,
+        userId: userIdA,
+        emoji: '\u{1F44D}',
+        add: true,
+      );
+      await h.waitForAsync(() async =>
+          (await h.reactionsOf(peerMessageId)).isNotEmpty);
+      expect(
+        await h.reactionsOf(peerMessageId),
+        contains('$userIdA:\u{1F44D}'),
+        reason: 'SPIKE_A_SCHEMA §6: a local reaction writes the reactions '
+            'row optimistically, same as the inbound path does for a peer.',
+      );
+
+      await h.waitFor(() => h.mock.envelopes.any((e) =>
+          e.channelId == dmChannelId &&
+          _payloadType(e.payload) ==
+              pb.ChatPayloadType.TYPE_REACTION_ADD));
+      final sent = h.mock.envelopes.lastWhere((e) =>
+          _payloadType(e.payload) == pb.ChatPayloadType.TYPE_REACTION_ADD);
+      expect(
+        sent.rejectReason,
+        isNull,
+        reason: 'SYNC_PROTOCOL §6a: REACTION_ADD is an ordinary opaque '
+            'ChatPayload — the server relays and ACKs it exactly like a '
+            'create. Got "${sent.rejectReason}".',
+      );
+      await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_REACTION_ADD,
+          messageId: peerMessageId));
+      expect(
+        h.peerSaw(pb.ChatPayloadType.TYPE_REACTION_ADD,
+            messageId: peerMessageId),
+        isTrue,
+        reason: 'SYNC_PROTOCOL §10.1: the reaction must be fanned out to '
+            'the other channel member.',
+      );
+
+      // …and the reverse direction.
+      h.mock.injectPeerReaction(
+        channelId: dmChannelId,
+        messageId: peerMessageId,
+        emoji: '\u{2764}\u{FE0F}',
+      );
+      await h.waitForAsync(() async =>
+          (await h.reactionsOf(peerMessageId)).length > 1);
+      expect(
+        await h.reactionsOf(peerMessageId),
+        contains('$peerUserId:\u{2764}\u{FE0F}'),
+        reason: 'SPIKE_A_SCHEMA §5.4: an inbound TYPE_REACTION_ADD is '
+            'applied to the reactions table.',
+      );
+
+      // Toggling our own reaction off removes the row and sends REMOVE.
+      await h.chat.reactToMessage(
+        channelId: dmChannelId,
+        messageId: peerMessageId,
+        userId: userIdA,
+        emoji: '\u{1F44D}',
+        add: false,
+      );
+      await h.waitForAsync(() async => !(await h.reactionsOf(peerMessageId))
+          .contains('$userIdA:\u{1F44D}'));
+      expect(
+        await h.reactionsOf(peerMessageId),
+        isNot(contains('$userIdA:\u{1F44D}')),
+        reason: 'Toggling an existing own-reaction is a REACTION_REMOVE, '
+            'not a second add.',
+      );
+    });
+
+    // ---- 7c -------------------------------------------------------------
+    test('7c. edit own message → MESSAGE_UPDATE reaches the peer, row is '
+        'marked edited', () async {
+      h.peerInbox();
+      final original = await h.sendAndSettle(dmChannelId, 'draft text');
+      expect(original?.state, isAcked);
+
+      await h.chat.editMessage(
+        channelId: dmChannelId,
+        messageId: original!.messageId,
+        newBody: 'corrected text',
+      );
+      await h.waitForAsync(() async =>
+          (await h.store.fetchMessage(original.messageId))?.body ==
+          'corrected text');
+
+      final edited = await h.store.fetchMessage(original.messageId);
+      expect(edited?.body, 'corrected text');
+      expect(
+        edited?.isEdited,
+        isTrue,
+        reason: 'docs/proto/v3-chat-payload.proto TYPE_MESSAGE_UPDATE: the '
+            'edit is marked so every client can render the "edited" label.',
+      );
+      expect(
+        edited?.deliverySequence,
+        original.deliverySequence,
+        reason: "An edit must not restamp its target's delivery_sequence — "
+            'that would move the message in the channel ordering.',
+      );
+
+      await h.waitFor(() => h.peerSaw(
+            pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+            messageId: original.messageId,
+          ));
+      expect(
+        h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+            messageId: original.messageId, body: 'corrected text'),
+        isTrue,
+        reason: 'SYNC_PROTOCOL §6a: the peer receives the UPDATE verbatim '
+            'and applies it because we are the author (§6a.3).',
+      );
+
+      // Inbound edit of the peer's own message (§6a.3 authorship holds).
+      h.mock.injectPeerEdit(
+        channelId: dmChannelId,
+        messageId: peerMessageId,
+        body: 'ping from the peer (fixed)',
+      );
+      await h.waitForAsync(() async =>
+          (await h.store.fetchMessage(peerMessageId))?.body ==
+          'ping from the peer (fixed)');
+      expect(
+        (await h.store.fetchMessage(peerMessageId))?.isEdited,
+        isTrue,
+        reason: 'SPIKE_A_SCHEMA §5.4: an inbound update from the author is '
+            'applied and flagged.',
+      );
+    });
+
+    // ---- 7d -------------------------------------------------------------
+    test('7d. delete own: undo inside the window sends nothing; letting it '
+        'elapse sends MESSAGE_DELETE', () async {
+      h.peerInbox();
+      final undone = await h.sendAndSettle(dmChannelId, 'deleted then undone');
+      final opsBefore = await h.opCount();
+
+      await h.chat.deleteMessage(messageId: undone!.messageId);
+      expect(
+        (await h.store.fetchMessage(undone.messageId))?.tombstoned,
+        isTrue,
+        reason: 'V3_ARCHITECTURE decision 11: delete commits locally as a '
+            'tombstone immediately.',
+      );
+      await h.chat.undoDelete(undone.messageId);
+      final restored = await h.store.fetchMessage(undone.messageId);
+      expect(restored?.tombstoned, isFalse);
+      expect(restored?.body, 'deleted then undone');
+      expect(
+        await h.opCount(),
+        opsBefore,
+        reason: 'Decision 11: an Undo inside the 5s window must enqueue no '
+            'outbound op at all.',
+      );
+
+      // Now the same thing, committed.
+      final gone = await h.sendAndSettle(dmChannelId, 'deleted for real');
+      await h.chat.deleteMessage(
+        messageId: gone!.messageId,
+        undoWindow: Duration.zero,
+      );
+      final committed = await h.chat.commitDelete(
+        channelId: dmChannelId,
+        messageId: gone.messageId,
+      );
+      expect(committed, isTrue);
+      await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+          messageId: gone.messageId));
+      expect(
+        h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+            messageId: gone.messageId),
+        isTrue,
+        reason: 'Decision 11: once the window elapses the tombstone is '
+            'queued for sync and the peer tombstones its copy too.',
+      );
+      // The ACK clears the body — the deleted content does not linger.
+      await h.waitForAsync(() async =>
+          (await h.store.fetchMessage(gone.messageId))?.body == null);
+      expect((await h.store.fetchMessage(gone.messageId))?.tombstoned, isTrue);
+
+      // Inbound delete of the peer's own message.
+      h.mock.injectPeerDelete(
+        channelId: dmChannelId,
+        messageId: peerMessageId,
+      );
+      await h.waitForAsync(() async =>
+          (await h.store.fetchMessage(peerMessageId))?.tombstoned == true);
+      expect(
+        (await h.store.fetchMessage(peerMessageId))?.body,
+        isNull,
+        reason: 'SPIKE_A_SCHEMA §5.4: an inbound delete tombstones the row '
+            'and drops its content.',
+      );
+    });
+
+    // ---- 7e -------------------------------------------------------------
+    test('7e. forced permanent reject → failure surfaces on watchFailures, '
+        'manualRetry re-sends and the message lands', () async {
+      h.peerInbox();
+      h.mock.rejectNextChatOps = 1;
+
+      final failures = <List<OutboundOpRow>>[];
+      final sub = h.chat.watchFailures().listen(failures.add);
+      addTearDown(sub.cancel);
+
+      final doomed = await h.sendAndSettle(dmChannelId, 'rejected once');
+      expect(
+        doomed?.state,
+        MessageState.rejected,
+        reason: 'SPIKE_B_SYNC.md §8: an ACK_PERMANENT rolls the optimistic '
+            'projection back to `rejected` so the bubble can offer Retry.',
+      );
+
+      await h.waitFor(() => failures.isNotEmpty && failures.last.isNotEmpty);
+      final failed = failures.last
+          .where((o) => o.targetMessageId == doomed!.messageId)
+          .toList();
+      expect(
+        failed,
+        isNotEmpty,
+        reason: 'SPIKE_B_SYNC.md §10: the terminal op must surface on '
+            'watchFailures so the UI can attach a Retry to that bubble.',
+      );
+      expect(failed.single.status, OpStatus.rejected);
+
+      await h.chat.retryFailedOp(failed.single.opId);
+      await h.waitForAsync(() async {
+        final m = await h.store.fetchMessage(doomed!.messageId);
+        return m != null &&
+            m.state != MessageState.pending &&
+            m.state != MessageState.sending &&
+            m.state != MessageState.rejected;
+      });
+      expect(
+        (await h.store.fetchMessage(doomed!.messageId))?.state,
+        isAcked,
+        reason: 'SPIKE_B_SYNC.md §10: manualRetry clones the failed op under '
+            'a fresh op_id and the message completes. '
+            '${await h.opDebug(dmChannelId)}',
+      );
+      await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          body: 'rejected once'));
+      expect(
+        h.peerInboxSeen
+            .where((p) => p.body == 'rejected once')
+            .length,
+        1,
+        reason: 'SPIKE_B_SYNC.md §10: the rejected op never reached the '
+            'peer, and the retry reaches it exactly once.',
       );
     });
 
@@ -677,6 +937,60 @@ class _Harness {
     };
   }
 
+  /// Everything the mock has queued for the seed peer since the last
+  /// call, decoded to ChatPayloads. The peer has no client in this
+  /// harness, so its fanout lands on the undelivered queue — which is
+  /// exactly the "did the other side get it" question.
+  final List<pb.ChatPayload> peerInboxSeen = [];
+
+  /// Drain first, then look: the undelivered queue only fills as the
+  /// server processes ops, so a poll that doesn't drain never sees them.
+  bool peerSaw(
+    pb.ChatPayloadType type, {
+    String? messageId,
+    String? body,
+  }) {
+    peerInbox();
+    return peerInboxSeen.any((p) =>
+        p.type == type &&
+        (messageId == null || p.messageId == messageId) &&
+        (body == null || p.body == body));
+  }
+
+  List<pb.ChatPayload> peerInbox() {
+    final out = <pb.ChatPayload>[];
+    for (final frame in mock.state.drainUndelivered(peerUserId)) {
+      try {
+        final env = pb.WsEnvelope.fromBuffer(frame);
+        if (env.type != pb.WsType.WS_PUSH) continue;
+        final payload = env.push.payload;
+        if (payload.isEmpty || payload[0] == 0x53) continue;
+        out.add(pb.ChatPayload.fromBuffer(payload));
+      } catch (_) {
+        // Not a chat payload — not our business here.
+      }
+    }
+    peerInboxSeen.addAll(out);
+    return out;
+  }
+
+  /// `user_id:emoji` for every reaction on [messageId].
+  Future<List<String>> reactionsOf(String messageId) async {
+    final rows = await store.db.query(
+      'reactions',
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+    );
+    return rows
+        .map((r) => '${r['user_id']}:${r['emoji']}')
+        .toList();
+  }
+
+  Future<int> opCount() async {
+    final r = await store.db.rawQuery('SELECT COUNT(*) c FROM outbound_ops');
+    return (r.single['c'] as int?) ?? 0;
+  }
+
   List<RecordedRequest> channelPosts(String channelId) => mock.requests
       .where((r) =>
           r.method == 'POST' &&
@@ -746,6 +1060,17 @@ class _Harness {
 }
 
 Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 50));
+
+/// The ChatPayload type of an envelope payload, or null when the bytes
+/// are a §10.2 server event / not a ChatPayload at all.
+pb.ChatPayloadType? _payloadType(List<int> payload) {
+  if (payload.isEmpty || payload[0] == 0x53) return null;
+  try {
+    return pb.ChatPayload.fromBuffer(payload).type;
+  } catch (_) {
+    return null;
+  }
+}
 
 bool _decodesAsChatPayload(List<int> payload) {
   if (payload.isEmpty) return false;

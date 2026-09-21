@@ -31,6 +31,7 @@ import 'package:vartalap_transport/vartalap_transport.dart';
 Uint8List _encodeChatPayload({
   required String messageId,
   required String body,
+  String? replyToMessageId,
 }) =>
     pb.ChatPayload(
       version: 1,
@@ -38,6 +39,26 @@ Uint8List _encodeChatPayload({
       messageId: messageId,
       body: body,
       contentType: 'text/plain',
+      replyToMessageId: replyToMessageId,
+    ).writeToBuffer();
+
+/// The other four ChatPayload types (SYNC_PROTOCOL §6a,
+/// docs/proto/v3-chat-payload.proto). Same envelope, same opacity to
+/// the server — recipients dispatch on `type` in InboundReceiver and
+/// enforce authorship for UPDATE / DELETE themselves (§6a.3).
+Uint8List _encodeChatOp({
+  required pb.ChatPayloadType type,
+  required String messageId,
+  String? body,
+  String? emoji,
+}) =>
+    pb.ChatPayload(
+      version: 1,
+      type: type,
+      messageId: messageId,
+      body: body,
+      contentType: body == null ? null : 'text/plain',
+      emoji: emoji,
     ).writeToBuffer();
 
 /// Build the WS_OP payload for an outbound typing indicator. Same
@@ -151,11 +172,14 @@ class ChatService {
 
   /// Messages in one channel, newest-first, pending rows on top —
   /// SPIKE_A_SCHEMA.md §13.2 via [ChatStore.watchChannelMessages].
+  /// Pass a [window] for a growable page ("load older" without a
+  /// second live query) — see [MessageWindow].
   Stream<List<MessageRow>> watchMessages(
     String channelId, {
     int limit = 200,
+    MessageWindow? window,
   }) =>
-      _store.watchChannelMessages(channelId, limit: limit);
+      _store.watchChannelMessages(channelId, limit: limit, window: window);
 
   /// §5.3 optimistic send.
   ///
@@ -176,6 +200,7 @@ class ChatService {
     required String channelId,
     required String body,
     required String authorUserId,
+    String? replyToMessageId,
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -187,7 +212,7 @@ class ChatService {
       authorUserId: authorUserId,
       body: body,
       contentType: 'text/plain',
-      replyToMessageId: null,
+      replyToMessageId: replyToMessageId,
       clientTimestampMs: now,
       serverTimestampMs: null,
       deliverySequence: null,
@@ -206,7 +231,11 @@ class ChatService {
       restMethod: null,
       restPath: null,
       resourceId: channelId,
-      payload: _encodeChatPayload(messageId: messageId, body: body),
+      payload: _encodeChatPayload(
+        messageId: messageId,
+        body: body,
+        replyToMessageId: replyToMessageId,
+      ),
       status: OpStatus.pending,
       attempts: 0,
       nextRetryAt: now,
@@ -620,6 +649,175 @@ class ChatService {
   /// Reactive failure surface — SPIKE_B_SYNC.md §10. The UI can bind a
   /// toast or inline retry affordance to this.
   Stream<List<OutboundOpRow>> watchFailures() => failureStream(_store);
+
+  // --- Message actions — V3_RELEASE_PLAN §4.3 / §4.4 --------------------
+
+  /// One outbound WS op carrying a ChatPayload. [kind] is local-only
+  /// bookkeeping (see [OpKind.messageEdit]); the wire shape is the same
+  /// for every type.
+  OutboundOpRow _chatOp({
+    required String kind,
+    required String channelId,
+    required String messageId,
+    required Uint8List payload,
+    required int nowMs,
+  }) =>
+      OutboundOpRow(
+        opId: _uuidGen.next(nowMs: nowMs),
+        transport: OpTransport.ws,
+        kind: kind,
+        restMethod: null,
+        restPath: null,
+        resourceId: channelId,
+        payload: payload,
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: nowMs,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: nowMs,
+        targetMessageId: messageId,
+        targetChannelId: channelId,
+      );
+
+  /// Toggle [emoji] from [userId] on [messageId] — REACTION_ADD when
+  /// [add], REACTION_REMOVE otherwise. Local row first, op second, one
+  /// transaction. Non-destructive, so no undo window (decision 11).
+  Future<void> reactToMessage({
+    required String channelId,
+    required String messageId,
+    required String userId,
+    required String emoji,
+    required bool add,
+  }) async {
+    final now = _clock.nowMs();
+    await _store.enqueueReaction(
+      messageId: messageId,
+      userId: userId,
+      emoji: emoji,
+      add: add,
+      nowMs: now,
+      op: _chatOp(
+        kind: OpKind.messageReaction,
+        channelId: channelId,
+        messageId: messageId,
+        payload: _encodeChatOp(
+          type: add
+              ? pb.ChatPayloadType.TYPE_REACTION_ADD
+              : pb.ChatPayloadType.TYPE_REACTION_REMOVE,
+          messageId: messageId,
+          emoji: emoji,
+        ),
+        nowMs: now,
+      ),
+    );
+    _scheduler.tickSoon();
+  }
+
+  /// Replace the body of one of the local user's own messages —
+  /// MESSAGE_UPDATE. Recipients drop it unless we are the author
+  /// (SYNC_PROTOCOL §6a.3), so the caller must gate the UI on
+  /// authorship too; this is the second line of defence, not the first.
+  Future<void> editMessage({
+    required String channelId,
+    required String messageId,
+    required String newBody,
+  }) async {
+    final now = _clock.nowMs();
+    await _store.enqueueMessageEdit(
+      messageId: messageId,
+      newBody: newBody,
+      nowMs: now,
+      op: _chatOp(
+        kind: OpKind.messageEdit,
+        channelId: channelId,
+        messageId: messageId,
+        payload: _encodeChatOp(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+          messageId: messageId,
+          body: newBody,
+        ),
+        nowMs: now,
+      ),
+    );
+    _scheduler.tickSoon();
+  }
+
+  /// Decision 11 — delete for everyone, with a [undoWindow] during
+  /// which nothing has been sent. The caller is responsible for calling
+  /// [commitDelete] when the window elapses (or [undoDelete] before
+  /// that); [sweepExpiredDeletes] is the backstop for a caller that
+  /// never got the chance.
+  Future<void> deleteMessage({
+    required String messageId,
+    Duration undoWindow = const Duration(seconds: 5),
+  }) async {
+    final now = _clock.nowMs();
+    await _store.beginTombstone(
+      messageId: messageId,
+      pendingUntilMs: now + undoWindow.inMilliseconds,
+      nowMs: now,
+    );
+  }
+
+  /// Undo inside the window. Enqueues nothing, and cancels the delete
+  /// that [commitDelete] would otherwise have sent.
+  Future<void> undoDelete(String messageId) =>
+      _store.undoTombstone(messageId: messageId, nowMs: _clock.nowMs());
+
+  /// The window elapsed — enqueue MESSAGE_DELETE. No-op if an Undo got
+  /// there first. Returns true iff an op was enqueued.
+  Future<bool> commitDelete({
+    required String channelId,
+    required String messageId,
+  }) async {
+    final now = _clock.nowMs();
+    final committed = await _store.commitTombstone(
+      messageId: messageId,
+      op: _chatOp(
+        kind: OpKind.messageDelete,
+        channelId: channelId,
+        messageId: messageId,
+        payload: _encodeChatOp(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+          messageId: messageId,
+        ),
+        nowMs: now,
+      ),
+    );
+    if (committed) _scheduler.tickSoon();
+    return committed;
+  }
+
+  /// Commit every delete in [channelId] whose window elapsed while
+  /// nobody was watching (screen closed, app killed). Called on chat
+  /// open so a tombstone can never strand un-enqueued.
+  Future<void> sweepExpiredDeletes(String channelId) async {
+    for (final messageId in await _store.expiredTombstones(
+      channelId: channelId,
+      nowMs: _clock.nowMs(),
+    )) {
+      await commitDelete(channelId: channelId, messageId: messageId);
+    }
+  }
+
+  /// SPIKE_B_SYNC.md §10 — user tapped Retry on a failed op. Clones it
+  /// into a fresh pending op (new op_id, so the server treats it as a
+  /// new intent) and dismisses the failed row.
+  Future<void> retryFailedOp(String opId) async {
+    final now = _clock.nowMs();
+    await _store.manualRetry(
+      failedOpId: opId,
+      newOpId: _uuidGen.next(nowMs: now),
+      nowMs: now,
+    );
+    _scheduler.tickSoon();
+  }
+
+  /// User saw the failure (toast shown) — stop re-reporting it.
+  Future<void> dismissFailure(String opId) =>
+      _store.acknowledgeFailure(opId: opId, nowMs: _clock.nowMs());
 }
 
 /// Top-level helper so UI code doesn't need to import

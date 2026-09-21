@@ -237,11 +237,18 @@ class SyncScheduler {
 
   Future<void> _handleSuccess(OutboundOpRow op, AckSuccess ack) async {
     final messageId = op.targetMessageId;
-    if (messageId == null) {
-      // Non-message ACK — REST channel-create / profile-patch / etc.
-      // Delete the op row; the local projection (channel row, profile)
-      // was already applied optimistically at enqueue time.
-      await store.deleteOp(op.opId);
+    if (messageId == null || op.kind != OpKind.chatPayload) {
+      // Nothing to promote: either a non-message ACK (REST channel-
+      // create / profile-patch) or an edit / delete / reaction on a row
+      // that is already `sent`. The local projection was applied
+      // optimistically at enqueue time; this just retires the op and
+      // finalizes what the ACK makes permanent (decision 11).
+      await store.applyMessageOpAck(
+        opId: op.opId,
+        kind: op.kind,
+        messageId: messageId,
+        nowMs: clock.nowMs(),
+      );
       return;
     }
     await store.applyAckSuccess(

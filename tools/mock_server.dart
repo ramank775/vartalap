@@ -682,6 +682,70 @@ class MockServer {
   }) =>
       _sendPeerMessage(channelId, senderUserId, body);
 
+  /// Inject a peer-authored edit of [messageId] (SYNC_PROTOCOL §6a:
+  /// the recipient applies it only because [senderUserId] is the
+  /// message's author).
+  ({String messageId, String opId}) injectPeerEdit({
+    required String channelId,
+    required String messageId,
+    required String body,
+    String senderUserId = seedPeerUserId,
+  }) =>
+      _fanoutPeerChatPayload(
+        channelId,
+        senderUserId,
+        pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+          messageId: messageId,
+          body: body,
+          contentType: 'text/plain',
+        ),
+      );
+
+  /// Inject a peer-authored delete (tombstone) of [messageId].
+  ({String messageId, String opId}) injectPeerDelete({
+    required String channelId,
+    required String messageId,
+    String senderUserId = seedPeerUserId,
+  }) =>
+      _fanoutPeerChatPayload(
+        channelId,
+        senderUserId,
+        pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+          messageId: messageId,
+        ),
+      );
+
+  /// Inject a peer reaction on [messageId] — add when [add], remove
+  /// otherwise. Any member may react to anyone's message.
+  ({String messageId, String opId}) injectPeerReaction({
+    required String channelId,
+    required String messageId,
+    required String emoji,
+    bool add = true,
+    String senderUserId = seedPeerUserId,
+  }) =>
+      _fanoutPeerChatPayload(
+        channelId,
+        senderUserId,
+        pb.ChatPayload(
+          version: 1,
+          type: add
+              ? pb.ChatPayloadType.TYPE_REACTION_ADD
+              : pb.ChatPayloadType.TYPE_REACTION_REMOVE,
+          messageId: messageId,
+          emoji: emoji,
+        ),
+      );
+
+  /// Reject the next [count] chat-content ops with ACK_PERMANENT, so a
+  /// test can drive the client's dead-letter / Retry path without
+  /// waiting out a retry budget. Consumed one op at a time.
+  int rejectNextChatOps = 0;
+
   /// Materialize a server-side channel record without going through
   /// `POST /v3.0/channels`. Lets a test line the server's roster up
   /// with the client's optimistic state (or stand up a channel some
@@ -1758,6 +1822,15 @@ class MockServer {
       return reject('validation_failed');
     }
 
+    // Test hook. Placed after the sequence check on purpose: the seq
+    // has been consumed server-side either way, so the client's next
+    // op (or its manual retry) still lines up at max_seen + 1.
+    final isServerEvent = env.payload.isNotEmpty && env.payload[0] == 0x53;
+    if (rejectNextChatOps > 0 && !isServerEvent) {
+      rejectNextChatOps--;
+      return reject('forced_reject');
+    }
+
     // Accept the op
     state.recordOutcome(
         senderUserId, opId, const StoredOutcome(success: true));
@@ -1806,7 +1879,9 @@ class MockServer {
     // Send a MessageStateChanged{DELIVERED} back to the author so the
     // local row flips from single tick to double. Only if there was at
     // least one other channel member (otherwise nothing was delivered).
-    if (!isServerEventPayload && channel.members.length > 1) {
+    if (!isServerEventPayload &&
+        channel.members.length > 1 &&
+        _isMessageCreate(env.payload)) {
       final messageId = _extractMessageId(env.payload);
       if (messageId != null) {
         _enqueueMessageStateChanged(
@@ -1824,6 +1899,7 @@ class MockServer {
     // Seed peer auto-reply (and auto-mark-read so the author's tick
     // goes blue without needing a second human device).
     if (!isServerEventPayload &&
+        _isMessageCreate(env.payload) &&
         demoMode &&
         senderUserId != seedPeerUserId &&
         channel.members.contains(seedPeerUserId)) {
@@ -2370,6 +2446,21 @@ class MockServer {
   // `v3-chat-payload.proto` and nothing else (§6a.1) — a JSON body is
   // rejected as `validation_failed` long before this, so there is no
   // fallback here. A leading 0x53 means server event, not chat content.
+  /// True only for the two ChatPayload types that introduce a new
+  /// message. An edit / delete / reaction targets a message that was
+  /// already delivered, so receipting them would re-announce a
+  /// lifecycle transition that already happened.
+  bool _isMessageCreate(List<int> payload) {
+    if (payload.isEmpty || payload[0] == 0x53) return false;
+    try {
+      final type = pb.ChatPayload.fromBuffer(payload).type;
+      return type == pb.ChatPayloadType.TYPE_MESSAGE_CREATE ||
+          type == pb.ChatPayloadType.TYPE_MESSAGE_FORWARD;
+    } catch (_) {
+      return false;
+    }
+  }
+
   String? _extractMessageId(List<int> payload) {
     if (payload.isEmpty) return null;
     if (payload[0] == 0x53) return null;
@@ -2408,20 +2499,30 @@ class MockServer {
   /// Fan a `ChatPayload{TYPE_MESSAGE_CREATE}` from [senderUserId] to
   /// every other member of [channelId].
   ({String messageId, String opId}) _sendPeerMessage(
-      String channelId, String senderUserId, String body) {
+          String channelId, String senderUserId, String body) =>
+      _fanoutPeerChatPayload(
+        channelId,
+        senderUserId,
+        pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: state.generateUuid(),
+          body: body,
+          contentType: 'text/plain',
+        ),
+      );
+
+  /// Fan an arbitrary peer-authored [payload] to every other member of
+  /// [channelId] as a WS_PUSH — the same path a relayed client op takes,
+  /// which is what makes edits / deletes / reactions injectable at all:
+  /// the server never parses any of them (V3_ARCHITECTURE decision 12).
+  ({String messageId, String opId}) _fanoutPeerChatPayload(
+      String channelId, String senderUserId, pb.ChatPayload payload) {
     final channel = state.channels[channelId];
     if (channel == null) throw StateError('unknown channel $channelId');
     final now = DateTime.now().millisecondsSinceEpoch;
     final deliverySeq = state.nextDeliverySeq(channelId);
-    final messageId = state.generateUuid();
-
-    final payload = pb.ChatPayload(
-      version: 1,
-      type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-      messageId: messageId,
-      body: body,
-      contentType: 'text/plain',
-    );
+    final messageId = payload.messageId;
 
     final opId = state.generateUuid();
     final pushEnv = pb.Envelope(
@@ -2441,8 +2542,8 @@ class MockServer {
       if (memberId == senderUserId) continue;
       _sendToUser(memberId, pushBytes);
     }
-    _log('Peer message: channel=$channelId from=$senderUserId '
-        'deliverySeq=$deliverySeq body="$body"');
+    _log('Peer ${payload.type.name}: channel=$channelId '
+        'from=$senderUserId deliverySeq=$deliverySeq message=$messageId');
     return (messageId: messageId, opId: opId);
   }
 

@@ -77,6 +77,17 @@ enum OpStatus {
 /// `outbound_ops.kind` values legal for each transport — SPIKE_B_SYNC.md §3.
 class OpKind {
   static const String chatPayload = 'chat_payload';
+
+  /// Message mutations. All three ride the same WS `ChatPayload` wire
+  /// shape as [chatPayload] — the server never parses any of them
+  /// (V3_ARCHITECTURE decision 12). The distinct `kind` exists purely
+  /// so the local store knows which projection to finalize on ACK and
+  /// which to roll back on a terminal reject (decision 11): a create
+  /// flips to `rejected`, an edit restores its pre-edit body, a delete
+  /// lifts its tombstone.
+  static const String messageEdit = 'message_edit';
+  static const String messageDelete = 'message_delete';
+  static const String messageReaction = 'message_reaction';
   static const String createChannel = 'create_channel';
   static const String addMembers = 'add_members';
   static const String removeMember = 'remove_member';
@@ -130,6 +141,15 @@ class OutboundOpRow {
   });
 }
 
+/// One row of the `reactions` table, joined onto its message by the
+/// channel-view query. Grouping by emoji for display is the UI's job.
+class MessageReaction {
+  final String emoji;
+  final String userId;
+
+  const MessageReaction({required this.emoji, required this.userId});
+}
+
 class MessageRow {
   final String messageId;
   final String channelId;
@@ -145,7 +165,21 @@ class MessageRow {
   final bool isEdited;
   final int? lastEditMs;
   final bool tombstoned;
+
+  /// Non-null while the 5-second Undo window is open (V3_ARCHITECTURE
+  /// decision 11). The row is already `tombstoned`; nothing has been
+  /// enqueued yet, so an Undo inside the window costs no network op.
   final int? tombstonePendingUntil;
+
+  /// Raw `messages.attachments` BLOB — a `ChatPayload` protobuf whose
+  /// only populated field is `attachments`, exactly as InboundReceiver
+  /// stored it. The store does not depend on the proto package, so
+  /// callers decode. Null when the message carries none.
+  final List<int>? attachments;
+
+  /// Reactions on this message. Populated by the channel-view query
+  /// ([ChatStore.fetchChannelMessages]); empty from every other read.
+  final List<MessageReaction> reactions;
 
   const MessageRow({
     required this.messageId,
@@ -163,6 +197,8 @@ class MessageRow {
     required this.lastEditMs,
     required this.tombstoned,
     required this.tombstonePendingUntil,
+    this.attachments,
+    this.reactions = const [],
   });
 }
 

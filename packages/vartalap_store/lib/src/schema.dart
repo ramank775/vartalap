@@ -82,13 +82,17 @@ const List<String> ddl = [
     last_edit_ms            INTEGER,
 
     tombstoned              INTEGER NOT NULL DEFAULT 0,
-    tombstone_pending_until INTEGER
+    tombstone_pending_until INTEGER,
+
+    -- Pre-edit body, snapshotted while a MESSAGE_UPDATE op is in
+    -- flight so a permanent reject can restore it (V3_ARCHITECTURE
+    -- decision 11). Cleared on ACK.
+    rollback_body           TEXT
   )
   ''',
   '''
   CREATE INDEX IF NOT EXISTS idx_messages_channel_order
     ON messages(channel_id, COALESCE(delivery_sequence, 9223372036854775807) DESC, client_timestamp_ms DESC)
-    WHERE tombstoned = 0
   ''',
   '''
   CREATE INDEX IF NOT EXISTS idx_messages_author

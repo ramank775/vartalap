@@ -6,6 +6,32 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'schema.dart';
 import 'types.dart';
 
+/// Growable page window for [ChatStore.watchChannelMessages].
+///
+/// "Load older" must not open a second live query — the chat screen
+/// keeps exactly one subscription on one channel. Growing the LIMIT
+/// and re-running the same query on the same subscription is the whole
+/// mechanism; [grow] triggers a re-emit.
+///
+/// ponytail: LIMIT-growth rather than OFFSET paging. It re-reads the
+/// rows already on screen, which is free at chat-history scale and
+/// keeps one stream; switch to a keyset cursor if a channel ever holds
+/// enough messages for the re-read to show up in a frame budget.
+class MessageWindow {
+  int limit;
+
+  /// Set by [ChatStore.watchChannelMessages] while a stream is
+  /// listening. Store-internal.
+  void Function()? onGrow;
+
+  MessageWindow({this.limit = 50});
+
+  void grow([int by = 50]) {
+    limit += by;
+    onGrow?.call();
+  }
+}
+
 /// v3 local store handle.
 ///
 /// Thin wrapper over a single [Database]. Repositories hang off this to
@@ -339,6 +365,7 @@ class ChatStore {
     required int nowMs,
   }) async {
     await db.transaction((txn) async {
+      final kind = await _opKind(txn, opId);
       await txn.update(
         'outbound_ops',
         {
@@ -349,7 +376,54 @@ class ChatStore {
         where: 'op_id = ?',
         whereArgs: [opId],
       );
-      if (messageId != null) {
+      await _rollbackForTerminalOp(txn, kind, messageId, nowMs);
+    });
+    _notify(
+      messageId != null ? {'outbound_ops', 'messages'} : {'outbound_ops'},
+    );
+  }
+
+  /// Projection rollback for an op that has reached a terminal state —
+  /// SPIKE_B_SYNC.md §8 + V3_ARCHITECTURE decision 11. What "roll back"
+  /// means depends on what the op was:
+  ///
+  ///   * a create ([OpKind.chatPayload]) flips its optimistic row to
+  ///     `rejected` so the bubble can offer Retry;
+  ///   * an edit restores the body snapshotted at enqueue time, and
+  ///     drops the "edited" label unless an *earlier* edit had already
+  ///     landed (`last_edit_ms` is stamped only on ACK);
+  ///   * a delete lifts its tombstone — the message comes back;
+  ///   * a reaction is non-destructive (decision 11 excludes it), so
+  ///     the local row stays and the UI just reports the failure.
+  Future<void> _rollbackForTerminalOp(
+    DatabaseExecutor txn,
+    String kind,
+    String? messageId,
+    int nowMs,
+  ) async {
+    if (messageId == null) return;
+    switch (kind) {
+      case OpKind.messageEdit:
+        await txn.rawUpdate(
+          'UPDATE messages '
+          '   SET body = COALESCE(rollback_body, body), '
+          '       rollback_body = NULL, '
+          '       is_edited = CASE WHEN last_edit_ms IS NULL THEN 0 ELSE 1 END, '
+          '       state_updated_at = ? '
+          ' WHERE message_id = ?',
+          [nowMs, messageId],
+        );
+      case OpKind.messageDelete:
+        await txn.rawUpdate(
+          'UPDATE messages '
+          "   SET tombstoned = 0, tombstone_pending_until = NULL, "
+          '       state_updated_at = ? '
+          ' WHERE message_id = ?',
+          [nowMs, messageId],
+        );
+      case OpKind.messageReaction:
+        break;
+      default:
         await txn.update(
           'messages',
           {
@@ -359,11 +433,22 @@ class ChatStore {
           where: 'message_id = ?',
           whereArgs: [messageId],
         );
-      }
-    });
-    _notify(
-      messageId != null ? {'outbound_ops', 'messages'} : {'outbound_ops'},
+    }
+  }
+
+  /// The `kind` of [opId], or [OpKind.chatPayload] when the row is
+  /// gone (the pre-kind default preserves old behaviour).
+  Future<String> _opKind(DatabaseExecutor txn, String opId) async {
+    final rows = await txn.query(
+      'outbound_ops',
+      columns: const ['kind'],
+      where: 'op_id = ?',
+      whereArgs: [opId],
+      limit: 1,
     );
+    return rows.isEmpty
+        ? OpKind.chatPayload
+        : rows.single['kind'] as String;
   }
 
   /// Permanent reject. Roll back message projection, mark op rejected,
@@ -378,6 +463,7 @@ class ChatStore {
     required int nowMs,
   }) async {
     await db.transaction((txn) async {
+      final kind = await _opKind(txn, opId);
       await txn.update(
         'outbound_ops',
         {
@@ -389,22 +475,7 @@ class ChatStore {
         whereArgs: [opId],
       );
 
-      // Projection rollback — for v3.0 we only implement the
-      // chat_payload new-message path: flip the optimistic message to
-      // `rejected` so the UI can show a retry affordance. Edit/delete
-      // rollback (restoring pre-edit body, clearing tombstone) lands
-      // with the tombstone+undo work.
-      if (messageId != null) {
-        await txn.update(
-          'messages',
-          {
-            'message_state': MessageState.rejected.wire,
-            'state_updated_at': nowMs,
-          },
-          where: 'message_id = ?',
-          whereArgs: [messageId],
-        );
-      }
+      await _rollbackForTerminalOp(txn, kind, messageId, nowMs);
 
       // Cascade: any later-sequenced op on the same resource is
       // guaranteed to fail because the parent failed. Mark them so the
@@ -504,7 +575,11 @@ class ChatStore {
         whereArgs: [failedOpId],
       );
 
-      if (old.targetMessageId != null) {
+      // Only a create owns its message's lifecycle state. An edit /
+      // delete / reaction retry re-sends an intent about a row that is
+      // already `sent`; pulling it back to `pending` would put a clock
+      // icon on somebody else's acked message.
+      if (old.targetMessageId != null && old.kind == OpKind.chatPayload) {
         await txn.update(
           'messages',
           {
@@ -1290,52 +1365,77 @@ class ChatStore {
     return controller.stream;
   }
 
-  /// §13.2 — Channel chat view, newest-first, non-tombstoned only.
+  /// §13.2 — Channel chat view, newest-first.
   ///
   /// `COALESCE(delivery_sequence, INT64_MAX)` sorts locally pending
   /// rows (null `delivery_sequence`) to the top, matching
   /// WhatsApp/Signal UX.
+  ///
+  /// Tombstoned rows are included: the chat view renders them as
+  /// "This message was deleted" (V3_ARCHITECTURE decision 11) rather
+  /// than silently closing the gap, and a row inside its Undo window
+  /// has to stay addressable. Callers that want only live messages
+  /// filter on [MessageRow.tombstoned].
+  ///
+  /// Reactions ride along in one correlated subquery instead of a
+  /// second stream, packed as `user_id US emoji` pairs separated by RS
+  /// (both control characters, so neither can occur in an emoji or a
+  /// user_id).
   Future<List<MessageRow>> fetchChannelMessages(
     String channelId, {
     int limit = 200,
-    int offset = 0,
   }) async {
     final rows = await db.rawQuery(
       '''
-      SELECT m.*
+      SELECT m.*,
+             (SELECT group_concat(r.user_id || char(31) || r.emoji, char(30))
+                FROM reactions r
+               WHERE r.message_id = m.message_id) AS reactions
       FROM messages m
-      WHERE m.channel_id = ? AND m.tombstoned = 0
+      WHERE m.channel_id = ?
       ORDER BY COALESCE(m.delivery_sequence, 9223372036854775807) DESC,
                m.client_timestamp_ms DESC
-      LIMIT ? OFFSET ?
+      LIMIT ?
       ''',
-      [channelId, limit, offset],
+      [channelId, limit],
     );
     return rows.map(_rowToMessage).toList();
   }
 
   /// Reactive wrapper over [fetchChannelMessages]. Emits on subscribe
-  /// and every time the `messages` table changes.
+  /// and every time `messages` or `reactions` changes.
+  ///
+  /// Pass a [window] to make the page size growable — "load older"
+  /// calls [MessageWindow.grow], which re-runs this same query on this
+  /// same subscription. [limit] is the fixed fallback when there is no
+  /// window.
   Stream<List<MessageRow>> watchChannelMessages(
     String channelId, {
     int limit = 200,
+    MessageWindow? window,
   }) {
     late StreamController<List<MessageRow>> controller;
     StreamSubscription<Set<String>>? changeSub;
 
     Future<void> emit() async {
       if (controller.isClosed) return;
-      controller.add(await fetchChannelMessages(channelId, limit: limit));
+      controller.add(
+        await fetchChannelMessages(channelId, limit: window?.limit ?? limit),
+      );
     }
 
     controller = StreamController<List<MessageRow>>(
       onListen: () {
+        window?.onGrow = () => emit();
         changeSub = tableChanges.listen((tables) {
-          if (tables.contains('messages')) emit();
+          if (tables.contains('messages') || tables.contains('reactions')) {
+            emit();
+          }
         });
         emit();
       },
       onCancel: () async {
+        window?.onGrow = null;
         await changeSub?.cancel();
         changeSub = null;
       },
@@ -1561,6 +1661,195 @@ class ChatStore {
               ),
       );
 
+  // --- Local message mutations (§5.3 + V3_ARCHITECTURE decision 11) ------
+
+  /// Optimistic local edit. Snapshots the pre-edit body into
+  /// `rollback_body` (keeping the oldest snapshot if an earlier edit is
+  /// still in flight, so a rollback lands on the last server-known
+  /// text) and enqueues [op] in the same transaction.
+  ///
+  /// `last_edit_ms` is deliberately NOT stamped here — it is the
+  /// server-side edit time, written by [applyInboundMessageUpdate] for
+  /// a peer's edit and by [applyMessageOpAck] for our own. Its
+  /// nullness is what tells a rollback whether the "edited" label
+  /// predates this attempt.
+  Future<void> enqueueMessageEdit({
+    required String messageId,
+    required String newBody,
+    required OutboundOpRow op,
+    required int nowMs,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.rawUpdate(
+        'UPDATE messages '
+        '   SET rollback_body = COALESCE(rollback_body, body), '
+        '       body = ?, is_edited = 1, state_updated_at = ? '
+        ' WHERE message_id = ?',
+        [newBody, nowMs, messageId],
+      );
+      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
+    });
+    _notify(const {'messages', 'outbound_ops'});
+  }
+
+  /// Decision 11 step 1 — tombstone locally and open the Undo window.
+  /// Nothing is enqueued yet: an Undo inside the window costs no op at
+  /// all. The body is kept so [undoTombstone] (or a rejected delete)
+  /// can put the message back; [applyMessageOpAck] clears it once the
+  /// delete is the server's problem.
+  Future<void> beginTombstone({
+    required String messageId,
+    required int pendingUntilMs,
+    required int nowMs,
+  }) async {
+    await db.update(
+      'messages',
+      {
+        'tombstoned': 1,
+        'tombstone_pending_until': pendingUntilMs,
+        'state_updated_at': nowMs,
+      },
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+    );
+    _notify(const {'messages'});
+  }
+
+  /// Undo inside the window — the message comes back untouched.
+  Future<void> undoTombstone({
+    required String messageId,
+    required int nowMs,
+  }) async {
+    await db.update(
+      'messages',
+      {
+        'tombstoned': 0,
+        'tombstone_pending_until': null,
+        'state_updated_at': nowMs,
+      },
+      where: 'message_id = ? AND tombstone_pending_until IS NOT NULL',
+      whereArgs: [messageId],
+    );
+    _notify(const {'messages'});
+  }
+
+  /// Decision 11 step 2 — the window elapsed: clear the pending marker
+  /// and enqueue the MESSAGE_DELETE op atomically.
+  ///
+  /// The `tombstone_pending_until IS NOT NULL` guard is what makes the
+  /// commit and an Undo racing it resolve deterministically: whichever
+  /// runs first wins, and a commit that loses enqueues nothing.
+  /// Returns true iff the op was enqueued.
+  Future<bool> commitTombstone({
+    required String messageId,
+    required OutboundOpRow op,
+  }) async {
+    var committed = false;
+    await db.transaction((txn) async {
+      final n = await txn.update(
+        'messages',
+        {'tombstone_pending_until': null},
+        where: 'message_id = ? AND tombstone_pending_until IS NOT NULL',
+        whereArgs: [messageId],
+      );
+      if (n == 0) return;
+      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
+      committed = true;
+    });
+    if (committed) _notify(const {'messages', 'outbound_ops'});
+    return committed;
+  }
+
+  /// Message ids in [channelId] whose Undo window has already elapsed —
+  /// the app was killed, or the user navigated away, before the commit
+  /// timer fired. Swept on chat open.
+  Future<List<String>> expiredTombstones({
+    required String channelId,
+    required int nowMs,
+  }) async {
+    final rows = await db.query(
+      'messages',
+      columns: const ['message_id'],
+      where: 'channel_id = ? AND tombstone_pending_until IS NOT NULL '
+          'AND tombstone_pending_until <= ?',
+      whereArgs: [channelId, nowMs],
+    );
+    return rows.map((r) => r['message_id'] as String).toList();
+  }
+
+  /// Optimistic local reaction toggle plus its outbound op, in one
+  /// transaction. Mirrors [applyInboundReactionAdd] /
+  /// [applyInboundReactionRemove] for the local user.
+  Future<void> enqueueReaction({
+    required String messageId,
+    required String userId,
+    required String emoji,
+    required bool add,
+    required OutboundOpRow op,
+    required int nowMs,
+  }) async {
+    await db.transaction((txn) async {
+      if (add) {
+        await txn.rawInsert(
+          'INSERT OR IGNORE INTO reactions '
+          '(message_id, user_id, emoji, added_at) VALUES (?, ?, ?, ?)',
+          [messageId, userId, emoji, nowMs],
+        );
+      } else {
+        await txn.delete(
+          'reactions',
+          where: 'message_id = ? AND user_id = ? AND emoji = ?',
+          whereArgs: [messageId, userId, emoji],
+        );
+      }
+      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
+    });
+    _notify(const {'reactions', 'outbound_ops'});
+  }
+
+  /// ACK for an op that does NOT own a message's lifecycle — a REST
+  /// write, or an edit / delete / reaction on a row that is already
+  /// `sent`. Drops the op row and finalizes the local projection:
+  /// an edit's rollback snapshot is no longer needed (and its edit
+  /// time is now known), and a delete's content can finally go.
+  ///
+  /// Unlike [applyAckSuccess] this never writes `delivery_sequence` —
+  /// stamping an edit's sequence onto its target would reorder the
+  /// message in the channel view.
+  Future<void> applyMessageOpAck({
+    required String opId,
+    required String kind,
+    required String? messageId,
+    required int nowMs,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.delete('outbound_ops', where: 'op_id = ?', whereArgs: [opId]);
+      if (messageId == null) return;
+      switch (kind) {
+        case OpKind.messageEdit:
+          await txn.update(
+            'messages',
+            {'rollback_body': null, 'last_edit_ms': nowMs},
+            where: 'message_id = ?',
+            whereArgs: [messageId],
+          );
+        case OpKind.messageDelete:
+          await txn.update(
+            'messages',
+            {
+              'body': null,
+              'content_type': null,
+              'attachments': null,
+              'rollback_body': null,
+            },
+            where: 'message_id = ?',
+            whereArgs: [messageId],
+          );
+      }
+    });
+    _notify(const {'outbound_ops', 'messages'});
+  }
+
   // --- row marshalling ---------------------------------------------------
 
   static Map<String, Object?> _messageToRow(MessageRow m) => {
@@ -1599,7 +1888,25 @@ class ChatStore {
         lastEditMs: r['last_edit_ms'] as int?,
         tombstoned: (r['tombstoned'] as int) != 0,
         tombstonePendingUntil: r['tombstone_pending_until'] as int?,
+        attachments: r['attachments'] as List<int>?,
+        reactions: _parseReactions(r['reactions'] as String?),
       );
+
+  /// Inverse of the `group_concat` in [fetchChannelMessages]. Null for
+  /// every read that doesn't select the subquery.
+  static List<MessageReaction> _parseReactions(String? packed) {
+    if (packed == null || packed.isEmpty) return const [];
+    final out = <MessageReaction>[];
+    for (final pair in packed.split('\u001e')) {
+      final sep = pair.indexOf('\u001f');
+      if (sep <= 0) continue;
+      out.add(MessageReaction(
+        userId: pair.substring(0, sep),
+        emoji: pair.substring(sep + 1),
+      ));
+    }
+    return out;
+  }
 
   static Map<String, Object?> _outboundOpToRow(OutboundOpRow o) => {
         'op_id': o.opId,
