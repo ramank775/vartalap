@@ -148,7 +148,10 @@ class OtpSession {
 class ChannelRecord {
   final String channelId;
   final String kind;
-  final String? name;
+  // Mutable: PATCH /v3.0/channels/{id} edits both (SYNC_PROTOCOL §10.2
+  // ChannelEdited).
+  String? name;
+  String? avatarUrl;
   final String ownerUserId;
   final Set<String> members;
   final int createdAt;
@@ -157,6 +160,7 @@ class ChannelRecord {
     required this.channelId,
     required this.kind,
     this.name,
+    this.avatarUrl,
     required this.ownerUserId,
     required this.members,
     required this.createdAt,
@@ -166,6 +170,7 @@ class ChannelRecord {
         'channelId': channelId,
         'kind': kind,
         'name': name,
+        'avatarUrl': avatarUrl,
         'ownerUserId': ownerUserId,
         'members': members.toList(),
         'createdAt': createdAt,
@@ -175,6 +180,7 @@ class ChannelRecord {
         channelId: j['channelId'] as String,
         kind: j['kind'] as String,
         name: j['name'] as String?,
+        avatarUrl: j['avatarUrl'] as String?,
         ownerUserId: j['ownerUserId'] as String,
         members: (j['members'] as List<dynamic>).cast<String>().toSet(),
         createdAt: j['createdAt'] as int,
@@ -975,6 +981,9 @@ class MockServer {
       await _handleSyncPending(req);
     } else if (method == 'POST' && path == '/v3.0/_dev/seed-users') {
       await _handleDevSeedUsers(req);
+    } else if (await _tryAssetRoute(req, method, path)) {
+      // media-ms presign / blob / status, and PATCH /v3.0/channels/{id}
+      // — handlers at the end of this class.
     } else {
       _respondJson(req, 404, {
         'error': {'code': 'NOT_FOUND', 'message': 'Unknown route: $method $path'}
@@ -2185,9 +2194,7 @@ class MockServer {
   // proto3-`optional` semantics: when true, the field is populated on
   // the wire (empty string == "user cleared this"); when false the
   // field is absent and recipients leave their cached value alone.
-  // Not wired to a REST route yet — call site for future PATCH
-  // /v3.0/channels/{id} or manual testing.
-  // ignore: unused_element
+  // Wired to PATCH /v3.0/channels/{id} (_handlePatchChannel).
   void _enqueueChannelEdited({
     required String recipientUserId,
     required String channelId,
@@ -2603,4 +2610,292 @@ class MockServer {
     }
     return session;
   }
+
+  // ---------------------------------------------------------------------------
+  // media-ms assets — V3_RELEASE_PLAN §4.2, decisions 8 / 22 / 36
+  //
+  // Same four-step shape as the real service: presign an upload, PUT the
+  // bytes at the signed url, mark the record complete, presign a
+  // download. The "object store" is a map in this process and the signed
+  // urls point back at this server — good enough to drive the client's
+  // whole upload path in a test, and the only part that differs from
+  // production is where the bytes land.
+  // ---------------------------------------------------------------------------
+
+  static const int _maxUploadBytes = 25 * 1024 * 1024;
+  final Map<String, _AssetRecord> assets = {};
+
+  Future<bool> _tryAssetRoute(
+    HttpRequest req,
+    String method,
+    String path,
+  ) async {
+    if (method == 'GET' && path == '/v3.0/assets/upload/presigned_url') {
+      await _handlePresignUpload(req);
+      return true;
+    }
+    if (method == 'GET' &&
+        path.startsWith('/v3.0/assets/download/') &&
+        path.endsWith('/presigned_url')) {
+      await _handlePresignDownload(req, path);
+      return true;
+    }
+    if (method == 'PUT' &&
+        path.startsWith('/v3.0/assets/') &&
+        path.endsWith('/status')) {
+      await _handleAssetStatus(req, path);
+      return true;
+    }
+    if (path.startsWith('/v3.0/_blob/') && (method == 'PUT' || method == 'GET')) {
+      await _handleBlob(req, method, path);
+      return true;
+    }
+    if (method == 'PATCH' && path.startsWith('/v3.0/channels/')) {
+      await _handlePatchChannel(req, path);
+      return true;
+    }
+    return false;
+  }
+
+  /// `GET /v3.0/assets/upload/presigned_url?ext&category&size`. The
+  /// content type is derived from `ext` and signed, so the PUT must
+  /// send the same one.
+  Future<void> _handlePresignUpload(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final q = req.uri.queryParameters;
+    final ext = q['ext'];
+    final category = q['category'];
+    final size = int.tryParse(q['size'] ?? '');
+    if (ext == null || ext.isEmpty || category == null || size == null) {
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'validation_failed',
+          'message': 'ext, category and size are required'
+        }
+      });
+      return;
+    }
+    if (size < 1 || size > _maxUploadBytes) {
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'validation_failed',
+          'message': 'size must be between 1 and $_maxUploadBytes bytes'
+        }
+      });
+      return;
+    }
+    final fileId = state.generateUuid();
+    assets[fileId] = _AssetRecord(
+      owner: session.userId,
+      category: category,
+      contentType: _contentTypeForExt(ext),
+      declaredSize: size,
+    );
+    _record(req, const {}, 200);
+    _respondJson(req, 200, {
+      'url': '${apiUrl.toString()}/v3.0/_blob/$fileId',
+      'fileId': fileId,
+    });
+    _log('Presigned upload $fileId owner=${session.userId} size=$size');
+  }
+
+  /// The "object store". Unauthenticated on purpose — holding the
+  /// (unguessable) fileId is the capability, exactly as in the real
+  /// presigned-url model.
+  Future<void> _handleBlob(
+    HttpRequest req,
+    String method,
+    String path,
+  ) async {
+    final fileId = path.substring('/v3.0/_blob/'.length);
+    final record = assets[fileId];
+    if (record == null) {
+      _respondJson(req, 404, {
+        'error': {'code': 'NOT_FOUND', 'message': 'Unknown fileId: $fileId'}
+      });
+      return;
+    }
+    if (method == 'PUT') {
+      final builder = BytesBuilder();
+      await for (final chunk in req) {
+        builder.add(chunk);
+      }
+      record.bytes = builder.takeBytes();
+      _record(req, {'fileId': fileId, 'bytes': record.bytes!.length}, 200);
+      _respondJson(req, 200, {'fileId': fileId});
+      _log('Blob stored $fileId (${record.bytes!.length} bytes)');
+      return;
+    }
+    final bytes = record.bytes;
+    if (bytes == null) {
+      _respondJson(req, 404, {
+        'error': {'code': 'NOT_FOUND', 'message': 'Nothing uploaded yet'}
+      });
+      return;
+    }
+    req.response.statusCode = 200;
+    req.response.headers.contentType = ContentType.parse(record.contentType);
+    req.response.add(bytes);
+    await req.response.close();
+  }
+
+  /// `PUT /v3.0/assets/{fileId}/status` — owner scoped, once.
+  Future<void> _handleAssetStatus(HttpRequest req, String path) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final fileId = path.substring(
+      '/v3.0/assets/'.length,
+      path.length - '/status'.length,
+    );
+    final body = await _readJsonBody(req);
+    final record = assets[fileId];
+    if (record == null || record.owner != session.userId) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {'code': 'NOT_FOUND', 'message': 'file not found'}
+      });
+      return;
+    }
+    if (record.complete) {
+      _record(req, body, 400);
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'ALREADY_MARKED',
+          'message': 'file status is already set'
+        }
+      });
+      return;
+    }
+    record.complete = body['status'] == true;
+    _record(req, body, 200);
+    _respondJson(req, 200, <String, dynamic>{});
+  }
+
+  /// `GET /v3.0/assets/download/{fileId}/presigned_url` — any
+  /// authenticated user may resolve a fileId they were given.
+  Future<void> _handlePresignDownload(HttpRequest req, String path) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final fileId = path.substring(
+      '/v3.0/assets/download/'.length,
+      path.length - '/presigned_url'.length,
+    );
+    final record = assets[fileId];
+    if (record == null) {
+      _record(req, const {}, 404);
+      _respondJson(req, 404, {
+        'error': {'code': 'NOT_FOUND', 'message': 'file not found'}
+      });
+      return;
+    }
+    _record(req, const {}, 200);
+    _respondJson(req, 200, {
+      'fileId': fileId,
+      'contentType': record.contentType,
+      'url': '${apiUrl.toString()}/v3.0/_blob/$fileId',
+    });
+  }
+
+  /// `PATCH /v3.0/channels/{id}` — name / avatarUrl, fanned out as
+  /// `ChannelEdited` (SYNC_PROTOCOL §10.2) to every other member.
+  Future<void> _handlePatchChannel(HttpRequest req, String path) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final channelId = path.substring('/v3.0/channels/'.length);
+    final body = await _readJsonBody(req);
+    if (channelId.isEmpty || channelId.contains('/')) {
+      _respondJson(req, 400, {
+        'error': {'code': 'MALFORMED_REQUEST', 'message': 'channel_id required'}
+      });
+      return;
+    }
+    final pre = _validateRestOp(
+      session: session,
+      body: body,
+      resourceId: channelId,
+    );
+    if (pre != null) {
+      _respondOutcome(req, body, pre);
+      return;
+    }
+    final channel = state.channels[channelId];
+    if (channel == null) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {'code': 'NOT_FOUND', 'message': 'Unknown channel: $channelId'}
+      });
+      return;
+    }
+    if (!channel.members.contains(session.userId)) {
+      _record(req, body, 403);
+      _respondJson(req, 403, {
+        'error': {'code': 'FORBIDDEN', 'message': 'Not a member of channel'}
+      });
+      return;
+    }
+
+    final namePresent = body.containsKey('name');
+    final avatarPresent = body.containsKey('avatarUrl');
+    if (namePresent) channel.name = body['name'] as String?;
+    if (avatarPresent) channel.avatarUrl = body['avatarUrl'] as String?;
+    state.markDirty();
+
+    final result = {
+      'channel_id': channelId,
+      'name': channel.name,
+      'avatarUrl': channel.avatarUrl,
+    };
+    final opId = body['op_id'];
+    if (opId is String) {
+      state.recordOutcome(session.userId, opId,
+          StoredOutcome(success: true, status: 200, body: result));
+    }
+    _record(req, body, 200);
+    _respondJson(req, 200, result);
+
+    for (final memberId in channel.members) {
+      if (memberId == session.userId) continue;
+      _enqueueChannelEdited(
+        recipientUserId: memberId,
+        channelId: channelId,
+        namePresent: namePresent,
+        name: channel.name,
+        avatarUrlPresent: avatarPresent,
+        avatarUrl: channel.avatarUrl,
+      );
+    }
+  }
+
+  /// Same extension → type mapping media-ms does via
+  /// `libs/content-type-utils`.
+  static String _contentTypeForExt(String ext) => switch (ext.toLowerCase()) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+        'pdf' => 'application/pdf',
+        'txt' => 'text/plain',
+        'mp4' => 'video/mp4',
+        'mp3' => 'audio/mpeg',
+        _ => 'application/octet-stream',
+      };
+}
+
+/// One media-ms record plus its bytes, which the real service keeps in
+/// an object store.
+class _AssetRecord {
+  final String owner;
+  final String category;
+  final String contentType;
+  final int declaredSize;
+  Uint8List? bytes;
+  bool complete = false;
+
+  _AssetRecord({
+    required this.owner,
+    required this.category,
+    required this.contentType,
+    required this.declaredSize,
+  });
 }

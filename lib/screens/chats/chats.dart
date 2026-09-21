@@ -202,6 +202,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   builder: (_) => ProfileScreen(
                     authService: widget.authService,
                     config: widget.config,
+                    chatService: widget.chatService,
                   ),
                 ),
               );

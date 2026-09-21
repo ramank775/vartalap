@@ -14,10 +14,13 @@ library vartalap.services.chat_service;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -126,6 +129,11 @@ class ChatService {
     });
   }
 
+  /// Presigned-upload / download cache for attachments and avatars.
+  /// Also published as [AssetCache.instance] for widgets that cannot
+  /// reach a service (see [_installAssetPipeline]).
+  late final AssetCache assets;
+
   /// Current op_id generator. Swapped via [reseedForUser] when the
   /// authenticated user changes — see the class doc on [reseedForUser]
   /// for why the `userIdBits` embedded in every op_id must match the
@@ -148,7 +156,9 @@ class ChatService {
         _authClient = authClient,
         _wsTransport = wsTransport,
         _uuidGen = uuidGen,
-        _clock = clock;
+        _clock = clock {
+    _installAssetPipeline();
+  }
 
   /// Replace the internal op_id generator after login / phone rebind.
   ///
@@ -856,6 +866,351 @@ class ChatService {
   /// and docs".
   Future<List<MessageRow>> fetchMedia(String channelId) =>
       _store.fetchChannelMedia(channelId);
+
+  /// Non-image attachments in [channelId], newest first — the file list
+  /// under the media grid.
+  Future<List<MessageRow>> fetchFiles(String channelId) =>
+      _store.fetchChannelFiles(channelId);
+
+  // --- attachments and photos — V3_RELEASE_PLAN §4.2 ---------------------
+  //
+  // Everything here is local-first in the same sense as [sendMessage]:
+  // the row (or the avatar) points at the picked file on disk the
+  // instant the user picks it, and an `asset_upload` op swaps in the
+  // media-ms fileId once the bytes are up. The upload is a real op, so
+  // it retries, backs off, and dead-letters like anything else.
+
+  /// Wire the asset client, cache, and upload adapter together. Called
+  /// from the constructor because `main.dart` has already built (and
+  /// started) the scheduler by then — see [SyncScheduler.assetTransport].
+  void _installAssetPipeline() {
+    final client = AssetClient(
+      baseUrl: _authClient.baseUrl,
+      auth: _authClient,
+    );
+    assets = AssetCache(client: client);
+    AssetCache.instance = assets;
+    _scheduler.assetTransport = AssetUploadTransport(
+      client: client,
+      network: _wsTransport,
+      onUploaded: _onAssetUploaded,
+    );
+  }
+
+  /// `messages.attachments` for one file: a `ChatPayload` carrying only
+  /// the repeated field, the same shape InboundReceiver writes.
+  static Uint8List _encodeAttachments(Map<String, dynamic> spec, String url) =>
+      pb.ChatPayload(
+        attachments: [
+          pb.Attachment(
+            url: url,
+            mimeType: spec['mime'] as String,
+            sizeBytes: fixnum.Int64(spec['size'] as int),
+            filename: spec['name'] as String? ?? '',
+            width: spec['width'] as int? ?? 0,
+            height: spec['height'] as int? ?? 0,
+          ),
+        ],
+      ).writeToBuffer();
+
+  /// MESSAGE_CREATE carrying an attachment. Separate from
+  /// [_encodeChatPayload] only because `content_type` is the file's
+  /// type here, not `text/plain`.
+  static Uint8List _encodeAttachmentCreate({
+    required String messageId,
+    required Map<String, dynamic> spec,
+    required String url,
+  }) =>
+      pb.ChatPayload(
+        version: 1,
+        type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+        messageId: messageId,
+        body: spec['body'] as String? ?? '',
+        contentType: spec['mime'] as String,
+        attachments: pb.ChatPayload.fromBuffer(_encodeAttachments(spec, url))
+            .attachments,
+        replyToMessageId: spec['replyTo'] as String?,
+      ).writeToBuffer();
+
+  OutboundOpRow _uploadOp({
+    required Map<String, dynamic> spec,
+    required String resourceId,
+    required String? messageId,
+    required String? channelId,
+    required int nowMs,
+  }) =>
+      OutboundOpRow(
+        opId: _uuidGen.next(nowMs: nowMs),
+        transport: OpTransport.asset,
+        kind: OpKind.assetUpload,
+        restMethod: null,
+        restPath: null,
+        // Deliberately NOT the channel: `resource_seq` is per
+        // (user, resource) and strictly monotonic on the wire
+        // (SYNC_PROTOCOL §6). An upload never reaches the server, so
+        // spending a channel sequence number on one would leave a hole
+        // the server reads as `out_of_order`.
+        resourceId: resourceId,
+        payload: utf8.encode(jsonEncode(spec)),
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: nowMs,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: nowMs,
+        targetMessageId: messageId,
+        targetChannelId: channelId,
+      );
+
+  /// Send [path] as an attachment. The file must already live somewhere
+  /// durable — use [AssetCache.importPicked] on whatever the picker
+  /// returns, because the picker's temp copy can be swept before the
+  /// upload runs.
+  ///
+  /// Returns the new message_id.
+  Future<String> sendAttachment({
+    required String channelId,
+    required String authorUserId,
+    required String path,
+    String? caption,
+    String? replyToMessageId,
+    int width = 0,
+    int height = 0,
+  }) async {
+    final now = _clock.nowMs();
+    final messageId = _uuidGen.next(nowMs: now);
+    final file = File(path);
+    final size = await file.length();
+    if (size > AssetClient.maxUploadBytes) {
+      throw ArgumentError(
+        'Attachment is ${size ~/ (1024 * 1024)} MB; the limit is '
+        '${AssetClient.maxUploadBytes ~/ (1024 * 1024)} MB.',
+      );
+    }
+    final spec = <String, dynamic>{
+      'then': 'message',
+      'path': path,
+      'ext': extForPath(path),
+      'mime': mimeForPath(path),
+      'size': size,
+      'name': path.split('/').last,
+      'category': 'message',
+      'width': width,
+      'height': height,
+      'body': caption ?? '',
+      if (replyToMessageId != null) 'replyTo': replyToMessageId,
+    };
+
+    // The bubble points at the local file until the upload lands, so a
+    // photo is visible in the thread the moment it is picked.
+    final message = MessageRow(
+      messageId: messageId,
+      channelId: channelId,
+      authorUserId: authorUserId,
+      body: caption,
+      contentType: spec['mime'] as String,
+      replyToMessageId: replyToMessageId,
+      clientTimestampMs: now,
+      serverTimestampMs: null,
+      deliverySequence: null,
+      state: MessageState.pending,
+      stateUpdatedAt: now,
+      isEdited: false,
+      lastEditMs: null,
+      tombstoned: false,
+      tombstonePendingUntil: null,
+      attachments: _encodeAttachments(spec, path),
+    );
+
+    await _store.enqueueLocalMessage(
+      message: message,
+      op: _uploadOp(
+        spec: spec,
+        resourceId: 'asset:$messageId',
+        messageId: messageId,
+        channelId: channelId,
+        nowMs: now,
+      ),
+      nowMs: now,
+    );
+    _scheduler.tickSoon();
+    return messageId;
+  }
+
+  /// Set the signed-in user's photo. Shows immediately (local path),
+  /// then becomes the fileId and a `PATCH /v3.0/users/me` once uploaded
+  /// — whose `ProfileEdited` fanout tells everyone we share a channel
+  /// with (AUTH_CONTRACT §4.5, SYNC_PROTOCOL §10.2).
+  Future<void> setOwnAvatar(String path) =>
+      _enqueueAvatarUpload(path: path, then: 'profile', channelId: null);
+
+  /// Same for a group photo — `PATCH /v3.0/channels/{id}`, fanned out
+  /// as `ChannelEdited`.
+  Future<void> setChannelAvatar({
+    required String channelId,
+    required String path,
+  }) async {
+    await _store.setChannelAvatar(channelId, path);
+    await _enqueueAvatarUpload(
+      path: path,
+      then: 'channel',
+      channelId: channelId,
+    );
+  }
+
+  Future<void> _enqueueAvatarUpload({
+    required String path,
+    required String then,
+    required String? channelId,
+  }) async {
+    final now = _clock.nowMs();
+    final size = await File(path).length();
+    if (then == 'profile') await _writeOwnAvatar(path);
+    await _store.enqueueOutboundOp(_uploadOp(
+      spec: {
+        'then': then,
+        'path': path,
+        'ext': extForPath(path),
+        'mime': mimeForPath(path),
+        'size': size,
+        'name': path.split('/').last,
+        'category': 'profile',
+      },
+      resourceId: 'asset:$path',
+      messageId: null,
+      channelId: channelId,
+      nowMs: now,
+    ));
+    _scheduler.tickSoon();
+  }
+
+  /// The upload finished: [fileId] is now a real media-ms object, so
+  /// whatever was waiting on it can go out. Runs before the upload op's
+  /// own ACK is processed, so the follow-up op is durable by the time
+  /// the upload op is retired.
+  Future<void> _onAssetUploaded(String opId, String fileId) async {
+    final op = await _store.fetchOutboundOp(opId);
+    if (op == null) return;
+    final spec = jsonDecode(utf8.decode(op.payload)) as Map<String, dynamic>;
+    // The bytes are already in memory under the local path — keep them
+    // so the bubble doesn't re-download what it just uploaded.
+    assets.rekey(spec['path'] as String, fileId);
+    final now = _clock.nowMs();
+
+    switch (spec['then'] as String?) {
+      case 'message':
+        final messageId = op.targetMessageId!;
+        final channelId = op.targetChannelId!;
+        await _store.setMessageAttachments(
+          messageId: messageId,
+          attachments: _encodeAttachments(spec, fileId),
+        );
+        await _store.enqueueOutboundOp(OutboundOpRow(
+          opId: _uuidGen.next(nowMs: now),
+          transport: OpTransport.ws,
+          kind: OpKind.chatPayload,
+          restMethod: null,
+          restPath: null,
+          resourceId: channelId,
+          payload: _encodeAttachmentCreate(
+            messageId: messageId,
+            spec: spec,
+            url: fileId,
+          ),
+          status: OpStatus.pending,
+          attempts: 0,
+          nextRetryAt: now,
+          dispatchedAt: null,
+          lastError: null,
+          acknowledgedAt: null,
+          createdAt: now,
+          targetMessageId: messageId,
+          targetChannelId: channelId,
+        ));
+      case 'profile':
+        await _writeOwnAvatar(fileId);
+        await _store.enqueueOutboundOp(_restOp(
+          kind: OpKind.editProfile,
+          method: 'PATCH',
+          path: '/v3.0/users/me',
+          resourceId: 'me',
+          channelId: null,
+          body: {'avatarUrl': fileId},
+          nowMs: now,
+        ));
+      case 'channel':
+        final channelId = op.targetChannelId!;
+        await _store.setChannelAvatar(channelId, fileId);
+        await _store.enqueueOutboundOp(_restOp(
+          kind: OpKind.editChannel,
+          method: 'PATCH',
+          path: '/v3.0/channels/$channelId',
+          resourceId: channelId,
+          channelId: channelId,
+          body: {'avatarUrl': fileId},
+          nowMs: now,
+        ));
+    }
+    _scheduler.tickSoon();
+  }
+
+  OutboundOpRow _restOp({
+    required String kind,
+    required String method,
+    required String path,
+    required String resourceId,
+    required String? channelId,
+    required Map<String, dynamic> body,
+    required int nowMs,
+  }) =>
+      OutboundOpRow(
+        opId: _uuidGen.next(nowMs: nowMs),
+        transport: OpTransport.rest,
+        kind: kind,
+        restMethod: method,
+        restPath: path,
+        resourceId: resourceId,
+        payload: utf8.encode(jsonEncode(body)),
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: nowMs,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: nowMs,
+        targetMessageId: null,
+        targetChannelId: channelId,
+      );
+
+  /// Own avatar, local copy. Not in `contacts` — that table is other
+  /// people, and a self row would show up in the new-chat picker.
+  ///
+  /// ponytail: `shared_preferences`, because the one place that owns
+  /// own-profile persistence (`AuthService`) writes secure storage and
+  /// an avatar pointer is not a secret. Move it there if own-profile
+  /// fields ever need to be read atomically together.
+  static const String _ownAvatarKey = 'v3.avatarUrl';
+
+  Future<void> _writeOwnAvatar(String value) async {
+    try {
+      (await SharedPreferences.getInstance())
+          .setString(_ownAvatarKey, value);
+    } catch (_) {
+      // No platform channel (widget tests) — the avatar just isn't
+      // remembered across restarts there.
+    }
+  }
+
+  /// The signed-in user's photo: a local path until the upload lands,
+  /// then the media-ms fileId. Null when they have never set one.
+  Future<String?> ownAvatarUrl() async {
+    try {
+      return (await SharedPreferences.getInstance()).getString(_ownAvatarKey);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// "Always" in the mute sheet — a `muted_until_ms` far enough out that

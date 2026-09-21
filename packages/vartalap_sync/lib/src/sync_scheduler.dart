@@ -38,8 +38,26 @@ class SyncScheduler {
   /// Flow C sweep cadence.
   final Duration sweepInterval;
 
+  /// Adapter for [OpTransport.asset] ops (media-ms uploads). Set after
+  /// construction — `main.dart` builds the scheduler before the service
+  /// that owns the asset client, so [ChatService] installs it once it
+  /// exists. Null until then; asset ops simply stay `pending`, the same
+  /// as any op whose transport is unavailable.
+  Transport? get assetTransport => _assetTransport;
+  Transport? _assetTransport;
+
+  set assetTransport(Transport? t) {
+    _assetAckSub?.cancel();
+    _assetAckSub = null;
+    _assetTransport = t;
+    if (t != null && _running) {
+      _assetAckSub = t.acks.listen((ack) => _track(_onAck(ack)), onError: (_) {});
+    }
+  }
+
   StreamSubscription<AckFrame>? _wsAckSub;
   StreamSubscription<AckFrame>? _restAckSub;
+  StreamSubscription<AckFrame>? _assetAckSub;
   StreamSubscription<void>? _tickSub;
   Timer? _sweepTimer;
 
@@ -91,6 +109,8 @@ class SyncScheduler {
       (ack) => _track(_onAck(ack)),
       onError: (_) {},
     );
+    _assetAckSub = _assetTransport?.acks
+        .listen((ack) => _track(_onAck(ack)), onError: (_) {});
     _tickSub = _tickSoon.stream.listen((_) => _track(_dispatchOnce()));
     _sweepTimer = Timer.periodic(
       sweepInterval,
@@ -110,8 +130,10 @@ class SyncScheduler {
     _tickSub = null;
     await _wsAckSub?.cancel();
     await _restAckSub?.cancel();
+    await _assetAckSub?.cancel();
     _wsAckSub = null;
     _restAckSub = null;
+    _assetAckSub = null;
     // Drain whatever was in flight when the flip happened. We snapshot
     // because a completing item removes itself from [_inFlight] via
     // the whenComplete in [_track], so the set mutates as we await.
@@ -164,9 +186,13 @@ class SyncScheduler {
   }
 
   Future<void> _dispatchOne(OutboundOpRow op) async {
-    final transport =
-        op.transport == OpTransport.ws ? wsTransport : restTransport;
-    if (transport.currentState != TransportState.connected) {
+    final transport = switch (op.transport) {
+      OpTransport.ws => wsTransport,
+      OpTransport.rest => restTransport,
+      OpTransport.asset => _assetTransport,
+    };
+    if (transport == null ||
+        transport.currentState != TransportState.connected) {
       // Transport unavailable — wait for state change. Per SPIKE_B
       // §12a, "Transport unavailable is not an attempt": no backoff,
       // no attempt counter increment. The next tickSoon() on transport

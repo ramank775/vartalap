@@ -36,7 +36,13 @@ enum MessageState {
 /// `outbound_ops.transport` — SPIKE_B_SYNC.md §3, §7a.
 enum OpTransport {
   ws,
-  rest;
+  rest,
+
+  /// Never reaches the chat server. [OpKind.assetUpload] ops ride the
+  /// media-ms presign/PUT/status dance instead — routed to the
+  /// scheduler's asset adapter, but otherwise an op like any other
+  /// (retry, backoff, dead letter).
+  asset;
 
   String get wire => name;
 
@@ -95,6 +101,12 @@ class OpKind {
   static const String deleteChannel = 'delete_channel';
   static const String editProfile = 'edit_profile';
   static const String registerPushTopic = 'register_push_topic';
+
+  /// Local-only: upload one picked file to media-ms. Its ACK is what
+  /// enqueues the real op (a MESSAGE_CREATE carrying the fileId, or an
+  /// avatar PATCH), because the fileId does not exist until the upload
+  /// has happened. Runs on [OpTransport.asset].
+  static const String assetUpload = 'asset_upload';
 }
 
 class OutboundOpRow {

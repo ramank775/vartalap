@@ -14,12 +14,15 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
+
+import '../fake_asset_cache.dart';
 
 const String channelId = 'c-1';
 const String localUserId = 'aaaaaaaaa';
@@ -278,6 +281,10 @@ void main() {
   testWidgets('an inbound image attachment renders inline; any other mime '
       'gets a file row', (tester) async {
     await pumpChat(tester);
+    // The bubble resolves the attachment url through the asset cache;
+    // hand it the bytes instead of a network round-trip.
+    AssetCache.instance = FakeAssetCache({'shot.jpg': onePixelPng});
+    addTearDown(() => AssetCache.instance = null);
     await tester.runAsync(() async {
       await _insertWithAttachment(store, 'm-img', 'image/jpeg', 'shot.jpg', 3);
       await _insertWithAttachment(store, 'm-doc', 'application/pdf',
