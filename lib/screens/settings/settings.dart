@@ -350,10 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _seedDummyContacts,
             ),
           ],
-          const Divider(height: 1),
-          _SectionHeader(label: 'Notifications', scheme: scheme,
-              textTheme: textTheme),
-          _PushRow(scheme: scheme),
+          _PushSection(scheme: scheme, textTheme: textTheme),
           const Divider(height: 1),
           _SectionHeader(label: 'Account', scheme: scheme,
               textTheme: textTheme),
@@ -404,12 +401,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 /// Push state + the one action that can change it. The service comes
-/// from the root provider, so the row simply disappears when the screen
-/// is rendered without the service graph (widget tests).
-class _PushRow extends StatelessWidget {
+/// from the root provider, so the whole section disappears when the
+/// screen is rendered without the service graph (widget tests).
+class _PushSection extends StatelessWidget {
   final ColorScheme scheme;
+  final TextTheme textTheme;
 
-  const _PushRow({required this.scheme});
+  const _PushSection({required this.scheme, required this.textTheme});
 
   @override
   Widget build(BuildContext context) {
@@ -419,27 +417,37 @@ class _PushRow extends StatelessWidget {
       valueListenable: push.state,
       builder: (context, state, _) {
         final missing = state == PushState.distributorMissing;
-        return ListTile(
-          leading: Icon(Icons.notifications_outlined,
-              color: scheme.onSurfaceVariant),
-          title: const Text('Push notifications'),
-          subtitle: Text(switch (state) {
-            PushState.registered =>
-              'Registered. Vartalap is woken by ntfy when a message arrives.',
-            PushState.distributorMissing =>
-              'The ntfy app is not installed — messages only arrive while '
-                  'Vartalap is open.',
-            PushState.disabled => 'Disabled.',
-            PushState.failed => 'Registration failed. Tap Retry.',
-            PushState.unknown => 'Checking…',
-          }),
-          trailing: TextButton(
-            onPressed: () => missing
-                ? launchUrl(Uri.parse(kNtfyInstallUrl),
-                    mode: LaunchMode.externalApplication)
-                : push.refresh(),
-            child: Text(missing ? 'Install' : 'Retry'),
-          ),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Divider(height: 1),
+            _SectionHeader(
+                label: 'Notifications',
+                scheme: scheme,
+                textTheme: textTheme),
+            ListTile(
+              leading: Icon(Icons.notifications_outlined,
+                  color: scheme.onSurfaceVariant),
+              title: const Text('Push notifications'),
+              subtitle: Text(switch (state) {
+                PushState.registered => 'Registered. Vartalap is woken by '
+                    'ntfy when a message arrives.',
+                PushState.distributorMissing =>
+                  'The ntfy app is not installed — messages only arrive '
+                      'while Vartalap is open.',
+                PushState.disabled => 'Disabled.',
+                PushState.failed => 'Registration failed. Tap Retry.',
+                PushState.unknown => 'Checking…',
+              }),
+              trailing: TextButton(
+                onPressed: () => missing
+                    ? launchUrl(Uri.parse(kNtfyInstallUrl),
+                        mode: LaunchMode.externalApplication)
+                    : push.refresh(),
+                child: Text(missing ? 'Install' : 'Retry'),
+              ),
+            ),
+          ],
         );
       },
     );

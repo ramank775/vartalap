@@ -24,6 +24,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -770,7 +771,110 @@ void main() {
             "account's data. The store still holds $counts from $userIdA.",
       );
     });
+
+    // ---- 10 -------------------------------------------------------------
+    test('10. push: the ntfy endpoint reaches POST /v3.0/push/topic and '
+        'round-trips out of storage', () async {
+      // AUTH_CONTRACT §2.4: push/topic sits behind the USERNAME_REQUIRED
+      // gate, so the handle comes first — same order the app uses
+      // (main.dart registers off usernameChange).
+      await h.authService.setUsername('golden_bob');
+
+      final storage = _InMemoryStorage();
+      final distributor = _FakeDistributor();
+      final push = PushService(
+        authClient: h.authClient,
+        unifiedPush: distributor,
+        storage: storage,
+        notifyWake: () async {},
+        requestPermission: () async {},
+      );
+      await push.start();
+
+      const endpoint = 'https://ntfy.example/u/goldenpath32chars';
+      await distributor.emitEndpoint(endpoint);
+      // The distributor callback is fire-and-forget (`void Function`),
+      // so the POST it kicks off settles on its own schedule.
+      await h.waitFor(() => push.state.value == PushState.registered);
+
+      final posts = h.mock.requests
+          .where((r) => r.method == 'POST' && r.path == '/v3.0/push/topic')
+          .toList();
+      expect(
+        posts.map((r) => r.body['topicUrl']),
+        [endpoint],
+        reason: 'AUTH_CONTRACT §5.1: the endpoint the distributor hands the '
+            'client is posted verbatim as topicUrl.',
+      );
+      expect(posts.single.status, 200);
+      expect(push.state.value, PushState.registered);
+
+      // Survives a restart: a fresh service on the same storage finds
+      // the endpoint and does not re-post it.
+      final restarted = PushService(
+        authClient: h.authClient,
+        unifiedPush: _FakeDistributor(),
+        storage: storage,
+        notifyWake: () async {},
+        requestPermission: () async {},
+      );
+      await restarted.start();
+      expect(restarted.endpoint, endpoint);
+      expect(restarted.state.value, PushState.registered);
+      expect(
+        h.mock.requests
+            .where((r) => r.path == '/v3.0/push/topic')
+            .length,
+        1,
+        reason: 'the stored endpoint is already registered for this user',
+      );
+
+      // AUTH_CONTRACT §5.1: null deregisters, and the mock validates it
+      // the way notification-ms does.
+      await push.deregister();
+      final last = h.mock.requests
+          .lastWhere((r) => r.path == '/v3.0/push/topic');
+      expect(last.body['topicUrl'], isNull);
+      expect(last.status, 200);
+
+      push.dispose();
+      restarted.dispose();
+    });
   });
+}
+
+/// The ntfy app, minus Android. `PushService` only ever asks it for the
+/// distributor list and a registration; the endpoint arrives on the
+/// callback, which the test fires by hand.
+class _FakeDistributor implements UnifiedPushApi {
+  void Function(String)? _onNewEndpoint;
+
+  @override
+  Future<void> initialize({
+    required void Function(String endpointUrl) onNewEndpoint,
+    required void Function() onUnregistered,
+    required void Function() onMessage,
+    required void Function(String reason) onRegistrationFailed,
+  }) async {
+    _onNewEndpoint = onNewEndpoint;
+  }
+
+  @override
+  Future<List<String>> getDistributors() async => [kNtfyDistributorPackage];
+
+  @override
+  Future<void> saveDistributor(String distributor) async {}
+
+  @override
+  Future<void> register() async {}
+
+  @override
+  Future<void> unregister() async {}
+
+  Future<void> emitEndpoint(String url) async {
+    _onNewEndpoint!(url);
+    await Future<void>.delayed(Duration.zero);
+  }
 }
 
 // ---------------------------------------------------------------------------

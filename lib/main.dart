@@ -315,8 +315,13 @@ class _AppState extends State<App> {
         () => _navKey.currentState?.popUntil((route) => route.isFirst);
     _isLogin = widget.services.authService.isLoggedIn;
     _username = widget.services.authService.username;
-    _usernameSub = widget.services.authService.usernameChange
-        .listen((u) => setState(() => _username = u));
+    _usernameSub = widget.services.authService.usernameChange.listen((u) {
+      setState(() => _username = u);
+      // AUTH_CONTRACT §2.4: push/topic is behind the USERNAME_REQUIRED
+      // gate like every other authenticated route, so the topic can
+      // only be registered once the handle lands.
+      if (u != null) unawaited(widget.services.pushService.refresh());
+    });
     _authSub = widget.services.authService.authStateChange.listen((loggedIn) {
       if (!loggedIn) {
         // Tear down any pushed routes (Profile, Settings, Chat, …) so
@@ -345,8 +350,12 @@ class _AppState extends State<App> {
           // accesskey. If already connected this is a no-op.
           unawaited(widget.services.wsTransport.start());
           // AUTH_CONTRACT §5.1: the topic is stored per (user, device),
-          // so a new session must re-post the endpoint it holds.
-          unawaited(widget.services.pushService.refresh());
+          // so a new session must re-post the endpoint it holds — once
+          // the §2.4 username gate is open (the usernameChange listener
+          // above covers the signup case).
+          if (widget.services.authService.username != null) {
+            unawaited(widget.services.pushService.refresh());
+          }
         }
       }
       setState(() => _isLogin = loggedIn);
