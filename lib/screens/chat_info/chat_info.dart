@@ -1,22 +1,26 @@
-/// Chat info screen — shows channel details, members, and actions.
+/// Group info / chat info (frames e, e2).
 ///
-/// Branches on channel `kind` for the destructive action: groups get
-/// "Leave group" (drops channel + membership), DMs get "Clear messages"
-/// (wipes messages, keeps channel — DM channels must remain unique per
-/// user pair to keep the address stable for incoming peer messages).
+/// This is the screen where "Delete chat" and "Leave group" appear
+/// together, on purpose and never as adjacent lookalikes: Delete chat
+/// sits in the neutral block with its consequence written under it and
+/// is local-only; Leave group sits alone at the bottom, in error red,
+/// below a rule, behind a confirm, and is the one action here that
+/// enqueues a server op.
 library vartalap.screens.chat_info;
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/chat_info/media.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/chat_action_sheets.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
 class ChatInfoScreen extends StatefulWidget {
   final String channelId;
   final String channelName;
-  final String channelKind; // 'dm' | 'group'
+  final String channelKind; // 'one_to_one' | 'group'
   final ChatService chatService;
   final AuthService authService;
 
@@ -35,6 +39,11 @@ class ChatInfoScreen extends StatefulWidget {
 
 class _ChatInfoScreenState extends State<ChatInfoScreen> {
   late Future<List<ChannelMemberRow>> _membersFuture;
+  late Future<List<MessageRow>> _mediaFuture;
+
+  /// Channel row, for the avatar and the local mute flag. Re-read
+  /// after the mute sheet closes so the bar and the tile agree.
+  ChannelListEntry? _channel;
 
   bool get _isGroup => widget.channelKind == 'group';
 
@@ -42,6 +51,14 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   void initState() {
     super.initState();
     _membersFuture = widget.chatService.fetchChannelMembers(widget.channelId);
+    _mediaFuture = widget.chatService.fetchMedia(widget.channelId);
+    _reloadChannel();
+  }
+
+  Future<void> _reloadChannel() async {
+    final channel = await widget.chatService.fetchChannel(widget.channelId);
+    if (!mounted) return;
+    setState(() => _channel = channel);
   }
 
   @override
@@ -49,10 +66,11 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final localUserId = widget.authService.currentUserId;
+    final muted = muteLabel(_channel?.mutedUntilMs);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Chat Info'),
+        title: Text(_isGroup ? 'Group info' : 'Chat info'),
       ),
       body: FutureBuilder<List<ChannelMemberRow>>(
         future: _membersFuture,
@@ -81,6 +99,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   children: [
                     Avator(
                       text: widget.channelName,
+                      seed: widget.channelId,
+                      avatarUrl: _channel?.avatarUrl,
+                      isGroup: _isGroup,
                       width: kAvatarXl,
                       height: kAvatarXl,
                     ),
@@ -89,7 +110,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                     const SizedBox(height: kSpaceXs),
                     Text(
                       _isGroup
-                          ? '${members.length} ${members.length == 1 ? "member" : "members"}'
+                          ? 'Group · ${_memberCount(members.length)}'
                           : 'Direct message',
                       style: textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
@@ -99,22 +120,50 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 ),
               ),
               const SizedBox(height: kSpaceXl),
+              if (muted != null) _MuteBar(label: muted),
               if (!_isGroup) ...[
                 const Divider(),
                 _DmIdentityBlock(peer: peer!),
               ],
               const Divider(),
-              _InfoTile(
-                icon: Icons.notifications_outlined,
-                title: 'Notifications',
-                subtitle: 'Coming soon',
-                enabled: false,
+              FutureBuilder<List<MessageRow>>(
+                future: _mediaFuture,
+                builder: (ctx, mediaSnap) {
+                  final count = mediaSnap.data?.length;
+                  return _InfoTile(
+                    icon: Icons.image_outlined,
+                    title: 'Media, links and docs',
+                    subtitle: count == null
+                        ? null
+                        : (count == 0
+                            ? 'Nothing shared yet'
+                            : '$count ${count == 1 ? "item" : "items"}'),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => MediaScreen(
+                          channelId: widget.channelId,
+                          chatService: widget.chatService,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
               _InfoTile(
-                icon: Icons.image_outlined,
-                title: 'Media, links, and docs',
-                subtitle: 'Coming soon',
-                enabled: false,
+                icon: muted == null
+                    ? Icons.notifications_outlined
+                    : Icons.notifications_off_outlined,
+                title: 'Notifications',
+                subtitle: muted ?? 'On',
+                onTap: () async {
+                  await showMuteSheet(
+                    context: context,
+                    chatService: widget.chatService,
+                    channelId: widget.channelId,
+                    mutedUntilMs: _channel?.mutedUntilMs,
+                  );
+                  await _reloadChannel();
+                },
               ),
               if (_isGroup) ...[
                 const Divider(),
@@ -127,19 +176,40 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
               const Divider(),
               _InfoTile(
                 icon: Icons.cleaning_services_outlined,
-                title: 'Clear messages',
-                iconColor: scheme.error,
-                titleColor: scheme.error,
-                onTap: () => _confirmClear(context),
+                title: 'Clear history',
+                subtitle: 'Erases messages on this phone only',
+                onTap: () async {
+                  final cleared = await confirmClearHistory(
+                    context: context,
+                    chatService: widget.chatService,
+                    channelId: widget.channelId,
+                    isGroup: _isGroup,
+                  );
+                  if (cleared) setState(() {});
+                },
               ),
-              if (_isGroup)
+              _InfoTile(
+                icon: Icons.delete_outline,
+                title: 'Delete chat',
+                subtitle: _isGroup
+                    ? 'Removes it from Chats. You stay a member and the '
+                        'group stays under Groups.'
+                    : 'Removes it from Chats. The contact stays in '
+                        'Contacts.',
+                onTap: () => _deleteChat(context),
+              ),
+              if (_isGroup) ...[
+                const Divider(),
                 _InfoTile(
                   icon: Icons.exit_to_app,
                   title: 'Leave group',
+                  subtitle: 'You stop receiving messages. The group '
+                      'disappears from Groups too.',
                   iconColor: scheme.error,
                   titleColor: scheme.error,
                   onTap: () => _confirmLeave(context),
                 ),
+              ],
               const SizedBox(height: kSpaceXl),
             ],
           );
@@ -148,58 +218,29 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     );
   }
 
-  void _confirmClear(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Clear messages?'),
-        content: Text(
-          _isGroup
-              ? 'All messages in this group will be removed from this device. '
-                  'You’ll stay in the group and can find it under Groups.'
-              : 'All messages with this contact will be removed from this device. '
-                  'The contact stays in your contacts.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              try {
-                await widget.chatService.clearMessages(widget.channelId);
-              } catch (e) {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Could not clear messages: $e')),
-                );
-                return;
-              }
-              if (!context.mounted) return;
-              Navigator.of(context).pop();
-            },
-            child: Text(
-              'Clear',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  static String _memberCount(int n) =>
+      '$n ${n == 1 ? "member" : "members"}';
+
+  /// Local-only, so there is nothing to confirm and nothing that can
+  /// fail — the consequence is written under the tile and the next
+  /// message brings the chat back. Pops straight out to the chat list.
+  Future<void> _deleteChat(BuildContext context) async {
+    await widget.chatService.deleteChat(widget.channelId);
+    if (!context.mounted) return;
+    // Pop chat info and the chat screen underneath it.
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _confirmLeave(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Leave group?'),
+        title: Text('Leave ${widget.channelName}?'),
         content: const Text(
-          'You’ll stop receiving messages from this group. '
-          'Someone will need to add you back to rejoin.',
+          'You will stop receiving messages and the group will be '
+          'removed from Groups and from Chats. Other members stay in '
+          'the group and can add you back. Applies right away and '
+          'syncs when you are online.',
         ),
         actions: [
           TextButton(
@@ -219,13 +260,51 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 return;
               }
               if (!context.mounted) return;
-              Navigator.of(context).pop();
+              Navigator.of(context).popUntil((route) => route.isFirst);
             },
             child: Text(
-              'Leave',
+              'Leave group',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.error,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Slim banner under the header while the chat is muted.
+class _MuteBar extends StatelessWidget {
+  final String label;
+  const _MuteBar({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: kSpaceLg),
+      padding: const EdgeInsets.symmetric(
+        horizontal: kSpaceMd,
+        vertical: kSpaceSm,
+      ),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(kRadiusMd),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.notifications_off_outlined,
+            size: 18,
+            color: scheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: kSpaceSm),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: scheme.onSecondaryContainer),
             ),
           ),
         ],
@@ -305,8 +384,8 @@ class _MembersSection extends StatelessWidget {
           ),
           child: Text(
             '${members.length} ${members.length == 1 ? "member" : "members"}',
-            style: textTheme.titleSmall
-                ?.copyWith(color: scheme.onSurfaceVariant),
+            style:
+                textTheme.titleSmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ),
         if (loading)
@@ -315,7 +394,8 @@ class _MembersSection extends StatelessWidget {
             child: Center(child: CircularProgressIndicator()),
           )
         else
-          for (final m in members) _MemberTile(member: m, isYou: m.userId == localUserId),
+          for (final m in members)
+            _MemberTile(member: m, isYou: m.userId == localUserId),
       ],
     );
   }
@@ -330,20 +410,19 @@ class _MemberTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final name = isYou
-        ? 'You'
-        : (member.contact?.displayLabel ?? 'Unknown');
+    final name = isYou ? 'You' : (member.contact?.displayLabel ?? 'Unknown');
     final subtitle = member.role == 'owner' ? 'Owner' : null;
     return ListTile(
       leading: Avator(
         text: name,
+        seed: member.userId,
+        avatarUrl: member.contact?.avatarUrl,
         width: kAvatarMd,
         height: kAvatarMd,
       ),
       title: Text(name),
       subtitle: subtitle != null
-          ? Text(subtitle,
-              style: TextStyle(color: scheme.onSurfaceVariant))
+          ? Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant))
           : null,
     );
   }
@@ -356,7 +435,6 @@ class _InfoTile extends StatelessWidget {
   final Color? iconColor;
   final Color? titleColor;
   final VoidCallback? onTap;
-  final bool enabled;
 
   const _InfoTile({
     required this.icon,
@@ -365,32 +443,16 @@ class _InfoTile extends StatelessWidget {
     this.iconColor,
     this.titleColor,
     this.onTap,
-    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final disabledColor = scheme.onSurface.withValues(alpha: 0.38);
     return ListTile(
-      enabled: enabled,
-      leading: Icon(
-        icon,
-        color: enabled
-            ? (iconColor ?? scheme.onSurfaceVariant)
-            : disabledColor,
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: enabled ? titleColor : disabledColor,
-        ),
-      ),
+      leading: Icon(icon, color: iconColor ?? scheme.onSurfaceVariant),
+      title: Text(title, style: TextStyle(color: titleColor)),
       subtitle: subtitle != null ? Text(subtitle!) : null,
-      trailing: enabled && onTap != null
-          ? const Icon(Icons.chevron_right)
-          : null,
-      onTap: enabled ? onTap : null,
+      onTap: onTap,
     );
   }
 }

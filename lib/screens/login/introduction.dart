@@ -68,20 +68,22 @@ class IntroductionScreen extends StatelessWidget {
                                       ConfigStore.privacyPolicyUrl,
                                     ),
                             ),
-                            const TextSpan(
-                                text:
-                                    '. Tap "Agree and continue" to accept the '),
-                            TextSpan(
-                              text: 'Terms of Service',
-                              style: TextStyle(
-                                color: scheme.primary,
-                                fontWeight: FontWeight.w600,
+                            if (ConfigStore.termsOfServiceUrl.isNotEmpty) ...[
+                              const TextSpan(
+                                  text:
+                                      '. Tap "Agree and continue" to accept the '),
+                              TextSpan(
+                                text: 'Terms of Service',
+                                style: TextStyle(
+                                  color: scheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                recognizer: TapGestureRecognizer()
+                                  ..onTap = () => launchUrl(
+                                        ConfigStore.termsOfServiceUrl,
+                                      ),
                               ),
-                              recognizer: TapGestureRecognizer()
-                                ..onTap = () => launchUrl(
-                                      ConfigStore.privacyPolicyUrl,
-                                    ),
-                            ),
+                            ],
                             const TextSpan(text: '.'),
                           ],
                         ),

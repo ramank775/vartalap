@@ -609,6 +609,8 @@ class _ChatScreenState extends State<ChatScreen> {
             children: [
               Avator(
                 text: widget.channelName,
+                seed: widget.channelId,
+                isGroup: widget.channelKind == 'group',
                 width: kAvatarSm,
                 height: kAvatarSm,
               ),

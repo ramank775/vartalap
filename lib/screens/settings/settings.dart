@@ -11,11 +11,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
+import 'package:vartalap/config/sentry_config.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
 
+export 'package:vartalap/config/sentry_config.dart'
+    show kSentryOptInPrefKey, kSentryDsnOverridePrefKey;
+
 const String kThemeModePrefKey = 'theme_mode';
-const String kSentryOptInPrefKey = 'sentry_opt_in';
 
 class SettingsScreen extends StatefulWidget {
   final AuthService authService;
@@ -34,12 +37,19 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = VartalapTheme.themeMode;
   bool _sentryOptIn = false;
+  final TextEditingController _dsnController = TextEditingController();
   PackageInfo? _packageInfo;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _dsnController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -50,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _ => ThemeMode.system,
     };
     final optIn = prefs.getBool(kSentryOptInPrefKey) ?? false;
+    final dsnOverride = prefs.getString(kSentryDsnOverridePrefKey) ?? '';
     PackageInfo info;
     if (widget.config.packageInfo.version.isNotEmpty) {
       info = widget.config.packageInfo;
@@ -60,6 +71,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _themeMode = mode;
       _sentryOptIn = optIn;
+      _dsnController.text = dsnOverride;
       _packageInfo = info;
     });
   }
@@ -78,10 +90,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _setSentryOptIn(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(kSentryOptInPrefKey, value);
+    await setSentryEnabled(value);
     if (!mounted) return;
     setState(() => _sentryOptIn = value);
+  }
+
+  Future<void> _setDsnOverride(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      await prefs.remove(kSentryDsnOverridePrefKey);
+    } else {
+      await prefs.setString(kSentryDsnOverridePrefKey, trimmed);
+    }
+    // Re-init with the new DSN if already opted in so the override takes
+    // effect without a restart.
+    if (_sentryOptIn) await setSentryEnabled(true);
+  }
+
+  Future<void> _sendTestEvent() async {
+    final messenger = ScaffoldMessenger.of(context);
+    await sendTestEvent();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Test event sent to Sentry.')),
+    );
   }
 
   void _openThemePicker() {
@@ -272,6 +305,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: _sentryOptIn,
             onChanged: _setSentryOptIn,
           ),
+          if (_sentryOptIn) ...[
+            ListTile(
+              leading: Icon(Icons.send_outlined,
+                  color: scheme.onSurfaceVariant),
+              title: const Text('Send test event'),
+              subtitle: const Text(
+                'Confirms the configured Sentry backend is receiving events.',
+              ),
+              onTap: _sendTestEvent,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                kSpaceMd,
+                0,
+                kSpaceMd,
+                kSpaceMd,
+              ),
+              child: TextField(
+                controller: _dsnController,
+                decoration: const InputDecoration(
+                  labelText: 'DSN override (advanced)',
+                  helperText: 'Leave blank to use the built-in DSN.',
+                ),
+                onSubmitted: _setDsnOverride,
+              ),
+            ),
+          ],
           if (kDebugMode) ...[
             const Divider(height: 1),
             _SectionHeader(label: 'Developer', scheme: scheme,

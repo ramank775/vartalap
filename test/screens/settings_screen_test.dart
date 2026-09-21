@@ -73,6 +73,48 @@ void main() {
   });
 
   testWidgets(
+      'Send test event tile and DSN override field appear only once opted in',
+      (tester) async {
+    final auth = _FakeAuthService();
+    await pumpSettings(tester, authService: auth);
+
+    expect(find.text('Send test event'), findsNothing);
+    expect(find.text('DSN override (advanced)'), findsNothing);
+
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Send test event'), findsOneWidget);
+    expect(find.text('DSN override (advanced)'), findsOneWidget);
+
+    // Flipping back off hides them again.
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Send test event'), findsNothing);
+    expect(find.text('DSN override (advanced)'), findsNothing);
+  });
+
+  testWidgets('DSN override persists to prefs on submit', (tester) async {
+    final auth = _FakeAuthService();
+    await pumpSettings(tester, authService: auth);
+
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'DSN override (advanced)'),
+      'https://example.invalid/1',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kSentryDsnOverridePrefKey),
+        'https://example.invalid/1');
+  });
+
+  testWidgets(
       'Theme tile shows current selection; selecting Dark persists + applies',
       (tester) async {
     final auth = _FakeAuthService();
