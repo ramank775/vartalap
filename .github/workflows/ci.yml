@@ -37,6 +37,7 @@ jobs:
       - name: dart test in packages/*
         run: |
           for d in packages/*/; do
+            [ -d "$d/test" ] || continue  # vartalap_proto is generated code with no tests
             echo "== dart test: $d =="
             (cd "$d" && dart test)
           done
