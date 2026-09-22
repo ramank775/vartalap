@@ -60,3 +60,6 @@ firebase_*.json
 # Mock server persisted state (per-dev)
 tools/.mock_state.json
 tools/.mock_state.json.tmp
+
+# Gradle output under android/ (root /build/ rule does not reach it)
+android/build/
