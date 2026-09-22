@@ -819,6 +819,30 @@ class MockServer {
   /// waiting out a retry budget. Consumed one op at a time.
   int rejectNextChatOps = 0;
 
+  /// Park the `ChannelCreated` fanout a `POST /v3.0/channels` produces
+  /// until [releaseChannelCreatedFanout], so a test can land the REST
+  /// response on the caller before the other members hear anything.
+  /// Default false: announce first, then answer — the order the real
+  /// gateway produces.
+  bool holdChannelCreatedFanout = false;
+  final List<void Function()> _heldChannelCreatedFanouts = [];
+
+  /// Deliver every fanout parked by [holdChannelCreatedFanout].
+  void releaseChannelCreatedFanout() {
+    final held = List.of(_heldChannelCreatedFanouts);
+    _heldChannelCreatedFanouts.clear();
+    for (final fanout in held) {
+      fanout();
+    }
+  }
+
+  /// Throw away everything queued for [userId] and report how many
+  /// frames were lost. Stands in for an undelivered queue that did not
+  /// survive — the one server-side failure a client cannot detect and
+  /// has no way to ask about.
+  int dropUndelivered(String userId) =>
+      state.undelivered.remove(userId)?.length ?? 0;
+
   /// Materialize a server-side channel record without going through
   /// `POST /v3.0/channels`. Lets a test line the server's roster up
   /// with the client's optimistic state (or stand up a channel some
@@ -914,10 +938,14 @@ class MockServer {
   /// §7.1 dedup replay, §6 sequencing. Returns a [StoredOutcome] when
   /// the request must NOT be applied (either a replay whose stored
   /// response we echo, or a rejection), else null.
+  /// Pass `consumeSeq: false` when the endpoint has to run its own
+  /// validation between the dedup check and the sequence check — see
+  /// [_consumeSeq].
   StoredOutcome? _validateRestOp({
     required SessionRecord session,
     required Map<String, dynamic> body,
     required String resourceId,
+    bool consumeSeq = true,
   }) {
     if (!strict) return null;
     final opId = body['op_id'];
@@ -935,6 +963,36 @@ class MockServer {
     final prefix = _checkOpIdPrefix(session.userId, opId);
     if (prefix != null) {
       return StoredOutcome(success: false, status: 400, reason: prefix);
+    }
+    if (consumeSeq && !state.acceptSeq(session.userId, resourceId, seq)) {
+      return const StoredOutcome(
+        success: false,
+        status: 400,
+        reason: 'out_of_order',
+      );
+    }
+    return null;
+  }
+
+  /// §6 — the sequence half of [_validateRestOp], for an endpoint that
+  /// must validate before consuming. `POST /v3.0/channels` is the one:
+  /// the real gateway (`channel-ms.createChannel`) checks the roster
+  /// and the `kind` BEFORE its `inOrder` call, so a create the server
+  /// refuses on those grounds consumes no sequence. The mock used to
+  /// consume it first and drift from the server on exactly that path.
+  StoredOutcome? _consumeSeq(
+    SessionRecord session,
+    Map<String, dynamic> body,
+    String resourceId,
+  ) {
+    if (!strict) return null;
+    final seq = body['resource_seq'];
+    if (seq is! int) {
+      return const StoredOutcome(
+        success: false,
+        status: 400,
+        reason: 'validation_failed',
+      );
     }
     if (!state.acceptSeq(session.userId, resourceId, seq)) {
       return const StoredOutcome(
@@ -1579,10 +1637,14 @@ class MockServer {
     final name = body['name'] as String?;
     final membersList = (body['members'] as List<dynamic>?)?.cast<String>() ?? [];
 
+    // §11.3 — dedup + op_id binding now; the sequence is consumed only
+    // once the `kind` and roster checks below have had their say, which
+    // is the order channel-ms.createChannel runs them in.
     final pre = _validateRestOp(
       session: session,
       body: body,
       resourceId: channelId,
+      consumeSeq: false,
     );
     if (pre != null) {
       _respondOutcome(req, body, pre);
@@ -1627,6 +1689,13 @@ class MockServer {
       return;
     }
 
+    final seqCheck = _consumeSeq(session, body, channelId);
+    if (seqCheck != null) {
+      state.recordOutcome(session.userId, body['op_id'] as String, seqCheck);
+      _respondOutcome(req, body, seqCheck);
+      return;
+    }
+
     // Members the client explicitly asked for (creator + picked peers).
     final clientRequested = <String>{session.userId, ...membersList};
     // Final server-side roster — same as requested, plus the seed peer
@@ -1634,17 +1703,56 @@ class MockServer {
     final members = <String>{...clientRequested};
     if (demoMode) members.add(seedPeerUserId);
 
+    final createdAt = DateTime.now().millisecondsSinceEpoch;
     state.channels[channelId] = ChannelRecord(
       channelId: channelId,
       kind: kind,
       name: name,
       ownerUserId: session.userId,
       members: members,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
+      createdAt: createdAt,
     );
     state.markDirty();
 
     _log('Channel created: $channelId kind=$kind members=$members');
+
+    // §10.2 — announce the new channel to the other members, the way
+    // channel-ms.createChannel fans CHANNEL_CREATED. The mock never
+    // did, so a peer only learned a channel existed when a message
+    // landed on it, and no test could see the ordering between the
+    // REST answer and the announcement.
+    //
+    // ponytail: the creator is skipped. The real gateway includes it
+    // in the recipient list, but the creator already holds the row and
+    // its InboundReceiver makes the echo a no-op — the same reasoning
+    // [ensureChannel]'s announce already uses. Add it if a test ever
+    // needs to assert on the echo itself.
+    void announce() {
+      for (final memberId in members) {
+        if (memberId == session.userId) continue;
+        _enqueueChannelCreated(
+          recipientUserId: memberId,
+          channelId: channelId,
+          kind: kind,
+          name: name ?? '',
+          members: members.toList(),
+          creatorUserId: session.userId,
+          createdAtMs: createdAt,
+        );
+        // _enqueueChannelCreated only queues; flush it now if the
+        // recipient is connected, so a live peer sees it without
+        // having to pull.
+        for (final frame in state.drainUndelivered(memberId)) {
+          _sendToUser(memberId, frame);
+        }
+      }
+    }
+
+    if (holdChannelCreatedFanout) {
+      _heldChannelCreatedFanouts.add(announce);
+    } else {
+      announce();
+    }
 
     // If the server added members the client doesn't know about
     // (currently just the seed peer when --seed-peer is on), emit a
@@ -1666,7 +1774,7 @@ class MockServer {
       'kind': kind,
       'name': name,
       'members': members.toList(),
-      'created_at': DateTime.now().millisecondsSinceEpoch,
+      'created_at': createdAt,
     };
     final opId = body['op_id'];
     if (opId is String) {
