@@ -33,7 +33,7 @@ jobs:
           done
       - run: flutter analyze
       - name: flutter test (excluding test/integration, needs a live server)
-        run: flutter test $(find test -mindepth 1 -maxdepth 1 ! -name integration)
+        run: flutter test $(find test -name '*_test.dart' ! -path 'test/integration/*')
       - name: dart test in packages/*
         run: |
           for d in packages/*/; do
