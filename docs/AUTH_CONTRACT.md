@@ -33,13 +33,12 @@ revision).
   `GET /v3.0/users/by-username/{username}` lookup (§7.6) and an
   optional 4-digit **username key** (§4.5) gating it —
   missing/wrong key returns the same `404 USER_NOT_FOUND` as a
-  nonexistent username. `POST /v3.0/channels` carries
-  `initiatedVia: "phone" | "username"` solely so the server can
-  require the key on a username-initiated one-to-one channel
-  (`403 USERNAME_KEY_REQUIRED`, §11.2); phone-hash-matched contacts
-  bypass the key; `initiatedVia` has no effect on what `phone` is
-  revealed to whom — that is governed entirely by §2.5. Full
-  channel-creation body is `SYNC_PROTOCOL.md` §11 (not edited here).
+  nonexistent username. The key gates the *lookup* and nothing
+  else: a DM channel is derived from the pair rather than created
+  (`SYNC_PROTOCOL.md` §11.3), so there is no create request to
+  gate, no `initiatedVia` and no `USERNAME_KEY_REQUIRED` on that
+  path. Full group-creation body is `SYNC_PROTOCOL.md` §11 (not
+  edited here).
 
 This is a **contract spec**, not an implementation guide. A server
 engineer implements `profile-ms`, `notification-ms`, and the
@@ -77,9 +76,16 @@ do not improvise.
   compatibility path, no Firebase ID token decoding, no `firebase-admin`
   dependency. The decision is locked in `V3_ARCHITECTURE.md`
   decision 1.
-- **No multi-device login.** v3.0 is single-device per user (see
-  `V3_ARCHITECTURE.md` "out of scope"). The token model reserves
-  `deviceId` but does not enforce >1 active session yet.
+- **No *second* device at v3.0 — but the wire is already per-device.**
+  Trim 12 (`design/protocol/TRIM_4_12_CONTRACT.md` §7-9) makes the
+  session subject `(user_id, deviceId)` rather than a bare `user_id`:
+  the delivery registry, the undelivered queue and the push topic all
+  key per device, and fanout goes to every device of every member
+  **except the sending device** — including the sender's own other
+  devices. What v3.0 still withholds is the *cap*: `max_devices` is
+  effectively 1 and the server refuses a second concurrent session.
+  Lifting that is a config change, not a wire change, which is the
+  whole reason the keying lands now instead of later (§15).
 - **No passwords, email, OAuth, SSO.** Phone + OTP is the only auth
   factor.
 - **No iOS APNs.** Android-first launch.
@@ -298,18 +304,23 @@ fanout, or any other fanout/event payload — may include another
 user's `phone`, under any circumstance. This is unconditional: it
 does not depend on how a channel or contact was found.
 
-**`initiatedVia` exists only to gate the username key, not phone
-visibility.** `POST /v3.0/channels` for a one-to-one channel
-carries `initiatedVia: "phone" | "username"` so the server knows
-whether to enforce a target's `usernameKey` (§4.5, §7.6): a
-phone-hash-matched contact (`initiatedVia: "phone"`) bypasses the
-key, while a username-initiated one against a keyed user must
-present a matching key or the server rejects with
-`403 USERNAME_KEY_REQUIRED` (§11.2). `initiatedVia` has **no other
-effect** — in particular it never causes the server to reveal
-either party's `phone` in the `ChannelCreated` fanout or anywhere
-else. The full `POST /v3.0/channels` request/fanout shape is
-specified in `SYNC_PROTOCOL.md` §11; this contract only states the
+**Starting a DM is not a request, so there is nothing for it to
+reveal.** A DM channel id is derived from the two `user_id`s —
+`"d" + sha256_hex(min || 0x00 || max)[0:31]`, `SYNC_PROTOCOL.md`
+§11.3 — and the server keeps no row for it. There is no create
+call, no `initiatedVia`, and no `ChannelCreated` fanout on the DM
+path at all, so the privacy rule above holds by construction: the
+only identifier that crosses the wire when a DM opens is the
+`peer` `user_id` the sender already had.
+
+The derivation is computable by anyone holding both `user_id`s,
+so the server can test "have A and B ever talked" — it learns the
+same fact by routing the first message, so this is no new
+exposure. A third party who somehow obtained a `channel_id` could
+brute-force the pair out of it, but the only parties that ever see
+one are the server and the two participants. The full group
+`POST /v3.0/channels` request/fanout shape is specified in
+`SYNC_PROTOCOL.md` §11; this contract only states the
 identity/privacy rule that shape must satisfy.
 
 ### 2.6 The `x-user` header semantics changed in v3
@@ -715,9 +726,10 @@ is exempt from that gate, since it is the only way to satisfy it.
 - **Not subject to the username §10.6 rate limit** — it shares the
   "other profile fields" 50/hour budget, since rotating it is not a
   contact-cache-invalidating event the way a username rename is.
-- **Gates `GET /v3.0/users/by-username/{username}`** (§7.6) and
-  username-initiated one-to-one channel creation (§2.5,
-  `SYNC_PROTOCOL.md` §11) when set.
+- **Gates `GET /v3.0/users/by-username/{username}`** (§7.6) when
+  set, and nothing else — a DM is derived rather than created, so
+  the handle lookup is the only checkpoint there is (§2.5,
+  `SYNC_PROTOCOL.md` §11.3).
 
 **`POST /v3.0/users/username/check`** is the pre-claim availability
 check the client's inline indicator uses; it is exempt from the
@@ -1146,14 +1158,13 @@ has that username, **or** if the user has a `usernameKey` set and
 reported differently from a nonexistent username, or the key stops
 being a secret.
 
-**Username-initiated channel creation** against a keyed user
-requires the same key: `POST /v3.0/channels` with
-`initiatedVia: "username"` targeting a user with `usernameKey` set
-MUST include a matching `usernameKey` in the request body, or the
-server rejects with `403 USERNAME_KEY_REQUIRED` (§11.2). Contacts
-resolved by phone hash (`initiatedVia: "phone"`) bypass the key
-entirely — the key only gates the username discovery path. See
-`SYNC_PROTOCOL.md` §11 for the full channel-creation wire shape.
+**The key gates discovery, not conversation.** Once this endpoint
+has answered with a `user_id` the caller can open a DM with it
+immediately: a DM id is derived from the pair and has no create
+call to gate (`SYNC_PROTOCOL.md` §11.3). Making the handle
+unresolvable to someone who does not hold the key is the only
+place the key can do any work. Contacts resolved by phone hash
+(§7.2) never encounter it at all.
 
 **Rate limits.** Same class as contact-lookup (§7.4): 60/min/user,
 5,000/day/IP. **Enumeration-resistance rationale:** unlike phone
@@ -1552,7 +1563,6 @@ Every error response, on every endpoint, uses this shape:
 | 401 | `INVALID_REFRESH_TOKEN` | session refresh | refresh token doesn't resolve, expired, or `deviceId` mismatch |
 | 401 | `INVALID_CODE` | OTP verify, rebind verify | wrong OTP code |
 | 403 | `USERNAME_REQUIRED` | all authenticated except the §2.4 gate-exempt list | `username` is `null`; client must complete `PATCH /v3.0/users/me` first |
-| 403 | `USERNAME_KEY_REQUIRED` | `POST /v3.0/channels` (`initiatedVia: "username"`) | target user has a `usernameKey` set and the request omitted/mismatched it (`SYNC_PROTOCOL.md` §11) |
 | 404 | `SESSION_NOT_FOUND` | OTP verify, resend, rebind | unknown `sessionId` / `rebindSessionId` |
 | 404 | `USER_NOT_FOUND` | GET /v3.0/users/*, GET /v3.0/users/by-username/* | prefix or username unrecognized, tombstoned, or (by-username) a `usernameKey` mismatch (§7.6, deliberately indistinguishable) |
 | 409 | `USERNAME_TAKEN` | profile patch | username collides with active user or tombstone |
@@ -1825,10 +1835,15 @@ to release a tombstoned name on operator review.
 Acknowledged gaps. Client and server MUST NOT assume any of these
 ship in v3.0.
 
-- **Multi-device login.** v3.0 = one active session per user. The
-  data model already supports `(user_id, deviceId)` keying;
-  v3.1 enables multiple concurrent sessions, QR pairing, cross-
-  device fanout.
+- **A second concurrent device.** v3.0 = one active session per user.
+  Everything *below* that cap is already built and is not deferred:
+  the session subject is `(user_id, deviceId)` (§1.2, trim 12), the
+  delivery registry, undelivered queue and push topic key per device,
+  and fanout addresses devices rather than users — skipping only the
+  sending device, so a user's own other devices are ordinary
+  recipients. v3.1 raises `max_devices` above 1 and adds QR pairing;
+  neither is a wire change, which is why the keying was not left to
+  v3.1 to introduce.
 - **Voice-call OTP fallback.** Some users can't receive SMS
   (landlines, VoIP). A `/send` option `{channel: "voice"}` with
   TTS code delivery is a v3.1 candidate.
@@ -1841,7 +1856,7 @@ ship in v3.0.
   account-delete currently require only the active accesskey;
   v3.1 may require fresh OTP for these.
 - **Session pinning by IP / device fingerprint.** v3.0 trusts
-  `(user_id, deviceId)` as the session boundary; v3.1 may add
+  `(user_id, deviceId)` as the session boundary (§1.2); v3.1 may add
   IP-change anomaly detection.
 - **i18n for SMS templates and error messages.** English-only in
   v3.0 (§12).

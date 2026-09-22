@@ -260,6 +260,9 @@ Envelope {
   uint64 resource_seq       // per-(user_id, channel_id) monotonic
   uint64 client_timestamp_ms
   bytes  payload            // opaque to server
+  bool   ephemeral          // typing and friends; no ack, no queue
+  string peer               // the other participant, iff channel_id
+                            // starts with "d" (§11.3); absent for groups
   // sender_user_id, server_timestamp_ms, delivery_sequence absent on
   // client→server
 }
@@ -408,8 +411,16 @@ For every inbound `Envelope` on the WS wire, the server runs:
 1. **Session.** Connection's authenticated `user_id` is non-null.
 2. **Prefix.** `op_id` bits[62..26] == authenticated `user_id`. On
    mismatch: `AckPermanent { reason: "prefix_mismatch" }`.
-3. **Membership.** Authenticated user is a member of `channel_id` in
-   channel-ms. On non-member: `AckPermanent { reason: "forbidden" }`.
+3. **Membership.** For a group `channel_id`, the authenticated user is
+   a member of it in channel-ms. On non-member: `AckPermanent {
+   reason: "forbidden" }`.
+
+   For a `d`-prefixed `channel_id` there is no channel record and no
+   member list to consult (§11.3): membership *is* the derivation. A
+   missing or malformed `peer` is `AckPermanent { reason:
+   "validation_failed" }`; `dm_chan(user_id, peer) != channel_id` is
+   `AckPermanent { reason: "forbidden" }`; otherwise the recipient set
+   is exactly `{peer}`.
 4. **Sequencing.** `resource_seq` strictly monotonic for `(user_id,
    channel_id)` per §6. On skip: `AckPermanent { reason:
    "out_of_order" }`. On retry within dedup window: return stored
@@ -799,8 +810,12 @@ authoritative).
 
 **Server MUST:**
 1. Compute the recipient set per op type:
-   - WS chat-content envelopes: all channel members except sender.
-   - REST `POST /v3.0/channels`: all `members` (creator included).
+   - WS chat-content envelopes on a group: all channel members.
+   - WS chat-content envelopes on a `d`-prefixed DM: exactly
+     `{envelope.peer}`, after the §11.3 derivation check. No channel
+     record is read.
+   - REST `POST /v3.0/channels` (groups only, §11.3): all `members`
+     (creator included).
    - REST `add_members`: existing members + newly added.
    - REST `remove_member`: remaining members + the removed member
      (so the removed user's client knows to leave).
@@ -814,8 +829,14 @@ authoritative).
    gateway), emit the push frame immediately.
 3. For each offline recipient, enqueue the push frame in the
    undelivered queue (§10.6).
-4. Senders MUST NOT receive fanout for their own ops on the same
-   device. Cross-device fanout is deferred to v3.1.
+4. Recipients are **devices**, not users: the recipient set expands
+   to every `(user_id, device_id)` session of every user in it, minus
+   the **sending device**. A sender's own other devices are ordinary
+   recipients; only the device that sent the op is skipped. v3.0 caps
+   concurrent sessions per user at 1, so in practice there is one
+   device per user today (`AUTH_CONTRACT.md` §1.2) — the keying is
+   what makes raising that cap a config change rather than a wire
+   change.
 
 ### 10.4 Push frame ordering
 
@@ -946,9 +967,62 @@ ops below).
 
 ### 11.3 Channel CRUD endpoints
 
+#### DM channels are derived, never created
+
+A DM has no channel record anywhere on the server. Its id is a pure
+function of the pair:
+
+```
+dm_chan(a, b) = "d" + sha256_hex(min(a,b) || 0x00 || max(a,b))[0:31]
+```
+
+`a` and `b` are the two 9-lowercase-hex `user_id`s compared as ASCII
+byte strings; the result is exactly 32 characters and always starts
+with `d`. Both clients compute it offline, identically, with no
+coordination — which is the whole point: two people who open the same
+chat while both offline address the same channel, so there is no
+winner, no loser, no fold, no merge, no id remap and no re-sequencing.
+
+Every envelope on a `d`-prefixed channel carries `peer` (field 7 of
+`Envelope`, `proto/v3-envelope.proto`) naming the other participant.
+In place of the membership lookup it does for a group, the server:
+
+1. rejects a missing or malformed `peer` with `validation_failed`;
+2. rejects `dm_chan(session.user_id, peer) != channel_id` with
+   `forbidden`;
+3. otherwise delivers to exactly `{peer}` (plus the sender's own other
+   devices, §10.3).
+
+A third party cannot send on, create, or reserve someone else's DM id,
+because they cannot produce a `peer` that derives to it from their own
+authenticated `user_id`. Squatting the id space is not merely
+detected, it is unrepresentable — there is nothing to pre-create.
+
+DM ids are not UUIDv7, so the §3 creator-user_id-bits rule does not
+apply to them: a DM has no creator, and the derivation check is
+strictly stronger than the bits check it replaces. The rule stays on
+`op_id` and on group `channel_id`s.
+
+Consequences, stated:
+
+- `POST /v3.0/channels` takes groups only (below).
+- `GET /v3.0/channels` returns groups only. A DM has no row to list,
+  so a fresh install cannot enumerate past DMs; it learns a DM when
+  the peer next sends, or when the user opens it again, which derives
+  the same id. The messages were gone either way (§15.6). Clients
+  therefore drive the chat list entirely from local state and must
+  degrade to an empty list rather than a spinner.
+- There is no `ChannelCreated` (§10.2) for a DM. The first envelope on
+  a derived id is the introduction; recipients materialize the channel
+  from it after checking the id derives from themselves and
+  `sender_user_id`.
+- `ProfileEdited` / `UsernameChanged` (§10.2) reach group co-members
+  only — the server has no DM row telling it two users are in contact.
+  Clients resolve a DM peer's profile on demand instead.
+
 #### `POST /v3.0/channels`
 
-Create a channel.
+Create a group.
 
 **Headers:** `Authorization: Bearer <accesskey>`
 **Body:**
@@ -967,8 +1041,8 @@ Create a channel.
 | Field | Constraint |
 |---|---|
 | `channel_id` | Client-generated UUIDv7. Must embed authenticated user's user_id bits per §3. |
-| `kind` | `"one_to_one"` or `"group"`. For one_to_one, `members` must be exactly 2 (creator + peer). |
-| `name` | Required for `group`, ignored for `one_to_one`. |
+| `kind` | `"group"`. The only value: a DM is derived, not created (above), so `"one_to_one"` is `validation_failed`. |
+| `name` | Required. |
 | `members` | List of `user_id` (9 hex chars). Creator MUST be included; server validates membership against the authenticated user. |
 
 `resource_id` for sequencing is `channel_id`. `resource_seq` starts
@@ -1285,8 +1359,14 @@ Scenario: user deletes app data or reinstalls.
   from before the reinstall MAY still be drained on the first WS
   connect. Frames acked and fanned out before the wipe are gone
   forever on this device.
-- User impact: message history is lost. Warned on the v3 first-
-  launch consent screen (V3_ARCHITECTURE release model).
+- Channel list: groups come back from `GET /v3.0/channels`. DMs do
+  not — a DM has no server-side row to list (§11.3), so a fresh
+  install starts with no DM chats at all. Each one reappears the
+  moment the peer sends, or the moment the user opens it again, which
+  derives the same id. The messages in it were lost either way.
+- User impact: message history is lost, and so is the *list* of past
+  DMs. Warned on the v3 first-launch consent screen (V3_ARCHITECTURE
+  release model). The chat list must render empty, not spin.
 
 ### 15.7 Server rejects a REST write mid-cascade
 
