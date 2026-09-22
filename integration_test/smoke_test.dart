@@ -176,9 +176,11 @@ void main() {
     });
 
     await _waitFor(tester, find.byType(ChannelTile));
-    // Decision 79: this DM's ChannelCreated carries no name (one_to_one,
-    // peer never in our contacts) — the row must resolve the peer's
-    // profile and show "@<handle>", not fall back to "Unknown".
+    // Trim 4: a DM is derived, never created, so nothing announced this
+    // channel — the app materialized it from the peer's first message
+    // and it carries no name (the peer was never in our contacts). The
+    // row must resolve the peer's profile and show "@<handle>", not
+    // fall back to "Unknown" (decision 79).
     await _waitFor(tester, find.text('@${peer.username}'));
     expect(find.text('Unknown'), findsNothing,
         reason: 'decision 79: a stranger DM must not render as "Unknown" '
@@ -601,8 +603,9 @@ class _Peer {
     }
   }
 
-  /// Wait for the outbound queue to drain (the channel create is a REST
-  /// op; sending before its ACK would be out of order).
+  /// Wait for the outbound queue to drain. Trim 4 left a DM with no
+  /// create op to wait on, but a group create is still a REST op and
+  /// sending before its ACK would be out of order.
   Future<void> settle() async {
     final sw = Stopwatch()..start();
     while (sw.elapsed < const Duration(seconds: 25)) {
