@@ -93,6 +93,78 @@ void main() {
     });
   });
 
+  group('applyInboundMessage dedup', () {
+    test('a message_id we already hold is a complete no-op', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+
+      await store.insertChannel(
+        channelId: 'g-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Kothrud Flat 3B',
+      );
+
+      Future<void> deliver({
+        required String opId,
+        required int deliverySequence,
+      }) =>
+          store.applyInboundMessage(
+            localUserId: 'u-self',
+            channelId: 'g-1',
+            opId: opId,
+            messageId: 'm-dup',
+            senderUserId: 'u-vikram',
+            body: 'Water tanker at 6',
+            contentType: 'text/plain',
+            attachments: null,
+            forwardSource: null,
+            replyToMessageId: null,
+            clientTimestampMs: 500,
+            serverTimestampMs: 500 + deliverySequence,
+            deliverySequence: deliverySequence,
+            nowMs: 600,
+          );
+
+      await deliver(opId: 'op-1', deliverySequence: 7);
+      await store.markChannelRead('g-1', 650);
+      expect(await store.fetchChannelList(), hasLength(1));
+      expect((await store.fetchChannelList()).single.unreadCount, 0);
+
+      // Same message, second delivery, NEW op_id — so the §7.2
+      // op_id_seen gate upstream cannot catch it. It must not throw,
+      // must not duplicate the row, and must not resurrect the unread
+      // badge the user has already cleared.
+      await deliver(opId: 'op-2', deliverySequence: 9);
+
+      final rows = await store.fetchChannelMessages('g-1');
+      expect(
+        rows.map((m) => m.messageId),
+        ['m-dup'],
+        reason: 'one row, not two — a duplicate delivery adds no bubble.',
+      );
+      expect(
+        rows.single.deliverySequence,
+        7,
+        reason: 'the original ordering survives; a re-delivery does not '
+            'reshuffle the conversation.',
+      );
+      expect(
+        (await store.fetchChannelList()).single.unreadCount,
+        0,
+        reason: 'and it does not move the unread count.',
+      );
+      expect(
+        await store.hasSeenOpId('g-1', 'op-2'),
+        isTrue,
+        reason: 'op_id_seen is still recorded — the old plain INSERT threw '
+            'and rolled this row back with it, so a re-fanout of the same '
+            'op was re-evaluated forever.',
+      );
+    });
+  });
+
   group('pin and mute', () {
     test('pinned channels sort first regardless of activity', () async {
       final store = await ChatStore.open(path: inMemoryDatabasePath);

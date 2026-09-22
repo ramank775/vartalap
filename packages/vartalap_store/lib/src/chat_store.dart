@@ -777,10 +777,16 @@ class ChatStore {
   /// bumps `unread_count` iff the sender is not the local user, and
   /// records `op_id_seen`. All in one transaction.
   ///
-  /// Throws `DatabaseException` on duplicate `message_id` — §10.3 rule 4
-  /// forbids self-fanout on v3.0, so a create echo for the local user's
-  /// own optimistic row is a server-protocol violation we surface loudly
-  /// rather than swallowing.
+  /// A `message_id` we already hold is a duplicate delivery, and a
+  /// duplicate delivery is a complete no-op: no second row, and no
+  /// movement of the chat-list preview or the unread count either.
+  /// The §7.2 `op_id_seen` gate upstream cannot catch these, because
+  /// the same message can legitimately reach us twice under two
+  /// different `op_id`s (a queue drained twice, a re-send). This was a
+  /// plain INSERT, so the second copy raised a UNIQUE constraint
+  /// failure that rolled the whole transaction back — including the
+  /// `op_id_seen` row, so the dedup set never even learned about the
+  /// op, and the receiver's error path swallowed the exception.
   Future<void> applyInboundMessage({
     required String localUserId,
     required String channelId,
@@ -798,44 +804,54 @@ class ChatStore {
     required int nowMs,
   }) async {
     final bumpUnread = senderUserId != localUserId;
+    var inserted = false;
     await db.transaction((txn) async {
-      await txn.insert('messages', {
-        'message_id': messageId,
-        'channel_id': channelId,
-        'author_user_id': senderUserId,
-        'body': body,
-        'content_type': contentType,
-        'reply_to_message_id': replyToMessageId,
-        'attachments': attachments,
-        'forward_source': forwardSource,
-        'client_timestamp_ms': clientTimestampMs,
-        'server_timestamp_ms': serverTimestampMs,
-        'delivery_sequence': deliverySequence,
-        'message_state': MessageState.sent.wire,
-        'state_updated_at': nowMs,
-        'is_edited': 0,
-        'last_edit_ms': null,
-        'tombstoned': 0,
-        'tombstone_pending_until': null,
-      });
-      await txn.rawUpdate(
-        bumpUnread
-            ? 'UPDATE channels '
-                'SET last_activity_ms = ?, last_message_id = ?, '
-                '    unread_count = unread_count + 1, deleted_locally = 0 '
-                'WHERE channel_id = ?'
-            : 'UPDATE channels '
-                'SET last_activity_ms = ?, last_message_id = ?, '
-                '    deleted_locally = 0 '
-                'WHERE channel_id = ?',
-        [serverTimestampMs, messageId, channelId],
-      );
+      inserted = await txn.insert(
+            'messages',
+            {
+              'message_id': messageId,
+              'channel_id': channelId,
+              'author_user_id': senderUserId,
+              'body': body,
+              'content_type': contentType,
+              'reply_to_message_id': replyToMessageId,
+              'attachments': attachments,
+              'forward_source': forwardSource,
+              'client_timestamp_ms': clientTimestampMs,
+              'server_timestamp_ms': serverTimestampMs,
+              'delivery_sequence': deliverySequence,
+              'message_state': MessageState.sent.wire,
+              'state_updated_at': nowMs,
+              'is_edited': 0,
+              'last_edit_ms': null,
+              'tombstoned': 0,
+              'tombstone_pending_until': null,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          ) !=
+          0;
+      if (inserted) {
+        await txn.rawUpdate(
+          bumpUnread
+              ? 'UPDATE channels '
+                  'SET last_activity_ms = ?, last_message_id = ?, '
+                  '    unread_count = unread_count + 1, deleted_locally = 0 '
+                  'WHERE channel_id = ?'
+              : 'UPDATE channels '
+                  'SET last_activity_ms = ?, last_message_id = ?, '
+                  '    deleted_locally = 0 '
+                  'WHERE channel_id = ?',
+          [serverTimestampMs, messageId, channelId],
+        );
+      }
       await txn.rawInsert(
         _markOpIdSeenSql,
         [channelId, opId, nowMs, channelId],
       );
     });
-    _notify(const {'messages', 'channels', 'op_id_seen'});
+    _notify(inserted
+        ? const {'messages', 'channels', 'op_id_seen'}
+        : const {'op_id_seen'});
   }
 
   /// §5.4 — TYPE_MESSAGE_UPDATE apply with §6a.4 authorship gate.
