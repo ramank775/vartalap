@@ -40,6 +40,7 @@ class Envelope extends $pb.GeneratedMessage {
     $fixnum.Int64? clientTimestampMs,
     $core.List<$core.int>? payload,
     $core.bool? ephemeral,
+    $core.String? peer,
     $core.String? senderUserId,
     $fixnum.Int64? serverTimestampMs,
     $fixnum.Int64? deliverySequence,
@@ -51,6 +52,7 @@ class Envelope extends $pb.GeneratedMessage {
     if (clientTimestampMs != null) result.clientTimestampMs = clientTimestampMs;
     if (payload != null) result.payload = payload;
     if (ephemeral != null) result.ephemeral = ephemeral;
+    if (peer != null) result.peer = peer;
     if (senderUserId != null) result.senderUserId = senderUserId;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
     if (deliverySequence != null) result.deliverySequence = deliverySequence;
@@ -81,6 +83,7 @@ class Envelope extends $pb.GeneratedMessage {
     ..a<$core.List<$core.int>>(
         5, _omitFieldNames ? '' : 'payload', $pb.PbFieldType.OY)
     ..aOB(6, _omitFieldNames ? '' : 'ephemeral')
+    ..aOS(7, _omitFieldNames ? '' : 'peer')
     ..aOS(20, _omitFieldNames ? '' : 'senderUserId')
     ..a<$fixnum.Int64>(
         21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
@@ -119,9 +122,11 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearOpId() => $_clearField(1);
 
-  /// The channel this envelope targets. Server validates the sender is
-  /// a member of this channel. Used as the `resource_id` for per-channel
-  /// sequencing and dedup keying. Required.
+  /// The channel this envelope targets. For a group the server checks
+  /// the sender is a member; for a `d`-prefixed DM there is no row and
+  /// no member list, and `peer` (field 7) carries the check instead.
+  /// Used as the `resource_id` for per-channel sequencing and dedup
+  /// keying. Required.
   @$pb.TagNumber(2)
   $core.String get channelId => $_getSZ(1);
   @$pb.TagNumber(2)
@@ -197,26 +202,53 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   void clearEphemeral() => $_clearField(6);
 
+  /// Trim 4 (design/protocol/TRIM_4_12_CONTRACT.md §2) — the OTHER
+  /// participant's user_id (9 lowercase hex chars) on a derived DM
+  /// channel. Required iff `channel_id` starts with "d", absent
+  /// otherwise.
+  ///
+  /// A DM channel id is `"d" + sha256_hex(min(a,b) || 0x00 || max(a,b))
+  /// [0:31]`, so the server does not look up a channel row or a member
+  /// list for it — there is none, and there never was. It recomputes
+  /// the derivation from the authenticated session's user_id and this
+  /// field: a missing or malformed `peer` is `validation_failed`, a
+  /// `peer` that does not derive to `channel_id` is `forbidden`, and
+  /// otherwise the recipients are exactly `{peer}` (plus the sender's
+  /// own other devices, trim 12). A third party cannot send on, create
+  /// or reserve someone else's DM id because they cannot produce a
+  /// `peer` that derives to it from their own user_id.
+  ///
+  /// Echoed unchanged on fanout; the recipient already knows the pair
+  /// from `sender_user_id` and does not need to read it.
+  @$pb.TagNumber(7)
+  $core.String get peer => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set peer($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasPeer() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearPeer() => $_clearField(7);
+
   /// The authenticated sender's user_id (9 lowercase hex chars). Server
   /// derives from session, not from any client-supplied field. Recipients
   /// use this for sender attribution; see SYNC_PROTOCOL.md §10.1 for the
   /// display-name resolution rule (contact-book → username → phone).
   @$pb.TagNumber(20)
-  $core.String get senderUserId => $_getSZ(6);
+  $core.String get senderUserId => $_getSZ(7);
   @$pb.TagNumber(20)
-  set senderUserId($core.String value) => $_setString(6, value);
+  set senderUserId($core.String value) => $_setString(7, value);
   @$pb.TagNumber(20)
-  $core.bool hasSenderUserId() => $_has(6);
+  $core.bool hasSenderUserId() => $_has(7);
   @$pb.TagNumber(20)
   void clearSenderUserId() => $_clearField(20);
 
   /// When the server accepted the envelope, ms since epoch.
   @$pb.TagNumber(21)
-  $fixnum.Int64 get serverTimestampMs => $_getI64(7);
+  $fixnum.Int64 get serverTimestampMs => $_getI64(8);
   @$pb.TagNumber(21)
-  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(7, value);
+  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(8, value);
   @$pb.TagNumber(21)
-  $core.bool hasServerTimestampMs() => $_has(7);
+  $core.bool hasServerTimestampMs() => $_has(8);
   @$pb.TagNumber(21)
   void clearServerTimestampMs() => $_clearField(21);
 
@@ -224,11 +256,11 @@ class Envelope extends $pb.GeneratedMessage {
   /// time. Used by recipients for inbound ordering across senders.
   /// Distinct from `resource_seq` (which is sender-scoped).
   @$pb.TagNumber(22)
-  $fixnum.Int64 get deliverySequence => $_getI64(8);
+  $fixnum.Int64 get deliverySequence => $_getI64(9);
   @$pb.TagNumber(22)
-  set deliverySequence($fixnum.Int64 value) => $_setInt64(8, value);
+  set deliverySequence($fixnum.Int64 value) => $_setInt64(9, value);
   @$pb.TagNumber(22)
-  $core.bool hasDeliverySequence() => $_has(8);
+  $core.bool hasDeliverySequence() => $_has(9);
   @$pb.TagNumber(22)
   void clearDeliverySequence() => $_clearField(22);
 }

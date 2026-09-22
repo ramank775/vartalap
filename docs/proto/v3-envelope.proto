@@ -19,7 +19,8 @@ package vartalap.v3;
 // This file defines what the chat-server sees on the WS sync wire. It is
 // intentionally minimal:
 //
-//   * The server validates `op_id` (dedup), `channel_id` (membership),
+//   * The server validates `op_id` (dedup), `channel_id` (group
+//     membership, or the trim-4 `peer` derivation for a DM),
 //     `resource_seq` (per-resource ordering), and the authenticated
 //     session.
 //   * The server NEVER inspects the inner `payload` bytes. Chat-content
@@ -53,9 +54,11 @@ message Envelope {
   // Required on client→server. Echoed unchanged on fanout.
   string op_id = 1;
 
-  // The channel this envelope targets. Server validates the sender is
-  // a member of this channel. Used as the `resource_id` for per-channel
-  // sequencing and dedup keying. Required.
+  // The channel this envelope targets. For a group the server checks
+  // the sender is a member; for a `d`-prefixed DM there is no row and
+  // no member list, and `peer` (field 7) carries the check instead.
+  // Used as the `resource_id` for per-channel sequencing and dedup
+  // keying. Required.
   string channel_id = 2;
 
   // Per-channel monotonic counter, client-generated. Server validates
@@ -95,6 +98,26 @@ message Envelope {
   // because the receiver-side dispatcher dedups by op_id) but the
   // optimization only kicks in once both sides understand the flag.
   bool ephemeral = 6;
+
+  // Trim 4 (design/protocol/TRIM_4_12_CONTRACT.md §2) — the OTHER
+  // participant's user_id (9 lowercase hex chars) on a derived DM
+  // channel. Required iff `channel_id` starts with "d", absent
+  // otherwise.
+  //
+  // A DM channel id is `"d" + sha256_hex(min(a,b) || 0x00 || max(a,b))
+  // [0:31]`, so the server does not look up a channel row or a member
+  // list for it — there is none, and there never was. It recomputes
+  // the derivation from the authenticated session's user_id and this
+  // field: a missing or malformed `peer` is `validation_failed`, a
+  // `peer` that does not derive to `channel_id` is `forbidden`, and
+  // otherwise the recipients are exactly `{peer}` (plus the sender's
+  // own other devices, trim 12). A third party cannot send on, create
+  // or reserve someone else's DM id because they cannot produce a
+  // `peer` that derives to it from their own user_id.
+  //
+  // Echoed unchanged on fanout; the recipient already knows the pair
+  // from `sender_user_id` and does not need to read it.
+  string peer = 7;
 
   // ---------------------------------------------------------------------------
   // Server-stamped fields. Absent on client→server. Populated by the
