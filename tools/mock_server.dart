@@ -226,6 +226,11 @@ class MockState {
   // Per-user undelivered queue (SYNC_PROTOCOL.md §11). Holds raw
   // serialized WS_PUSH WsEnvelope frames. Drained on WS connect.
   final Map<String, List<Uint8List>> undelivered = {};
+  /// Demo mode (`--seed-peer`): users who have already been sent the
+  /// seed peer's welcome message. Trim 4 left no DM channel row to
+  /// check for, and the welcome is what introduces the derived
+  /// channel, so "have we said hello yet" is its own fact.
+  final Set<String> welcomedUsers = {};
 
   final Random _rng = Random.secure();
 
@@ -270,6 +275,7 @@ class MockState {
         'undelivered': undelivered.map(
           (k, v) => MapEntry(k, v.map(base64Encode).toList()),
         ),
+        'welcomedUsers': welcomedUsers.toList(),
       };
 
   /// Load state from [path] if it exists. Silently no-ops on missing /
@@ -303,6 +309,8 @@ class MockState {
       queues.forEach((k, v) => undelivered[k] = (v as List<dynamic>)
           .map((e) => base64Decode(e as String))
           .toList());
+      welcomedUsers.addAll(
+          (j['welcomedUsers'] as List? ?? []).cast<String>());
     } catch (e) {
       _log('Persistence load failed (starting fresh): $e');
     }
@@ -452,6 +460,31 @@ class MockState {
 // ---------------------------------------------------------------------------
 
 const String seedPeerUserId = '000000001';
+
+/// Trim 4 (`design/protocol/TRIM_4_12_CONTRACT.md` §1) — the derived
+/// DM channel id.
+///
+/// Deliberately a second implementation rather than a call into
+/// `package:vartalap_sync`: the mock stands in for chat-server, and a
+/// mock that shares the client's arithmetic could never disagree with
+/// it. If the two ever drift, the client sees `forbidden` here, which
+/// is exactly what the real server would answer.
+String mockDmChannelId(String a, String b) {
+  final low = a.compareTo(b) <= 0 ? a : b;
+  final high = a.compareTo(b) <= 0 ? b : a;
+  final hex = sha256.convert(utf8.encode('$low\u0000$high')).toString();
+  return 'd${hex.substring(0, 31)}';
+}
+
+/// `"d"`-prefixed ids are derived DMs; everything else is a group
+/// (a UUIDv7, whose first hex digit is `0` for every date in range).
+bool isMockDmChannelId(String channelId) => channelId.startsWith('d');
+
+/// AUTH_CONTRACT §2: a `user_id` is 9 lowercase hex chars. A `peer`
+/// that is not one cannot be part of any derivation, so it is a
+/// malformed field rather than a wrong one.
+bool _isWellFormedUserId(String id) =>
+    RegExp(r'^[0-9a-f]{9}$').hasMatch(id);
 
 /// A second seeded peer, discoverable only via
 /// `GET /v3.0/users/by-username/{username}?key=` (AUTH_CONTRACT §7.6).
@@ -793,8 +826,6 @@ class MockServer {
     required bool isTyping,
     String senderUserId = seedPeerUserId,
   }) {
-    final channel = state.channels[channelId];
-    if (channel == null) throw StateError('unknown channel $channelId');
     final now = DateTime.now().millisecondsSinceEpoch;
     _fanoutEphemeral(
       pb.Envelope(
@@ -809,7 +840,7 @@ class MockServer {
         ephemeral: true,
       ),
       senderUserId,
-      channel,
+      _recipientsFor(channelId, senderUserId),
       now,
     );
   }
@@ -1194,46 +1225,24 @@ class MockServer {
 
     _log('OTP verify: phone=${otpSession.phone} userId=${user.userId} isNew=$isNew');
 
-    // If seed-peer is enabled and this user has no DM with the seed
-    // peer yet, create one. We trigger off "channel missing" rather than
-    // `isNew` so devs who enable --seed-peer on a previously-registered
-    // account also get the channel materialized on next login.
+    // Trim 4 — the seed-peer DM is not created, because a DM never is:
+    // its id is derived from the pair. The welcome message is the whole
+    // introduction; the client materializes the channel from the first
+    // frame that lands on a derived id. Sent once, on the first login
+    // that finds no delivered welcome.
     String? defaultChannelId;
     if (demoMode) {
-      defaultChannelId = 'dm-${user.userId}-$seedPeerUserId';
-      if (!state.channels.containsKey(defaultChannelId)) {
-        final createdAt = DateTime.now().millisecondsSinceEpoch;
-        state.channels[defaultChannelId] = ChannelRecord(
-          channelId: defaultChannelId,
-          kind: 'one_to_one',
-          name: 'Seed Peer',
-          ownerUserId: user.userId,
-          members: {user.userId, seedPeerUserId},
-          createdAt: createdAt,
-        );
+      defaultChannelId = mockDmChannelId(user.userId, seedPeerUserId);
+      if (state.welcomedUsers.add(user.userId)) {
         state.markDirty();
-        _log('Created seed-peer DM channel: $defaultChannelId');
-
-        // Enqueue ChannelCreated for the new user so on WS connect the
-        // client materializes the channel + member roster locally.
-        _enqueueChannelCreated(
-          recipientUserId: user.userId,
-          channelId: defaultChannelId,
-          kind: 'one_to_one',
-          name: 'Seed Peer',
-          members: [user.userId, seedPeerUserId],
-          creatorUserId: user.userId,
-          createdAtMs: createdAt,
-        );
-        // Followed by a welcome message so the channel actually appears
-        // in the chat list — `watchChannelList` JOINs on `last_message_id`
-        // so a channel with no messages stays hidden.
         _enqueueWelcomeMessage(
           recipientUserId: user.userId,
           channelId: defaultChannelId,
           senderUserId: seedPeerUserId,
           body: '👋 Welcome to Vartalap! Reply with anything and I\'ll echo it back.',
         );
+        _log('Seed-peer DM welcome queued on derived channel '
+            '$defaultChannelId');
       }
     }
 
@@ -1633,7 +1642,7 @@ class MockServer {
     if (session == null) return;
     final body = await _readJsonBody(req);
     final channelId = body['channel_id'] as String? ?? state.generateUuid();
-    final kind = body['kind'] as String? ?? 'one_to_one';
+    final kind = body['kind'] as String? ?? 'group';
     final name = body['name'] as String?;
     final membersList = (body['members'] as List<dynamic>?)?.cast<String>() ?? [];
 
@@ -1650,8 +1659,11 @@ class MockServer {
       _respondOutcome(req, body, pre);
       return;
     }
-    // §11.3 — `kind` is exactly "one_to_one" or "group". No "dm".
-    if (strict && kind != 'one_to_one' && kind != 'group') {
+    // Trim 4 — `POST /v3.0/channels` takes groups and nothing else. A
+    // DM id is derived from the pair and has no server-side row, so
+    // there is no `one_to_one` to create: a client that asks for one
+    // is speaking the pre-trim protocol.
+    if (strict && kind != 'group') {
       final outcome = StoredOutcome(
         success: false,
         status: 400,
@@ -1659,7 +1671,7 @@ class MockServer {
         body: {
           'error': {
             'code': 'validation_failed',
-            'message': 'kind must be one_to_one or group, got "$kind"'
+            'message': 'kind must be group, got "$kind"'
           }
         },
       );
@@ -2173,10 +2185,28 @@ class MockServer {
       if (prefix != null) return reject(prefix);
     }
 
-    // Channel membership check
-    final channel = state.channels[channelId];
-    if (channel == null || !channel.members.contains(senderUserId)) {
-      return reject('forbidden');
+    // Trim 4 — a `d`-prefixed channel has no row and no membership.
+    // Membership IS the derivation: `peer` names the other side, the
+    // server recomputes `dm_chan(sender, peer)` from the authenticated
+    // session, and the recipient set is exactly `{peer}`. A third party
+    // cannot produce a `peer` that derives to someone else's DM id, so
+    // there is nothing to squat and nothing to look up.
+    final Set<String> recipients;
+    if (isMockDmChannelId(channelId)) {
+      final peer = env.peer;
+      if (peer.isEmpty || !_isWellFormedUserId(peer)) {
+        return reject('validation_failed');
+      }
+      if (mockDmChannelId(senderUserId, peer) != channelId) {
+        return reject('forbidden');
+      }
+      recipients = {peer};
+    } else {
+      final channel = state.channels[channelId];
+      if (channel == null || !channel.members.contains(senderUserId)) {
+        return reject('forbidden');
+      }
+      recipients = channel.members.difference({senderUserId});
     }
 
     // §10.2 / decision 56 — server events are server-authored. A client
@@ -2198,10 +2228,10 @@ class MockServer {
         payload: Uint8List.fromList(env.payload),
         rejectReason: null,
       ));
-      _fanoutEphemeral(env, senderUserId, channel, now);
+      _fanoutEphemeral(env, senderUserId, recipients, now);
       if (demoMode &&
           senderUserId != seedPeerUserId &&
-          channel.members.contains(seedPeerUserId)) {
+          recipients.contains(seedPeerUserId)) {
         _scheduleSeedPeerTypingEcho(channelId, env.payload);
       }
       // Return null-ish via a no-outcome Ack — the client ignores ACKs
@@ -2256,6 +2286,9 @@ class MockServer {
       senderUserId: senderUserId,
       serverTimestampMs: fixnum.Int64(now),
       deliverySequence: fixnum.Int64(deliverySeq),
+      // Echoed unchanged; from the recipient's side the other
+      // participant is `sender_user_id`, so nothing reads it.
+      peer: env.peer.isEmpty ? null : env.peer,
     );
 
     final pushFrame = pb.WsEnvelope(
@@ -2264,8 +2297,7 @@ class MockServer {
     );
     final pushBytes = pushFrame.writeToBuffer();
 
-    for (final memberId in channel.members) {
-      if (memberId == senderUserId) continue;
+    for (final memberId in recipients) {
       _sendToUser(memberId, pushBytes);
     }
 
@@ -2275,8 +2307,7 @@ class MockServer {
     // `_isMessageCreate` is what keeps receipts/edits/reactions out:
     // re-announcing their lifecycle would loop a receipt back at the
     // reader and produce an "Echo: <binary>" garbage reply.
-    if (channel.members.length > 1 &&
-        _isMessageCreate(env.payload)) {
+    if (recipients.isNotEmpty && _isMessageCreate(env.payload)) {
       final messageId = _extractMessageId(env.payload);
       if (messageId != null) {
         _enqueueMessageStateChanged(
@@ -2296,7 +2327,7 @@ class MockServer {
     if (_isMessageCreate(env.payload) &&
         demoMode &&
         senderUserId != seedPeerUserId &&
-        channel.members.contains(seedPeerUserId)) {
+        recipients.contains(seedPeerUserId)) {
       _scheduleSeedPeerReply(channelId, senderUserId, env.payload);
       final readId = _extractMessageId(env.payload);
       if (readId != null) {
@@ -2322,6 +2353,30 @@ class MockServer {
   // Live-fanout to a user. If the user has no open WS, the frame is
   // enqueued in the per-user undelivered queue; the client picks it up
   // on its next call to GET /v3.0/sync/pending.
+  /// Who a frame from [senderUserId] on [channelId] goes to, sender
+  /// excluded.
+  ///
+  /// For a group that is the stored roster. For a derived DM there is
+  /// no roster to read, so the peer is recovered by testing the
+  /// derivation against the users the mock holds — the same thing the
+  /// draft says a real server can always do (§5.2 "the server can
+  /// compute dm_chan for any pair of user_ids it holds"). The live
+  /// wire path never needs this: an op carries its own `peer`.
+  ///
+  /// ponytail: an O(users) scan, which is nothing at mock scale.
+  Set<String> _recipientsFor(String channelId, String senderUserId) {
+    if (isMockDmChannelId(channelId)) {
+      for (final userId in state.usersById.keys) {
+        if (userId == senderUserId) continue;
+        if (mockDmChannelId(senderUserId, userId) == channelId) return {userId};
+      }
+      throw StateError('no known peer derives $channelId with $senderUserId');
+    }
+    final channel = state.channels[channelId];
+    if (channel == null) throw StateError('unknown channel $channelId');
+    return channel.members.difference({senderUserId});
+  }
+
   void _sendToUser(String userId, Uint8List bytes) {
     final sockets = state.wsConnections[userId];
     if (sockets == null || sockets.isEmpty) {
@@ -2747,7 +2802,7 @@ class MockServer {
   void _fanoutEphemeral(
     pb.Envelope env,
     String senderUserId,
-    ChannelRecord channel,
+    Set<String> recipients,
     int now,
   ) {
     final pushEnv = pb.Envelope(
@@ -2767,7 +2822,7 @@ class MockServer {
       push: pushEnv,
     );
     final pushBytes = pushFrame.writeToBuffer();
-    for (final memberId in channel.members) {
+    for (final memberId in recipients) {
       if (memberId == senderUserId) continue;
       final sockets = state.wsConnections[memberId];
       if (sockets == null || sockets.isEmpty) continue; // drop if offline
@@ -2925,8 +2980,7 @@ class MockServer {
   /// the server never parses any of them (V3_ARCHITECTURE decision 12).
   ({String messageId, String opId}) _fanoutPeerChatPayload(
       String channelId, String senderUserId, pb.ChatPayload payload) {
-    final channel = state.channels[channelId];
-    if (channel == null) throw StateError('unknown channel $channelId');
+    final recipients = _recipientsFor(channelId, senderUserId);
     final now = DateTime.now().millisecondsSinceEpoch;
     final deliverySeq = state.nextDeliverySeq(channelId);
     final messageId = payload.messageId;
@@ -2945,8 +2999,7 @@ class MockServer {
     final pushBytes =
         pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv).writeToBuffer();
 
-    for (final memberId in channel.members) {
-      if (memberId == senderUserId) continue;
+    for (final memberId in recipients) {
       _sendToUser(memberId, pushBytes);
     }
     _log('Peer ${payload.type.name}: channel=$channelId '

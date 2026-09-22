@@ -276,6 +276,7 @@ class WsTransport implements Transport {
             ? fixnum.Int64(op.clientTimestampMs!)
             : null,
         payload: op.payload,
+        peer: frame.peer,
       );
       envelopes.add(env);
     }
@@ -317,6 +318,7 @@ class WsTransport implements Transport {
     required String channelId,
     required Uint8List payload,
     int? clientTimestampMs,
+    String? peer,
   }) {
     final ch = _channel;
     if (ch == null || _state != TransportState.connected) return false;
@@ -334,6 +336,9 @@ class WsTransport implements Transport {
           clientTimestampMs != null ? fixnum.Int64(clientTimestampMs) : null,
       payload: payload,
       ephemeral: true,
+      // Trim 4: a DM has no channel row to check the sender against,
+      // so even a typing frame names its peer.
+      peer: peer,
     );
     final wsEnv = pb.WsEnvelope(
       type: pb.WsType.WS_OP,

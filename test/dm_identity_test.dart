@@ -9,12 +9,14 @@
 /// connectivity signal is the point: it is what lets a test say
 /// "offline", queue work, and then watch the reconnect.
 ///
-/// The scenarios here are the ones whose answer is settled under the
-/// CURRENT channel-id scheme (client-minted UUIDv7, server upserts by
-/// id). What happens when two people start the same DM while both
-/// offline is an open question — see
-/// decisions/DM_IDENTITY_EDGE_CASES.md and the branch that implements
-/// it — so nothing here asserts either way on it.
+/// Under trim 4 a DM channel id is derived from the pair
+/// (`dmChannelId`), never minted and never created, so most of what
+/// this file used to have to prove is now arithmetic. What is left is
+/// the part that is still a question: that opening a DM really does
+/// touch nothing on the wire, that the peer learns the channel from
+/// the first message, and — case 8 — that two people who start the
+/// same DM while both offline converge on one channel with no fold, no
+/// merge and no id remap.
 @Timeout(Duration(minutes: 4))
 library vartalap.dm_identity_test;
 
@@ -88,10 +90,9 @@ void main() {
       reason: "B's store must not see A's rows.",
     );
 
-    // Hold the announcement so the only way B could know about A's new
-    // channel is a shared database handle.
-    mock.holdChannelCreatedFanout = true;
-    addTearDown(() => mock.holdChannelCreatedFanout = false);
+    // Trim 4: opening a DM is a purely local act — it derives the id
+    // and writes two projection rows. Nothing leaves the device, so
+    // there is nothing B could legitimately have heard.
     final id = await a.startDm(b);
     await a.drain();
     expect(await a.hasChannel(id), isTrue);
@@ -104,13 +105,21 @@ void main() {
           'two.',
     );
 
-    mock.releaseChannelCreatedFanout();
+    // The first message is the only introduction a DM has: there is no
+    // ChannelCreated for one, because there is no channel to create.
+    await a.chat.sendMessage(
+      channelId: id,
+      body: 'first',
+      authorUserId: a.userId,
+    );
+    await a.drain();
     await b.drain();
     expect(
       await b.hasChannel(id),
       isTrue,
-      reason: 'and over the wire it does arrive.',
+      reason: 'and the first message on a derived id materializes it.',
     );
+    expect(await b.memberIds(id), {a.userId, b.userId});
   });
 
   // ---- the reconnect tick, end to end ---------------------------------
@@ -118,12 +127,6 @@ void main() {
     final (a, b) = await pair();
     final channelId = await a.startDm(b);
     await a.drain();
-    await b.drain();
-    expect(
-      await b.hasChannel(channelId),
-      isTrue,
-      reason: 'the §10.2 ChannelCreated fanout gives B the channel.',
-    );
 
     await a.goOffline();
     for (var i = 1; i <= 3; i++) {
@@ -236,10 +239,10 @@ void main() {
   test('3. a permanently rejected create leaves no ghost chat', () async {
     final (a, _) = await pair();
     // §11.3: the creator must be in `members`. The strict mock answers
-    // 403 `forbidden`, exactly as channel-ms does — the same shape the
-    // client sees for an unknown peer or a username-key gate.
+    // 403 `forbidden`, exactly as channel-ms does. Trim 4 left groups
+    // as the only thing `POST /v3.0/channels` creates, so this is the
+    // only shape a rejected create still comes in.
     final ghost = await a.chat.createChannel(
-      kind: 'one_to_one',
       ownerUserId: 'deadbeef1',
       memberUserIds: const ['deadbeef2'],
       name: 'Nobody',
@@ -281,14 +284,12 @@ void main() {
     await a.drain();
 
     final g1 = await a.chat.createChannel(
-      kind: 'group',
       ownerUserId: a.userId,
       memberUserIds: [b.userId],
       name: 'Same two people',
     );
     await a.drain();
     final g2 = await a.chat.createChannel(
-      kind: 'group',
       ownerUserId: a.userId,
       memberUserIds: [b.userId],
       name: 'Same two people again',
@@ -340,17 +341,13 @@ void main() {
     await b.drain();
     expect(await b.dmChannelIds(), [channelId]);
 
-    final postsBefore = mock.requests
-        .where((r) => r.method == 'POST' && r.path == '/v3.0/channels')
-        .length;
-
     // "Delete chat" is local-only (V3_RELEASE_PLAN §6).
     await b.chat.deleteChat(channelId);
     expect(
       await b.startDm(a),
       channelId,
-      reason: 'a locally deleted DM is still the same channel: starting it '
-          'again must find it, not mint a second id.',
+      reason: 'a locally deleted DM is still the same channel: the id is a '
+          'function of the pair, so there is no second one to mint.',
     );
 
     // Same for "Clear messages".
@@ -359,11 +356,11 @@ void main() {
 
     await b.drain();
     expect(
-      mock.requests
-          .where((r) => r.method == 'POST' && r.path == '/v3.0/channels')
-          .length,
-      postsBefore,
-      reason: 'and neither path may issue a second POST /v3.0/channels.',
+      mock.requests.where((r) =>
+          r.path == '/v3.0/channels' && r.body['channel_id'] == channelId),
+      isEmpty,
+      reason: 'and no DM path may POST /v3.0/channels at all — trim 4 took '
+          'the create away.',
     );
   });
 
@@ -375,7 +372,6 @@ void main() {
     addTearDown(() => mock.holdChannelCreatedFanout = false);
 
     final channelId = await a.chat.createChannel(
-      kind: 'group',
       ownerUserId: a.userId,
       memberUserIds: [b.userId],
       name: 'held',
@@ -457,6 +453,84 @@ void main() {
           'pull is the only delivery path and it has nothing to hand '
           'over. Any recovery mechanism has to be tested against this.',
     );
+  });
+
+  // ---- the case v3.0 could not test ------------------------------------
+  test('8. both start the same DM offline and converge with no merge',
+      () async {
+    final (a, b) = await pair();
+    await a.goOffline();
+    await b.goOffline();
+
+    // Neither device can see the other, or the server, or agree on
+    // anything. They agree anyway, because the id is a function of the
+    // pair and of nothing else.
+    final idA = await a.startDm(b);
+    final idB = await b.startDm(a);
+    expect(
+      idA,
+      idB,
+      reason: 'trim 4: dm_chan(a, b) is order-independent and offline-'
+          'computable, so there is no winner, no loser and nothing to '
+          'fold. This is the case decisions 89/90 existed to survive.',
+    );
+
+    await a.chat.sendMessage(
+      channelId: idA,
+      body: 'from A',
+      authorUserId: a.userId,
+    );
+    await b.chat.sendMessage(
+      channelId: idB,
+      body: 'from B',
+      authorUserId: b.userId,
+    );
+
+    await a.goOnline();
+    await b.goOnline();
+    await a.drain();
+    await b.drain();
+    await a.pullPendingSync();
+    await b.pullPendingSync();
+    await a.drain();
+    await b.drain();
+
+    expect(
+      await a.dmChannelIds(),
+      [idA],
+      reason: 'one DM row on A, not two. ${await a.channelDebug()}',
+    );
+    expect(
+      await b.dmChannelIds(),
+      [idA],
+      reason: 'one DM row on B too. ${await b.channelDebug()}',
+    );
+    for (final client in [a, b]) {
+      expect(
+        await client.bodiesIn(idA),
+        containsAll(const ['from A', 'from B']),
+        reason: 'both halves of the conversation land in the one channel, '
+            'with no id remap and no message re-send: they were addressed '
+            'to the same place from the start.',
+      );
+    }
+    expect(
+      mock.requests.where((r) =>
+          r.path == '/v3.0/channels' && r.body['channel_id'] == idA),
+      isEmpty,
+      reason: 'and neither side ever asked the server to create anything.',
+    );
+    expect(
+      mock.requests
+          .where((r) => r.path == '/v3.0/channels')
+          .map((r) => r.body['kind'])
+          .toSet(),
+      {'group'},
+      reason: 'across this whole file the only thing ever created is a '
+          'group: `POST /v3.0/channels` has no other kind left.',
+    );
+    expect(await a.deadLetteredOps(), isEmpty);
+    expect(await b.deadLetteredOps(), isEmpty);
   });
 }
 

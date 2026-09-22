@@ -67,11 +67,11 @@ final Matcher isAcked = isIn(const [
 late _Harness h;
 late String userIdA;
 late String peerUserId;
-String dmChannelId = '';
+String dmChannel = '';
 String groupChannelId = '';
 String peerCreatedChannelId = '';
 String extraMemberId = '';
-String keyedDmChannelId = '';
+String keyedDmChannel = '';
 String peerMessageId = '';
 String rolesChannelId = '';
 String succeededChannelId = '';
@@ -164,7 +164,8 @@ void main() {
     });
 
     // ---- 2 --------------------------------------------------------------
-    test('2. discover peer → start DM → channel kind is one_to_one', () async {
+    test('2. discover peer → start DM → the id is derived, nothing is created',
+        () async {
       final contacts = await h.chat.discoverContacts(
         normalizedPhones: const [peerPhone],
         contactBookNamesByPhone: const {peerPhone: 'Seed Peer'},
@@ -177,36 +178,39 @@ void main() {
             'the peer for the submitted SHA-256 phone hash.',
       );
 
-      dmChannelId = await h.chat.startDirectMessage(
+      dmChannel = await h.chat.startDirectMessage(
         localUserId: userIdA,
         peerUserId: peerUserId,
         peerName: 'Seed Peer',
       );
-      final local = await h.channelRow(dmChannelId);
+      expect(
+        dmChannel,
+        dmChannelId(userIdA, peerUserId),
+        reason: 'SYNC_PROTOCOL §11.3 (trim 4): the DM id is derived from the '
+            'pair — "d" + sha256(min || 0x00 || max)[0:31] — so both sides '
+            'compute it without asking anyone.',
+      );
+      final local = await h.channelRow(dmChannel);
       expect(
         local?['kind'],
         'one_to_one',
-        reason: 'SYNC_PROTOCOL §11.3: `kind` is "one_to_one" or "group". '
-            'ChatService.startDirectMessage writes "${local?['kind']}" into '
-            'the local channels row (lib/services/chat_service.dart, '
-            'startDirectMessage → createChannel(kind: \'dm\')).',
+        reason: 'the local projection still calls a DM a one_to_one; only '
+            'the id scheme and the server-side row changed.',
       );
 
-      await h.waitFor(() => h.channelPosts(dmChannelId).isNotEmpty);
-      final posts = h.channelPosts(dmChannelId);
+      await _pump();
       expect(
-        posts,
-        isNotEmpty,
-        reason: 'SYNC_PROTOCOL §11.3: starting a DM must issue '
-            'POST /v3.0/channels.',
+        h.channelPosts(dmChannel),
+        isEmpty,
+        reason: 'SYNC_PROTOCOL §11.3 (trim 4): a DM is never created. '
+            'Opening one must not touch the network at all — no '
+            'POST /v3.0/channels, ever.',
       );
       expect(
-        posts.first.body['kind'],
-        'one_to_one',
-        reason: 'SYNC_PROTOCOL §11.3: the server rejects any `kind` outside '
-            '{one_to_one, group} with 400 validation_failed. The client sent '
-            'kind="${posts.first.body['kind']}" and the mock answered '
-            '${posts.first.status}.',
+        h.mock.state.channels.containsKey(dmChannel),
+        isFalse,
+        reason: 'and the server holds no row for it: membership is a pure '
+            'function of the id.',
       );
     });
 
@@ -263,48 +267,42 @@ void main() {
             '(username → user_id) pair as a local contact row.',
       );
 
-      keyedDmChannelId = await h.chat.startDirectMessage(
+      keyedDmChannel = await h.chat.startDirectMessage(
         localUserId: userIdA,
         peerUserId: keyedPeerUserId,
         peerName: found.displayLabel,
       );
-      final local = await h.channelRow(keyedDmChannelId);
+      final local = await h.channelRow(keyedDmChannel);
       expect(local?['kind'], 'one_to_one');
-      await h.waitFor(() => h.channelPosts(keyedDmChannelId).isNotEmpty);
+      expect(keyedDmChannel, dmChannelId(userIdA, keyedPeerUserId));
+      await _pump();
       expect(
-        h.channelPosts(keyedDmChannelId).firstOrNull?.status,
-        201,
-        reason: 'SYNC_PROTOCOL §11.3: a username-initiated DM is an ordinary '
-            'POST /v3.0/channels once the handle has been resolved.',
+        h.channelPosts(keyedDmChannel),
+        isEmpty,
+        reason: 'the username key gates the LOOKUP (§7.6) and nothing else: '
+            'once the handle resolves to a user_id the DM is derived like '
+            'any other, with no create to gate.',
       );
     });
 
     // ---- 3 --------------------------------------------------------------
     test('3. send text → ACK_SUCCESS → message_state=sent, payload is proto',
         () async {
-      // Step 2's bug leaves the channel unknown server-side (the create
-      // was rejected). Reconcile out of band so this step tests its own
-      // clause instead of re-failing on §6a.3 membership.
-      h.mock.ensureChannel(
-        channelId: dmChannelId,
-        kind: 'one_to_one',
-        ownerUserId: userIdA,
-        members: [userIdA, peerUserId],
-        name: 'Seed Peer',
-      );
-
-      final msg = await h.sendAndSettle(dmChannelId, 'hello from golden path');
+      // Nothing to reconcile: there is no server-side DM row to line up
+      // with, and the derivation check the server runs instead needs
+      // only the `peer` the envelope already carries.
+      final msg = await h.sendAndSettle(dmChannel, 'hello from golden path');
 
       expect(
         msg?.state,
         isAcked,
         reason: 'SYNC_PROTOCOL §5.3 + §8.1: a WS_OP must be answered '
             'ACK_SUCCESS and the local row promoted pending→sending→sent. '
-            'State is ${msg?.state}. ${await h.opDebug(dmChannelId)}',
+            'State is ${msg?.state}. ${await h.opDebug(dmChannel)}',
       );
 
       final envs = h.mock.envelopes
-          .where((e) => e.channelId == dmChannelId)
+          .where((e) => e.channelId == dmChannel)
           .toList();
       expect(
         envs,
@@ -326,11 +324,11 @@ void main() {
     // ---- 4 --------------------------------------------------------------
     test('4. two more messages on the same channel → all ACK_SUCCESS',
         () async {
-      final second = await h.sendAndSettle(dmChannelId, 'second message');
-      final third = await h.sendAndSettle(dmChannelId, 'third message');
+      final second = await h.sendAndSettle(dmChannel, 'second message');
+      final third = await h.sendAndSettle(dmChannel, 'third message');
 
       final seqs = h.mock.envelopes
-          .where((e) => e.channelId == dmChannelId)
+          .where((e) => e.channelId == dmChannel)
           .map((e) => '${e.resourceSeq}:${e.rejectReason ?? 'ok'}')
           .join(', ');
 
@@ -341,7 +339,7 @@ void main() {
             'starts at 1, increments by exactly 1, never resets) and §6a.3 '
             'step 5 (payload must be a ChatPayload proto) must both hold for '
             'consecutive sends on one channel. Observed rejects for this '
-            'channel (seq:outcome): $seqs. ${await h.opDebug(dmChannelId)}. '
+            'channel (seq:outcome): $seqs. ${await h.opDebug(dmChannel)}. '
             'NOTE: every send here is already rejected on the §6a.3 payload '
             'clause (step 3), which keeps the rejected op rows in '
             'outbound_ops and so hides the §6 breach on this channel. The §6 '
@@ -356,12 +354,12 @@ void main() {
     // ---- 5 --------------------------------------------------------------
     test('5. peer inbound → message, chat-list preview, op_id_seen', () async {
       final seen = <List<MessageRow>>[];
-      final sub = h.chat.watchMessages(dmChannelId).listen(seen.add);
+      final sub = h.chat.watchMessages(dmChannel).listen(seen.add);
       addTearDown(sub.cancel);
       await _pump();
 
       final injected = h.mock.injectPeerMessage(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         body: 'ping from the peer',
       );
       peerMessageId = injected.messageId;
@@ -386,7 +384,7 @@ void main() {
 
       final list = await h.store.fetchChannelList();
       final entry =
-          list.where((e) => e.channelId == dmChannelId).firstOrNull;
+          list.where((e) => e.channelId == dmChannel).firstOrNull;
       expect(
         entry?.lastMessagePreview,
         'ping from the peer',
@@ -395,7 +393,7 @@ void main() {
       );
 
       expect(
-        await h.store.hasSeenOpId(dmChannelId, injected.opId),
+        await h.store.hasSeenOpId(dmChannel, injected.opId),
         isTrue,
         reason: 'SYNC_PROTOCOL §7.2: the receiver records the applied op_id '
             'in the channel op_id_seen set so a re-fanout is dropped.',
@@ -486,33 +484,25 @@ void main() {
           reason: 'sanity: the stranger must not already be a local contact.',
         );
 
-        final strangerDmChannelId =
-            'stranger-dm-${DateTime.now().millisecondsSinceEpoch}';
-        h.mock.ensureChannel(
-          channelId: strangerDmChannelId,
-          kind: 'one_to_one',
-          ownerUserId: stranger.userId,
-          members: [stranger.userId, userIdA],
-          announce: true,
-        );
-
-        await h.waitForAsync(
-            () async => (await h.channelRow(strangerDmChannelId)) != null);
-
-        // fetchChannelList only surfaces channels with a last message
-        // (SPIKE_A_SCHEMA §13.1) — give it one, as a real stranger DM
-        // would open with a message.
+        // Trim 4: there is no ChannelCreated for a DM, so the message
+        // IS the introduction — the client derives nothing from an
+        // announcement it will never get and materializes the channel
+        // from the first frame that lands on the derived id.
+        final strangerDmChannel = dmChannelId(userIdA, stranger.userId);
         h.mock.injectPeerMessage(
-          channelId: strangerDmChannelId,
+          channelId: strangerDmChannel,
           body: 'hi, found you via search',
           senderUserId: stranger.userId,
         );
+
+        await h.waitForAsync(
+            () async => (await h.channelRow(strangerDmChannel)) != null);
 
         String? title;
         await h.waitForAsync(() async {
           final list = await h.store.fetchChannelList();
           title = list
-              .where((e) => e.channelId == strangerDmChannelId)
+              .where((e) => e.channelId == strangerDmChannel)
               .firstOrNull
               ?.title;
           return title == '@${stranger.username}';
@@ -521,8 +511,8 @@ void main() {
         expect(
           title,
           '@${stranger.username}',
-          reason: 'decision 79: a one_to_one ChannelCreated carries no name '
-              'for a peer we\'ve never discovered — the client must fetch '
+          reason: 'decision 79: a materialized DM carries no name for a '
+              'peer we\'ve never discovered — the client must fetch '
               'GET /v3.0/users/{user_id} and upsert a contacts row so '
               'ChannelListEntry.title resolves to "@handle" instead of '
               'falling back to "Unknown". Got "$title".',
@@ -564,7 +554,7 @@ void main() {
         'a peer reaction lands locally', () async {
       h.peerInbox(); // drop anything queued by earlier steps
       await h.chat.reactToMessage(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: peerMessageId,
         userId: userIdA,
         emoji: '\u{1F44D}',
@@ -580,7 +570,7 @@ void main() {
       );
 
       await h.waitFor(() => h.mock.envelopes.any((e) =>
-          e.channelId == dmChannelId &&
+          e.channelId == dmChannel &&
           _payloadType(e.payload) ==
               pb.ChatPayloadType.TYPE_REACTION_ADD));
       final sent = h.mock.envelopes.lastWhere((e) =>
@@ -604,7 +594,7 @@ void main() {
 
       // …and the reverse direction.
       h.mock.injectPeerReaction(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: peerMessageId,
         emoji: '\u{2764}\u{FE0F}',
       );
@@ -619,7 +609,7 @@ void main() {
 
       // Toggling our own reaction off removes the row and sends REMOVE.
       await h.chat.reactToMessage(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: peerMessageId,
         userId: userIdA,
         emoji: '\u{1F44D}',
@@ -639,11 +629,11 @@ void main() {
     test('7c. edit own message → MESSAGE_UPDATE reaches the peer, row is '
         'marked edited', () async {
       h.peerInbox();
-      final original = await h.sendAndSettle(dmChannelId, 'draft text');
+      final original = await h.sendAndSettle(dmChannel, 'draft text');
       expect(original?.state, isAcked);
 
       await h.chat.editMessage(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: original!.messageId,
         newBody: 'corrected text',
       );
@@ -680,7 +670,7 @@ void main() {
 
       // Inbound edit of the peer's own message (§6a.3 authorship holds).
       h.mock.injectPeerEdit(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: peerMessageId,
         body: 'ping from the peer (fixed)',
       );
@@ -699,7 +689,7 @@ void main() {
     test('7d. delete own: undo inside the window sends nothing; letting it '
         'elapse sends MESSAGE_DELETE', () async {
       h.peerInbox();
-      final undone = await h.sendAndSettle(dmChannelId, 'deleted then undone');
+      final undone = await h.sendAndSettle(dmChannel, 'deleted then undone');
       final opsBefore = await h.opCount();
 
       await h.chat.deleteMessage(messageId: undone!.messageId);
@@ -721,13 +711,13 @@ void main() {
       );
 
       // Now the same thing, committed.
-      final gone = await h.sendAndSettle(dmChannelId, 'deleted for real');
+      final gone = await h.sendAndSettle(dmChannel, 'deleted for real');
       await h.chat.deleteMessage(
         messageId: gone!.messageId,
         undoWindow: Duration.zero,
       );
       final committed = await h.chat.commitDelete(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: gone.messageId,
       );
       expect(committed, isTrue);
@@ -747,7 +737,7 @@ void main() {
 
       // Inbound delete of the peer's own message.
       h.mock.injectPeerDelete(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: peerMessageId,
       );
       await h.waitForAsync(() async =>
@@ -770,7 +760,7 @@ void main() {
       final sub = h.chat.watchFailures().listen(failures.add);
       addTearDown(sub.cancel);
 
-      final doomed = await h.sendAndSettle(dmChannelId, 'rejected once');
+      final doomed = await h.sendAndSettle(dmChannel, 'rejected once');
       expect(
         doomed?.state,
         MessageState.rejected,
@@ -803,7 +793,7 @@ void main() {
         isAcked,
         reason: 'SPIKE_B_SYNC.md §10: manualRetry clones the failed op under '
             'a fresh op_id and the message completes. '
-            '${await h.opDebug(dmChannelId)}',
+            '${await h.opDebug(dmChannel)}',
       );
       await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
           body: 'rejected once'));
@@ -825,14 +815,14 @@ void main() {
       // Step 7d tombstoned the only peer message, so seed a live one —
       // markRead's marker is the newest NON-tombstoned peer message.
       final unread = h.mock.injectPeerMessage(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         body: 'read this',
       );
       await h.waitForAsync(
           () async => await h.store.fetchMessage(unread.messageId) != null);
 
       // Outbound receipt: a normal WS op naming the newest peer message.
-      await h.chat.markRead(dmChannelId);
+      await h.chat.markRead(dmChannel);
       await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_READ_RECEIPT,
           messageId: unread.messageId));
       expect(
@@ -854,10 +844,10 @@ void main() {
 
       // Inbound receipt is read-UP-TO: both of these flip, not just the
       // one the marker names.
-      final older = await h.sendAndSettle(dmChannelId, 'read me 1');
-      final newer = await h.sendAndSettle(dmChannelId, 'read me 2');
+      final older = await h.sendAndSettle(dmChannel, 'read me 1');
+      final newer = await h.sendAndSettle(dmChannel, 'read me 2');
       h.mock.injectPeerReadReceipt(
-        channelId: dmChannelId,
+        channelId: dmChannel,
         messageId: newer!.messageId,
       );
       await h.waitForAsync(() async =>
@@ -875,7 +865,7 @@ void main() {
       );
 
       // Outbound typing: an ephemeral ChatPayload, never a 0x53 forgery.
-      h.chat.notifyTyping(channelId: dmChannelId, isTyping: true);
+      h.chat.notifyTyping(channelId: dmChannel, isTyping: true);
       await h.waitFor(() => h.mock.ephemeralEnvelopes.isNotEmpty);
       final typed = pb.ChatPayload.fromBuffer(
           h.mock.ephemeralEnvelopes.last.payload);
@@ -891,9 +881,9 @@ void main() {
       final typingSub = h.chat.typingEvents.listen(typings.add);
       addTearDown(typingSub.cancel);
       await _pump();
-      h.mock.injectPeerTyping(channelId: dmChannelId, isTyping: true);
+      h.mock.injectPeerTyping(channelId: dmChannel, isTyping: true);
       await h.waitFor(() =>
-          typings.any((t) => t.channelId == dmChannelId && t.isTyping));
+          typings.any((t) => t.channelId == dmChannel && t.isTyping));
       expect(
         typings.map((t) => '${t.userId}:${t.isTyping}'),
         contains('$peerUserId:true'),
@@ -906,7 +896,7 @@ void main() {
           .next(nowMs: DateTime.now().millisecondsSinceEpoch);
       h.ws.sendEphemeral(
         opId: forgedOpId,
-        channelId: dmChannelId,
+        channelId: dmChannel,
         payload: Uint8List.fromList([
           0x53,
           ...pb.ServerEventPayload(
@@ -1066,6 +1056,19 @@ void main() {
     // ---- 11 -------------------------------------------------------------
     test('11. set profile photo → PATCH /v3.0/users/me → ProfileEdited '
         'fanout carries the avatarUrl', () async {
+      // Trim 4 left the server with no row for a DM, so "users who
+      // share a channel with the editor" is now exactly "group
+      // co-members". A DM-only peer hears nothing — the client already
+      // resolves a DM peer's profile on demand (decision 79). Give the
+      // fanout the shared group it now needs.
+      final editorId = h.authService.currentUserId!;
+      h.mock.ensureChannel(
+        channelId: 'g-profile-fanout',
+        kind: 'group',
+        ownerUserId: editorId,
+        members: [editorId, peerUserId],
+        name: 'Profile fanout',
+      );
       final picked = File('${h.tmpDir.path}/me.png')
         ..writeAsBytesSync(onePixelPng);
       final edits = <pb.ProfileEdited>[];
@@ -1106,7 +1109,9 @@ void main() {
         edits.map((e) => e.avatarUrl),
         contains(fileId),
         reason: 'SYNC_PROTOCOL §10.2: every user sharing a channel with the '
-            'editor gets a ProfileEdited carrying the new avatarUrl.',
+            'editor gets a ProfileEdited carrying the new avatarUrl. '
+            'After trim 4 that means every GROUP co-member — a DM has no '
+            'server-side row to share.',
       );
     });
 

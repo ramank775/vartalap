@@ -201,6 +201,10 @@ Future<AppServices> initializeApp() async {
     backoff: ExponentialJitterBackoff(),
     clock: Clock.system,
   );
+  // Trim 4: derived DM ops name their peer on the wire, which is
+  // relative to the signed-in user. `ChatService.reseedForUser` keeps
+  // this current on every later login.
+  scheduler.selfUserId = authClient.currentUserId;
   await scheduler.start();
   // Start the WS transport. If no accesskey yet (pre-login), it stays
   // disconnected and auto-connects once auth lands. Reconnect with

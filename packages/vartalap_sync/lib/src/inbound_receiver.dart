@@ -5,6 +5,7 @@ import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 
 import 'clock.dart';
+import 'dm_channel_id.dart';
 
 /// Public-profile fields needed to backfill a `contacts` row for a peer
 /// we've never discovered (decision 79) — a subset of `GET
@@ -194,6 +195,26 @@ class InboundReceiver {
       // `version`, 0x08 — never 0x53).
       await _handleServerEvent(env, payload.sublist(1));
       return;
+    }
+
+    // Trim 4 — a DM is never created and never announced, so there is
+    // no ChannelCreated to depend on: the first op that lands on a
+    // derived id IS the introduction. Materialize the channel here.
+    //
+    // The id must derive from us and the sender, which is the same
+    // check the server makes from the other side. A frame that fails
+    // it is either a bug or someone else's channel, and either way
+    // there is nothing local it could belong to.
+    if (isDmChannelId(channelId)) {
+      final sender = env.senderUserId;
+      if (sender.isEmpty || dmChannelId(localUserId, sender) != channelId) {
+        // ignore: avoid_print
+        print('InboundReceiver: dropping DM frame whose channel_id does not '
+            'derive from ($localUserId, $sender): channel=$channelId '
+            'op_id=$opId');
+        return;
+      }
+      await _ensureDmChannel(channelId, sender, env);
     }
 
     pb.ChatPayload chat;
@@ -528,6 +549,36 @@ class InboundReceiver {
       default:
         return null;
     }
+  }
+
+  /// Trim 4 — local materialization of a derived DM the peer spoke on
+  /// first. `channels.name` stays null on purpose: the chat-list title
+  /// resolves the peer live through `contacts` (AUTH_CONTRACT §2.4),
+  /// and the decision-79 backfill fills that row in.
+  Future<void> _ensureDmChannel(
+    String channelId,
+    String senderUserId,
+    pb.Envelope env,
+  ) async {
+    if (await store.channelExists(channelId)) return;
+    final createdAt = env.serverTimestampMs.toInt() != 0
+        ? env.serverTimestampMs.toInt()
+        : clock.nowMs();
+    await store.insertChannel(
+      channelId: channelId,
+      kind: 'one_to_one',
+      ownerUserId: localUserId,
+      createdAt: createdAt,
+    );
+    for (final userId in [localUserId, senderUserId]) {
+      await store.insertChannelMember(
+        channelId: channelId,
+        userId: userId,
+        role: userId == localUserId ? 'owner' : 'member',
+        joinedAt: createdAt,
+      );
+    }
+    _resolveUnknownMembers([senderUserId]);
   }
 
   /// §10.2 ChannelCreated. Materialize the channel + member roster on

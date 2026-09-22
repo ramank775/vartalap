@@ -5,6 +5,7 @@ import 'package:vartalap_transport/vartalap_transport.dart';
 
 import 'backoff.dart';
 import 'clock.dart';
+import 'dm_channel_id.dart';
 
 /// Outbound-op scheduler per SPIKE_B_SYNC.md §5.
 ///
@@ -83,6 +84,13 @@ class SyncScheduler {
   /// Paused on AUTH_FAILURE until the auth layer refreshes. Flow A
   /// checks this at the top of each tick.
   bool _authPaused = false;
+
+  /// Trim 4 — the signed-in user's `user_id`. An op on a derived DM
+  /// channel has to name the other participant on the wire
+  /// (`Envelope.peer`), and "the other one" is only meaningful
+  /// relative to us. Set by `ChatService.reseedForUser` on every login;
+  /// null before the first one, when nothing is enqueued anyway.
+  String? selfUserId;
 
   /// Fires whenever an outbound op gets an ACK_AUTH_FAILURE. The auth
   /// layer subscribes and triggers a session refresh; on success it
@@ -261,9 +269,18 @@ class SyncScheduler {
       nowMs: clock.nowMs(),
     );
 
+    // Trim 4: a DM has no channel row on the server, so the derivation
+    // check needs the peer on every envelope.
+    // ponytail: one small indexed SELECT per dispatched DM op. Carry
+    // the peer on the op row if dispatch ever gets hot enough to care.
+    final peer = isDmChannelId(op.resourceId) && selfUserId != null
+        ? await store.dmPeer(op.resourceId, selfUserId!)
+        : null;
+
     final frame = OutboundFrame(
       kind: op.kind,
       resourceId: op.resourceId,
+      peer: peer,
       ops: [
         FramedOp(
           opId: op.opId,

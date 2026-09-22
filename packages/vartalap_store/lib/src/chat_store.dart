@@ -115,6 +115,18 @@ class ChatStore {
         },
       ),
     );
+    // ponytail: trim 4 made every DM id derived from the pair, so a
+    // local `one_to_one` row whose id is not `d`-prefixed is a
+    // pre-trim channel the server has no record of — nothing can be
+    // sent to it and nothing can arrive on it. Pre-release, so the
+    // simplest correct answer is to drop it here (messages and
+    // membership cascade) instead of carrying a migration; opening the
+    // DM again derives the real id. Delete this line once no install
+    // can hold a pre-trim row.
+    await db.delete(
+      'channels',
+      where: "kind = 'one_to_one' AND channel_id NOT LIKE 'd%'",
+    );
     return current = ChatStore._(db);
   }
 
@@ -734,6 +746,18 @@ class ChatStore {
     return rows.map(_rowToOutboundOp).toList();
   }
 
+  /// Do we hold a local row for [channelId]? Used on the derived-DM
+  /// paths (trim 4), where "the channel exists" is a purely local
+  /// question — the server keeps no row for a DM to ask.
+  Future<bool> channelExists(String channelId) async => (await db.query(
+        'channels',
+        columns: const ['channel_id'],
+        where: 'channel_id = ?',
+        whereArgs: [channelId],
+        limit: 1,
+      ))
+      .isNotEmpty;
+
   /// §3 — bootstrap a channel row. Used in scaffold tests. Production
   /// code will call higher-level repositories.
   Future<void> insertChannel({
@@ -1201,25 +1225,24 @@ class ChatStore {
         .toList();
   }
 
-  /// Check if a DM channel already exists between two users.
-  /// Returns the channel_id if found, null otherwise.
-  Future<String?> findExistingDmChannel(
-      String userId, String peerUserId) async {
-    // A DM channel has kind='one_to_one' and both users as members.
-    final rows = await db.rawQuery(
-      '''
-      SELECT c.channel_id FROM channels c
-      JOIN channel_members m1 ON c.channel_id = m1.channel_id
-        AND m1.user_id = ? AND m1.removed_at IS NULL
-      JOIN channel_members m2 ON c.channel_id = m2.channel_id
-        AND m2.user_id = ? AND m2.removed_at IS NULL
-      WHERE c.kind = 'one_to_one' AND c.tombstoned = 0
-      LIMIT 1
-      ''',
-      [userId, peerUserId],
+  /// The other participant of a DM channel, as seen by [selfUserId].
+  ///
+  /// Trim 4: a DM id is `dm_chan(self, peer)` and the server checks
+  /// that derivation against the `peer` every op carries, so the
+  /// dispatcher has to name the peer on the way out. The hash cannot
+  /// be inverted, so it is read back from the membership rows written
+  /// when the DM was opened (or when its first message arrived).
+  /// Null if the channel is unknown locally.
+  Future<String?> dmPeer(String channelId, String selfUserId) async {
+    final rows = await db.query(
+      'channel_members',
+      columns: const ['user_id'],
+      where: 'channel_id = ? AND user_id != ? AND removed_at IS NULL',
+      whereArgs: [channelId, selfUserId],
+      limit: 1,
     );
     if (rows.isEmpty) return null;
-    return rows.single['channel_id'] as String;
+    return rows.single['user_id'] as String;
   }
 
   /// Insert a channel member row.

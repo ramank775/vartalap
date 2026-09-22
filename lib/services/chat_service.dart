@@ -160,6 +160,10 @@ class ChatService {
   /// emission where the user is now logged in.
   void reseedForUser(String userIdHex) {
     _uuidGen = Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(userIdHex));
+    // Trim 4: the dispatcher names the other participant on every op
+    // that targets a derived DM channel, and "other" is relative to
+    // the signed-in user.
+    _scheduler.selfUserId = userIdHex;
   }
 
   /// Chat list hot path — SPIKE_A_SCHEMA.md §13.1 via
@@ -252,17 +256,23 @@ class ChatService {
     _scheduler.tickSoon();
   }
 
-  /// Create a channel locally and enqueue a REST op to POST /v3.0/channels.
+  /// Create a **group** locally and enqueue a REST op to
+  /// POST /v3.0/channels.
   ///
   /// The local channel row appears in [watchChannels] immediately; the
   /// REST op confirms it server-side. If the server rejects, the channel
   /// stays local (acceptable for v3.0 — no server-side delete yet).
+  ///
+  /// Trim 4: there is no `kind` to choose any more. A DM is never
+  /// created — its id is derived from the pair (see
+  /// [startDirectMessage]) and the server keeps no row for it — so
+  /// `POST /v3.0/channels` takes groups and nothing else.
   Future<String> createChannel({
-    required String kind,
     required String ownerUserId,
     required List<String> memberUserIds,
     String? name,
   }) async {
+    const kind = 'group';
     final now = _clock.nowMs();
     final channelId = _uuidGen.next(nowMs: now);
     final opId = _uuidGen.next(nowMs: now);
@@ -368,12 +378,30 @@ class ChatService {
     // It does not appear in the encoded payload — the server stamps
     // sender_user_id on the envelope at fanout.
     if (localUserId.isEmpty) return;
-    _wsTransport.sendEphemeral(
-      opId: _uuidGen.next(nowMs: now),
-      channelId: channelId,
-      payload: _encodeTyping(isTyping: isTyping),
-      clientTimestampMs: now,
-    );
+    final opId = _uuidGen.next(nowMs: now);
+    final payload = _encodeTyping(isTyping: isTyping);
+    if (!isDmChannelId(channelId)) {
+      _wsTransport.sendEphemeral(
+        opId: opId,
+        channelId: channelId,
+        payload: payload,
+        clientTimestampMs: now,
+      );
+      return;
+    }
+    // Trim 4: a DM has no channel row for the server to check the
+    // sender against, so even a typing frame names its peer. The
+    // lookup is async; the call stays fire-and-forget.
+    unawaited(_store.dmPeer(channelId, localUserId).then((peer) {
+      if (peer == null) return;
+      _wsTransport.sendEphemeral(
+        opId: opId,
+        channelId: channelId,
+        payload: payload,
+        clientTimestampMs: now,
+        peer: peer,
+      );
+    }));
   }
 
   /// Discover contacts from the server and cache locally.
@@ -473,7 +501,6 @@ class ChatService {
     required List<String> memberUserIds,
   }) async {
     final channelId = await createChannel(
-      kind: 'group',
       ownerUserId: creatorUserId,
       memberUserIds: memberUserIds,
       name: name,
@@ -499,29 +526,49 @@ class ChatService {
 
   /// Start or resume a DM with [peerUserId]. Returns the channel_id.
   ///
-  /// If a DM channel already exists between the current user and the
-  /// peer, returns it. Otherwise creates a new one locally and enqueues
-  /// the REST op to `POST /v3.0/channels`.
+  /// Trim 4: the id is **derived** from the pair —
+  /// `dmChannelId(localUserId, peerUserId)` — so this never talks to
+  /// the network. There is no create op, no server-side row and no
+  /// second id to reconcile: both sides compute the same channel
+  /// offline, which is what makes "we both started this chat while
+  /// offline" a non-event rather than a merge.
+  ///
+  /// All this does locally is make sure the projection rows exist so
+  /// the chat list, the member list and the outbound peer lookup have
+  /// something to read.
   Future<String> startDirectMessage({
     required String localUserId,
     required String peerUserId,
     required String peerName,
   }) async {
-    // Check for existing DM.
-    final existing =
-        await _store.findExistingDmChannel(localUserId, peerUserId);
-    if (existing != null) return existing;
+    final channelId = dmChannelId(localUserId, peerUserId);
+    await _ensureDmChannel(
+      channelId: channelId,
+      localUserId: localUserId,
+      peerUserId: peerUserId,
+      peerName: peerName,
+    );
+    return channelId;
+  }
 
-    // Create new channel.
-    final channelId = await createChannel(
+  /// Idempotent local materialization of a derived DM channel.
+  /// `INSERT OR IGNORE` semantics: re-opening an existing DM leaves its
+  /// history, its unread count and its local flags alone.
+  Future<void> _ensureDmChannel({
+    required String channelId,
+    required String localUserId,
+    required String peerUserId,
+    required String peerName,
+  }) async {
+    if (await _store.channelExists(channelId)) return;
+    final now = _clock.nowMs();
+    await _store.insertChannel(
+      channelId: channelId,
       kind: 'one_to_one',
       ownerUserId: localUserId,
-      memberUserIds: [peerUserId],
+      createdAt: now,
       name: peerName,
     );
-
-    // Record both members locally.
-    final now = _clock.nowMs();
     await _store.insertChannelMember(
       channelId: channelId,
       userId: localUserId,
@@ -534,8 +581,6 @@ class ChatService {
       role: 'member',
       joinedAt: now,
     );
-
-    return channelId;
   }
 
   /// Wipe every message in [channelId] without removing the channel

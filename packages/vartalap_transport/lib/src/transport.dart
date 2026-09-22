@@ -12,10 +12,18 @@ class OutboundFrame {
   final String resourceId;
   final List<FramedOp> ops;
 
+  /// Trim 4 — the other participant's `user_id` when [resourceId] is a
+  /// derived DM channel (`"d"`-prefixed); null for groups. Stamped on
+  /// every envelope in the frame as `Envelope.peer`; the server
+  /// recomputes `dm_chan(sender, peer)` from it instead of reading a
+  /// channel row, so an op on a DM without it is `validation_failed`.
+  final String? peer;
+
   const OutboundFrame({
     required this.kind,
     required this.resourceId,
     required this.ops,
+    this.peer,
   });
 
   bool get isBatch => ops.length > 1;
