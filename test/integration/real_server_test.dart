@@ -78,7 +78,7 @@ void main() {
       late _Client b;
       late _Client c;
       late String usernameB;
-      String dmChannelId = '';
+      String dmChannel = '';
       String groupChannelId = '';
       String trioChannelId = '';
       final sent = <String>[];
@@ -127,7 +127,8 @@ void main() {
       });
 
       // ---- 2 ------------------------------------------------------------
-      test('2. A finds B by @username → DM channel created', () async {
+      test('2. A finds B by @username → the DM id is derived, not created',
+          () async {
         final contact = await a.chat.findByUsername(usernameB);
         expect(
           contact.userId,
@@ -136,28 +137,34 @@ void main() {
               "resolves to the holder's user_id.",
         );
 
-        dmChannelId = await a.chat.startDirectMessage(
+        dmChannel = await a.chat.startDirectMessage(
           localUserId: a.userId,
           peerUserId: b.userId,
           peerName: usernameB,
         );
-        await a.waitForAsync(() async => await a.opCount() == 0);
         expect(
-          await a.opDebug(dmChannelId),
+          dmChannel,
+          dmChannelId(a.userId, b.userId),
+          reason: 'SYNC_PROTOCOL §11.3 (trim 4): the client and the server '
+              'derive the same id from the pair. If this fails against the '
+              'real server the two implementations of the hash have drifted '
+              'and every DM op will come back `forbidden`.',
+        );
+        expect(
+          await a.opDebug(dmChannel),
           contains('<empty>'),
-          reason: 'SYNC_PROTOCOL §11.3: POST /v3.0/channels must be accepted '
-              'and the op ACKed off the queue. A non-empty queue means the '
-              'server rejected the create.',
+          reason: 'trim 4: opening a DM enqueues nothing at all — there is '
+              'no create op to ACK off the queue.',
         );
 
-        // B learns about the channel from the §10.2 ChannelCreated fanout.
-        await b.waitForAsync(() async => await b.hasChannel(dmChannelId));
+        // B learns about the DM from the first message on it (test 3):
+        // there is no ChannelCreated for a channel the server has no row
+        // for, so until somebody speaks, B holds nothing.
         expect(
-          await b.hasChannel(dmChannelId),
-          isTrue,
-          reason: 'SYNC_PROTOCOL §10.2: every member except the creator gets '
-              'a CHANNEL_CREATED server event, which the receiver '
-              'materializes into `channels` + `channel_members`.',
+          await b.hasChannel(dmChannel),
+          isFalse,
+          reason: 'nothing has been said yet, so there is nothing B could '
+              'have heard about.',
         );
       });
 
@@ -175,7 +182,7 @@ void main() {
         // looks at exactly one byte of `payload`, so the rest is filler.
         a.ws.sendEphemeral(
           opId: forgedOpId,
-          channelId: dmChannelId,
+          channelId: dmChannel,
           payload: Uint8List.fromList(const [0x53, 0x08, 0x01]),
         );
 
@@ -199,21 +206,35 @@ void main() {
         for (var i = 1; i <= 3; i++) {
           final body = 'real-server message $i';
           sent.add(body);
-          final row = await a.sendAndSettle(dmChannelId, body);
+          final row = await a.sendAndSettle(dmChannel, body);
           expect(
             row?.state,
             anyOf(MessageState.sent, MessageState.delivered, MessageState.read),
             reason: 'SYNC_PROTOCOL §5.3/§8.1: each WS_OP must come back '
-                'ACK_SUCCESS. Decision 53(a): the creator\'s first WS op on '
-                'a REST-created channel is resource_seq 2, so a stuck op '
-                'here is a sequencing bug. ${await a.opDebug(dmChannelId)}',
+                'ACK_SUCCESS. Trim 4: nothing was created, so the first WS '
+                'op on a DM is resource_seq 1 and the gateway accepts it on '
+                'the `peer` derivation alone. ${await a.opDebug(dmChannel)}',
           );
         }
 
         await b.waitForAsync(() async =>
-            (await b.bodiesIn(dmChannelId)).length >= sent.length);
+            (await b.bodiesIn(dmChannel)).length >= sent.length);
         expect(
-          await b.bodiesIn(dmChannelId),
+          await b.hasChannel(dmChannel),
+          isTrue,
+          reason: 'trim 4: the first message IS the introduction. B had no '
+              'row for this channel a moment ago and never saw a '
+              'ChannelCreated; it materialized the DM from the frame after '
+              'checking the id derives from itself and sender_user_id.',
+        );
+        expect(
+          await b.memberIds(dmChannel),
+          {a.userId, b.userId},
+          reason: 'with the membership the derivation implies, not one the '
+              'server sent.',
+        );
+        expect(
+          await b.bodiesIn(dmChannel),
           sent,
           reason: 'SYNC_PROTOCOL §10.1 + SPIKE_A_SCHEMA §13: the recipient '
               'orders by delivery_sequence, so the three bodies must read '
@@ -224,10 +245,10 @@ void main() {
       // ---- 4 ------------------------------------------------------------
       test("4. B marks read → A's messages flip to read (decision 56)",
           () async {
-        await b.chat.markRead(dmChannelId);
+        await b.chat.markRead(dmChannel);
         await b.waitForAsync(() async => await b.opCount() == 0);
 
-        final newest = (await a.store.fetchChannelMessages(dmChannelId))
+        final newest = (await a.store.fetchChannelMessages(dmChannel))
             .lastWhere((m) => m.body == sent.last);
         await a.waitForAsync(() async =>
             (await a.store.fetchMessage(newest.messageId))?.state ==
@@ -236,7 +257,7 @@ void main() {
           [
             for (final body in sent)
               (await a.store.fetchMessage(
-                      (await a.store.fetchChannelMessages(dmChannelId))
+                      (await a.store.fetchChannelMessages(dmChannel))
                           .firstWhere((m) => m.body == body)
                           .messageId))
                   ?.state,
@@ -245,7 +266,7 @@ void main() {
           reason: 'Decision 56: the receipt is a '
               'ChatPayload{TYPE_READ_RECEIPT} whose message_id is a '
               'read-up-to marker, so every earlier message the author sent '
-              'flips too. ${await b.opDebug(dmChannelId)}',
+              'flips too. ${await b.opDebug(dmChannel)}',
         );
       });
 
@@ -256,7 +277,7 @@ void main() {
         expect(b.ws.currentState, TransportState.disconnected);
 
         const offlineBody = 'sent while B was offline';
-        final row = await a.sendAndSettle(dmChannelId, offlineBody);
+        final row = await a.sendAndSettle(dmChannel, offlineBody);
         expect(
           row?.state,
           isNot(MessageState.rejected),
@@ -266,9 +287,9 @@ void main() {
 
         await b.goOnline();
         await b.waitForAsync(
-            () async => (await b.bodiesIn(dmChannelId)).contains(offlineBody));
+            () async => (await b.bodiesIn(dmChannel)).contains(offlineBody));
         expect(
-          (await b.bodiesIn(dmChannelId))
+          (await b.bodiesIn(dmChannel))
               .where((x) => x == offlineBody)
               .length,
           1,
@@ -278,11 +299,11 @@ void main() {
         );
 
         // The drain is destructive: a second pull returns nothing new.
-        final before = (await b.bodiesIn(dmChannelId)).length;
+        final before = (await b.bodiesIn(dmChannel)).length;
         await b.pullPendingSync();
         await b.pump();
         expect(
-          (await b.bodiesIn(dmChannelId)).length,
+          (await b.bodiesIn(dmChannel)).length,
           before,
           reason: 'GET /v3.0/sync/pending has no cursor and no ack — the '
               'same drain must not replay.',
@@ -345,12 +366,12 @@ void main() {
 
       // ---- 8 ------------------------------------------------------------
       test('8. A edits, reacts and deletes → B sees each', () async {
-        final target = (await a.store.fetchChannelMessages(dmChannelId))
+        final target = (await a.store.fetchChannelMessages(dmChannel))
             .firstWhere((m) => m.body == sent.first);
 
         // Edit.
         await a.chat.editMessage(
-          channelId: dmChannelId,
+          channelId: dmChannel,
           messageId: target.messageId,
           newBody: 'edited on the real server',
         );
@@ -367,7 +388,7 @@ void main() {
 
         // React.
         await a.chat.reactToMessage(
-          channelId: dmChannelId,
+          channelId: dmChannel,
           messageId: target.messageId,
           userId: a.userId,
           emoji: '🎯',
@@ -389,7 +410,7 @@ void main() {
           undoWindow: Duration.zero,
         );
         final committed = await a.chat.commitDelete(
-          channelId: dmChannelId,
+          channelId: dmChannel,
           messageId: target.messageId,
         );
         expect(committed, isTrue,
@@ -774,6 +795,16 @@ class _Client {
   /// Message bodies oldest-first. `fetchChannelMessages` is the chat
   /// screen's query, so it comes back newest-first (delivery_sequence
   /// DESC); reversing it gives send order.
+  Future<Set<String>> memberIds(String channelId) async {
+    final rows = await store.db.query(
+      'channel_members',
+      columns: const ['user_id'],
+      where: 'channel_id = ? AND removed_at IS NULL',
+      whereArgs: [channelId],
+    );
+    return rows.map((r) => r['user_id'] as String).toSet();
+  }
+
   Future<List<String>> bodiesIn(String channelId) async {
     final rows = await store.fetchChannelMessages(channelId);
     return [
