@@ -263,24 +263,40 @@ class _ContactsTabState extends State<_ContactsTab>
         final status = snapshot.data;
         _lastStatus = status;
         if (status != PermissionStatus.granted) {
-          return _ContactPermissionDisclosure(
-            status: status,
-            onSkip: () => DefaultTabController.of(context).animateTo(1),
-            onAllow: () async {
-              final granted = await Permission.contacts.request();
-              if (granted == PermissionStatus.granted) {
-                _refreshPermission();
-                _loadContacts();
-              } else {
-                setState(() {
-                  _permissionFuture = Future.value(granted);
-                });
-              }
-            },
-            onOpenSettings: () async {
-              await openAppSettings();
-              _refreshPermission();
-            },
+          // The handle lookup rides along under the disclosure. It is
+          // the only in-app route to somebody who is not in the address
+          // book (AUTH_CONTRACT §7.6), and it needs no contacts
+          // permission at all — gating it behind one meant a user who
+          // declined could never find anybody, with "Skip" dropping
+          // them on the Groups tab instead.
+          return Column(
+            children: [
+              Expanded(
+                child: _ContactPermissionDisclosure(
+                  status: status,
+                  onSkip: () => DefaultTabController.of(context).animateTo(1),
+                  onAllow: () async {
+                    final granted = await Permission.contacts.request();
+                    if (granted == PermissionStatus.granted) {
+                      _refreshPermission();
+                      _loadContacts();
+                    } else {
+                      setState(() {
+                        _permissionFuture = Future.value(granted);
+                      });
+                    }
+                  },
+                  onOpenSettings: () async {
+                    await openAppSettings();
+                    _refreshPermission();
+                  },
+                ),
+              ),
+              _FindByUsername(
+                chatService: widget.chatService,
+                authService: widget.authService,
+              ),
+            ],
           );
         }
         // Permission granted — fetch on first build.

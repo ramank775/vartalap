@@ -7,6 +7,15 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'schema.dart';
 import 'types.dart';
 
+/// The `op_id_seen` dedup write, guarded on the channel still being
+/// local. See [ChatStore.markOpIdSeen] for why; shared verbatim with the
+/// inbound writers that record it inside their own transaction.
+const _markOpIdSeenSql = '''
+INSERT OR IGNORE INTO op_id_seen (channel_id, op_id, seen_at)
+SELECT ?, ?, ?
+ WHERE EXISTS (SELECT 1 FROM channels WHERE channel_id = ?)
+''';
+
 /// Growable page window for [ChatStore.watchChannelMessages].
 ///
 /// "Load older" must not open a second live query — the chat screen
@@ -77,12 +86,22 @@ class ChatStore {
 
   /// Opens (or creates) a database at [path]. Pass `inMemoryDatabasePath`
   /// for tests.
+  ///
+  /// `singleInstance` is off for `:memory:`. sqflite caches open helpers
+  /// by path, so with it on, two `open(path: inMemoryDatabasePath)` calls
+  /// in one process hand back the SAME [Database] — a test's writes leak
+  /// into the next store and the first `close()` shuts the other one
+  /// down. Off, every in-memory open is its own private database, which
+  /// is what a test asking for an in-memory store means. File paths keep
+  /// the caching: the app opens its one database once and re-opening it
+  /// should return the same handle.
   static Future<ChatStore> open({required String path}) async {
     sqfliteFfiInit();
     final factory = databaseFactoryFfi;
     final db = await factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
+        singleInstance: path != inMemoryDatabasePath,
         version: schemaVersion,
         onConfigure: (db) async {
           for (final p in pragmas) {
@@ -733,6 +752,25 @@ class ChatStore {
     return rows.isNotEmpty;
   }
 
+  /// Recipient-side dedup record (SYNC_PROTOCOL.md §7.2), for the apply
+  /// paths that write it on their own rather than inside one of the
+  /// inbound writers' transactions below.
+  ///
+  /// `op_id_seen.channel_id` is `REFERENCES channels(channel_id) ON
+  /// DELETE CASCADE`, so a row for a channel we hold no local copy of
+  /// is both a FOREIGN KEY error and pointless — had the channel ever
+  /// existed the row would have cascaded away with it. The `WHERE
+  /// EXISTS` makes that a no-op instead of a constraint failure, in one
+  /// statement so nothing can delete the channel between the check and
+  /// the insert. `OR IGNORE` because a re-fanout can race the
+  /// [hasSeenOpId] probe.
+  Future<void> markOpIdSeen(
+    String channelId,
+    String opId,
+    int nowMs,
+  ) =>
+      db.rawInsert(_markOpIdSeenSql, [channelId, opId, nowMs, channelId]);
+
   /// §5.4 — TYPE_MESSAGE_CREATE / TYPE_MESSAGE_FORWARD apply.
   ///
   /// Inserts the message row, advances the channel's activity marker,
@@ -792,11 +830,10 @@ class ChatStore {
                 'WHERE channel_id = ?',
         [serverTimestampMs, messageId, channelId],
       );
-      await txn.insert('op_id_seen', {
-        'channel_id': channelId,
-        'op_id': opId,
-        'seen_at': nowMs,
-      });
+      await txn.rawInsert(
+        _markOpIdSeenSql,
+        [channelId, opId, nowMs, channelId],
+      );
     });
     _notify(const {'messages', 'channels', 'op_id_seen'});
   }
@@ -846,11 +883,10 @@ class ChatStore {
           applied = true;
         }
       }
-      await txn.insert('op_id_seen', {
-        'channel_id': channelId,
-        'op_id': opId,
-        'seen_at': nowMs,
-      });
+      await txn.rawInsert(
+        _markOpIdSeenSql,
+        [channelId, opId, nowMs, channelId],
+      );
     });
     _notify(applied
         ? const {'messages', 'op_id_seen'}
@@ -895,11 +931,10 @@ class ChatStore {
         );
         applied = true;
       }
-      await txn.insert('op_id_seen', {
-        'channel_id': channelId,
-        'op_id': opId,
-        'seen_at': nowMs,
-      });
+      await txn.rawInsert(
+        _markOpIdSeenSql,
+        [channelId, opId, nowMs, channelId],
+      );
     });
     _notify(applied
         ? const {'messages', 'op_id_seen'}
@@ -935,11 +970,10 @@ class ChatStore {
         );
         applied = true;
       }
-      await txn.insert('op_id_seen', {
-        'channel_id': channelId,
-        'op_id': opId,
-        'seen_at': nowMs,
-      });
+      await txn.rawInsert(
+        _markOpIdSeenSql,
+        [channelId, opId, nowMs, channelId],
+      );
     });
     _notify(applied
         ? const {'reactions', 'op_id_seen'}
@@ -975,11 +1009,10 @@ class ChatStore {
         );
         applied = true;
       }
-      await txn.insert('op_id_seen', {
-        'channel_id': channelId,
-        'op_id': opId,
-        'seen_at': nowMs,
-      });
+      await txn.rawInsert(
+        _markOpIdSeenSql,
+        [channelId, opId, nowMs, channelId],
+      );
     });
     _notify(applied
         ? const {'reactions', 'op_id_seen'}

@@ -288,11 +288,7 @@ class InboundReceiver {
         // Typing must ride `ephemeral=true`; on the persistent path it
         // would be a stale indicator by the time it applied. Drop it,
         // but record op_id_seen so a re-fanout isn't re-evaluated.
-        await store.db.insert('op_id_seen', {
-          'channel_id': channelId,
-          'op_id': opId,
-          'seen_at': clock.nowMs(),
-        });
+        await store.markOpIdSeen(channelId, opId, clock.nowMs());
       case pb.ChatPayloadType.TYPE_UNSPECIFIED:
       default:
         // Unknown type from a future client version. Per v3-chat-
@@ -410,11 +406,7 @@ class InboundReceiver {
         );
       }
     }
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': clock.nowMs(),
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
   /// §10.2 MessageStateChanged. Flip the local row's `message_state`
@@ -438,11 +430,7 @@ class InboundReceiver {
     print('InboundReceiver: MessageStateChanged '
         'channel=${env.channelId} message=${body.messageId} '
         'newState=${body.newState.name} mapped=$mapped applied=$applied');
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': clock.nowMs(),
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
   /// §10.2 ProfileEdited. Sparse update — each proto3-`optional` field
@@ -470,11 +458,7 @@ class InboundReceiver {
           : null,
       nowMs: clock.nowMs(),
     );
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': clock.nowMs(),
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
   /// §10.2 UsernameChanged. Empty `new_username` means the user
@@ -490,11 +474,7 @@ class InboundReceiver {
       newUsername: body.newUsername,
       nowMs: clock.nowMs(),
     );
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': clock.nowMs(),
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
   /// §10.2 ChannelEdited. Sparse update — each proto3-`optional` field
@@ -518,11 +498,7 @@ class InboundReceiver {
           : null,
       editedAtMs: body.editedAtMs.toInt(),
     );
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': clock.nowMs(),
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
   /// §10.2 ChannelDeleted. Tombstones the channel locally so the chat
@@ -538,11 +514,7 @@ class InboundReceiver {
       channelId: channelId,
       deletedAtMs: body.deletedAtMs.toInt(),
     );
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': clock.nowMs(),
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
   static MessageState? _messageStateFromWire(pb.MessageStateValue v) {
@@ -592,11 +564,7 @@ class InboundReceiver {
     }
     // §7.2 — record op_id_seen even on the creator-echo skip path so a
     // re-fanout doesn't re-evaluate.
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': nowMs,
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, nowMs);
     _resolveUnknownMembers(body.members);
   }
 
@@ -632,11 +600,7 @@ class InboundReceiver {
         );
       }
     }
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': nowMs,
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, nowMs);
     _resolveUnknownMembers(body.members);
   }
 
@@ -665,11 +629,7 @@ class InboundReceiver {
         await store.tombstoneChannel(body.channelId);
       }
     }
-    await store.db.insert('op_id_seen', {
-      'channel_id': env.channelId,
-      'op_id': env.opId,
-      'seen_at': nowMs,
-    });
+    await store.markOpIdSeen(env.channelId, env.opId, nowMs);
   }
 
   /// Decision 79: schedule a best-effort [resolveProfile] fetch for every
