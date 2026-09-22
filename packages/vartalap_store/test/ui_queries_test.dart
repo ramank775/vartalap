@@ -780,6 +780,183 @@ void main() {
     });
   });
 
+  group('createChannel rollback', () {
+    /// An optimistic channel with one member, one message, one
+    /// reaction and a pending `POST /v3.0/channels` — the whole shape
+    /// a create leaves behind before the server has answered.
+    Future<ChatStore> channelWithPendingCreate() async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'c-new',
+        kind: 'one_to_one',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Nobody',
+      );
+      await store.insertChannelMember(
+        channelId: 'c-new',
+        userId: 'u-self',
+        role: 'owner',
+        joinedAt: 100,
+      );
+      await store.insertChannelMember(
+        channelId: 'c-new',
+        userId: 'u-stranger',
+        role: 'member',
+        joinedAt: 100,
+      );
+      await store.enqueueOutboundOp(OutboundOpRow(
+        opId: 'op-create',
+        transport: OpTransport.rest,
+        kind: OpKind.createChannel,
+        restMethod: 'POST',
+        restPath: '/v3.0/channels',
+        resourceId: 'c-new',
+        payload: utf8.encode(jsonEncode({'channel_id': 'c-new'})),
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: 0,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: 100,
+        targetMessageId: null,
+        targetChannelId: 'c-new',
+      ));
+      return store;
+    }
+
+    Future<int> countIn(ChatStore store, String table, String column) async {
+      final rows = await store.db.rawQuery(
+        'SELECT COUNT(*) c FROM $table WHERE $column = ?',
+        ['c-new'],
+      );
+      return (rows.single['c'] as int?) ?? 0;
+    }
+
+    test('a permanently rejected create leaves no ghost chat', () async {
+      final store = await channelWithPendingCreate();
+      expect(await countIn(store, 'channels', 'channel_id'), 1);
+      expect(await countIn(store, 'channel_members', 'channel_id'), 2);
+
+      await store.applyPermanentReject(
+        opId: 'op-create',
+        resourceId: 'c-new',
+        rejectedSeq: 1,
+        reason: 'forbidden',
+        messageId: null,
+        nowMs: 200,
+      );
+
+      expect(
+        await countIn(store, 'channels', 'channel_id'),
+        0,
+        reason: 'the channel existed nowhere but here, and the server has '
+            'refused it for good — there is nothing to send to and nothing '
+            'to retry, so it must not stay in the chat list.',
+      );
+      expect(
+        await countIn(store, 'channel_members', 'channel_id'),
+        0,
+        reason: 'member rows go with it (ON DELETE CASCADE).',
+      );
+      expect(
+        await countIn(store, 'resource_seq', 'resource_id'),
+        0,
+        reason: 'and so does its sequence counter.',
+      );
+      final op = await store.fetchOutboundOp('op-create');
+      expect(
+        op, isNotNull,
+        reason: 'the op row survives — nothing is FK-bound to the channel — '
+            'so the user still learns why the chat could not be created.',
+      );
+      expect(op!.status, OpStatus.rejected);
+      expect(op.lastError, 'forbidden');
+    });
+
+    test('a dead-lettered create leaves no ghost chat either', () async {
+      final store = await channelWithPendingCreate();
+
+      await store.markOpDeadLetter(
+        opId: 'op-create',
+        reason: 'retry_limit_exceeded',
+        messageId: null,
+        nowMs: 200,
+      );
+
+      expect(await countIn(store, 'channels', 'channel_id'), 0);
+      expect(await countIn(store, 'channel_members', 'channel_id'), 0);
+      expect(
+        (await store.fetchOutboundOp('op-create'))?.status,
+        OpStatus.deadLetter,
+      );
+    });
+
+    test('a rejected message op still leaves its channel alone', () async {
+      final store = await channelWithPendingCreate();
+      await store.enqueueLocalMessage(
+        message: MessageRow(
+          messageId: 'm-1',
+          channelId: 'c-new',
+          authorUserId: 'u-self',
+          body: 'hello',
+          contentType: 'text/plain',
+          replyToMessageId: null,
+          clientTimestampMs: 150,
+          serverTimestampMs: null,
+          deliverySequence: null,
+          state: MessageState.pending,
+          stateUpdatedAt: 150,
+          isEdited: false,
+          lastEditMs: null,
+          tombstoned: false,
+          tombstonePendingUntil: null,
+        ),
+        op: OutboundOpRow(
+          opId: 'op-msg',
+          transport: OpTransport.ws,
+          kind: OpKind.chatPayload,
+          restMethod: null,
+          restPath: null,
+          resourceId: 'c-new',
+          payload: const [0x01],
+          status: OpStatus.pending,
+          attempts: 0,
+          nextRetryAt: 0,
+          dispatchedAt: null,
+          lastError: null,
+          acknowledgedAt: null,
+          createdAt: 150,
+          targetMessageId: 'm-1',
+          targetChannelId: 'c-new',
+        ),
+        nowMs: 150,
+      );
+
+      await store.applyPermanentReject(
+        opId: 'op-msg',
+        resourceId: 'c-new',
+        rejectedSeq: 2,
+        reason: 'forbidden',
+        messageId: 'm-1',
+        nowMs: 200,
+      );
+
+      expect(
+        await countIn(store, 'channels', 'channel_id'),
+        1,
+        reason: 'only a rejected CREATE drops the channel; a rejected '
+            'message just marks its own bubble.',
+      );
+      expect(
+        (await store.fetchMessage('m-1'))?.state,
+        MessageState.rejected,
+      );
+    });
+  });
+
   group('deleteGroupLocal', () {
     test('tombstones rather than dropping, so the inbound ChannelDeleted '
         'echo is a no-op', () async {

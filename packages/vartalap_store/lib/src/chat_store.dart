@@ -405,8 +405,9 @@ class ChatStore {
     _notify(
       messageId != null
           ? const {'outbound_ops', 'messages'}
-          // A channel-scoped op (role change) rolls back channel_members.
-          : const {'outbound_ops', 'channel_members'},
+          // A channel-scoped op rolls back channel_members (a role
+          // change) or drops the channel outright (a rejected create).
+          : const {'outbound_ops', 'channel_members', 'channels'},
     );
   }
 
@@ -432,7 +433,13 @@ class ChatStore {
   ) async {
     final opRows = await txn.query(
       'outbound_ops',
-      columns: const ['kind', 'rest_path', 'payload', 'target_channel_id'],
+      columns: const [
+        'kind',
+        'rest_path',
+        'payload',
+        'resource_id',
+        'target_channel_id',
+      ],
       where: 'op_id = ?',
       whereArgs: [opId],
       limit: 1,
@@ -442,6 +449,31 @@ class ChatStore {
         opRows.isEmpty ? OpKind.chatPayload : opRows.single['kind'] as String;
     if (kind == OpKind.setMemberRole) {
       await _rollbackMemberRole(txn, opRows.single);
+      return;
+    }
+    if (kind == OpKind.createChannel) {
+      // The channel existed nowhere but here. A create the server has
+      // permanently refused (an unknown peer, the §7.6 username-key
+      // gate, a roster the server won't accept) used to leave its
+      // optimistic row behind as a chat nobody can ever send to and
+      // nothing can ever retry. Drop it, cascading members, messages,
+      // reactions and the dedup set, and drop its sequence counter
+      // with it. The op row survives — nothing is FK-bound to the
+      // channel — so the failure still reaches the user carrying the
+      // server's own reason.
+      final channelId = opRows.single['resource_id'] as String?;
+      if (channelId != null) {
+        await txn.delete(
+          'channels',
+          where: 'channel_id = ?',
+          whereArgs: [channelId],
+        );
+        await txn.delete(
+          'resource_seq',
+          where: 'resource_id = ?',
+          whereArgs: [channelId],
+        );
+      }
       return;
     }
     if (messageId == null) return;
@@ -554,7 +586,8 @@ class ChatStore {
         ['parent_rejected:$reason', resourceId, rejectedSeq],
       );
     });
-    _notify(const {'outbound_ops', 'messages', 'channel_members'});
+    _notify(
+        const {'outbound_ops', 'messages', 'channel_members', 'channels'});
   }
 
   /// User tapped "dismiss" on a failure toast. Marks the terminal op
