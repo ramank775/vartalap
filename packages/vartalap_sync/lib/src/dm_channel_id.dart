@@ -27,8 +27,14 @@ String dmChannelId(String a, String b) {
   return 'd${digest.toString().substring(0, 31)}';
 }
 
-/// A channel id that names a derived DM. Group ids are UUIDv7s, whose
-/// first hex digit comes from the 48-bit millisecond timestamp — `0`
-/// for every date this protocol will see — so the `d` prefix is
-/// unambiguous.
-bool isDmChannelId(String channelId) => channelId.startsWith('d');
+final RegExp _dmChannelIdShape = RegExp(r'^d[0-9a-f]{31}$');
+
+/// A channel id that names a derived DM: `d` plus 31 lowercase hex
+/// chars, no dashes.
+///
+/// The test is the full shape, not the prefix, and the server's is the
+/// same regex. A group id is a dashed UUID, so the dash at index 8
+/// keeps the two id spaces provably disjoint even for the ~1/16 of
+/// UUIDs that happen to start with `d`.
+bool isDmChannelId(String channelId) =>
+    _dmChannelIdShape.hasMatch(channelId);

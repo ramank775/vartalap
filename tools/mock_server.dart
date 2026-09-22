@@ -476,9 +476,14 @@ String mockDmChannelId(String a, String b) {
   return 'd${hex.substring(0, 31)}';
 }
 
-/// `"d"`-prefixed ids are derived DMs; everything else is a group
-/// (a UUIDv7, whose first hex digit is `0` for every date in range).
-bool isMockDmChannelId(String channelId) => channelId.startsWith('d');
+/// A derived DM id is `d` plus 31 lowercase hex chars, no dashes.
+///
+/// The test is the full shape, not the prefix: a group id is a dashed
+/// UUID, so the dash at index 8 keeps the two id spaces provably
+/// disjoint even for the ~1/16 of UUIDs that happen to start with `d`.
+final RegExp _dmChannelIdShape = RegExp(r'^d[0-9a-f]{31}$');
+bool isMockDmChannelId(String channelId) =>
+    _dmChannelIdShape.hasMatch(channelId);
 
 /// AUTH_CONTRACT §2: a `user_id` is 9 lowercase hex chars. A `peer`
 /// that is not one cannot be part of any derivation, so it is a
@@ -2070,7 +2075,7 @@ class MockServer {
     ws.listen(
       (dynamic data) {
         if (data is! List<int>) return;
-        _handleWsFrame(userId, Uint8List.fromList(data));
+        _handleWsFrame(userId, Uint8List.fromList(data), ws);
       },
       onError: (e) {
         _log('WS error for userId=$userId: $e');
@@ -2083,7 +2088,8 @@ class MockServer {
     );
   }
 
-  void _handleWsFrame(String senderUserId, Uint8List bytes) {
+  void _handleWsFrame(
+      String senderUserId, Uint8List bytes, WebSocket senderSocket) {
     pb.WsEnvelope wsEnv;
     try {
       wsEnv = pb.WsEnvelope.fromBuffer(bytes);
@@ -2121,7 +2127,7 @@ class MockServer {
 
     final acks = <pb.Ack>[];
     for (final env in wsEnv.ops.envelopes) {
-      final ack = _processEnvelope(senderUserId, env);
+      final ack = _processEnvelope(senderUserId, env, senderSocket);
       if (ack != null) acks.add(ack);
     }
 
@@ -2135,7 +2141,8 @@ class MockServer {
     _sendToUser(senderUserId, ackFrame.writeToBuffer());
   }
 
-  pb.Ack? _processEnvelope(String senderUserId, pb.Envelope env) {
+  pb.Ack? _processEnvelope(
+      String senderUserId, pb.Envelope env, WebSocket senderSocket) {
     final channelId = env.channelId;
     final opId = env.opId;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -2186,11 +2193,17 @@ class MockServer {
     }
 
     // Trim 4 — a `d`-prefixed channel has no row and no membership.
-    // Membership IS the derivation: `peer` names the other side, the
+    // Membership IS the derivation: `peer` names the other side and the
     // server recomputes `dm_chan(sender, peer)` from the authenticated
-    // session, and the recipient set is exactly `{peer}`. A third party
-    // cannot produce a `peer` that derives to someone else's DM id, so
-    // there is nothing to squat and nothing to look up.
+    // session. A third party cannot produce a `peer` that derives to
+    // someone else's DM id, so there is nothing to squat and nothing to
+    // look up.
+    //
+    // Trim 12 — the recipient set is users; what is skipped is the
+    // sending DEVICE, not the sending user, so a sender's own other
+    // devices receive their own message. At `max_devices = 1` that is
+    // unobservable; it is written this way so it stays right if the cap
+    // is ever lifted.
     final Set<String> recipients;
     if (isMockDmChannelId(channelId)) {
       final peer = env.peer;
@@ -2200,13 +2213,13 @@ class MockServer {
       if (mockDmChannelId(senderUserId, peer) != channelId) {
         return reject('forbidden');
       }
-      recipients = {peer};
+      recipients = {peer, senderUserId};
     } else {
       final channel = state.channels[channelId];
       if (channel == null || !channel.members.contains(senderUserId)) {
         return reject('forbidden');
       }
-      recipients = channel.members.difference({senderUserId});
+      recipients = channel.members;
     }
 
     // §10.2 / decision 56 — server events are server-authored. A client
@@ -2228,7 +2241,8 @@ class MockServer {
         payload: Uint8List.fromList(env.payload),
         rejectReason: null,
       ));
-      _fanoutEphemeral(env, senderUserId, recipients, now);
+      _fanoutEphemeral(env, senderUserId, recipients, now,
+          exceptSocket: senderSocket);
       if (demoMode &&
           senderUserId != seedPeerUserId &&
           recipients.contains(seedPeerUserId)) {
@@ -2298,7 +2312,7 @@ class MockServer {
     final pushBytes = pushFrame.writeToBuffer();
 
     for (final memberId in recipients) {
-      _sendToUser(memberId, pushBytes);
+      _sendToUser(memberId, pushBytes, exceptSocket: senderSocket);
     }
 
     // Send a MessageStateChanged{DELIVERED} back to the author so the
@@ -2307,7 +2321,8 @@ class MockServer {
     // `_isMessageCreate` is what keeps receipts/edits/reactions out:
     // re-announcing their lifecycle would loop a receipt back at the
     // reader and produce an "Echo: <binary>" garbage reply.
-    if (recipients.isNotEmpty && _isMessageCreate(env.payload)) {
+    if (recipients.difference({senderUserId}).isNotEmpty &&
+        _isMessageCreate(env.payload)) {
       final messageId = _extractMessageId(env.payload);
       if (messageId != null) {
         _enqueueMessageStateChanged(
@@ -2377,9 +2392,21 @@ class MockServer {
     return channel.members.difference({senderUserId});
   }
 
-  void _sendToUser(String userId, Uint8List bytes) {
-    final sockets = state.wsConnections[userId];
-    if (sockets == null || sockets.isEmpty) {
+  /// Deliver [bytes] to every device of [userId] except
+  /// [exceptSocket] — trim 12's "every device of every member except
+  /// the sending device".
+  ///
+  /// When the only device is the excluded one there is nothing to
+  /// deliver and nothing to queue: the real server subtracts the
+  /// sending device from the recipient's device set before it decides
+  /// whether anything is undelivered, so an author must never find its
+  /// own message waiting in its pull.
+  void _sendToUser(String userId, Uint8List bytes, {WebSocket? exceptSocket}) {
+    final all = state.wsConnections[userId];
+    final sockets =
+        all?.where((ws) => !identical(ws, exceptSocket)).toList() ?? const [];
+    if (all != null && all.isNotEmpty && sockets.isEmpty) return;
+    if (sockets.isEmpty) {
       state.enqueueUndelivered(userId, bytes);
       return;
     }
@@ -2803,8 +2830,9 @@ class MockServer {
     pb.Envelope env,
     String senderUserId,
     Set<String> recipients,
-    int now,
-  ) {
+    int now, {
+    WebSocket? exceptSocket,
+  }) {
     final pushEnv = pb.Envelope(
       opId: env.opId,
       channelId: env.channelId,
@@ -2823,8 +2851,8 @@ class MockServer {
     );
     final pushBytes = pushFrame.writeToBuffer();
     for (final memberId in recipients) {
-      if (memberId == senderUserId) continue;
-      final sockets = state.wsConnections[memberId];
+      final sockets = state.wsConnections[memberId]
+          ?.where((ws) => !identical(ws, exceptSocket));
       if (sockets == null || sockets.isEmpty) continue; // drop if offline
       for (final ws in sockets) {
         try {

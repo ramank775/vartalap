@@ -262,7 +262,9 @@ Envelope {
   bytes  payload            // opaque to server
   bool   ephemeral          // typing and friends; no ack, no queue
   string peer               // the other participant, iff channel_id
-                            // starts with "d" (§11.3); absent for groups
+                            // matches ^d[0-9a-f]{31}$ (§11.3);
+                            // absent for groups. Echoed unchanged on
+                            // fanout.
   // sender_user_id, server_timestamp_ms, delivery_sequence absent on
   // client→server
 }
@@ -811,9 +813,9 @@ authoritative).
 **Server MUST:**
 1. Compute the recipient set per op type:
    - WS chat-content envelopes on a group: all channel members.
-   - WS chat-content envelopes on a `d`-prefixed DM: exactly
-     `{envelope.peer}`, after the §11.3 derivation check. No channel
-     record is read.
+   - WS chat-content envelopes on a `d`-prefixed DM:
+     `{envelope.peer, sender}`, after the §11.3 derivation check. No
+     channel record is read.
    - REST `POST /v3.0/channels` (groups only, §11.3): all `members`
      (creator included).
    - REST `add_members`: existing members + newly added.
@@ -977,8 +979,12 @@ dm_chan(a, b) = "d" + sha256_hex(min(a,b) || 0x00 || max(a,b))[0:31]
 ```
 
 `a` and `b` are the two 9-lowercase-hex `user_id`s compared as ASCII
-byte strings; the result is exactly 32 characters and always starts
-with `d`. Both clients compute it offline, identically, with no
+byte strings; the result matches `^d[0-9a-f]{31}$` exactly — 32
+characters, lowercase hex, no dashes. That full shape, not the `d`
+prefix, is the test for "is this a DM": a group id is a dashed UUID,
+so the dash at index 8 keeps the two id spaces provably disjoint even
+for the ~1/16 of UUIDs that begin with `d`. Both clients compute it
+offline, identically, with no
 coordination — which is the whole point: two people who open the same
 chat while both offline address the same channel, so there is no
 winner, no loser, no fold, no merge, no id remap and no re-sequencing.
@@ -990,8 +996,10 @@ In place of the membership lookup it does for a group, the server:
 1. rejects a missing or malformed `peer` with `validation_failed`;
 2. rejects `dm_chan(session.user_id, peer) != channel_id` with
    `forbidden`;
-3. otherwise delivers to exactly `{peer}` (plus the sender's own other
-   devices, §10.3).
+3. otherwise delivers to `{peer, sender}` — expanded to devices and
+   minus the **sending device**, per §10.3, so the sender's own other
+   devices receive it and the sending one does not. At `max_devices =
+   1` that is indistinguishable from delivering to `{peer}`.
 
 A third party cannot send on, create, or reserve someone else's DM id,
 because they cannot produce a `peer` that derives to it from their own
@@ -1017,8 +1025,11 @@ Consequences, stated:
   from it after checking the id derives from themselves and
   `sender_user_id`.
 - `ProfileEdited` / `UsernameChanged` (§10.2) reach group co-members
-  only — the server has no DM row telling it two users are in contact.
-  Clients resolve a DM peer's profile on demand instead.
+  only — the server has no DM row telling it two users are in contact,
+  so a DM-only peer's name, handle and avatar would otherwise go stale
+  forever. Clients MUST refresh a DM peer's profile on demand instead
+  (`GET /v3.0/users/{user_id}`, §7.5 of `AUTH_CONTRACT.md`); the v3.0
+  client does it when the chat screen opens.
 
 #### `POST /v3.0/channels`
 

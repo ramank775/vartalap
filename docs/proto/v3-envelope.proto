@@ -101,8 +101,9 @@ message Envelope {
 
   // Trim 4 (design/protocol/TRIM_4_12_CONTRACT.md §2) — the OTHER
   // participant's user_id (9 lowercase hex chars) on a derived DM
-  // channel. Required iff `channel_id` starts with "d", absent
-  // otherwise.
+  // channel. Required iff `channel_id` matches ^d[0-9a-f]{31}$,
+  // absent otherwise. (The full shape, not the `d` prefix: a group id
+  // is a dashed UUID, so the two id spaces are provably disjoint.)
   //
   // A DM channel id is `"d" + sha256_hex(min(a,b) || 0x00 || max(a,b))
   // [0:31]`, so the server does not look up a channel row or a member
@@ -114,6 +115,11 @@ message Envelope {
   // own other devices, trim 12). A third party cannot send on, create
   // or reserve someone else's DM id because they cannot produce a
   // `peer` that derives to it from their own user_id.
+  //
+  // Recipients are {peer, sender} expanded to devices, minus the
+  // sending device (trim 12), so the sender's own other devices get
+  // their message. At max_devices = 1 that is the same thing as
+  // {peer}.
   //
   // Echoed unchanged on fanout; the recipient already knows the pair
   // from `sender_user_id` and does not need to read it.

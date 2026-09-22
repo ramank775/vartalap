@@ -532,6 +532,49 @@ void main() {
     expect(await a.deadLetteredOps(), isEmpty);
     expect(await b.deadLetteredOps(), isEmpty);
   });
+
+  // ---- the derivation check, from the wrong side -----------------------
+  test('9. a DM id that does not derive from the sender is refused',
+      () async {
+    final (a, b) = await pair();
+
+    // A well-formed DM id belonging to somebody else's pair. A's ops on
+    // it carry peer=B, and dm_chan(A, B) is not this id, so the server
+    // has everything it needs to refuse without owning a single row.
+    // This is the squatting case decision 89 worried about, answered.
+    final forged = dmChannelId(b.userId, '000000009');
+    await a.seedDm(forged, b.userId);
+    await a.chat.sendMessage(
+      channelId: forged,
+      body: 'not mine to send on',
+      authorUserId: a.userId,
+    );
+    await a.drain();
+    expect(
+      (await a.lastOpOn(forged))?.lastError,
+      'forbidden',
+      reason: 'the server recomputes dm_chan(sender, peer) and rejects the '
+          'mismatch. There is nothing to squat: the id has no row to '
+          'pre-create. ${await a.opDebug(forged)}',
+    );
+    expect(await b.bodiesIn(forged), isEmpty);
+
+    // And a `peer` that is not a user_id at all is malformed, not wrong.
+    final malformed = dmChannelId(a.userId, '000000008');
+    await a.seedDm(malformed, 'not-a-user');
+    await a.chat.sendMessage(
+      channelId: malformed,
+      body: 'peer is nonsense',
+      authorUserId: a.userId,
+    );
+    await a.drain();
+    expect(
+      (await a.lastOpOn(malformed))?.lastError,
+      'validation_failed',
+      reason: 'a missing or malformed peer is a malformed envelope, not a '
+          'permission problem. ${await a.opDebug(malformed)}',
+    );
+  });
 }
 
 Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 60));
@@ -782,6 +825,40 @@ class _Client {
   }
 
   Future<List<ChannelListEntry>> chatList() => store.fetchChannelList();
+
+  /// Write the local projection rows a DM would have, without going
+  /// through `startDirectMessage` — lets a test point a client at an
+  /// id it has no business sending on.
+  Future<void> seedDm(String channelId, String peerUserId) async {
+    await store.insertChannel(
+      channelId: channelId,
+      kind: 'one_to_one',
+      ownerUserId: userId,
+      createdAt: 1,
+      name: 'seeded',
+    );
+    for (final id in [userId, peerUserId]) {
+      await store.insertChannelMember(
+        channelId: channelId,
+        userId: id,
+        role: id == userId ? 'owner' : 'member',
+        joinedAt: 1,
+      );
+    }
+  }
+
+  Future<OutboundOpRow?> lastOpOn(String channelId) async {
+    final rows = await store.db.query(
+      'outbound_ops',
+      columns: const ['op_id'],
+      where: 'resource_id = ?',
+      whereArgs: [channelId],
+      orderBy: 'resource_seq DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return store.fetchOutboundOp(rows.single['op_id'] as String);
+  }
 
   Future<OutboundOpRow?> createOpFor(String channelId) async {
     final rows = await store.db.query(

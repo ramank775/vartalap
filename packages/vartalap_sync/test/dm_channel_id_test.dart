@@ -12,14 +12,17 @@ import 'package:vartalap_sync/vartalap_sync.dart';
 /// 'd' + hashlib.sha256(b'0a1b2c3d4\x00f00dcafe1').hexdigest()[:31]
 /// ```
 void main() {
-  const a = '0a1b2c3d4';
-  const b = 'f00dcafe1';
+  // The cross-repo vector. chat-server's test/dm-channel-id.test.js
+  // pins the same two pairs to the same two strings; change either
+  // side and DMs stop routing.
+  const a = 'a3f2e8c5d';
+  const b = 'b1c2d3e4f';
 
-  test('fixture vector', () {
-    expect(dmChannelId(a, b), 'dbccd1126751877952141531d8ed1dab');
+  test('fixture vector, byte for byte with the server', () {
+    expect(dmChannelId(a, b), 'dddb157c8f60f31b6a37bd1dbac44245');
     expect(
-      dmChannelId('000000001', '000000002'),
-      'dab5ae539af949320c25f7f5eb29cc2f',
+      dmChannelId('000000001', 'fffffffff'),
+      'daea83a8c892d7aea12609dc292aa1a8',
     );
   });
 
@@ -44,11 +47,21 @@ void main() {
   });
 
   test('a different pair is a different channel', () {
-    expect(dmChannelId(a, b), isNot(dmChannelId(a, '000000003')));
+    expect(dmChannelId(a, b), isNot(dmChannelId(a, 'c2d3e4f5a')));
   });
 
-  test('d-prefixed ids are DMs, UUIDv7 group ids are not', () {
+  test('a self DM is derivable and stable', () {
+    expect(dmChannelId(a, a), dmChannelId(a, a));
+    expect(isDmChannelId(dmChannelId(a, a)), isTrue);
+  });
+
+  test('only the full shape is a DM id — a group UUID never is', () {
     expect(isDmChannelId(dmChannelId(a, b)), isTrue);
     expect(isDmChannelId('01996f0e-1a2b-7c3d-8e4f-000000000000'), isFalse);
+    // The strict test, not a `d` prefix: a UUID starting with `d` still
+    // has a dash at index 8, so the two id spaces cannot collide.
+    expect(isDmChannelId('d1efabcd-7000-8000-8abc-000000000002'), isFalse);
+    expect(isDmChannelId('d'), isFalse);
+    expect(isDmChannelId('D${'0' * 31}'), isFalse);
   });
 }

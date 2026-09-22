@@ -142,6 +142,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _typingSub = widget.chatService.typingEvents.listen(_onPeerTyping);
     _scroll.addListener(_onScroll);
     if (widget.channelKind == 'group') _loadMemberNames();
+    // Trim 4: a DM has no server-side row, so the server cannot fan a
+    // peer's profile edits to us (SYNC_PROTOCOL §10.3). Pull them when
+    // the chat opens — the one moment the staleness would show.
+    unawaited(widget.chatService.refreshDmPeerProfile(widget.channelId));
     // Any delete whose undo window elapsed while this screen was closed
     // (or the app was dead) gets enqueued now.
     unawaited(widget.chatService.sweepExpiredDeletes(widget.channelId));

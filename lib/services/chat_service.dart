@@ -256,6 +256,48 @@ class ChatService {
     _scheduler.tickSoon();
   }
 
+  /// Refresh the cached profile of a DM's peer from
+  /// `GET /v3.0/users/{user_id}` (AUTH_CONTRACT §7.5).
+  ///
+  /// Trim 4 deleted the server-side DM row, and with it the server's
+  /// only way to know that two people who have only ever DM'd share a
+  /// conversation — so `PROFILE_EDITED` / `USERNAME_CHANGED` fanout
+  /// (SYNC_PROTOCOL §10.3) now reaches group co-members only, and a
+  /// DM-only peer's name, handle and avatar would go stale forever.
+  ///
+  /// ponytail: pull on open instead of a subscription or a poll. One
+  /// cheap read when the user looks at the chat is the whole fix; it
+  /// is also the only moment the staleness is visible. Best-effort —
+  /// offline or a 404 leaves the cached row alone. If a push-based
+  /// answer is ever wanted it belongs on the server, not here.
+  Future<void> refreshDmPeerProfile(String channelId) async {
+    final localUserId = _authClient.currentUserId;
+    if (localUserId == null || !isDmChannelId(channelId)) return;
+    final peerUserId = await _store.dmPeer(channelId, localUserId);
+    if (peerUserId == null) return;
+    try {
+      final profile = await _authClient.getUser(peerUserId);
+      final existing = (await _store.fetchContacts())
+          .where((c) => c.userId == peerUserId)
+          .firstOrNull;
+      await _store.upsertContact(
+        userId: peerUserId,
+        username: profile['username'] as String?,
+        displayName: profile['displayName'] as String?,
+        avatarUrl: profile['avatarUrl'] as String?,
+        statusText: profile['statusText'] as String?,
+        // upsertContact is INSERT OR REPLACE — the address-book fields
+        // are ours, never the server's, so carry them forward.
+        phoneHash: existing?.phoneHash,
+        contactBookName: existing?.contactBookName,
+        nowMs: _clock.nowMs(),
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('refreshDmPeerProfile($channelId) failed: $e');
+    }
+  }
+
   /// Create a **group** locally and enqueue a REST op to
   /// POST /v3.0/channels.
   ///
