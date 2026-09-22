@@ -26,6 +26,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:http/http.dart' as http;
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -56,6 +57,13 @@ String _freshPhone() =>
 String _freshUsername() =>
     'c${(_rng.nextInt(1 << 30)).toString().padLeft(9, '0')}';
 
+/// A send that the server accepted: promoted past pending/sending.
+final Matcher _isAcked = isIn(const [
+  MessageState.sent,
+  MessageState.delivered,
+  MessageState.read,
+]);
+
 void main() {
   final baseUrl = _serverUrl;
 
@@ -68,38 +76,47 @@ void main() {
     () {
       late _Client a;
       late _Client b;
+      late _Client c;
       late String usernameB;
       String dmChannelId = '';
       String groupChannelId = '';
+      String trioChannelId = '';
       final sent = <String>[];
 
       setUpAll(() async {
         a = await _Client.boot(baseUrl, label: 'A');
+        // C boots BETWEEN A and B on purpose: `ChatStore.open` sets the
+        // process-wide `ChatStore.current`, step 9 leans on that being
+        // B's store, and booting last is what decides it.
+        c = await _Client.boot(baseUrl, label: 'C');
         b = await _Client.boot(baseUrl, label: 'B');
       });
 
       tearDownAll(() async {
         await a.shutdown();
         await b.shutdown();
+        await c.shutdown();
       });
 
       // ---- 1 ------------------------------------------------------------
       test('1. OTP → verify → username, for both clients', () async {
         await a.login();
         await b.login();
+        await c.login();
 
         expect(
-          [a.userId, b.userId],
+          [a.userId, b.userId, c.userId],
           everyElement(matches(RegExp(r'^[0-9a-f]{9}$'))),
           reason: 'AUTH_CONTRACT §2: otp/verify returns a 9-hex-char '
               'user_id. Got ${a.userId} / ${b.userId}.',
         );
-        expect(a.userId, isNot(b.userId));
+        expect({a.userId, b.userId, c.userId}, hasLength(3));
 
         // Until a handle is set, every non-exempt route is 403.
         await a.setUsername(_freshUsername());
         usernameB = _freshUsername();
         await b.setUsername(usernameB);
+        await c.setUsername(_freshUsername());
 
         expect(
           [a.authService.username, b.authService.username],
@@ -389,6 +406,133 @@ void main() {
         );
       });
 
+      // ---- 8b -----------------------------------------------------------
+      // The group flow proper, on its own channel: step 6's group has
+      // only A left in it after step 7. Same assertions the emulator
+      // drive makes through the UI, minus the widgets.
+      test('8b. A creates a group with B and C → both see the full roster',
+          () async {
+        trioChannelId = await a.chat.createGroup(
+          name: 'trio ${_freshUsername()}',
+          creatorUserId: a.userId,
+          memberUserIds: [b.userId, c.userId],
+        );
+        await a.waitForAsync(() async => await a.opCount() == 0);
+        expect(
+          await a.opDebug(trioChannelId),
+          contains('<empty>'),
+          reason: 'SYNC_PROTOCOL §11.3: POST /v3.0/channels with two members '
+              'must be accepted. ${await a.opDebug(trioChannelId)}',
+        );
+
+        for (final p in [b, c]) {
+          await p.waitForAsync(() async => await p.hasChannel(trioChannelId));
+          expect(
+            (await p.chat.fetchChannelMembers(trioChannelId))
+                .map((m) => m.userId),
+            containsAll([a.userId, b.userId, c.userId]),
+            reason: 'SYNC_PROTOCOL §10.2 CHANNEL_CREATED: ${p.label} must '
+                'materialize the group with the whole roster.',
+          );
+        }
+
+        // What the group-info screen renders: the creator is the owner.
+        final roster = await a.chat.fetchChannelMembers(trioChannelId);
+        expect(roster, hasLength(3));
+        expect(
+          roster.where((m) => m.role == 'owner').map((m) => m.userId),
+          [a.userId],
+          reason: 'decision 80: the creator is the group owner, and nobody '
+              'else is. Roster: '
+              '${roster.map((m) => '${m.userId}:${m.role}').toList()}',
+        );
+      });
+
+      // ---- 8c -----------------------------------------------------------
+      test('8c. group messages travel both ways', () async {
+        const fromA = 'trio hello from A';
+        const fromB = 'trio hello from B';
+
+        expect(
+          (await a.sendAndSettle(trioChannelId, fromA))?.state,
+          _isAcked,
+          reason: 'the owner must be able to send into their own group. '
+              '${await a.opDebug(trioChannelId)}',
+        );
+        for (final p in [b, c]) {
+          await p.waitForAsync(
+              () async => (await p.bodiesIn(trioChannelId)).contains(fromA));
+          expect(await p.bodiesIn(trioChannelId), contains(fromA),
+              reason: 'SYNC_PROTOCOL §10.1: every other member receives the '
+                  'group message. ${p.label} sees '
+                  '${await p.bodiesIn(trioChannelId)}');
+        }
+
+        expect(
+          (await b.sendAndSettle(trioChannelId, fromB))?.state,
+          _isAcked,
+          reason: 'a plain member sends into the group too. '
+              '${await b.opDebug(trioChannelId)}',
+        );
+        for (final p in [a, c]) {
+          await p.waitForAsync(
+              () async => (await p.bodiesIn(trioChannelId)).contains(fromB));
+          expect(await p.bodiesIn(trioChannelId), contains(fromB),
+              reason: 'the fanout reaches the owner and the third member '
+                  'alike. ${p.label} sees '
+                  '${await p.bodiesIn(trioChannelId)}');
+        }
+      });
+
+      // ---- 8d -----------------------------------------------------------
+      test('8d. the owner leaves → the server hands the group to a member '
+          '(decision 9)', () async {
+        await a.chat.leaveGroup(trioChannelId, selfUserId: a.userId);
+        await a.waitForAsync(() async => await a.opCount() == 0);
+        expect(
+          await a.opDebug(trioChannelId),
+          contains('<empty>'),
+          reason: "decision 80: the owner's leave is DELETE …/members/{self} "
+              'like anybody else\'s, not the owner-only hard delete.',
+        );
+        expect(
+          await a.hasChannel(trioChannelId),
+          isFalse,
+          reason: 'leaveGroup drops the local channel row right away.',
+        );
+
+        // Which member inherits depends on the join order the server
+        // recorded, so assert the invariant: exactly one owner, and not
+        // the user who left.
+        for (final p in [b, c]) {
+          await p.waitForAsync(() async {
+            final owners = (await p.chat.fetchChannelMembers(trioChannelId))
+                .where((m) => m.role == 'owner')
+                .toList();
+            return owners.length == 1 && owners.single.userId != a.userId;
+          });
+          final roster = await p.chat.fetchChannelMembers(trioChannelId);
+          final owners =
+              roster.where((m) => m.role == 'owner').map((m) => m.userId);
+          expect(
+            owners,
+            hasLength(1),
+            reason: 'decision 9: the group carries on under exactly one new '
+                'owner. ${p.label} roster: '
+                '${roster.map((m) => '${m.userId}:${m.role}').toList()}',
+          );
+          expect(owners.single, isNot(a.userId),
+              reason: 'decision 9: the successor is a remaining member, '
+                  'never the user who left.');
+          expect(
+            roster.map((m) => m.userId),
+            isNot(contains(a.userId)),
+            reason: 'CHANNEL_MEMBER_REMOVED must also drop the leaver from '
+                "${p.label}'s roster.",
+          );
+        }
+      });
+
       // ---- 9 ------------------------------------------------------------
       test('9. both log out → session revoked, local store wiped', () async {
         await a.authService.logout();
@@ -466,7 +610,11 @@ class _Client {
     final baseUrl = Uri.parse(url);
     final tmpDir =
         await Directory.systemTemp.createTemp('vartalap_real_$label');
-    final store = await ChatStore.open(path: '${tmpDir.path}/vartalap_v3.db');
+    // In-memory, and A and B really do get separate databases:
+    // ChatStore.open turns sqflite's singleInstance caching OFF for
+    // `:memory:`, without which both stacks in this one process would
+    // share one Database and A's close() would shut B's down.
+    final store = await ChatStore.open(path: inMemoryDatabasePath);
 
     final authClient = AuthClient(baseUrl: baseUrl);
     final authService =

@@ -23,6 +23,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -365,8 +366,15 @@ void main() {
       );
       peerMessageId = injected.messageId;
 
-      await h.waitForAsync(() async =>
-          (await h.store.fetchMessage(injected.messageId)) != null);
+      // Wait on the EMISSION, not on the row. The row lands one
+      // transaction before `_notify` fires, and the watcher's re-query
+      // then crosses sqflite's background isolate — so polling
+      // fetchMessage returns true while the emit is still in flight,
+      // and under `flutter test`'s parallel files the assertion below
+      // used to win that race. The stream only emits after the row is
+      // there, so this subsumes the old wait.
+      await h.waitFor(() => seen.any((batch) =>
+          batch.any((m) => m.messageId == injected.messageId)));
 
       expect(
         seen.any((batch) =>
@@ -1403,10 +1411,13 @@ class _Harness {
 
   static Future<_Harness> boot() async {
     final mock = await MockServer.start(); // strict: true, seed peer on
+    // tmpDir is still the scratch space for picked attachments and the
+    // asset cache; the store itself is in-memory so nothing survives the
+    // file and no two test files can ever meet on a path. The WAL pragma
+    // has its own file-backed check in
+    // packages/vartalap_store/test/schema_boot_test.dart.
     final tmpDir = await Directory.systemTemp.createTemp('vartalap_golden');
-    // Real file path, not inMemoryDatabasePath — we want the WAL pragmas
-    // in ChatStore.open to be exercised.
-    final store = await ChatStore.open(path: '${tmpDir.path}/vartalap_v3.db');
+    final store = await ChatStore.open(path: inMemoryDatabasePath);
 
     final authClient = AuthClient(baseUrl: mock.apiUrl);
     final authService =

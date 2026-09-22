@@ -73,7 +73,7 @@ void main() {
     final messagesSub = chat.watchMessages(channelId).listen(messages.add);
 
     // Let the initial emits settle.
-    await _pumpEventQueue();
+    await _until(() => chatList.isNotEmpty && messages.isNotEmpty);
 
     await chat.sendMessage(
       channelId: channelId,
@@ -81,7 +81,10 @@ void main() {
       authorUserId: userId,
     );
 
-    await _pumpEventQueue();
+    await _until(() =>
+        messages.any((m) => m.isNotEmpty) &&
+        chatList.any((c) =>
+            c.length == 1 && c.single.lastMessagePreview == 'hello world'));
 
     expect(chatList, isNotEmpty);
     final latestChannels = chatList.last;
@@ -176,7 +179,7 @@ void main() {
     final groupsSub = chat
         .watchMemberChannels(userId: creator, kind: 'group')
         .listen(groups.add);
-    await _pumpEventQueue();
+    await _until(() => groups.isNotEmpty && groups.last.isNotEmpty);
     expect(groups.last, hasLength(1));
     expect(groups.last.single.channelId, channelId);
     expect(groups.last.single.kind, 'group');
@@ -430,12 +433,24 @@ int _extractUserIdBits(String uuid) {
       bottom6;
 }
 
-Future<void> _pumpEventQueue() async {
-  // Two full event-queue spins — first for the StreamController
-  // delivery, second for the listener's async rebuild of its
-  // subscription callback chain.
-  await Future<void>.delayed(const Duration(milliseconds: 5));
-  await Future<void>.delayed(const Duration(milliseconds: 5));
+/// Waits until [cond] holds. The timeout is a failure deadline, not a
+/// delay: this returns the moment the condition flips.
+///
+/// A store watcher emits on a `_notify` → re-query → `controller.add`
+/// chain that crosses sqflite's background isolate, so how long it takes
+/// is whatever the machine gives it. The fixed two-spin
+/// `Future.delayed(5ms)` pump this replaces was a bet on wall-clock
+/// time, and `flutter test` running every file in parallel loses that
+/// bet: these emission assertions failed in a full-suite run and passed
+/// on the same file alone.
+Future<void> _until(
+  bool Function() cond, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final sw = Stopwatch()..start();
+  while (!cond() && sw.elapsed < timeout) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }
 
 /// Build a never-started [WsTransport] — its only role in these tests
