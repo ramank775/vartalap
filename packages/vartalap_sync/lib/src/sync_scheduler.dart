@@ -59,6 +59,7 @@ class SyncScheduler {
   StreamSubscription<AckFrame>? _restAckSub;
   StreamSubscription<AckFrame>? _assetAckSub;
   StreamSubscription<void>? _tickSub;
+  final List<StreamSubscription<TransportState>> _stateSubs = [];
   Timer? _sweepTimer;
 
   final _tickSoon = StreamController<void>.broadcast();
@@ -127,6 +128,24 @@ class SyncScheduler {
     _assetAckSub = _assetTransport?.acks
         .listen((ack) => _track(_onAck(ack)), onError: (_) {});
     _tickSub = _tickSoon.stream.listen((_) => _track(_dispatchOnce()));
+    // Flow A skips an op whose transport is disconnected without
+    // charging it an attempt, on the promise that "the next tickSoon()
+    // on transport reconnect will re-select this op" (see
+    // [_dispatchOne]). Nobody was making that call. Flow C only ticks
+    // when it finds a stuck `in_flight` row, and an op that never left
+    // the device is `pending` — so a queue written entirely offline
+    // could sit there after reconnect until some unrelated enqueue or
+    // ACK happened to wake the dispatcher, which for an idle chat is
+    // never. This is that call, in the one place every transport
+    // passes through.
+    for (final t in [wsTransport, restTransport]) {
+      _stateSubs.add(t.state.listen(
+        (s) {
+          if (s == TransportState.connected) tickSoon();
+        },
+        onError: (_) {},
+      ));
+    }
     _sweepTimer = Timer.periodic(
       sweepInterval,
       (_) => _track(_sweepTimeouts()),
@@ -149,6 +168,10 @@ class SyncScheduler {
     _wsAckSub = null;
     _restAckSub = null;
     _assetAckSub = null;
+    for (final s in _stateSubs) {
+      await s.cancel();
+    }
+    _stateSubs.clear();
     // Drain whatever was in flight when the flip happened. We snapshot
     // because a completing item removes itself from [_inFlight] via
     // the whenComplete in [_track], so the set mutates as we await.
