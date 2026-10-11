@@ -63,7 +63,8 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: Padding(
+        // Scrolls so Confirm stays reachable above the keyboard.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(kSpaceLg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -75,7 +76,8 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
               ),
               const SizedBox(height: kSpaceSm),
               Text(
-                'Enter the 6-digit code sent to your number',
+                'Enter the 6-digit code sent to '
+                '${widget.authService.phoneNumber ?? 'your number'}',
                 style: textTheme.bodyLarge?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
@@ -178,42 +180,46 @@ class _OtpInputState extends State<_OtpInput> {
     final scheme = Theme.of(context).colorScheme;
     final otp = widget.controller.text;
 
-    final boxes = Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(6, (i) {
-        final filled = i < otp.length;
-        final active = i == otp.length && _focusNode.hasFocus;
-        return Container(
-          width: 48,
-          height: 56,
-          margin: const EdgeInsets.symmetric(horizontal: kSpaceXs),
-          decoration: BoxDecoration(
-            color: filled
-                ? scheme.primaryContainer
-                : scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(kRadiusSm),
-            border: Border.all(
-              color: active
-                  ? scheme.primary
-                  : filled
-                      ? scheme.primary.withValues(alpha: 0.5)
-                      : scheme.outlineVariant,
-              width: active ? 2 : 1,
+    // Boxes share the width (a 360dp phone has ~312dp to give), capped at
+    // 56dp each so they don't balloon on tablets.
+    final boxes = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 6 * 56),
+      child: Row(
+        children: List.generate(6, (i) {
+          final filled = i < otp.length;
+          final active = i == otp.length && _focusNode.hasFocus;
+          return Expanded(
+              child: Container(
+            height: 56,
+            margin: const EdgeInsets.symmetric(horizontal: kSpaceXs),
+            decoration: BoxDecoration(
+              color: filled
+                  ? scheme.primaryContainer
+                  : scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(kRadiusSm),
+              border: Border.all(
+                color: active
+                    ? scheme.primary
+                    : filled
+                        ? scheme.primary.withValues(alpha: 0.5)
+                        : scheme.outlineVariant,
+                width: active ? 2 : 1,
+              ),
             ),
-          ),
-          alignment: Alignment.center,
-          child: filled
-              ? Text(
-                  otp[i],
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onPrimaryContainer,
-                  ),
-                )
-              : null,
-        );
-      }),
+            alignment: Alignment.center,
+            child: filled
+                ? Text(
+                    otp[i],
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onPrimaryContainer,
+                    ),
+                  )
+                : null,
+          ));
+        }),
+      ),
     );
 
     return Stack(
