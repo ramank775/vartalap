@@ -27,7 +27,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /// The E.164 form of the two fields combined — recomputed on every
   /// keystroke to gate the Send OTP button.
-  String get _e164 => normalizePhoneNumber(
+  String get _e164 =>
+      normalizePhoneNumber(
         _phoneController.text.trim(),
         countryCode: _countryCodeController.text.trim(),
       ) ??
@@ -67,7 +68,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     final phone = _e164;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kCountryCodePrefKey, _countryCodeController.text.trim());
+    await prefs.setString(
+        kCountryCodePrefKey, _countryCodeController.text.trim());
     setState(() => _loading = true);
     try {
       await widget.authService.sendOtp(phone);
@@ -106,100 +108,114 @@ class _LoginScreenState extends State<LoginScreen> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(kSpaceLg),
-          child: Column(
-            children: [
-              Expanded(
-                flex: 3,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const AppLogo(size: 40),
-                    const SizedBox(height: kSpaceMd),
-                    Text(
-                      ConfigStore().packageInfo.appName,
-                      style: textTheme.headlineMedium?.copyWith(
-                        color: scheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
+        // Scrolls instead of overflowing when the keyboard leaves less
+        // room than the logo and form halves need.
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(kSpaceLg),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - 2 * kSpaceLg,
               ),
-              Expanded(
-                flex: 3,
+              child: IntrinsicHeight(
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      'We will send you a one-time password on this mobile number',
-                      textAlign: TextAlign.center,
-                      style: textTheme.bodyLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: kSpaceLg),
-                    Container(
-                      constraints: const BoxConstraints(maxWidth: 500),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          SizedBox(
-                            width: 72,
-                            child: TextField(
-                              key: const Key('countryCodeField'),
-                              controller: _countryCodeController,
-                              keyboardType: TextInputType.phone,
-                              maxLines: 1,
-                              style: textTheme.titleLarge,
-                              decoration: const InputDecoration(
-                                hintText: '+91',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: kSpaceSm),
-                          Expanded(
-                            child: TextField(
-                              controller: _phoneController,
-                              keyboardType: TextInputType.phone,
-                              maxLines: 1,
-                              autofocus: true,
-                              style: textTheme.titleLarge,
-                              decoration: InputDecoration(
-                                prefixIcon: Icon(
-                                  Icons.phone_outlined,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                                hintText: 'Phone number',
-                              ),
+                          const AppLogo(size: 40),
+                          const SizedBox(height: kSpaceMd),
+                          Text(
+                            ConfigStore().packageInfo.appName,
+                            style: textTheme.headlineMedium?.copyWith(
+                              color: scheme.primary,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: kSpaceLg),
-                    Container(
-                      constraints: const BoxConstraints(maxWidth: 500),
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed:
-                            (_loading || !_isValid) ? null : _onSend,
-                        child: _loading
-                            ? SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: scheme.onPrimary,
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'We will send you a one-time password on this mobile number',
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodyLarge?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: kSpaceLg),
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 500),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 72,
+                                  child: TextField(
+                                    key: const Key('countryCodeField'),
+                                    controller: _countryCodeController,
+                                    keyboardType: TextInputType.phone,
+                                    maxLines: 1,
+                                    style: textTheme.titleLarge,
+                                    decoration: const InputDecoration(
+                                      hintText: '+91',
+                                    ),
+                                  ),
                                 ),
-                              )
-                            : const Text('Next'),
+                                const SizedBox(width: kSpaceSm),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _phoneController,
+                                    keyboardType: TextInputType.phone,
+                                    maxLines: 1,
+                                    autofocus: true,
+                                    onSubmitted: (_) {
+                                      if (!_loading) _onSend();
+                                    },
+                                    style: textTheme.titleLarge,
+                                    decoration: InputDecoration(
+                                      prefixIcon: Icon(
+                                        Icons.phone_outlined,
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                      hintText: 'Phone number',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: kSpaceLg),
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 500),
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed:
+                                  (_loading || !_isValid) ? null : _onSend,
+                              child: _loading
+                                  ? SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: scheme.onPrimary,
+                                      ),
+                                    )
+                                  : const Text('Next'),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
