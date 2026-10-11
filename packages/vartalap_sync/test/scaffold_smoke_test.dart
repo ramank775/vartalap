@@ -44,7 +44,6 @@ void main() {
           replyToMessageId: null,
           clientTimestampMs: clock.nowMs(),
           serverTimestampMs: null,
-          deliverySequence: null,
           state: MessageState.pending,
           stateUpdatedAt: clock.nowMs(),
           isEdited: false,
@@ -59,7 +58,6 @@ void main() {
           restMethod: null,
           restPath: null,
           resourceId: channelId,
-          resourceSeq: 1,
           payload: payloadBytes,
           status: OpStatus.pending,
           attempts: 0,
@@ -88,13 +86,10 @@ void main() {
       expect(wsTransport.sent.single.ops.single.opId, opId);
 
       // Transport returns AckSuccess. Flow B deletes the op, message
-      // transitions to 'sent' with the server-stamped fields.
+      // transitions to 'sent' with the server timestamp.
       wsTransport.emitAck(AckFrame(
         opId: opId,
-        outcome: const AckSuccess(
-          serverTimestampMs: 2000000,
-          deliverySequence: 42,
-        ),
+        outcome: const AckSuccess(serverTimestampMs: 2000000),
       ));
       // Flow B listens on a broadcast stream and applies the ack in an
       // async callback. Poll until the op is deleted (bounded).
@@ -106,7 +101,6 @@ void main() {
       final delivered = await store.fetchMessage(messageId);
       expect(delivered!.state, MessageState.sent);
       expect(delivered.serverTimestampMs, 2000000);
-      expect(delivered.deliverySequence, 42);
       expect(await store.fetchOutboundOp(opId), isNull);
 
       await scheduler.stop();

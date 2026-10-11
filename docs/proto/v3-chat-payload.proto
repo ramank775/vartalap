@@ -18,7 +18,7 @@ package vartalap.v3.payload;
 // THIS FILE IS NOT IMPORTED BY THE SERVER.
 //
 // The chat-server treats Envelope.payload (see v3-envelope.proto) as
-// opaque bytes — it routes, sequences, dedupes, and fans out, but it
+// opaque bytes — it routes, dedupes, and fans out, but it
 // never parses these bytes. This file documents the payload schema
 // that v3.0 clients agree on among themselves so they can interoperate.
 //
@@ -85,6 +85,14 @@ message ChatPayload {
   // For TYPE_TYPING. False means "stopped typing".
   bool is_typing = 50;
 
+  // For TYPE_READ_RECEIPT, TYPE_DELIVERY_RECEIPT. The server timestamp
+  // of `message_id`, the newest peer message being acknowledged.
+  // Recipients flip their OWN messages with server_timestamp_ms <= this
+  // value, so the receipt works even when they do not hold
+  // `message_id` (another member's message in a group, or one still in
+  // transit).
+  uint64 marker_server_timestamp_ms = 60;
+
   // Free-form client metadata. Other clients MAY ignore unknown keys.
   // Reserved keys:
   //   "client_version"  — UI hint about sender's client (advisory)
@@ -124,20 +132,22 @@ enum ChatPayloadType {
   // Sender has read this channel up to and including `message_id`.
   // Recipients flip their OWN authored messages at or before that
   // marker to "read" — authorship gating per SYNC_PROTOCOL.md §6a.3
-  // means a receipt never touches a third party's rows. Rides a
-  // normal (non-ephemeral) WS op, so it consumes a resource_seq.
+  // means a receipt never touches a third party's rows. The marker is
+  // `marker_server_timestamp_ms`. Rides a normal (non-ephemeral) WS
+  // op, so it is ACKed like any other.
   TYPE_READ_RECEIPT = 7;
 
   // Ephemeral "is typing" signal. MUST ride an envelope with
-  // `ephemeral = true` (v3-envelope.proto): no ACK, no resource_seq,
-  // no persistence, lossy by design. `is_typing` carries the state.
+  // `ephemeral = true` (v3-envelope.proto): no ACK, no persistence,
+  // lossy by design. `is_typing` carries the state.
   TYPE_TYPING = 8;
 
   // Sender's device has stored this channel's messages up to and
-  // including `message_id`. Recipients flip their OWN authored
-  // messages at or before that marker to "delivered" (grey double
-  // tick), never back from "read". Same authorship gating and
-  // transport as TYPE_READ_RECEIPT; sent once per burst of inbound
+  // including `message_id` (marker: `marker_server_timestamp_ms`).
+  // Recipients flip their OWN authored messages at or before that
+  // marker to "delivered" (grey double tick), never back from
+  // "read". Same authorship gating and transport as
+  // TYPE_READ_RECEIPT; sent once per burst of inbound
   // messages per channel, not once per message. In a group the first
   // member's receipt flips the tick, as with read.
   TYPE_DELIVERY_RECEIPT = 9;

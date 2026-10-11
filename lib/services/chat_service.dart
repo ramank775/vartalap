@@ -75,15 +75,22 @@ Uint8List _encodeTyping({required bool isTyping}) => pb.ChatPayload(
       isTyping: isTyping,
     ).writeToBuffer();
 
-/// Build the WS_OP payload for an outbound read receipt — a
-/// `ChatPayload{TYPE_READ_RECEIPT}` naming the read-up-to message
-/// (decision 56). A normal, non-ephemeral op: it is ACKed and it
-/// consumes a `resource_seq` on the channel. The server fans the
-/// opaque bytes on; every recipient flips its OWN messages at or
-/// before the marker to read.
-Uint8List _encodeReceipt(pb.ChatPayloadType type, String messageId) =>
-    pb.ChatPayload(version: 1, type: type, messageId: messageId)
-        .writeToBuffer();
+/// Build the WS_OP payload for an outbound read or delivery receipt — a
+/// `ChatPayload{TYPE_READ_RECEIPT | TYPE_DELIVERY_RECEIPT}` naming the
+/// up-to message and its server timestamp (decision 56). A normal,
+/// non-ephemeral op: it is ACKed like any other. The server fans the
+/// opaque bytes on; every recipient flips its OWN messages stamped at
+/// or before the marker timestamp.
+Uint8List _encodeReceipt(
+  pb.ChatPayloadType type,
+  ({String messageId, int serverTimestampMs}) marker,
+) =>
+    pb.ChatPayload(
+      version: 1,
+      type: type,
+      messageId: marker.messageId,
+      markerServerTimestampMs: fixnum.Int64(marker.serverTimestampMs),
+    ).writeToBuffer();
 
 class ChatService {
   final ChatStore _store;
@@ -248,7 +255,6 @@ class ChatService {
       replyToMessageId: replyToMessageId,
       clientTimestampMs: now,
       serverTimestampMs: null,
-      deliverySequence: null,
       state: MessageState.pending,
       stateUpdatedAt: now,
       isEdited: false,
@@ -414,11 +420,11 @@ class ChatService {
     final now = _clock.nowMs();
     final localUserId = _authClient.currentUserId;
     if (localUserId == null) return;
-    final messageId = await _store.latestPeerMessageId(
+    final marker = await _store.latestPeerMessage(
       channelId: channelId,
       localUserId: localUserId,
     );
-    if (messageId == null) return;
+    if (marker == null) return;
 
     final opId = _uuidGen.next(nowMs: now);
     final op = OutboundOpRow(
@@ -428,7 +434,7 @@ class ChatService {
       restMethod: null,
       restPath: null,
       resourceId: channelId,
-      payload: _encodeReceipt(type, messageId),
+      payload: _encodeReceipt(type, marker),
       status: OpStatus.pending,
       attempts: 0,
       nextRetryAt: now,
@@ -780,8 +786,8 @@ class ChatService {
       restPath: path,
       resourceId: channelId,
       // RestTransport tolerates an empty payload — it sends just the
-      // standard op_id / resource_seq / client_timestamp_ms envelope
-      // fields with no endpoint-specific body.
+      // standard op_id / client_timestamp_ms envelope fields with no
+      // endpoint-specific body.
       payload: payload,
       status: OpStatus.pending,
       attempts: 0,
@@ -1122,11 +1128,9 @@ class ChatService {
         kind: OpKind.assetUpload,
         restMethod: null,
         restPath: null,
-        // Deliberately NOT the channel: `resource_seq` is per
-        // (user, resource) and strictly monotonic on the wire
-        // (SYNC_PROTOCOL §6). An upload never reaches the server, so
-        // spending a channel sequence number on one would leave a hole
-        // the server reads as `out_of_order`.
+        // Deliberately NOT the channel: the scheduler runs one op per
+        // resource at a time, and a long upload must not hold up the
+        // channel's other messages behind it.
         resourceId: resourceId,
         payload: utf8.encode(jsonEncode(spec)),
         status: OpStatus.pending,
@@ -1190,7 +1194,6 @@ class ChatService {
       replyToMessageId: replyToMessageId,
       clientTimestampMs: now,
       serverTimestampMs: null,
-      deliverySequence: null,
       state: MessageState.pending,
       stateUpdatedAt: now,
       isEdited: false,

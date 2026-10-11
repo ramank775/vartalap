@@ -137,8 +137,9 @@ void main() {
     expect(
       ops.single['resource_id'],
       isNot(channelId),
-      reason: 'SYNC_PROTOCOL §6: an upload never reaches the server, so it '
-          "must not spend one of the channel's resource_seq numbers.",
+      reason: 'an upload never reaches the chat server, and one op per '
+          'resource is in flight at a time, so it must not hold up the '
+          "channel's messages behind it.",
     );
 
     // The picked file renders through the cache like any other asset.
@@ -218,7 +219,6 @@ Future<void> _inbound(
       replyToMessageId: null,
       clientTimestampMs: 1000 + seq,
       serverTimestampMs: 1000 + seq,
-      deliverySequence: seq,
       nowMs: 1000 + seq,
     );
 

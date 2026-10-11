@@ -333,7 +333,6 @@ Future<void> _insertWithAttachment(
       replyToMessageId: null,
       clientTimestampMs: 1000 + seq,
       serverTimestampMs: 1000 + seq,
-      deliverySequence: seq,
       nowMs: 1000 + seq,
     );
 
@@ -360,7 +359,6 @@ Future<void> _insert(
       replyToMessageId: null,
       clientTimestampMs: 1000 + seq,
       serverTimestampMs: 1000 + seq,
-      deliverySequence: seq,
       nowMs: 1000 + seq,
     );
 

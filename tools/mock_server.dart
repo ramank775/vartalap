@@ -215,13 +215,10 @@ class MockState {
   final Map<String, SessionRecord> sessionsByRefresh = {}; // refreshToken -> session
   final Map<String, OtpSession> otpSessions = {};
   final Map<String, ChannelRecord> channels = {};
-  final Map<String, int> channelDeliverySeq = {};
   // §7.1 dedup window: '<user_id>:<op_id>' -> the outcome we already
   // returned for it. ponytail: unbounded and in-memory only (the spec
   // wants 10k/user, 7 days) — a mock never runs long enough to care.
   final Map<String, StoredOutcome> outcomes = {};
-  // §6 sequencing: '<user_id>:<resource_id>' -> max accepted seq.
-  final Map<String, int> resourceSeq = {};
   final Map<String, List<WebSocket>> wsConnections = {};
   // Per-user undelivered queue (SYNC_PROTOCOL.md §11). Holds raw
   // serialized WS_PUSH WsEnvelope frames. Drained on WS connect.
@@ -270,8 +267,6 @@ class MockState {
         'sessions': sessions.values.map((s) => s.toPersistJson()).toList(),
         'channels':
             channels.values.map((c) => c.toPersistJson()).toList(),
-        'channelDeliverySeq': channelDeliverySeq,
-        'resourceSeq': resourceSeq,
         'undelivered': undelivered.map(
           (k, v) => MapEntry(k, v.map(base64Encode).toList()),
         ),
@@ -301,10 +296,6 @@ class MockState {
         final c = ChannelRecord.fromPersistJson(entry as Map<String, dynamic>);
         channels[c.channelId] = c;
       }
-      final seqs = j['channelDeliverySeq'] as Map<String, dynamic>? ?? {};
-      seqs.forEach((k, v) => channelDeliverySeq[k] = v as int);
-      final seqs2 = j['resourceSeq'] as Map<String, dynamic>? ?? {};
-      seqs2.forEach((k, v) => resourceSeq[k] = v as int);
       final queues = j['undelivered'] as Map<String, dynamic>? ?? {};
       queues.forEach((k, v) => undelivered[k] = (v as List<dynamic>)
           .map((e) => base64Decode(e as String))
@@ -379,31 +370,12 @@ class MockState {
     markDirty();
   }
 
-  int nextDeliverySeq(String channelId) {
-    final seq = (channelDeliverySeq[channelId] ?? 0) + 1;
-    channelDeliverySeq[channelId] = seq;
-    markDirty();
-    return seq;
-  }
-
   /// §7.1 — the outcome already returned for [opId], if any.
   StoredOutcome? storedOutcome(String userId, String opId) =>
       outcomes['$userId:$opId'];
 
   void recordOutcome(String userId, String opId, StoredOutcome outcome) {
     outcomes['$userId:$opId'] = outcome;
-  }
-
-  /// §6 — accept [seq] iff it is exactly `max_seen + 1` (first op on a
-  /// resource must be 1). Returns false on a skip / replay of a lower
-  /// seq, which the caller turns into `out_of_order`.
-  bool acceptSeq(String userId, String resourceId, int seq) {
-    final key = '$userId:$resourceId';
-    final prev = resourceSeq[key] ?? 0;
-    if (seq != prev + 1) return false;
-    resourceSeq[key] = seq;
-    markDirty();
-    return true;
   }
 
   void addWsConnection(String userId, WebSocket ws) {
@@ -584,13 +556,11 @@ class RecordedRequest {
 class RecordedEnvelope {
   final String opId;
   final String channelId;
-  final int resourceSeq;
   final Uint8List payload;
   final String? rejectReason;
   RecordedEnvelope({
     required this.opId,
     required this.channelId,
-    required this.resourceSeq,
     required this.payload,
     required this.rejectReason,
   });
@@ -601,11 +571,13 @@ class RecordedEnvelope {
 class StoredOutcome {
   final bool success;
   final String? reason; // WS permanent-reject reason
+  final int? serverTimestampMs; // WS success: replayed on a retry
   final int? status; // REST status
   final Map<String, dynamic>? body; // REST body
   const StoredOutcome({
     required this.success,
     this.reason,
+    this.serverTimestampMs,
     this.status,
     this.body,
   });
@@ -614,7 +586,7 @@ class StoredOutcome {
 /// The v3 mock chat-server, startable in-process.
 ///
 /// `strict: true` (the default) turns it into a contract enforcer:
-/// per-resource sequencing, op_id prefix binding, WS batch cap,
+/// op_id prefix binding, WS batch cap,
 /// ChatPayload-or-0x53 payload shape, channel `kind`, op dedup and
 /// one-shot OTP verify are all enforced per docs/SYNC_PROTOCOL.md and
 /// docs/AUTH_CONTRACT.md. `strict: false` restores the permissive
@@ -632,7 +604,7 @@ class MockServer {
   /// the peer explicitly via [injectPeerMessage]).
   final bool demoMode;
 
-  /// Contract enforcement (SYNC_PROTOCOL §6, §6a.3, §7, §11.3).
+  /// Contract enforcement (SYNC_PROTOCOL §6a.3, §7, §11.3).
   final bool strict;
 
   /// Every REST request handled, in order. Test hook.
@@ -642,7 +614,7 @@ class MockServer {
   final List<RecordedEnvelope> envelopes = [];
 
   /// Every accepted `ephemeral=true` WS envelope, in order. They never
-  /// reach [envelopes] (no ACK, no dedup, no sequencing). Test hook.
+  /// reach [envelopes] (no ACK, no dedup). Test hook.
   final List<RecordedEnvelope> ephemeralEnvelopes = [];
 
   MockServer._(this._http, this.state,
@@ -720,6 +692,25 @@ class MockServer {
   /// Demo timers, cancelled by [stop] so a test never leaks one.
   final Set<Timer> _timers = {};
 
+  /// The server clock for accepted chat ops. ponytail: strictly
+  /// increasing so tests never tie two ops on one millisecond and lean
+  /// on the id tie-break by accident; the real server makes no such
+  /// promise. Tests that want a tie pass `serverTimestampMs`.
+  int _lastStamp = 0;
+  int _stamp() => _lastStamp =
+      max(DateTime.now().millisecondsSinceEpoch, _lastStamp + 1);
+
+  /// message_id → server timestamp of every create / forward the mock
+  /// has fanned out: what a peer's client would put in a receipt's
+  /// `marker_server_timestamp_ms` (it saw the same stamp on fanout).
+  final Map<String, int> messageStamps = {};
+
+  void _recordStamp(List<int> payload, int stamp) {
+    if (!_isMessageCreate(payload)) return;
+    final id = _extractMessageId(payload);
+    if (id != null) messageStamps[id] = stamp;
+  }
+
   Timer _timer(Duration d, void Function() fn) {
     late Timer t;
     t = Timer(d, () {
@@ -745,12 +736,18 @@ class MockServer {
   /// the seed peer) into [channelId]. Fans a real `WS_PUSH` carrying a
   /// `ChatPayload{TYPE_MESSAGE_CREATE}` to every other member — live if
   /// they have a socket, otherwise onto their undelivered queue.
+  ///
+  /// [messageId] and [serverTimestampMs] let a test deliver the create
+  /// AFTER ops that target it (SYNC_PROTOCOL §6: the client copes).
   ({String messageId, String opId}) injectPeerMessage({
     required String channelId,
     required String body,
     String senderUserId = seedPeerUserId,
+    String? messageId,
+    int? serverTimestampMs,
   }) =>
-      _sendPeerMessage(channelId, senderUserId, body);
+      _sendPeerMessage(channelId, senderUserId, body,
+          messageId: messageId, serverTimestampMs: serverTimestampMs);
 
   /// Inject a peer-authored edit of [messageId] (SYNC_PROTOCOL §6a:
   /// the recipient applies it only because [senderUserId] is the
@@ -760,6 +757,7 @@ class MockServer {
     required String messageId,
     required String body,
     String senderUserId = seedPeerUserId,
+    int? serverTimestampMs,
   }) =>
       _fanoutPeerChatPayload(
         channelId,
@@ -771,6 +769,7 @@ class MockServer {
           body: body,
           contentType: 'text/plain',
         ),
+        serverTimestampMs: serverTimestampMs,
       );
 
   /// Inject a peer-authored delete (tombstone) of [messageId].
@@ -778,6 +777,7 @@ class MockServer {
     required String channelId,
     required String messageId,
     String senderUserId = seedPeerUserId,
+    int? serverTimestampMs,
   }) =>
       _fanoutPeerChatPayload(
         channelId,
@@ -787,6 +787,7 @@ class MockServer {
           type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
           messageId: messageId,
         ),
+        serverTimestampMs: serverTimestampMs,
       );
 
   /// Inject a peer reaction on [messageId] — add when [add], remove
@@ -797,6 +798,7 @@ class MockServer {
     required String emoji,
     bool add = true,
     String senderUserId = seedPeerUserId,
+    int? serverTimestampMs,
   }) =>
       _fanoutPeerChatPayload(
         channelId,
@@ -809,42 +811,58 @@ class MockServer {
           messageId: messageId,
           emoji: emoji,
         ),
+        serverTimestampMs: serverTimestampMs,
       );
 
   /// Inject a peer-authored read receipt marking [messageId] (and
   /// everything before it) as read by [senderUserId] — decision 56's
-  /// `ChatPayload{TYPE_READ_RECEIPT}`, not a server event.
+  /// `ChatPayload{TYPE_READ_RECEIPT}`, not a server event. The marker
+  /// timestamp defaults to the stamp the mock gave [messageId]; pass
+  /// [markerServerTimestampMs] for a message the mock never saw.
   ({String messageId, String opId}) injectPeerReadReceipt({
     required String channelId,
     required String messageId,
     String senderUserId = seedPeerUserId,
+    int? markerServerTimestampMs,
   }) =>
-      _fanoutPeerChatPayload(
-        channelId,
-        senderUserId,
-        pb.ChatPayload(
-          version: 1,
-          type: pb.ChatPayloadType.TYPE_READ_RECEIPT,
-          messageId: messageId,
-        ),
-      );
+      _injectReceipt(pb.ChatPayloadType.TYPE_READ_RECEIPT, channelId,
+          messageId, senderUserId, markerServerTimestampMs);
 
   /// Inject a peer-authored delivery receipt: [senderUserId]'s device
-  /// has stored [messageId] and everything before it (grey ✓✓).
+  /// has stored [messageId] and everything before it (grey ✓✓). Marker
+  /// as in [injectPeerReadReceipt].
   ({String messageId, String opId}) injectPeerDeliveryReceipt({
     required String channelId,
     required String messageId,
     String senderUserId = seedPeerUserId,
+    int? markerServerTimestampMs,
   }) =>
-      _fanoutPeerChatPayload(
-        channelId,
-        senderUserId,
-        pb.ChatPayload(
-          version: 1,
-          type: pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT,
-          messageId: messageId,
-        ),
-      );
+      _injectReceipt(pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT, channelId,
+          messageId, senderUserId, markerServerTimestampMs);
+
+  ({String messageId, String opId}) _injectReceipt(
+    pb.ChatPayloadType type,
+    String channelId,
+    String messageId,
+    String senderUserId,
+    int? markerServerTimestampMs,
+  ) {
+    final marker = markerServerTimestampMs ?? messageStamps[messageId];
+    if (marker == null) {
+      throw StateError('no server timestamp known for $messageId; '
+          'pass markerServerTimestampMs');
+    }
+    return _fanoutPeerChatPayload(
+      channelId,
+      senderUserId,
+      pb.ChatPayload(
+        version: 1,
+        type: type,
+        messageId: messageId,
+        markerServerTimestampMs: fixnum.Int64(marker),
+      ),
+    );
+  }
 
   /// Inject a peer typing indicator as an `ephemeral=true` WS_PUSH —
   /// live-only, no ACK, no dedup, dropped for offline members.
@@ -992,23 +1010,18 @@ class MockServer {
     }
   }
 
-  /// Shared §11.2 preamble for REST writes: op_id prefix binding,
-  /// §7.1 dedup replay, §6 sequencing. Returns a [StoredOutcome] when
-  /// the request must NOT be applied (either a replay whose stored
-  /// response we echo, or a rejection), else null.
-  /// Pass `consumeSeq: false` when the endpoint has to run its own
-  /// validation between the dedup check and the sequence check — see
-  /// [_consumeSeq].
+  /// Shared §11.2 preamble for REST writes: op_id prefix binding and
+  /// §7.1 dedup replay. Returns a [StoredOutcome] when the request must
+  /// NOT be applied (either a replay whose stored response we echo, or a
+  /// rejection), else null. No ordering check: the server keeps no
+  /// ordering state (SYNC_PROTOCOL §6).
   StoredOutcome? _validateRestOp({
     required SessionRecord session,
     required Map<String, dynamic> body,
-    required String resourceId,
-    bool consumeSeq = true,
   }) {
     if (!strict) return null;
     final opId = body['op_id'];
-    final seq = body['resource_seq'];
-    if (opId is! String || opId.isEmpty || seq is! int) {
+    if (opId is! String || opId.isEmpty) {
       return const StoredOutcome(
         success: false,
         status: 400,
@@ -1021,43 +1034,6 @@ class MockServer {
     final prefix = _checkOpIdPrefix(session.userId, opId);
     if (prefix != null) {
       return StoredOutcome(success: false, status: 400, reason: prefix);
-    }
-    if (consumeSeq && !state.acceptSeq(session.userId, resourceId, seq)) {
-      return const StoredOutcome(
-        success: false,
-        status: 400,
-        reason: 'out_of_order',
-      );
-    }
-    return null;
-  }
-
-  /// §6 — the sequence half of [_validateRestOp], for an endpoint that
-  /// must validate before consuming. `POST /v3.0/channels` is the one:
-  /// the real gateway (`channel-ms.createChannel`) checks the roster
-  /// and the `kind` BEFORE its `inOrder` call, so a create the server
-  /// refuses on those grounds consumes no sequence. The mock used to
-  /// consume it first and drift from the server on exactly that path.
-  StoredOutcome? _consumeSeq(
-    SessionRecord session,
-    Map<String, dynamic> body,
-    String resourceId,
-  ) {
-    if (!strict) return null;
-    final seq = body['resource_seq'];
-    if (seq is! int) {
-      return const StoredOutcome(
-        success: false,
-        status: 400,
-        reason: 'validation_failed',
-      );
-    }
-    if (!state.acceptSeq(session.userId, resourceId, seq)) {
-      return const StoredOutcome(
-        success: false,
-        status: 400,
-        reason: 'out_of_order',
-      );
     }
     return null;
   }
@@ -1708,15 +1684,7 @@ class MockServer {
     final name = body['name'] as String?;
     final membersList = (body['members'] as List<dynamic>?)?.cast<String>() ?? [];
 
-    // §11.3 — dedup + op_id binding now; the sequence is consumed only
-    // once the `kind` and roster checks below have had their say, which
-    // is the order channel-ms.createChannel runs them in.
-    final pre = _validateRestOp(
-      session: session,
-      body: body,
-      resourceId: channelId,
-      consumeSeq: false,
-    );
+    final pre = _validateRestOp(session: session, body: body);
     if (pre != null) {
       _respondOutcome(req, body, pre);
       return;
@@ -1760,13 +1728,6 @@ class MockServer {
       );
       state.recordOutcome(session.userId, body['op_id'] as String, outcome);
       _respondOutcome(req, body, outcome);
-      return;
-    }
-
-    final seqCheck = _consumeSeq(session, body, channelId);
-    if (seqCheck != null) {
-      state.recordOutcome(session.userId, body['op_id'] as String, seqCheck);
-      _respondOutcome(req, body, seqCheck);
       return;
     }
 
@@ -1888,13 +1849,9 @@ class MockServer {
       return;
     }
 
-    // §11.2 — the body carries op_id / resource_seq / client_timestamp_ms.
+    // §11.2 — the body carries op_id / client_timestamp_ms.
     final body = await _readJsonBody(req);
-    final pre = _validateRestOp(
-      session: session,
-      body: body,
-      resourceId: channelId,
-    );
+    final pre = _validateRestOp(session: session, body: body);
     if (pre != null) {
       _respondOutcome(req, body, pre);
       return;
@@ -1959,11 +1916,7 @@ class MockServer {
     if (session == null) return;
 
     final body = await _readJsonBody(req);
-    final pre = _validateRestOp(
-      session: session,
-      body: body,
-      resourceId: target.channelId,
-    );
+    final pre = _validateRestOp(session: session, body: body);
     if (pre != null) {
       _respondOutcome(req, body, pre);
       return;
@@ -2202,7 +2155,7 @@ class MockServer {
       String senderUserId, pb.Envelope env, WebSocket senderSocket) {
     final channelId = env.channelId;
     final opId = env.opId;
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
 
     pb.Ack reject(String reason) {
       _log('WS reject: opId=$opId reason=$reason from $senderUserId');
@@ -2211,7 +2164,6 @@ class MockServer {
       envelopes.add(RecordedEnvelope(
         opId: opId,
         channelId: channelId,
-        resourceSeq: env.resourceSeq.toInt(),
         payload: Uint8List.fromList(env.payload),
         rejectReason: reason,
       ));
@@ -2233,7 +2185,8 @@ class MockServer {
             ? pb.Ack(
                 opId: opId,
                 outcome: pb.AckOutcome.ACK_SUCCESS,
-                serverTimestampMs: fixnum.Int64(now),
+                serverTimestampMs:
+                    fixnum.Int64(stored.serverTimestampMs ?? now),
               )
             : pb.Ack(
                 opId: opId,
@@ -2287,14 +2240,13 @@ class MockServer {
       return reject('validation_failed');
     }
 
-    // Ephemeral envelopes bypass dedup, deliverySeq, undelivered queue,
-    // ACK emission, and any of the post-fanout receipts. Fan to currently-
+    // Ephemeral envelopes bypass dedup, the undelivered queue, ACK
+    // emission, and any of the post-fanout receipts. Fan to currently-
     // connected members live and drop the rest. See v3-envelope.proto.
     if (env.ephemeral) {
       ephemeralEnvelopes.add(RecordedEnvelope(
         opId: opId,
         channelId: channelId,
-        resourceSeq: env.resourceSeq.toInt(),
         payload: Uint8List.fromList(env.payload),
         rejectReason: null,
       ));
@@ -2311,12 +2263,9 @@ class MockServer {
       return null;
     }
 
-    // §6a.3 step 4 — resource_seq must be exactly max_seen + 1 for
-    // this (user_id, channel_id); the first op on a resource is 1.
-    if (strict &&
-        !state.acceptSeq(senderUserId, channelId, env.resourceSeq.toInt())) {
-      return reject('out_of_order');
-    }
+    // No ordering check (SYNC_PROTOCOL §6): the server keeps no
+    // per-(user, channel) state, accepts ops in whatever order they
+    // come, and recipients sort by (server_timestamp_ms, op_id).
 
     // §6a.3 step 5 — a client payload is a ChatPayload proto. Nothing
     // else is on the wire (§10.2 server events are server-authored).
@@ -2324,39 +2273,34 @@ class MockServer {
       return reject('validation_failed');
     }
 
-    // Test hook. Placed after the sequence check on purpose: the seq
-    // has been consumed server-side either way, so the client's next
-    // op (or its manual retry) still lines up at max_seen + 1. A read
-    // receipt is not chat content and never consumes the budget.
+    // Test hook. A read receipt is not chat content and never consumes
+    // the budget.
     if (rejectNextChatOps > 0 && !_isReadReceipt(env.payload)) {
       rejectNextChatOps--;
       return reject('forced_reject');
     }
 
     // Accept the op
-    state.recordOutcome(
-        senderUserId, opId, const StoredOutcome(success: true));
+    state.recordOutcome(senderUserId, opId,
+        StoredOutcome(success: true, serverTimestampMs: now));
     envelopes.add(RecordedEnvelope(
       opId: opId,
       channelId: channelId,
-      resourceSeq: env.resourceSeq.toInt(),
       payload: Uint8List.fromList(env.payload),
       rejectReason: null,
     ));
-    final deliverySeq = state.nextDeliverySeq(channelId);
+    _recordStamp(env.payload, now);
 
-    _log('WS op: opId=$opId channel=$channelId sender=$senderUserId seq=$deliverySeq');
+    _log('WS op: opId=$opId channel=$channelId sender=$senderUserId ts=$now');
 
     // Fanout WS_PUSH to other channel members
     final pushEnv = pb.Envelope(
       opId: opId,
       channelId: channelId,
-      resourceSeq: env.resourceSeq,
       clientTimestampMs: env.clientTimestampMs,
       payload: env.payload,
       senderUserId: senderUserId,
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(deliverySeq),
       // Echoed unchanged; from the recipient's side the other
       // participant is `sender_user_id`, so nothing reads it.
       peer: env.peer.isEmpty ? null : env.peer,
@@ -2418,7 +2362,6 @@ class MockServer {
       opId: opId,
       outcome: pb.AckOutcome.ACK_SUCCESS,
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(deliverySeq),
     );
   }
 
@@ -2507,12 +2450,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
       senderUserId: creatorUserId,
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2554,12 +2495,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
       senderUserId: '', // server-authored
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2594,12 +2533,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(removedAtMs),
       payload: payload,
       senderUserId: '', // server-authored
       serverTimestampMs: fixnum.Int64(removedAtMs),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2658,12 +2595,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
       senderUserId: '', // server-authored
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2704,12 +2639,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
       senderUserId: '',
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2749,12 +2682,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
       senderUserId: '', // server-authored
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2784,12 +2715,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
       senderUserId: '', // server-authored
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2810,7 +2739,7 @@ class MockServer {
     required String senderUserId,
     required String body,
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final messageId = state.generateUuid();
     final chatPayload = pb.ChatPayload(
       version: 1,
@@ -2822,12 +2751,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(1),
       clientTimestampMs: fixnum.Int64(now),
       payload: chatPayload.writeToBuffer(),
       senderUserId: senderUserId,
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2863,12 +2790,10 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
-      resourceSeq: fixnum.Int64(0),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
       senderUserId: '', // server-authored
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(state.nextDeliverySeq(channelId)),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2893,14 +2818,11 @@ class MockServer {
     final pushEnv = pb.Envelope(
       opId: env.opId,
       channelId: env.channelId,
-      resourceSeq: env.resourceSeq,
       clientTimestampMs: env.clientTimestampMs,
       payload: env.payload,
       ephemeral: true,
       senderUserId: senderUserId,
       serverTimestampMs: fixnum.Int64(now),
-      // No delivery_sequence — ephemeral envelopes don't participate in
-      // recipient-side ordering. Field defaults to 0 on the wire.
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2949,7 +2871,6 @@ class MockServer {
       final pushEnv = pb.Envelope(
         opId: state.generateUuid(),
         channelId: channelId,
-        resourceSeq: fixnum.Int64(0),
         clientTimestampMs: fixnum.Int64(now),
         payload: replyBytes,
         ephemeral: true,
@@ -3046,40 +2967,45 @@ class MockServer {
   /// Fan a `ChatPayload{TYPE_MESSAGE_CREATE}` from [senderUserId] to
   /// every other member of [channelId].
   ({String messageId, String opId}) _sendPeerMessage(
-          String channelId, String senderUserId, String body) =>
+          String channelId, String senderUserId, String body,
+          {String? messageId, int? serverTimestampMs}) =>
       _fanoutPeerChatPayload(
         channelId,
         senderUserId,
         pb.ChatPayload(
           version: 1,
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: state.generateUuid(),
+          messageId: messageId ?? state.generateUuid(),
           body: body,
           contentType: 'text/plain',
         ),
+        serverTimestampMs: serverTimestampMs,
       );
 
   /// Fan an arbitrary peer-authored [payload] to every other member of
   /// [channelId] as a WS_PUSH — the same path a relayed client op takes,
   /// which is what makes edits / deletes / reactions injectable at all:
   /// the server never parses any of them (V3_ARCHITECTURE decision 12).
+  ///
+  /// [serverTimestampMs] overrides the server stamp, so a test can
+  /// deliver ops in an order that disagrees with their timestamps (an
+  /// edit stamped before its create, two messages on one millisecond).
   ({String messageId, String opId}) _fanoutPeerChatPayload(
-      String channelId, String senderUserId, pb.ChatPayload payload) {
+      String channelId, String senderUserId, pb.ChatPayload payload,
+      {int? serverTimestampMs}) {
     final recipients = _recipientsFor(channelId, senderUserId);
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final deliverySeq = state.nextDeliverySeq(channelId);
+    final now = serverTimestampMs ?? _stamp();
     final messageId = payload.messageId;
+    _recordStamp(payload.writeToBuffer(), now);
 
     final opId = state.generateUuid();
     final pushEnv = pb.Envelope(
       opId: opId,
       channelId: channelId,
-      resourceSeq: fixnum.Int64(1),
       clientTimestampMs: fixnum.Int64(now),
       payload: payload.writeToBuffer(),
       senderUserId: senderUserId,
       serverTimestampMs: fixnum.Int64(now),
-      deliverySequence: fixnum.Int64(deliverySeq),
     );
     final pushBytes =
         pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv).writeToBuffer();
@@ -3088,7 +3014,7 @@ class MockServer {
       _sendToUser(memberId, pushBytes);
     }
     _log('Peer ${payload.type.name}: channel=$channelId '
-        'from=$senderUserId deliverySeq=$deliverySeq message=$messageId');
+        'from=$senderUserId ts=$now message=$messageId');
     return (messageId: messageId, opId: opId);
   }
 
@@ -3352,11 +3278,7 @@ class MockServer {
     if (session == null) return;
 
     final body = await _readJsonBody(req);
-    final pre = _validateRestOp(
-      session: session,
-      body: body,
-      resourceId: target.channelId,
-    );
+    final pre = _validateRestOp(session: session, body: body);
     if (pre != null) {
       _respondOutcome(req, body, pre);
       return;
@@ -3455,11 +3377,7 @@ class MockServer {
       });
       return;
     }
-    final pre = _validateRestOp(
-      session: session,
-      body: body,
-      resourceId: channelId,
-    );
+    final pre = _validateRestOp(session: session, body: body);
     if (pre != null) {
       _respondOutcome(req, body, pre);
       return;

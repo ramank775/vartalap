@@ -24,7 +24,6 @@ void main() {
             opId: env.opId,
             outcome: pb.AckOutcome.ACK_SUCCESS,
             serverTimestampMs: fixnum.Int64(1700000),
-            deliverySequence: fixnum.Int64(99),
           );
 
       final transport = WsTransport(
@@ -49,7 +48,6 @@ void main() {
         ops: [
           FramedOp(
             opId: 'op-1',
-            resourceSeq: 1,
             payload: const [1, 2, 3],
             clientTimestampMs: 1000,
           ),
@@ -61,7 +59,6 @@ void main() {
       expect(ack.outcome, isA<AckSuccess>());
       final success = ack.outcome as AckSuccess;
       expect(success.serverTimestampMs, 1700000);
-      expect(success.deliverySequence, 99);
 
       // Server saw the accesskey subprotocol.
       expect(server.lastSubprotocol, 'accesskey.acc-1');
@@ -70,7 +67,7 @@ void main() {
       expect(server.lastEnvelope, isNotNull);
       expect(server.lastEnvelope!.opId, 'op-1');
       expect(server.lastEnvelope!.channelId, 'channel-xyz');
-      expect(server.lastEnvelope!.resourceSeq.toInt(), 1);
+      expect(server.lastEnvelope!.clientTimestampMs.toInt(), 1000);
       expect(server.lastEnvelope!.payload, const [1, 2, 3]);
     });
 
@@ -101,7 +98,7 @@ void main() {
         kind: 'chat_payload',
         resourceId: 'c',
         ops: [
-          FramedOp(opId: 'op-2', resourceSeq: 1, payload: const [0]),
+          FramedOp(opId: 'op-2', payload: const [0]),
         ],
       ));
 
@@ -137,7 +134,7 @@ void main() {
         kind: 'chat_payload',
         resourceId: 'c',
         ops: [
-          FramedOp(opId: 'op-3', resourceSeq: 1, payload: const [0]),
+          FramedOp(opId: 'op-3', payload: const [0]),
         ],
       ));
 
@@ -156,7 +153,7 @@ void main() {
         () => transport.send(OutboundFrame(
           kind: 'chat_payload',
           resourceId: 'c',
-          ops: [FramedOp(opId: 'op', resourceSeq: 1, payload: const [0])],
+          ops: [FramedOp(opId: 'op', payload: const [0])],
         )),
         throwsStateError,
       );
@@ -182,17 +179,15 @@ void main() {
       server.pushEnvelope(pb.Envelope(
         opId: 'push-op-1',
         channelId: 'ch-abc',
-        resourceSeq: fixnum.Int64(7),
         senderUserId: '1a2b3c4d5',
         serverTimestampMs: fixnum.Int64(1800000),
-        deliverySequence: fixnum.Int64(42),
         payload: utf8.encode('hi'),
       ));
 
       final pushed = await pushFuture;
       expect(pushed.opId, 'push-op-1');
       expect(pushed.senderUserId, '1a2b3c4d5');
-      expect(pushed.deliverySequence.toInt(), 42);
+      expect(pushed.serverTimestampMs.toInt(), 1800000);
     });
   });
 
@@ -212,7 +207,8 @@ void main() {
           final body =
               jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
           expect(body['op_id'], 'op-rest-1');
-          expect(body['resource_seq'], 5);
+          expect(body.containsKey('resource_seq'), isFalse,
+              reason: 'retired: the server keeps no ordering state');
           expect(body['channel_id'], 'ch-new');
           req.response.statusCode = 201;
           req.response.headers.contentType = ContentType.json;
@@ -240,7 +236,6 @@ void main() {
         ops: [
           FramedOp(
             opId: 'op-rest-1',
-            resourceSeq: 5,
             payload: utf8.encode(jsonEncode({'channel_id': 'ch-new'})),
             restMethod: 'POST',
             restPath: '/v3.0/channels',
@@ -280,7 +275,6 @@ void main() {
         ops: [
           FramedOp(
             opId: 'op-503',
-            resourceSeq: 1,
             payload: utf8.encode(jsonEncode({'name': 'x'})),
             restMethod: 'POST',
             restPath: '/v3.0/channels',
@@ -320,7 +314,6 @@ void main() {
         ops: [
           FramedOp(
             opId: 'op-401',
-            resourceSeq: 1,
             payload: utf8.encode(jsonEncode({})),
             restMethod: 'POST',
             restPath: '/v3.0/channels',
@@ -358,7 +351,6 @@ void main() {
         ops: [
           FramedOp(
             opId: 'op-404',
-            resourceSeq: 2,
             payload: utf8.encode(jsonEncode({'name': 'x'})),
             restMethod: 'PATCH',
             restPath: '/v3.0/channels/ch-bad',
@@ -383,7 +375,7 @@ void main() {
           kind: 'create_channel',
           resourceId: 'ch',
           ops: [
-            FramedOp(opId: 'op', resourceSeq: 1, payload: utf8.encode('{}')),
+            FramedOp(opId: 'op', payload: utf8.encode('{}')),
           ],
         )),
         throwsStateError,

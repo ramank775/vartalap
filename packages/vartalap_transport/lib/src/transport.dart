@@ -31,7 +31,6 @@ class OutboundFrame {
 
 class FramedOp {
   final String opId;
-  final int resourceSeq;
   final List<int> payload;
   final int? clientTimestampMs;
 
@@ -46,7 +45,6 @@ class FramedOp {
 
   const FramedOp({
     required this.opId,
-    required this.resourceSeq,
     required this.payload,
     this.clientTimestampMs,
     this.restMethod,

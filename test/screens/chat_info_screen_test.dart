@@ -374,7 +374,6 @@ MessageRow _imageMessage(String id) => MessageRow(
       replyToMessageId: null,
       clientTimestampMs: 1000,
       serverTimestampMs: 1010,
-      deliverySequence: 1,
       state: MessageState.sent,
       stateUpdatedAt: 1000,
       isEdited: false,

@@ -47,7 +47,7 @@ void main() {
         body: 'hi',
         authorUserId: 'u-peer',
         clientTimestampMs: 1100,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
       );
       await store.db.update(
         'channels',
@@ -158,7 +158,7 @@ void main() {
         body: 'from alice',
         authorUserId: 'u-alice',
         clientTimestampMs: 1100,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
       );
       await store.db.update(
         'channels',
@@ -182,7 +182,7 @@ void main() {
         body: 'from bob',
         authorUserId: 'u-bob',
         clientTimestampMs: 2100,
-        deliverySequence: 7,
+        serverTimestampMs: 7,
       );
       await store.db.update(
         'channels',
@@ -241,7 +241,7 @@ void main() {
         body: null,
         authorUserId: 'u-carol',
         clientTimestampMs: 220,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
         tombstoned: true,
       );
       await store.db.update(
@@ -296,7 +296,6 @@ void main() {
           replyToMessageId: null,
           clientTimestampMs: 150,
           serverTimestampMs: null,
-          deliverySequence: null,
           state: MessageState.pending,
           stateUpdatedAt: 150,
           isEdited: false,
@@ -311,7 +310,6 @@ void main() {
           restMethod: null,
           restPath: null,
           resourceId: 'c-1',
-          resourceSeq: 1,
           payload: [0x01],
           status: OpStatus.pending,
           attempts: 0,
@@ -337,7 +335,7 @@ void main() {
   });
 
   group('fetchChannelMessages', () {
-    test('pending (null delivery_sequence) sorts to the top', () async {
+    test('pending (no server timestamp yet) sorts to the top', () async {
       final store = await ChatStore.open(path: inMemoryDatabasePath);
       addTearDown(store.close);
 
@@ -355,7 +353,7 @@ void main() {
         body: 'old',
         authorUserId: 'u-self',
         clientTimestampMs: 100,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
       );
       // A brand-new pending one
       await store.enqueueLocalMessage(
@@ -368,7 +366,6 @@ void main() {
           replyToMessageId: null,
           clientTimestampMs: 200,
           serverTimestampMs: null,
-          deliverySequence: null,
           state: MessageState.pending,
           stateUpdatedAt: 200,
           isEdited: false,
@@ -383,7 +380,6 @@ void main() {
           restMethod: null,
           restPath: null,
           resourceId: 'c-1',
-          resourceSeq: 1,
           payload: [0x01],
           status: OpStatus.pending,
           attempts: 0,
@@ -400,6 +396,122 @@ void main() {
 
       final msgs = await store.fetchChannelMessages('c-1');
       expect(msgs.map((m) => m.messageId), ['m-new', 'm-old']);
+    });
+
+    test('orders by (server_timestamp_ms, message_id); un-acked on top',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'c-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+      );
+      Future<void> pending(String id, int clientTimestampMs) =>
+          store.enqueueLocalMessage(
+            message: MessageRow(
+              messageId: id,
+              channelId: 'c-1',
+              authorUserId: 'u-self',
+              body: id,
+              contentType: 'text/plain',
+              replyToMessageId: null,
+              clientTimestampMs: clientTimestampMs,
+              serverTimestampMs: null,
+              state: MessageState.pending,
+              stateUpdatedAt: clientTimestampMs,
+              isEdited: false,
+              lastEditMs: null,
+              tombstoned: false,
+              tombstonePendingUntil: null,
+            ),
+            op: OutboundOpRow(
+              opId: 'op-$id',
+              transport: OpTransport.ws,
+              kind: OpKind.chatPayload,
+              restMethod: null,
+              restPath: null,
+              resourceId: 'c-1',
+              payload: const [0x01],
+              status: OpStatus.pending,
+              attempts: 0,
+              nextRetryAt: clientTimestampMs,
+              dispatchedAt: null,
+              lastError: null,
+              acknowledgedAt: null,
+              createdAt: clientTimestampMs,
+              targetMessageId: id,
+              targetChannelId: 'c-1',
+            ),
+            nowMs: clientTimestampMs,
+          );
+      // Our two un-acked messages: the later one by client time has the
+      // smaller id, so only client time puts it on top.
+      await pending('p-z', 200);
+      await pending('p-a', 300);
+      // Acked rows, stored in an order that agrees with neither key. The
+      // client clocks are noise: only the server's stamp counts, and on a
+      // tie the larger message_id is the newer.
+      for (final (id, server, client) in [
+        ('m-b', 500, 100),
+        ('m-c', 600, 50),
+        ('m-a', 500, 900),
+      ]) {
+        await _insertSentMessage(
+          store: store,
+          channelId: 'c-1',
+          messageId: id,
+          body: id,
+          authorUserId: 'u-peer',
+          clientTimestampMs: client,
+          serverTimestampMs: server,
+        );
+      }
+
+      final msgs = await store.fetchChannelMessages('c-1');
+      expect(
+        msgs.map((m) => m.messageId),
+        ['p-a', 'p-z', 'm-c', 'm-b', 'm-a'],
+        reason: 'SYNC_PROTOCOL §6: (server_timestamp_ms, message_id) on '
+            'every device; un-acked local rows above everything, by '
+            'client time.',
+      );
+    });
+
+    test('the chat-list preview follows channel order, not arrival',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'c-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+      );
+      Future<void> deliver(String id, int serverTimestampMs) =>
+          store.applyInboundMessage(
+            localUserId: 'u-self',
+            channelId: 'c-1',
+            opId: 'op-$id',
+            messageId: id,
+            senderUserId: 'u-peer',
+            body: id,
+            contentType: 'text/plain',
+            attachments: null,
+            forwardSource: null,
+            replyToMessageId: null,
+            clientTimestampMs: serverTimestampMs,
+            serverTimestampMs: serverTimestampMs,
+            nowMs: 1000,
+          );
+      await deliver('newer', 600);
+      await deliver('older', 500); // arrives late
+
+      final entry = (await store.fetchChannelList()).single;
+      expect(entry.lastMessagePreview, 'newer');
+      expect(entry.lastActivityMs, 600);
+      expect(entry.unreadCount, 2);
     });
 
     test('tombstoned rows stay in the chat view, with their reactions',
@@ -419,7 +531,7 @@ void main() {
         body: 'still here',
         authorUserId: 'u-peer',
         clientTimestampMs: 100,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
       );
       await _insertSentMessage(
         store: store,
@@ -428,7 +540,7 @@ void main() {
         body: null,
         authorUserId: 'u-peer',
         clientTimestampMs: 200,
-        deliverySequence: 2,
+        serverTimestampMs: 2,
         tombstoned: true,
       );
       await store.applyInboundReactionAdd(
@@ -471,7 +583,7 @@ void main() {
           body: 'msg $i',
           authorUserId: 'u-peer',
           clientTimestampMs: 100 + i,
-          deliverySequence: i + 1,
+          serverTimestampMs: i + 1,
         );
       }
 
@@ -514,7 +626,7 @@ void main() {
         whereArgs: ['c-1'],
       );
 
-      // Three messages with ascending delivery_sequence.
+      // Three messages with ascending server timestamps.
       for (var i = 1; i <= 3; i++) {
         await _insertSentMessage(
           store: store,
@@ -523,7 +635,7 @@ void main() {
           body: 'msg $i',
           authorUserId: 'u-other',
           clientTimestampMs: 100 + i,
-          deliverySequence: i,
+          serverTimestampMs: i,
         );
       }
 
@@ -592,7 +704,7 @@ void main() {
         body: 'hello',
         authorUserId: 'u-other',
         clientTimestampMs: 200,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
       );
       await store.db.update(
         'channels',
@@ -659,7 +771,7 @@ void main() {
         body: 'hi',
         authorUserId: 'u-self',
         clientTimestampMs: 110,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
       );
 
       await store.leaveGroupLocal('g-1');
@@ -755,8 +867,6 @@ void main() {
 
       await store.applyPermanentReject(
         opId: 'op-role',
-        resourceId: 'g-role',
-        rejectedSeq: 1,
         reason: 'forbidden',
         messageId: null,
         nowMs: 200,
@@ -842,8 +952,6 @@ void main() {
 
       await store.applyPermanentReject(
         opId: 'op-create',
-        resourceId: 'c-new',
-        rejectedSeq: 1,
         reason: 'forbidden',
         messageId: null,
         nowMs: 200,
@@ -860,11 +968,6 @@ void main() {
         await countIn(store, 'channel_members', 'channel_id'),
         0,
         reason: 'member rows go with it (ON DELETE CASCADE).',
-      );
-      expect(
-        await countIn(store, 'resource_seq', 'resource_id'),
-        0,
-        reason: 'and so does its sequence counter.',
       );
       final op = await store.fetchOutboundOp('op-create');
       expect(
@@ -906,7 +1009,6 @@ void main() {
           replyToMessageId: null,
           clientTimestampMs: 150,
           serverTimestampMs: null,
-          deliverySequence: null,
           state: MessageState.pending,
           stateUpdatedAt: 150,
           isEdited: false,
@@ -937,8 +1039,6 @@ void main() {
 
       await store.applyPermanentReject(
         opId: 'op-msg',
-        resourceId: 'c-new',
-        rejectedSeq: 2,
         reason: 'forbidden',
         messageId: 'm-1',
         nowMs: 200,
@@ -983,7 +1083,7 @@ void main() {
         body: 'hi',
         authorUserId: 'u-self',
         clientTimestampMs: 110,
-        deliverySequence: 1,
+        serverTimestampMs: 1,
       );
 
       await store.deleteGroupLocal('g-del');
@@ -1106,7 +1206,7 @@ Future<void> _insertSentMessage({
   required String? body,
   required String authorUserId,
   required int clientTimestampMs,
-  required int deliverySequence,
+  required int serverTimestampMs,
   bool tombstoned = false,
 }) async {
   await store.db.insert('messages', {
@@ -1119,8 +1219,7 @@ Future<void> _insertSentMessage({
     'attachments': null,
     'forward_source': null,
     'client_timestamp_ms': clientTimestampMs,
-    'server_timestamp_ms': clientTimestampMs + 10,
-    'delivery_sequence': deliverySequence,
+    'server_timestamp_ms': serverTimestampMs,
     'message_state': MessageState.sent.wire,
     'state_updated_at': clientTimestampMs,
     'is_edited': 0,

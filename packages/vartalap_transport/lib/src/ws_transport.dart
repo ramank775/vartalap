@@ -263,15 +263,14 @@ class WsTransport implements Transport {
     }
 
     // Build envelopes from the frame's ops. Per SYNC_PROTOCOL.md §5.4,
-    // client→server envelopes carry op_id / channel_id / resource_seq /
-    // client_timestamp_ms / payload. sender_user_id, server_timestamp_ms,
-    // delivery_sequence are absent (server stamps on fanout).
+    // client→server envelopes carry op_id / channel_id /
+    // client_timestamp_ms / payload. sender_user_id and
+    // server_timestamp_ms are absent (server stamps on fanout).
     final envelopes = <pb.Envelope>[];
     for (final op in frame.ops) {
       final env = pb.Envelope(
         opId: op.opId,
         channelId: frame.resourceId,
-        resourceSeq: fixnum.Int64(op.resourceSeq),
         clientTimestampMs: op.clientTimestampMs != null
             ? fixnum.Int64(op.clientTimestampMs!)
             : null,
@@ -326,12 +325,6 @@ class WsTransport implements Transport {
     final env = pb.Envelope(
       opId: opId,
       channelId: channelId,
-      // Server uses resource_seq for strict-monotone validation per
-      // (user, channel). Ephemeral envelopes don't participate in that
-      // ordering by contract, but the field is required on the wire —
-      // we stamp 0 and rely on the server's ephemeral path to skip the
-      // monotone check.
-      resourceSeq: fixnum.Int64.ZERO,
       clientTimestampMs:
           clientTimestampMs != null ? fixnum.Int64(clientTimestampMs) : null,
       payload: payload,
@@ -453,9 +446,6 @@ class WsTransport implements Transport {
         return AckSuccess(
           serverTimestampMs: ack.hasServerTimestampMs()
               ? ack.serverTimestampMs.toInt()
-              : null,
-          deliverySequence: ack.hasDeliverySequence()
-              ? ack.deliverySequence.toInt()
               : null,
         );
       case pb.AckOutcome.ACK_TRANSIENT:

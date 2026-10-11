@@ -62,7 +62,6 @@ void main() {
         replyToMessageId: null,
         clientTimestampMs: clock.nowMs(),
         serverTimestampMs: null,
-        deliverySequence: null,
         state: MessageState.pending,
         stateUpdatedAt: clock.nowMs(),
         isEdited: false,
@@ -77,7 +76,6 @@ void main() {
         restMethod: null,
         restPath: null,
         resourceId: channelId,
-        resourceSeq: 1,
         payload: const [0x01],
         status: OpStatus.pending,
         attempts: 0,
@@ -178,7 +176,6 @@ void main() {
         replyToMessageId: null,
         clientTimestampMs: clock.nowMs(),
         serverTimestampMs: null,
-        deliverySequence: null,
         state: MessageState.pending,
         stateUpdatedAt: clock.nowMs(),
         isEdited: false,
@@ -193,7 +190,6 @@ void main() {
         restMethod: null,
         restPath: null,
         resourceId: channelId,
-        resourceSeq: 1,
         payload: const [0x42],
         status: OpStatus.pending,
         attempts: 0,
@@ -228,12 +224,11 @@ void main() {
       nowMs: clock.nowMs(),
     );
 
-    // New op is pending with incremented resource_seq and same payload.
+    // New op is pending with the same payload.
     final fresh = await store.fetchOutboundOp(newOpId);
     expect(fresh, isNotNull);
     expect(fresh!.status, OpStatus.pending);
     expect(fresh.attempts, 0);
-    expect(fresh.resourceSeq, 2); // original was 1
     expect(fresh.payload, const [0x42]);
     expect(fresh.targetMessageId, messageId);
 

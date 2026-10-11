@@ -53,22 +53,24 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   /// Sender has read this channel up to and including `message_id`.
   /// Recipients flip their OWN authored messages at or before that
   /// marker to "read" — authorship gating per SYNC_PROTOCOL.md §6a.3
-  /// means a receipt never touches a third party's rows. Rides a
-  /// normal (non-ephemeral) WS op, so it consumes a resource_seq.
+  /// means a receipt never touches a third party's rows. The marker is
+  /// `marker_server_timestamp_ms`. Rides a normal (non-ephemeral) WS
+  /// op, so it is ACKed like any other.
   static const ChatPayloadType TYPE_READ_RECEIPT =
       ChatPayloadType._(7, _omitEnumNames ? '' : 'TYPE_READ_RECEIPT');
 
   /// Ephemeral "is typing" signal. MUST ride an envelope with
-  /// `ephemeral = true` (v3-envelope.proto): no ACK, no resource_seq,
-  /// no persistence, lossy by design. `is_typing` carries the state.
+  /// `ephemeral = true` (v3-envelope.proto): no ACK, no persistence,
+  /// lossy by design. `is_typing` carries the state.
   static const ChatPayloadType TYPE_TYPING =
       ChatPayloadType._(8, _omitEnumNames ? '' : 'TYPE_TYPING');
 
   /// Sender's device has stored this channel's messages up to and
-  /// including `message_id`. Recipients flip their OWN authored
-  /// messages at or before that marker to "delivered" (grey double
-  /// tick), never back from "read". Same authorship gating and
-  /// transport as TYPE_READ_RECEIPT; sent once per burst of inbound
+  /// including `message_id` (marker: `marker_server_timestamp_ms`).
+  /// Recipients flip their OWN authored messages at or before that
+  /// marker to "delivered" (grey double tick), never back from
+  /// "read". Same authorship gating and transport as
+  /// TYPE_READ_RECEIPT; sent once per burst of inbound
   /// messages per channel, not once per message. In a group the first
   /// member's receipt flips the tick, as with read.
   static const ChatPayloadType TYPE_DELIVERY_RECEIPT =

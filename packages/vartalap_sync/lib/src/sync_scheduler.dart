@@ -284,7 +284,6 @@ class SyncScheduler {
       ops: [
         FramedOp(
           opId: op.opId,
-          resourceSeq: op.resourceSeq,
           payload: op.payload,
           clientTimestampMs: clock.nowMs(),
           restMethod: op.restMethod,
@@ -353,7 +352,6 @@ class SyncScheduler {
       opId: op.opId,
       messageId: messageId,
       serverTimestampMs: ack.serverTimestampMs ?? clock.nowMs(),
-      deliverySequence: ack.deliverySequence ?? 0,
       nowMs: clock.nowMs(),
     );
   }
@@ -383,8 +381,6 @@ class SyncScheduler {
   ) async {
     await store.applyPermanentReject(
       opId: op.opId,
-      resourceId: op.resourceId,
-      rejectedSeq: op.resourceSeq,
       reason: ack.reason,
       messageId: op.targetMessageId,
       nowMs: clock.nowMs(),

@@ -16,6 +16,29 @@ SELECT ?, ?, ?
  WHERE EXISTS (SELECT 1 FROM channels WHERE channel_id = ?)
 ''';
 
+/// SYNC_PROTOCOL §6 — a channel's messages, newest first. Every device
+/// orders by `(server_timestamp_ms, message_id)`; the id is a UUIDv7 the
+/// sender minted, so a timestamp tie breaks the same way everywhere. A
+/// row with no server stamp yet (our own, un-ACKed) sorts above
+/// everything else, by client time. `idx_messages_channel_order` is
+/// built on exactly these terms.
+const _newestFirst = '''
+COALESCE(server_timestamp_ms, 9223372036854775807) DESC,
+CASE WHEN server_timestamp_ms IS NULL THEN client_timestamp_ms END DESC,
+message_id DESC''';
+
+/// Re-point the chat-list preview (`channels.last_message_id`) of the
+/// channel holding message `?` at the top of [_newestFirst]. Arrival
+/// order is not channel order (a late message can land after a newer
+/// one, an ACK can drop ours below a peer's), so it is derived, not set.
+const _refreshLastMessageSql = '''
+UPDATE channels
+   SET last_message_id = (SELECT message_id FROM messages
+                           WHERE channel_id = channels.channel_id
+                           ORDER BY $_newestFirst LIMIT 1)
+ WHERE channel_id = (SELECT channel_id FROM messages WHERE message_id = ?)
+''';
+
 /// Growable page window for [ChatStore.watchChannelMessages].
 ///
 /// "Load older" must not open a second live query — the chat screen
@@ -113,6 +136,16 @@ class ChatStore {
             await db.execute(stmt);
           }
         },
+        onUpgrade: (db, from, _) async {
+          if (from < 2) {
+            for (final stmt in migrateV1ToV2) {
+              await db.execute(stmt);
+            }
+          }
+          for (final stmt in ddl) {
+            await db.execute(stmt);
+          }
+        },
       ),
     );
     // ponytail: trim 4 made every DM id derived from the pair, so a
@@ -137,8 +170,8 @@ class ChatStore {
   }
 
   /// AUTH_CONTRACT §8 — destroy every trace of the signed-out account.
-  /// One transaction, every table: projections, the outbound queue,
-  /// the inbound dedup set, the resource_seq counters and snapshots.
+  /// One transaction, every table: projections, the outbound queue and
+  /// the inbound dedup set.
   Future<void> wipe() async {
     await db.transaction((txn) async {
       for (final table in const [
@@ -149,8 +182,6 @@ class ChatStore {
         'channels',
         'contacts',
         'outbound_ops',
-        'resource_seq',
-        'snapshots',
       ]) {
         await txn.delete(table);
       }
@@ -176,7 +207,7 @@ class ChatStore {
   }) async {
     await db.transaction((txn) async {
       await txn.insert('messages', _messageToRow(message));
-      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
+      await txn.insert('outbound_ops', _outboundOpToRow(op));
       await txn.update(
         'channels',
         {
@@ -194,48 +225,9 @@ class ChatStore {
 
   /// Enqueue a standalone outbound op (no associated message row).
   /// Used for channel creation and other REST-only ops.
-  ///
-  /// [op.resourceSeq] is ignored — see [_allocResourceSeq].
   Future<void> enqueueOutboundOp(OutboundOpRow op) async {
-    await db.transaction(
-        (txn) async => txn.insert('outbound_ops', await _opRowWithSeq(txn, op)));
+    await db.insert('outbound_ops', _outboundOpToRow(op));
     _notify(const {'outbound_ops'});
-  }
-
-  /// §6 — allocate the next `resource_seq` for [resourceId].
-  ///
-  /// Strictly monotonic per resource, first op is 1. The counter lives
-  /// in its own `resource_seq` table rather than being derived from
-  /// `MAX(resource_seq)` over `outbound_ops`, because acked rows are
-  /// deleted: after the queue drains the derived value falls back to 1
-  /// and the server answers `out_of_order`. Callers must run this in
-  /// the same transaction as the op insert, so two concurrent
-  /// enqueues (a send racing a read receipt) can't mint the same seq.
-  Future<int> _allocResourceSeq(DatabaseExecutor txn, String resourceId) async {
-    final rows = await txn.query(
-      'resource_seq',
-      columns: const ['next_seq'],
-      where: 'resource_id = ?',
-      whereArgs: [resourceId],
-      limit: 1,
-    );
-    final seq = rows.isEmpty ? 1 : rows.single['next_seq'] as int;
-    await txn.insert(
-      'resource_seq',
-      {'resource_id': resourceId, 'next_seq': seq + 1},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    return seq;
-  }
-
-  /// [op] as a DB row with a freshly allocated `resource_seq`.
-  Future<Map<String, Object?>> _opRowWithSeq(
-    DatabaseExecutor txn,
-    OutboundOpRow op,
-  ) async {
-    final row = _outboundOpToRow(op);
-    row['resource_seq'] = await _allocResourceSeq(txn, op.resourceId);
-    return row;
   }
 
   /// Delete an outbound op row (e.g. after ACK success for non-message ops).
@@ -273,12 +265,11 @@ class ChatStore {
   }
 
   /// Flow B — ACK success. Op row deleted, message promoted to `sent`
-  /// with server-stamped fields.
+  /// with the server timestamp that places it in the channel (§6).
   Future<void> applyAckSuccess({
     required String opId,
     required String messageId,
     required int serverTimestampMs,
-    required int deliverySequence,
     required int nowMs,
   }) async {
     await db.transaction((txn) async {
@@ -297,8 +288,7 @@ class ChatStore {
                  ELSE message_state
                END,
                state_updated_at = ?,
-               server_timestamp_ms = ?,
-               delivery_sequence = ?
+               server_timestamp_ms = ?
          WHERE message_id = ?
         ''',
         [
@@ -308,12 +298,12 @@ class ChatStore {
           MessageState.sent.wire,
           nowMs,
           serverTimestampMs,
-          deliverySequence,
           messageId,
         ],
       );
+      await txn.rawUpdate(_refreshLastMessageSql, [messageId]);
     });
-    _notify(const {'outbound_ops', 'messages'});
+    _notify(const {'outbound_ops', 'messages', 'channels'});
   }
 
   /// Apply a server-pushed `MessageStateChanged` event. Monotonic — the
@@ -469,20 +459,14 @@ class ChatStore {
       // gate, a roster the server won't accept) used to leave its
       // optimistic row behind as a chat nobody can ever send to and
       // nothing can ever retry. Drop it, cascading members, messages,
-      // reactions and the dedup set, and drop its sequence counter
-      // with it. The op row survives — nothing is FK-bound to the
-      // channel — so the failure still reaches the user carrying the
-      // server's own reason.
+      // reactions and the dedup set. The op row survives — nothing is
+      // FK-bound to the channel — so the failure still reaches the user
+      // carrying the server's own reason.
       final channelId = opRows.single['resource_id'] as String?;
       if (channelId != null) {
         await txn.delete(
           'channels',
           where: 'channel_id = ?',
-          whereArgs: [channelId],
-        );
-        await txn.delete(
-          'resource_seq',
-          where: 'resource_id = ?',
           whereArgs: [channelId],
         );
       }
@@ -557,13 +541,14 @@ class ChatStore {
     );
   }
 
-  /// Permanent reject. Roll back message projection, mark op rejected,
-  /// cascade subsequent same-resource ops.
-  /// SPIKE_B_SYNC.md §5 Flow B / §8.
+  /// Permanent reject. Roll back the projection and mark the op
+  /// rejected. SPIKE_B_SYNC.md §5 Flow B / §8.
+  ///
+  /// Later ops on the same resource are left alone: with no server
+  /// sequence (SYNC_PROTOCOL §6) a rejected op leaves no gap that would
+  /// doom them, so each one stands or falls on its own.
   Future<void> applyPermanentReject({
     required String opId,
-    required String resourceId,
-    required int rejectedSeq,
     required String reason,
     required String? messageId,
     required int nowMs,
@@ -581,22 +566,6 @@ class ChatStore {
       );
 
       await _rollbackForTerminalOp(txn, opId, messageId, nowMs);
-
-      // Cascade: any later-sequenced op on the same resource is
-      // guaranteed to fail because the parent failed. Mark them so the
-      // UI shows one coherent error instead of N.
-      await txn.rawUpdate(
-        '''
-        UPDATE outbound_ops
-        SET status = 'cascaded_rejection',
-            last_error = ?,
-            dispatched_at = NULL
-        WHERE resource_id = ?
-          AND resource_seq > ?
-          AND status IN ('pending', 'retrying', 'in_flight')
-        ''',
-        ['parent_rejected:$reason', resourceId, rejectedSeq],
-      );
     });
     _notify(
         const {'outbound_ops', 'messages', 'channel_members', 'channels'});
@@ -618,7 +587,8 @@ class ChatStore {
   }
 
   /// Manual retry: clone a terminal outbound_ops row into a brand-new
-  /// pending op (new op_id, next resource_seq, attempts=0). The old
+  /// pending op (new op_id, attempts=0, queued behind everything already
+  /// on the resource — see [selectDispatchable]). The old
   /// terminal row is acknowledged so it stops showing in [fetchFailures].
   ///
   /// This is NOT a state transition on the failed row — terminal states
@@ -645,14 +615,8 @@ class ChatStore {
       }
       final old = _rowToOutboundOp(rows.single);
 
-      // Next resource_seq for the resource. Correctness note: the
-      // scheduler only dispatches ops in `(resource_id, resource_seq)`
-      // order (SPIKE_B §5 Flow A). A retry gets a seq strictly greater
-      // than every prior op on the resource so that in-flight/queued
-      // siblings drain first — otherwise a retry could jump ahead of
-      // pending follow-ups and reorder user intent on the wire.
-      final nextSeq = await _allocResourceSeq(txn, old.resourceId);
-
+      // A fresh insert, so it queues behind every op already on the
+      // resource ([selectDispatchable] goes in insertion order).
       await txn.insert('outbound_ops', {
         'op_id': newOpId,
         'transport': old.transport.wire,
@@ -660,7 +624,6 @@ class ChatStore {
         'rest_method': old.restMethod,
         'rest_path': old.restPath,
         'resource_id': old.resourceId,
-        'resource_seq': nextSeq,
         'payload': Uint8List.fromList(old.payload),
         'status': OpStatus.pending.wire,
         'attempts': 0,
@@ -727,6 +690,15 @@ class ChatStore {
 
   /// For the Flow A dispatcher query — returns up to one op per resource
   /// (the earliest unfinished), across all resources. See SPIKE_B §5 Flow A.
+  ///
+  /// "Earliest" is insertion order (`rowid`). One op per resource in
+  /// flight keeps a sender's ops in the order they were made, which is
+  /// all it is for now: the server no longer checks order (SYNC_PROTOCOL
+  /// §6) and recipients cope with whatever order arrives.
+  ///
+  /// ponytail: the implicit rowid, not a column. A plain `VACUUM` may
+  /// renumber it (in order, in practice) and the app never runs one on
+  /// this database; add an explicit enqueue counter if that changes.
   Future<List<OutboundOpRow>> selectDispatchable({required int now}) async {
     final rows = await db.rawQuery(
       '''
@@ -736,10 +708,10 @@ class ChatStore {
         AND NOT EXISTS (
           SELECT 1 FROM outbound_ops o2
           WHERE o2.resource_id = o1.resource_id
-            AND o2.resource_seq < o1.resource_seq
+            AND o2.rowid < o1.rowid
             AND o2.status IN ('pending', 'in_flight', 'retrying')
         )
-      ORDER BY o1.resource_id, o1.resource_seq
+      ORDER BY o1.resource_id, o1.rowid
       ''',
       [now],
     );
@@ -857,7 +829,6 @@ class ChatStore {
     required String? replyToMessageId,
     required int clientTimestampMs,
     required int serverTimestampMs,
-    required int deliverySequence,
     required int nowMs,
   }) async {
     final bumpUnread = senderUserId != localUserId;
@@ -876,7 +847,6 @@ class ChatStore {
               'forward_source': forwardSource,
               'client_timestamp_ms': clientTimestampMs,
               'server_timestamp_ms': serverTimestampMs,
-              'delivery_sequence': deliverySequence,
               'message_state': MessageState.sent.wire,
               'state_updated_at': nowMs,
               'is_edited': 0,
@@ -888,18 +858,21 @@ class ChatStore {
           ) !=
           0;
       if (inserted) {
+        // MAX: a late arrival of an older message must not push the
+        // chat down the list.
         await txn.rawUpdate(
           bumpUnread
               ? 'UPDATE channels '
-                  'SET last_activity_ms = ?, last_message_id = ?, '
+                  'SET last_activity_ms = MAX(last_activity_ms, ?), '
                   '    unread_count = unread_count + 1, deleted_locally = 0 '
                   'WHERE channel_id = ?'
               : 'UPDATE channels '
-                  'SET last_activity_ms = ?, last_message_id = ?, '
+                  'SET last_activity_ms = MAX(last_activity_ms, ?), '
                   '    deleted_locally = 0 '
                   'WHERE channel_id = ?',
-          [serverTimestampMs, messageId, channelId],
+          [serverTimestampMs, channelId],
         );
+        await txn.rawUpdate(_refreshLastMessageSql, [messageId]);
       }
       await txn.rawInsert(
         _markOpIdSeenSql,
@@ -1468,10 +1441,9 @@ class ChatStore {
   }
 
   /// Substring search within a single channel's messages. Case-insensitive
-  /// `LIKE` over `body`; tombstoned rows excluded. Newest-first by
-  /// `delivery_sequence` (with `client_timestamp_ms` as fallback for
-  /// pending rows). [query] is wrapped in `%…%` after stripping any SQL
-  /// wildcards so user input can't broaden the match.
+  /// `LIKE` over `body`; tombstoned rows excluded. Newest-first in
+  /// channel order ([_newestFirst]). [query] is wrapped in `%…%` after
+  /// stripping any SQL wildcards so user input can't broaden the match.
   Future<List<MessageRow>> searchChannelMessages({
     required String channelId,
     required String query,
@@ -1486,8 +1458,7 @@ class ChatStore {
         AND tombstoned = 0
         AND body IS NOT NULL
         AND body LIKE ? COLLATE NOCASE
-      ORDER BY COALESCE(delivery_sequence, 9223372036854775807) DESC,
-               client_timestamp_ms DESC
+      ORDER BY $_newestFirst
       LIMIT ?
       ''',
       [channelId, '%$cleaned%', limit],
@@ -1608,9 +1579,8 @@ class ChatStore {
 
   /// §13.2 — Channel chat view, newest-first (tombstoned rows included).
   ///
-  /// `COALESCE(delivery_sequence, INT64_MAX)` sorts locally pending
-  /// rows (null `delivery_sequence`) to the top, matching
-  /// WhatsApp/Signal UX.
+  /// Channel order is [_newestFirst]: locally pending rows (no server
+  /// timestamp yet) sit on top, matching WhatsApp/Signal UX.
   ///
   /// Tombstoned rows are included: the chat view renders them as
   /// "This message was deleted" (V3_ARCHITECTURE decision 11) rather
@@ -1634,8 +1604,7 @@ class ChatStore {
                WHERE r.message_id = m.message_id) AS reactions
       FROM messages m
       WHERE m.channel_id = ?
-      ORDER BY COALESCE(m.delivery_sequence, 9223372036854775807) DESC,
-               m.client_timestamp_ms DESC
+      ORDER BY $_newestFirst
       LIMIT ?
       ''',
       [channelId, limit],
@@ -1693,8 +1662,7 @@ class ChatStore {
         '''
         SELECT message_id FROM messages
         WHERE channel_id = ? AND tombstoned = 0
-        ORDER BY COALESCE(delivery_sequence, 9223372036854775807) DESC,
-                 client_timestamp_ms DESC
+        ORDER BY $_newestFirst
         LIMIT 1
         ''',
         [channelId],
@@ -1715,25 +1683,28 @@ class ChatStore {
     _notify(const {'channels'});
   }
 
-  /// Latest message in [channelId] NOT authored by [localUserId] — the
-  /// natural target for an outbound read receipt. Returns null when the
-  /// channel is empty or only has the local user's messages.
-  Future<String?> latestPeerMessageId({
+  /// Latest message in [channelId] NOT authored by [localUserId], with
+  /// its server timestamp — the marker of an outbound read or delivery
+  /// receipt. Returns null when the channel is empty or only has the
+  /// local user's messages.
+  Future<({String messageId, int serverTimestampMs})?> latestPeerMessage({
     required String channelId,
     required String localUserId,
   }) async {
     final rows = await db.rawQuery(
       '''
-      SELECT message_id FROM messages
+      SELECT message_id, server_timestamp_ms FROM messages
       WHERE channel_id = ? AND tombstoned = 0 AND author_user_id != ?
-      ORDER BY COALESCE(delivery_sequence, 9223372036854775807) DESC,
-               client_timestamp_ms DESC
+      ORDER BY $_newestFirst
       LIMIT 1
       ''',
       [channelId, localUserId],
     );
     if (rows.isEmpty) return null;
-    return rows.single['message_id'] as String?;
+    return (
+      messageId: rows.single['message_id'] as String,
+      serverTimestampMs: rows.single['server_timestamp_ms'] as int? ?? 0,
+    );
   }
 
   /// Wipe every message row in [channelId] without touching the channel
@@ -2099,7 +2070,7 @@ class ChatStore {
         ' WHERE message_id = ?',
         [newBody, nowMs, messageId],
       );
-      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
+      await txn.insert('outbound_ops', _outboundOpToRow(op));
     });
     _notify(const {'messages', 'outbound_ops'});
   }
@@ -2165,7 +2136,7 @@ class ChatStore {
         whereArgs: [messageId],
       );
       if (n == 0) return;
-      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
+      await txn.insert('outbound_ops', _outboundOpToRow(op));
       committed = true;
     });
     if (committed) _notify(const {'messages', 'outbound_ops'});
@@ -2214,7 +2185,7 @@ class ChatStore {
           whereArgs: [messageId, userId, emoji],
         );
       }
-      await txn.insert('outbound_ops', await _opRowWithSeq(txn, op));
+      await txn.insert('outbound_ops', _outboundOpToRow(op));
     });
     _notify(const {'reactions', 'outbound_ops'});
   }
@@ -2225,8 +2196,8 @@ class ChatStore {
   /// an edit's rollback snapshot is no longer needed (and its edit
   /// time is now known), and a delete's content can finally go.
   ///
-  /// Unlike [applyAckSuccess] this never writes `delivery_sequence` —
-  /// stamping an edit's sequence onto its target would reorder the
+  /// Unlike [applyAckSuccess] this never writes `server_timestamp_ms` —
+  /// stamping an edit's timestamp onto its target would reorder the
   /// message in the channel view.
   Future<void> applyMessageOpAck({
     required String opId,
@@ -2276,7 +2247,6 @@ class ChatStore {
         'forward_source': null,
         'client_timestamp_ms': m.clientTimestampMs,
         'server_timestamp_ms': m.serverTimestampMs,
-        'delivery_sequence': m.deliverySequence,
         'message_state': m.state.wire,
         'state_updated_at': m.stateUpdatedAt,
         'is_edited': m.isEdited ? 1 : 0,
@@ -2294,7 +2264,6 @@ class ChatStore {
         replyToMessageId: r['reply_to_message_id'] as String?,
         clientTimestampMs: r['client_timestamp_ms'] as int,
         serverTimestampMs: r['server_timestamp_ms'] as int?,
-        deliverySequence: r['delivery_sequence'] as int?,
         state: MessageState.fromWire(r['message_state'] as String),
         stateUpdatedAt: r['state_updated_at'] as int,
         isEdited: (r['is_edited'] as int) != 0,
@@ -2328,7 +2297,6 @@ class ChatStore {
         'rest_method': o.restMethod,
         'rest_path': o.restPath,
         'resource_id': o.resourceId,
-        'resource_seq': o.resourceSeq,
         'payload': Uint8List.fromList(o.payload),
         'status': o.status.wire,
         'attempts': o.attempts,
@@ -2348,7 +2316,6 @@ class ChatStore {
         restMethod: r['rest_method'] as String?,
         restPath: r['rest_path'] as String?,
         resourceId: r['resource_id'] as String,
-        resourceSeq: r['resource_seq'] as int,
         payload: (r['payload'] as List<int>),
         status: OpStatus.fromWire(r['status'] as String),
         attempts: r['attempts'] as int,

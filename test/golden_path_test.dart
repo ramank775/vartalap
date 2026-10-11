@@ -329,27 +329,34 @@ void main() {
       final second = await h.sendAndSettle(dmChannel, 'second message');
       final third = await h.sendAndSettle(dmChannel, 'third message');
 
-      final seqs = h.mock.envelopes
+      final outcomes = h.mock.envelopes
           .where((e) => e.channelId == dmChannel)
-          .map((e) => '${e.resourceSeq}:${e.rejectReason ?? 'ok'}')
+          .map((e) => e.rejectReason ?? 'ok')
           .join(', ');
 
       expect(
         [second?.state, third?.state],
         everyElement(isAcked),
-        reason: 'SYNC_PROTOCOL §6 (resource_seq per (user_id, resource_id) '
-            'starts at 1, increments by exactly 1, never resets) and §6a.3 '
-            'step 5 (payload must be a ChatPayload proto) must both hold for '
-            'consecutive sends on one channel. Observed rejects for this '
-            'channel (seq:outcome): $seqs. ${await h.opDebug(dmChannel)}. '
-            'NOTE: every send here is already rejected on the §6a.3 payload '
-            'clause (step 3), which keeps the rejected op rows in '
-            'outbound_ops and so hides the §6 breach on this channel. The §6 '
-            'breach shows up in step 6, where the group-create op WAS acked: '
-            'ChatStore.applyAckSuccess deletes the acked row, ChatService '
-            're-derives resource_seq from MAX(resource_seq) over '
-            'outbound_ops, the counter falls back to 1 and the server answers '
-            'out_of_order.',
+        reason: 'SYNC_PROTOCOL §6a.3 step 5 (payload must be a ChatPayload '
+            'proto) must hold for consecutive sends on one channel. '
+            'Observed outcomes for this channel: $outcomes. '
+            '${await h.opDebug(dmChannel)}',
+      );
+      final bodies = (await h.store.fetchChannelMessages(dmChannel))
+          .reversed
+          .map((m) => m.body)
+          .where((b) => b == 'second message' || b == 'third message');
+      expect(
+        bodies,
+        ['second message', 'third message'],
+        reason: 'SYNC_PROTOCOL §6: the channel reads in server-timestamp '
+            "order, and our own messages take the ACK's stamp.",
+      );
+      expect(
+        [second!.serverTimestampMs, third!.serverTimestampMs],
+        everyElement(isNotNull),
+        reason: 'the ACK carries server_timestamp_ms and the sender stores '
+            'it as the ordering key.',
       );
     });
 
@@ -416,8 +423,7 @@ void main() {
         post?.status,
         201,
         reason: 'SYNC_PROTOCOL §11.3: POST /v3.0/channels with kind="group" '
-            'and resource_seq=1 must be accepted. Got ${post?.status} '
-            '(${post?.body}).',
+            'must be accepted. Got ${post?.status} (${post?.body}).',
       );
 
       // §10.2 ChannelCreated fanout: a channel somebody else created.
@@ -455,18 +461,16 @@ void main() {
       );
 
       final groupMsg = await h.sendAndSettle(groupChannelId, 'group hello');
-      final seqs = h.mock.envelopes
+      final outcomes = h.mock.envelopes
           .where((e) => e.channelId == groupChannelId)
-          .map((e) => '${e.resourceSeq}:${e.rejectReason ?? 'ok'}')
+          .map((e) => e.rejectReason ?? 'ok')
           .join(', ');
       expect(
         groupMsg?.state,
         isAcked,
-        reason: 'SYNC_PROTOCOL §6 + §6a.3: the group-create REST op consumed '
-            'resource_seq=1 on this channel and its outbound row was deleted '
-            'on ACK_SUCCESS, so ChatService re-derives resource_seq=1 for the '
-            'first group message and the server rejects it. '
-            'Envelopes (seq:outcome): $seqs. ${await h.opDebug(groupChannelId)}',
+        reason: 'SYNC_PROTOCOL §6a.3: the first group message after the '
+            'group-create REST op must be accepted. '
+            'Envelope outcomes: $outcomes. ${await h.opDebug(groupChannelId)}',
       );
     });
 
@@ -652,10 +656,10 @@ void main() {
             'edit is marked so every client can render the "edited" label.',
       );
       expect(
-        edited?.deliverySequence,
-        original.deliverySequence,
-        reason: "An edit must not restamp its target's delivery_sequence — "
-            'that would move the message in the channel ordering.',
+        edited?.serverTimestampMs,
+        original.serverTimestampMs,
+        reason: "An edit must not restamp its target's server_timestamp_ms "
+            '— that would move the message in the channel ordering.',
       );
 
       await h.waitFor(() => h.peerSaw(
@@ -842,12 +846,22 @@ void main() {
             'and the server fans it to the channel like any other op.',
       );
       expect(
+        h.peerInboxSeen
+            .where((p) =>
+                p.type == pb.ChatPayloadType.TYPE_READ_RECEIPT &&
+                p.messageId == unread.messageId)
+            .map((p) => p.markerServerTimestampMs.toInt()),
+        everyElement(h.mock.messageStamps[unread.messageId]),
+        reason: 'v3-chat-payload.proto field 60: the receipt carries the '
+            "marker message's server timestamp, so a recipient that does "
+            'not hold that message can still apply it.',
+      );
+      expect(
         h.mock.envelopes.where((e) =>
             e.rejectReason != null && e.rejectReason != 'forced_reject'),
         isEmpty,
         reason: 'Decision 56: the receipt rides the normal op path, so it '
-            'passes §6a.3 step 5 and consumes a resource_seq like any '
-            'other op.',
+            'passes §6a.3 step 5 like any other op.',
       );
 
       // Inbound receipt is read-UP-TO: both of these flip, not just the
@@ -1646,10 +1660,10 @@ class _Harness {
       'outbound_ops',
       where: 'resource_id = ?',
       whereArgs: [resourceId],
-      orderBy: 'resource_seq',
+      orderBy: 'rowid',
     );
     final dump = rows
-        .map((r) => 'seq=${r['resource_seq']} status=${r['status']} '
+        .map((r) => 'status=${r['status']} '
             'err=${r['last_error']}')
         .join(' | ');
     return 'outbound_ops[$resourceId]: ${dump.isEmpty ? '<empty>' : dump}';
@@ -1657,8 +1671,8 @@ class _Harness {
 
   /// Send [body] and wait until the optimistic row leaves
   /// pending/sending (ACK or reject). Sequential by design: the
-  /// scheduler is per-resource serial and a permanent reject cascades
-  /// onto every later-sequenced op on the same resource.
+  /// scheduler is per-resource serial, so the next send would queue
+  /// behind this one anyway.
   Future<MessageRow?> sendAndSettle(String channelId, String body) async {
     await chat.sendMessage(
       channelId: channelId,

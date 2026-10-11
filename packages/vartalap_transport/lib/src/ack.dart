@@ -10,13 +10,12 @@ sealed class AckOutcome {
   const AckOutcome();
 }
 
-/// Op applied. For WS, `serverTimestampMs` and `deliverySequence` carry
-/// the same values the recipients will see on the fanout envelope
-/// (SYNC_PROTOCOL.md §8).
+/// Op applied. For WS, `serverTimestampMs` is the same value the
+/// recipients see on the fanout envelope — the message's place in the
+/// channel (SYNC_PROTOCOL.md §6, §8).
 class AckSuccess extends AckOutcome {
   final int? serverTimestampMs;
-  final int? deliverySequence;
-  const AckSuccess({this.serverTimestampMs, this.deliverySequence});
+  const AckSuccess({this.serverTimestampMs});
 }
 
 /// Server is temporarily unavailable. Scheduler retries with backoff.
@@ -29,8 +28,8 @@ class AckTransientReject extends AckOutcome {
 /// Server authoritatively rejects. Scheduler rolls back.
 ///
 /// Reason codes per SYNC_PROTOCOL.md §8.1 (WS) / AUTH_CONTRACT error
-/// envelope (REST): `prefix_mismatch`, `forbidden`, `out_of_order`,
-/// `validation_failed`, `rate_limited`, `not_found`, `gone`, ...
+/// envelope (REST): `prefix_mismatch`, `forbidden`, `validation_failed`,
+/// `rate_limited`, `not_found`, `gone`, ...
 class AckPermanentReject extends AckOutcome {
   final String reason;
   const AckPermanentReject({required this.reason});

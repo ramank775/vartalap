@@ -83,7 +83,6 @@ void main() {
         replyToMessageId: null,
         clientTimestampMs: 500,
         serverTimestampMs: 510,
-        deliverySequence: 2,
         nowMs: 520,
       );
 
@@ -108,7 +107,7 @@ void main() {
 
       Future<void> deliver({
         required String opId,
-        required int deliverySequence,
+        required int serverTimestampMs,
       }) =>
           store.applyInboundMessage(
             localUserId: 'u-self',
@@ -122,12 +121,11 @@ void main() {
             forwardSource: null,
             replyToMessageId: null,
             clientTimestampMs: 500,
-            serverTimestampMs: 500 + deliverySequence,
-            deliverySequence: deliverySequence,
+            serverTimestampMs: serverTimestampMs,
             nowMs: 600,
           );
 
-      await deliver(opId: 'op-1', deliverySequence: 7);
+      await deliver(opId: 'op-1', serverTimestampMs: 507);
       await store.markChannelRead('g-1', 650);
       expect(await store.fetchChannelList(), hasLength(1));
       expect((await store.fetchChannelList()).single.unreadCount, 0);
@@ -136,7 +134,7 @@ void main() {
       // op_id_seen gate upstream cannot catch it. It must not throw,
       // must not duplicate the row, and must not resurrect the unread
       // badge the user has already cleared.
-      await deliver(opId: 'op-2', deliverySequence: 9);
+      await deliver(opId: 'op-2', serverTimestampMs: 509);
 
       final rows = await store.fetchChannelMessages('g-1');
       expect(
@@ -145,8 +143,8 @@ void main() {
         reason: 'one row, not two — a duplicate delivery adds no bubble.',
       );
       expect(
-        rows.single.deliverySequence,
-        7,
+        rows.single.serverTimestampMs,
+        507,
         reason: 'the original ordering survives; a re-delivery does not '
             'reshuffle the conversation.',
       );
@@ -234,7 +232,6 @@ void main() {
           replyToMessageId: null,
           clientTimestampMs: 200,
           serverTimestampMs: null,
-          deliverySequence: null,
           state: MessageState.pending,
           stateUpdatedAt: 200,
           isEdited: false,
@@ -350,7 +347,6 @@ Future<void> _seedMessage(
     'forward_source': null,
     'client_timestamp_ms': clientTimestampMs,
     'server_timestamp_ms': clientTimestampMs + 10,
-    'delivery_sequence': clientTimestampMs,
     'message_state': MessageState.sent.wire,
     'state_updated_at': clientTimestampMs,
     'is_edited': 0,

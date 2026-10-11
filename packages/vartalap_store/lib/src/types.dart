@@ -121,11 +121,6 @@ class OutboundOpRow {
   final String? restMethod;
   final String? restPath;
   final String resourceId;
-
-  /// §6 per-resource sequence. Assigned by [ChatStore.enqueueOutboundOp]
-  /// / [ChatStore.enqueueLocalMessage] from the monotonic `resource_seq`
-  /// counter; the value carried by a not-yet-enqueued row is ignored.
-  final int resourceSeq;
   final List<int> payload;
   final OpStatus status;
   final int attempts;
@@ -144,7 +139,6 @@ class OutboundOpRow {
     required this.restMethod,
     required this.restPath,
     required this.resourceId,
-    this.resourceSeq = 0,
     required this.payload,
     required this.status,
     required this.attempts,
@@ -175,8 +169,9 @@ class MessageRow {
   final String? contentType;
   final String? replyToMessageId;
   final int clientTimestampMs;
+  /// SYNC_PROTOCOL §6 ordering key. Null on our own message until its
+  /// op is ACKed.
   final int? serverTimestampMs;
-  final int? deliverySequence;
   final MessageState state;
   final int stateUpdatedAt;
   final bool isEdited;
@@ -207,7 +202,6 @@ class MessageRow {
     required this.replyToMessageId,
     required this.clientTimestampMs,
     required this.serverTimestampMs,
-    required this.deliverySequence,
     required this.state,
     required this.stateUpdatedAt,
     required this.isEdited,

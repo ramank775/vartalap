@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 1;
+const int schemaVersion = 2;
 
 const List<String> pragmas = [
   'PRAGMA journal_mode = WAL',
@@ -85,8 +85,9 @@ const List<String> ddl = [
     forward_source          BLOB,
 
     client_timestamp_ms     INTEGER NOT NULL,
+    -- SYNC_PROTOCOL §6: the channel is ordered by (server_timestamp_ms,
+    -- message_id). NULL until our own op is ACKed.
     server_timestamp_ms     INTEGER,
-    delivery_sequence       INTEGER,
 
     message_state           TEXT NOT NULL,
     state_updated_at        INTEGER NOT NULL,
@@ -105,7 +106,9 @@ const List<String> ddl = [
   ''',
   '''
   CREATE INDEX IF NOT EXISTS idx_messages_channel_order
-    ON messages(channel_id, COALESCE(delivery_sequence, 9223372036854775807) DESC, client_timestamp_ms DESC)
+    ON messages(channel_id, COALESCE(server_timestamp_ms, 9223372036854775807) DESC,
+                (CASE WHEN server_timestamp_ms IS NULL THEN client_timestamp_ms END) DESC,
+                message_id DESC)
   ''',
   '''
   CREATE INDEX IF NOT EXISTS idx_messages_author
@@ -115,11 +118,6 @@ const List<String> ddl = [
   CREATE INDEX IF NOT EXISTS idx_messages_tombstone_pending
     ON messages(tombstone_pending_until)
     WHERE tombstone_pending_until IS NOT NULL
-  ''',
-  '''
-  CREATE INDEX IF NOT EXISTS idx_messages_channel_latest
-    ON messages(channel_id, delivery_sequence DESC)
-    WHERE tombstoned = 0 AND delivery_sequence IS NOT NULL
   ''',
 
   // §6 reactions
@@ -169,7 +167,6 @@ const List<String> ddl = [
     rest_method        TEXT,
     rest_path          TEXT,
     resource_id        TEXT NOT NULL,
-    resource_seq       INTEGER NOT NULL,
     payload            BLOB NOT NULL,
     status             TEXT NOT NULL,
     attempts           INTEGER NOT NULL DEFAULT 0,
@@ -194,27 +191,12 @@ const List<String> ddl = [
   ''',
   '''
   CREATE INDEX IF NOT EXISTS idx_outbound_ops_resource
-    ON outbound_ops(resource_id, resource_seq)
+    ON outbound_ops(resource_id)
   ''',
   '''
   CREATE INDEX IF NOT EXISTS idx_outbound_ops_target_message
     ON outbound_ops(target_message_id)
     WHERE target_message_id IS NOT NULL
-  ''',
-
-  // §6 outbound resource sequence counters.
-  //
-  // `outbound_ops` rows are deleted on ACK, so MAX(resource_seq) over
-  // that table restarts at 1 after the queue drains and the server
-  // answers `out_of_order` (SYNC_PROTOCOL §6: strictly monotonic per
-  // (user_id, resource_id), first op is 1). The counter therefore
-  // lives in its own table, allocated by ChatStore inside the same
-  // transaction as the op insert. Cleared by ChatStore.wipe().
-  '''
-  CREATE TABLE IF NOT EXISTS resource_seq (
-    resource_id  TEXT PRIMARY KEY,
-    next_seq     INTEGER NOT NULL
-  )
   ''',
 
   // §9 op_id_seen
@@ -230,14 +212,18 @@ const List<String> ddl = [
   CREATE INDEX IF NOT EXISTS idx_op_id_seen_age
     ON op_id_seen(channel_id, seen_at)
   ''',
+];
 
-  // §11 snapshots
-  '''
-  CREATE TABLE IF NOT EXISTS snapshots (
-    snapshot_id              TEXT PRIMARY KEY,
-    taken_at                 INTEGER NOT NULL,
-    max_delivery_sequence    INTEGER,
-    schema_version           INTEGER NOT NULL
-  )
-  ''',
+/// v1 → v2: the server stopped sequencing (SYNC_PROTOCOL §6), so the
+/// client-assigned `resource_seq` and the server-stamped
+/// `delivery_sequence` go, and so does the never-used `snapshots`
+/// table. Run before [ddl], which then creates the new indexes.
+const List<String> migrateV1ToV2 = [
+  'DROP TABLE IF EXISTS resource_seq',
+  'DROP TABLE IF EXISTS snapshots',
+  'DROP INDEX IF EXISTS idx_outbound_ops_resource',
+  'ALTER TABLE outbound_ops DROP COLUMN resource_seq',
+  'DROP INDEX IF EXISTS idx_messages_channel_order',
+  'DROP INDEX IF EXISTS idx_messages_channel_latest',
+  'ALTER TABLE messages DROP COLUMN delivery_sequence',
 ];

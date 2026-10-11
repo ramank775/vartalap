@@ -43,6 +43,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     $core.String? emoji,
     ForwardSource? forwardSource,
     $core.bool? isTyping,
+    $fixnum.Int64? markerServerTimestampMs,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
   }) {
     final result = create();
@@ -56,6 +57,8 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (emoji != null) result.emoji = emoji;
     if (forwardSource != null) result.forwardSource = forwardSource;
     if (isTyping != null) result.isTyping = isTyping;
+    if (markerServerTimestampMs != null)
+      result.markerServerTimestampMs = markerServerTimestampMs;
     if (meta != null) result.meta.addEntries(meta);
     return result;
   }
@@ -87,6 +90,9 @@ class ChatPayload extends $pb.GeneratedMessage {
     ..aOM<ForwardSource>(40, _omitFieldNames ? '' : 'forwardSource',
         subBuilder: ForwardSource.create)
     ..aOB(50, _omitFieldNames ? '' : 'isTyping')
+    ..a<$fixnum.Int64>(60, _omitFieldNames ? '' : 'markerServerTimestampMs',
+        $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..m<$core.String, $core.String>(100, _omitFieldNames ? '' : 'meta',
         entryClassName: 'ChatPayload.MetaEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -214,12 +220,27 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(50)
   void clearIsTyping() => $_clearField(50);
 
+  /// For TYPE_READ_RECEIPT, TYPE_DELIVERY_RECEIPT. The server timestamp
+  /// of `message_id`, the newest peer message being acknowledged.
+  /// Recipients flip their OWN messages with server_timestamp_ms <= this
+  /// value, so the receipt works even when they do not hold
+  /// `message_id` (another member's message in a group, or one still in
+  /// transit).
+  @$pb.TagNumber(60)
+  $fixnum.Int64 get markerServerTimestampMs => $_getI64(10);
+  @$pb.TagNumber(60)
+  set markerServerTimestampMs($fixnum.Int64 value) => $_setInt64(10, value);
+  @$pb.TagNumber(60)
+  $core.bool hasMarkerServerTimestampMs() => $_has(10);
+  @$pb.TagNumber(60)
+  void clearMarkerServerTimestampMs() => $_clearField(60);
+
   /// Free-form client metadata. Other clients MAY ignore unknown keys.
   /// Reserved keys:
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(10);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(11);
 }
 
 class Attachment extends $pb.GeneratedMessage {

@@ -12,9 +12,8 @@ import 'transport.dart';
 /// SYNC_PROTOCOL.md §11.
 ///
 /// - One HTTPS request per op (no batching — §11.5).
-/// - Bearer auth; body is the op payload augmented with `op_id`,
-///   `resource_seq`, `client_timestamp_ms` at frame time
-///   (SYNC_PROTOCOL.md §11.2).
+/// - Bearer auth; body is the op payload augmented with `op_id` and
+///   `client_timestamp_ms` at frame time (SYNC_PROTOCOL.md §11.2).
 /// - HTTP status → [AckOutcome] per §8.1:
 ///     2xx → [AckSuccess]
 ///     401 → [AckAuthFailure]
@@ -105,10 +104,10 @@ class RestTransport implements Transport {
       throw StateError('RestTransport.send: no accesskey');
     }
 
-    // §11.2 — every REST write body carries op_id, resource_seq,
+    // §11.2 — every REST write body carries op_id and
     // client_timestamp_ms merged with the endpoint-specific payload.
     // The scheduler persists payload as JSON bytes. Empty payload (e.g.
-    // DELETE) is fine — we just send the three standard fields.
+    // DELETE) is fine — we just send the standard fields.
     Map<String, dynamic> body;
     if (op.payload.isEmpty) {
       body = <String, dynamic>{};
@@ -128,7 +127,6 @@ class RestTransport implements Transport {
       }
     }
     body['op_id'] = op.opId;
-    body['resource_seq'] = op.resourceSeq;
     if (op.clientTimestampMs != null) {
       body['client_timestamp_ms'] = op.clientTimestampMs;
     }

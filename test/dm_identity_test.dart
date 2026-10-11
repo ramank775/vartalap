@@ -159,7 +159,7 @@ void main() {
       await b.bodiesIn(channelId),
       containsAllInOrder(const ['offline1', 'offline2', 'offline3']),
       reason: 'and reach B in the order A typed them — the queue is '
-          'dispatched in (resource_id, resource_seq) order.',
+          'dispatched one op per channel, in the order they were made.',
     );
     expect(await a.deadLetteredOps(), isEmpty);
   });
@@ -216,7 +216,6 @@ void main() {
       replyToMessageId: null,
       clientTimestampMs: 1,
       serverTimestampMs: 2,
-      deliverySequence: 9999,
       nowMs: 3,
     );
 
@@ -855,7 +854,7 @@ class _Client {
       columns: const ['op_id'],
       where: 'resource_id = ?',
       whereArgs: [channelId],
-      orderBy: 'resource_seq DESC',
+      orderBy: 'rowid DESC',
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -899,10 +898,10 @@ class _Client {
       'outbound_ops',
       where: 'resource_id = ?',
       whereArgs: [resourceId],
-      orderBy: 'resource_seq',
+      orderBy: 'rowid',
     );
     final dump = rows
-        .map((r) => 'seq=${r['resource_seq']} kind=${r['kind']} '
+        .map((r) => 'kind=${r['kind']} '
             'status=${r['status']} err=${r['last_error']}')
         .join(' | ');
     return '$label outbound_ops[$resourceId]: '

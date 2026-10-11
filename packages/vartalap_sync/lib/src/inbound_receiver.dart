@@ -265,7 +265,6 @@ class InboundReceiver {
               chat.hasReplyToMessageId() ? chat.replyToMessageId : null,
           clientTimestampMs: env.clientTimestampMs.toInt(),
           serverTimestampMs: env.serverTimestampMs.toInt(),
-          deliverySequence: env.deliverySequence.toInt(),
           nowMs: clock.nowMs(),
         );
         if (env.senderUserId != localUserId && !_peerMessageCtrl.isClosed) {
@@ -412,27 +411,31 @@ class InboundReceiver {
     ));
   }
 
-  /// §6a read / delivery receipt (decision 56). [chat.messageId] is the
-  /// sender's up-to marker: every message the LOCAL user authored in this
-  /// channel at or before it flips to [state] (`read` or `delivered`;
-  /// [ChatStore.applyMessageStateChange] never moves a row backwards).
-  /// The authorship filter is the §6a.3 gate — a receipt never touches a
+  /// §6a read / delivery receipt (decision 56). The sender's up-to
+  /// marker is a server timestamp (`marker_server_timestamp_ms`, the
+  /// stamp of its newest peer message): every message the LOCAL user
+  /// authored in this channel stamped at or before it flips to [state]
+  /// (`read` or `delivered`; [ChatStore.applyMessageStateChange] never
+  /// moves a row backwards). A timestamp, not a lookup of
+  /// `message_id`, so it works when we don't hold that message — a
+  /// third member's in a group, or one still in transit. The
+  /// authorship filter is the §6a.3 gate — a receipt never touches a
   /// third party's rows, and our own echo (sender == us) is ignored.
+  /// Our un-ACKed rows have no stamp yet and are never matched.
   Future<void> _handleReceipt(
     pb.Envelope env,
     pb.ChatPayload chat,
     MessageState state,
   ) async {
-    if (env.senderUserId != localUserId && chat.messageId.isNotEmpty) {
+    final marker = chat.markerServerTimestampMs.toInt();
+    if (env.senderUserId != localUserId && marker > 0) {
       final rows = await store.db.rawQuery(
         '''
         SELECT message_id FROM messages
         WHERE channel_id = ? AND author_user_id = ?
-          AND COALESCE(delivery_sequence, 0) <= (
-            SELECT COALESCE(delivery_sequence, 0) FROM messages
-            WHERE message_id = ?)
+          AND server_timestamp_ms <= ?
         ''',
-        [env.channelId, localUserId, chat.messageId],
+        [env.channelId, localUserId, marker],
       );
       for (final row in rows) {
         await store.applyMessageStateChange(

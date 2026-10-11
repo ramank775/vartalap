@@ -66,7 +66,6 @@ void main() {
         body: 'hi there',
       ),
       serverTimestampMs: 5000,
-      deliverySequence: 1,
     ));
 
     final entries = await nextEmit.timeout(const Duration(seconds: 2));
@@ -79,7 +78,6 @@ void main() {
     expect(row!.body, 'hi there');
     expect(row.state, MessageState.sent);
     expect(row.serverTimestampMs, 5000);
-    expect(row.deliverySequence, 1);
   });
 
   test('duplicate op_id is deduped (§7.2)', () async {
@@ -92,7 +90,6 @@ void main() {
         body: 'once',
       ),
       serverTimestampMs: 6000,
-      deliverySequence: 2,
     );
     pushes.add(env);
     await _settle(store, 'm-dup', present: true);
@@ -135,7 +132,6 @@ void main() {
           body: 'original',
         ),
         serverTimestampMs: 7000,
-        deliverySequence: 3,
       ));
       await _settle(store, 'm-gate', present: true);
 
@@ -149,7 +145,6 @@ void main() {
           body: 'hijacked',
         ),
         serverTimestampMs: 7100,
-        deliverySequence: 4,
       ));
       await _pumpQueue();
 
@@ -179,7 +174,6 @@ void main() {
         body: 'soon to die',
       ),
       serverTimestampMs: 8000,
-      deliverySequence: 5,
     ));
     await _settle(store, 'm-del', present: true);
 
@@ -191,7 +185,6 @@ void main() {
         messageId: 'm-del',
       ),
       serverTimestampMs: 8100,
-      deliverySequence: 6,
     ));
 
     // Poll for tombstone flip.
@@ -223,7 +216,6 @@ void main() {
           emoji: 'thumbsup',
         ),
         serverTimestampMs: 9000,
-        deliverySequence: 7,
       ));
       await _pumpQueue();
 
@@ -240,6 +232,69 @@ void main() {
       );
       expect(seen.single['c'], 1,
           reason: 'op_id_seen recorded even on gate drop');
+    },
+  );
+
+  test(
+    'a receipt flips our messages up to its timestamp marker, even when '
+    'the marker message is not held here',
+    () async {
+      Future<void> seed(String id, String author, int? serverTs) =>
+          store.db.insert('messages', {
+            'message_id': id,
+            'channel_id': _channelId,
+            'author_user_id': author,
+            'client_timestamp_ms': serverTs ?? 999,
+            'server_timestamp_ms': serverTs,
+            'message_state':
+                (serverTs == null ? MessageState.pending : MessageState.sent)
+                    .wire,
+            'state_updated_at': 1,
+          });
+      await seed('own-100', _selfUserId, 100);
+      await seed('own-200', _selfUserId, 200);
+      await seed('own-300', _selfUserId, 300);
+      await seed('own-unacked', _selfUserId, null);
+      await seed('peer-150', _peerUserId, 150);
+      Future<MessageState> stateOf(String id) async =>
+          (await store.fetchMessage(id))!.state;
+
+      // The peer read up to a message stamped 250 that never reached us
+      // (in a group: a third member's, or one still in transit).
+      pushes.add(_makeEnvelope(
+        opId: 'op-read',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_READ_RECEIPT,
+          messageId: 'm-not-here',
+          markerServerTimestampMs: 250,
+        ),
+        serverTimestampMs: 400,
+      ));
+      await _pumpQueue();
+      expect(await stateOf('own-100'), MessageState.read);
+      expect(await stateOf('own-200'), MessageState.read);
+      expect(await stateOf('own-300'), MessageState.sent,
+          reason: 'stamped after the marker');
+      expect(await stateOf('own-unacked'), MessageState.pending,
+          reason: 'no stamp yet, so nobody can have read it');
+      expect(await stateOf('peer-150'), MessageState.sent,
+          reason: '§6a.3: a receipt only touches our own messages');
+
+      pushes.add(_makeEnvelope(
+        opId: 'op-delivered',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT,
+          messageId: 'm-not-here-either',
+          markerServerTimestampMs: 300,
+        ),
+        serverTimestampMs: 410,
+      ));
+      await _pumpQueue();
+      expect(await stateOf('own-300'), MessageState.delivered);
+      expect(await stateOf('own-100'), MessageState.read,
+          reason: 'a late delivery receipt never undoes read');
     },
   );
 
@@ -262,7 +317,6 @@ void main() {
           createdAtMs: 1000,
         ),
         serverTimestampMs: 1000,
-        deliverySequence: 1,
       ));
       await _settleChannel(store, newChannel, present: true);
       // The channel row lands before the member rows do, so "channel
@@ -320,7 +374,6 @@ void main() {
         createdAtMs: 1500,
       ),
       serverTimestampMs: 1500,
-      deliverySequence: 1,
     );
     pushes.add(env);
     await _settleChannel(store, newChannel, present: true);
@@ -380,7 +433,6 @@ void main() {
           createdAtMs: 100,
         ),
         serverTimestampMs: 100,
-        deliverySequence: 1,
       ));
       await _settleOpSeen(store, newChannel, 'op-cc-echo');
 
@@ -430,7 +482,6 @@ void main() {
           addedAtMs: 250,
         ),
         serverTimestampMs: 250,
-        deliverySequence: 1,
       ));
       await _settleMember(store, grp, _peerUserId, present: true);
 
@@ -488,7 +539,6 @@ void main() {
           role: 'admin',
         ),
         serverTimestampMs: 300,
-        deliverySequence: 1,
       ));
       await _settleMemberRole(store, grp, _peerUserId, 'admin');
 
@@ -541,7 +591,6 @@ void main() {
           role: 'owner',
         ),
         serverTimestampMs: 400,
-        deliverySequence: 1,
       ));
       await _settleMemberRole(store, grp, _selfUserId, 'owner');
 
@@ -595,7 +644,6 @@ void main() {
           addedAtMs: 300,
         ),
         serverTimestampMs: 300,
-        deliverySequence: 1,
       ));
       await _settleMember(store, grp, _thirdUserId, present: true);
 
@@ -628,7 +676,6 @@ void main() {
           addedAtMs: 300,
         ),
         serverTimestampMs: 300,
-        deliverySequence: 1,
       ));
       await _settleOpSeen(store, ghost, 'op-add-ghost');
 
@@ -675,7 +722,6 @@ void main() {
           removedAtMs: 450,
         ),
         serverTimestampMs: 450,
-        deliverySequence: 1,
       ));
       await _settleOpSeen(store, grp, 'op-rm-1');
 
@@ -730,7 +776,6 @@ void main() {
           removedAtMs: 550,
         ),
         serverTimestampMs: 550,
-        deliverySequence: 1,
       ));
       await _settleOpSeen(store, grp, 'op-rm-self');
 
@@ -786,7 +831,6 @@ void main() {
           createdAtMs: 2000,
         ),
         serverTimestampMs: 2000,
-        deliverySequence: 1,
       ));
 
       await _settleContactUsername(store, strangerId, 'strangerhandle');
@@ -824,7 +868,6 @@ void main() {
           createdAtMs: 2100,
         ),
         serverTimestampMs: 2100,
-        deliverySequence: 1,
       ));
 
       await _settleChannel(store, dmChannel, present: true);
@@ -850,7 +893,6 @@ void main() {
           body: 'still alive',
         ),
         serverTimestampMs: 2200,
-        deliverySequence: 2,
       ));
       await _settle(store, 'm-after-fail', present: true);
     },
@@ -894,7 +936,6 @@ void main() {
           createdAtMs: 2300,
         ),
         serverTimestampMs: 2300,
-        deliverySequence: 1,
       ));
       localPushes.add(_makeEnvelope(
         channelId: chanB,
@@ -909,7 +950,6 @@ void main() {
           createdAtMs: 2300,
         ),
         serverTimestampMs: 2300,
-        deliverySequence: 1,
       ));
 
       await _settleChannel(store, chanA, present: true);
@@ -958,18 +998,15 @@ pb.Envelope _makeEnvelope({
   required String senderUserId,
   required List<int> payload,
   required int serverTimestampMs,
-  required int deliverySequence,
   String channelId = _channelId,
 }) {
   return pb.Envelope(
     opId: opId,
     channelId: channelId,
-    resourceSeq: fixnum.Int64(deliverySequence),
     clientTimestampMs: fixnum.Int64(serverTimestampMs - 10),
     payload: payload,
     senderUserId: senderUserId,
     serverTimestampMs: fixnum.Int64(serverTimestampMs),
-    deliverySequence: fixnum.Int64(deliverySequence),
   );
 }
 
@@ -1147,6 +1184,7 @@ List<int> _chatPayload({
   required String messageId,
   String? body,
   String? emoji,
+  int? markerServerTimestampMs,
 }) {
   final chat = pb.ChatPayload(
     version: 1,
@@ -1155,6 +1193,9 @@ List<int> _chatPayload({
     body: body,
     contentType: body == null ? null : 'text/plain',
     emoji: emoji,
+    markerServerTimestampMs: markerServerTimestampMs == null
+        ? null
+        : fixnum.Int64(markerServerTimestampMs),
   );
   final bytes = chat.writeToBuffer();
   // Sanity: ChatPayload bytes must never start with 0x53 (that byte is

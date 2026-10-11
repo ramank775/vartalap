@@ -162,14 +162,13 @@ void main() {
         memberRows.firstWhere((r) => r['user_id'] == creator);
     expect(creatorRow['role'], 'owner');
 
-    // Outbound op: REST CHANNEL_CREATE, resource_seq=1.
+    // Outbound op: REST CHANNEL_CREATE.
     final ops = await store.db.query('outbound_ops',
         where: 'resource_id = ?', whereArgs: [channelId]);
     expect(ops, hasLength(1));
     expect(ops.single['transport'], 'rest');
     expect(ops.single['rest_method'], 'POST');
     expect(ops.single['rest_path'], '/v3.0/channels');
-    expect(ops.single['resource_seq'], 1);
 
     // Fresh subscribe to the Groups tab watcher surfaces the new group
     // for the creator. Subscribing post-createGroup mirrors the real-
@@ -245,7 +244,7 @@ void main() {
     );
 
     final ops = await store.db.query('outbound_ops',
-        orderBy: 'resource_seq ASC');
+        orderBy: 'rowid ASC');
     expect(ops, hasLength(2));
 
     final preOpId = ops[0]['op_id'] as String;

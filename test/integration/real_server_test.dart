@@ -211,9 +211,9 @@ void main() {
             row?.state,
             anyOf(MessageState.sent, MessageState.delivered, MessageState.read),
             reason: 'SYNC_PROTOCOL §5.3/§8.1: each WS_OP must come back '
-                'ACK_SUCCESS. Trim 4: nothing was created, so the first WS '
-                'op on a DM is resource_seq 1 and the gateway accepts it on '
-                'the `peer` derivation alone. ${await a.opDebug(dmChannel)}',
+                'ACK_SUCCESS. Trim 4: nothing was created, so the gateway '
+                'accepts the first WS op on a DM on the `peer` derivation '
+                'alone. ${await a.opDebug(dmChannel)}',
           );
         }
 
@@ -236,8 +236,8 @@ void main() {
         expect(
           await b.bodiesIn(dmChannel),
           sent,
-          reason: 'SYNC_PROTOCOL §10.1 + SPIKE_A_SCHEMA §13: the recipient '
-              'orders by delivery_sequence, so the three bodies must read '
+          reason: 'SYNC_PROTOCOL §6: the recipient orders by '
+              '(server_timestamp_ms, op_id), so the three bodies must read '
               'back in send order.',
         );
       });
@@ -349,7 +349,7 @@ void main() {
           contains('<empty>'),
           reason: 'decision 80: a leave is DELETE /v3.0/channels/{id}/'
               'members/{self} and must be accepted (the body carries '
-              'op_id + resource_seq).',
+              'its op_id).',
         );
 
         await a.waitForAsync(() async =>
@@ -795,7 +795,7 @@ class _Client {
   }
 
   /// Message bodies oldest-first. `fetchChannelMessages` is the chat
-  /// screen's query, so it comes back newest-first (delivery_sequence
+  /// screen's query, so it comes back newest-first (server timestamp
   /// DESC); reversing it gives send order.
   Future<Set<String>> memberIds(String channelId) async {
     final rows = await store.db.query(
@@ -849,10 +849,10 @@ class _Client {
       'outbound_ops',
       where: 'resource_id = ?',
       whereArgs: [resourceId],
-      orderBy: 'resource_seq',
+      orderBy: 'rowid',
     );
     final dump = rows
-        .map((r) => 'seq=${r['resource_seq']} status=${r['status']} '
+        .map((r) => 'status=${r['status']} '
             'err=${r['last_error']}')
         .join(' | ');
     return '$label outbound_ops[$resourceId]: '

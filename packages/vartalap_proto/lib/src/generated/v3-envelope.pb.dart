@@ -27,7 +27,7 @@ export 'v3-envelope.pbenum.dart';
 ///
 /// A client sends an Envelope to push some payload bytes into a channel.
 /// The server validates routing fields, adds the server-stamped fields
-/// (sender_user_id, server_timestamp_ms, delivery_sequence) on fanout,
+/// (sender_user_id, server_timestamp_ms) on fanout,
 /// and delivers the same Envelope to every other channel member.
 ///
 /// Recipients interpret `payload` according to the client-to-client
@@ -36,26 +36,22 @@ class Envelope extends $pb.GeneratedMessage {
   factory Envelope({
     $core.String? opId,
     $core.String? channelId,
-    $fixnum.Int64? resourceSeq,
     $fixnum.Int64? clientTimestampMs,
     $core.List<$core.int>? payload,
     $core.bool? ephemeral,
     $core.String? peer,
     $core.String? senderUserId,
     $fixnum.Int64? serverTimestampMs,
-    $fixnum.Int64? deliverySequence,
   }) {
     final result = create();
     if (opId != null) result.opId = opId;
     if (channelId != null) result.channelId = channelId;
-    if (resourceSeq != null) result.resourceSeq = resourceSeq;
     if (clientTimestampMs != null) result.clientTimestampMs = clientTimestampMs;
     if (payload != null) result.payload = payload;
     if (ephemeral != null) result.ephemeral = ephemeral;
     if (peer != null) result.peer = peer;
     if (senderUserId != null) result.senderUserId = senderUserId;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
-    if (deliverySequence != null) result.deliverySequence = deliverySequence;
     return result;
   }
 
@@ -75,9 +71,6 @@ class Envelope extends $pb.GeneratedMessage {
     ..aOS(1, _omitFieldNames ? '' : 'opId')
     ..aOS(2, _omitFieldNames ? '' : 'channelId')
     ..a<$fixnum.Int64>(
-        3, _omitFieldNames ? '' : 'resourceSeq', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
-    ..a<$fixnum.Int64>(
         4, _omitFieldNames ? '' : 'clientTimestampMs', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..a<$core.List<$core.int>>(
@@ -87,9 +80,6 @@ class Envelope extends $pb.GeneratedMessage {
     ..aOS(20, _omitFieldNames ? '' : 'senderUserId')
     ..a<$fixnum.Int64>(
         21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
-    ..a<$fixnum.Int64>(
-        22, _omitFieldNames ? '' : 'deliverySequence', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
@@ -125,8 +115,7 @@ class Envelope extends $pb.GeneratedMessage {
   /// The channel this envelope targets. For a group the server checks
   /// the sender is a member; for a `d`-prefixed DM there is no row and
   /// no member list, and `peer` (field 7) carries the check instead.
-  /// Used as the `resource_id` for per-channel sequencing and dedup
-  /// keying. Required.
+  /// Required.
   @$pb.TagNumber(2)
   $core.String get channelId => $_getSZ(1);
   @$pb.TagNumber(2)
@@ -136,27 +125,15 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearChannelId() => $_clearField(2);
 
-  /// Per-channel monotonic counter, client-generated. Server validates
-  /// strict increment per `(authenticated_user_id, channel_id)`.
-  /// Required.
-  @$pb.TagNumber(3)
-  $fixnum.Int64 get resourceSeq => $_getI64(2);
-  @$pb.TagNumber(3)
-  set resourceSeq($fixnum.Int64 value) => $_setInt64(2, value);
-  @$pb.TagNumber(3)
-  $core.bool hasResourceSeq() => $_has(2);
-  @$pb.TagNumber(3)
-  void clearResourceSeq() => $_clearField(3);
-
   /// Client wall-clock at op-creation, ms since epoch. Advisory only —
   /// server may use for audit logs and debugging; never for ordering
-  /// (use resource_seq for that). Optional.
+  /// (server_timestamp_ms is the ordering key). Optional.
   @$pb.TagNumber(4)
-  $fixnum.Int64 get clientTimestampMs => $_getI64(3);
+  $fixnum.Int64 get clientTimestampMs => $_getI64(2);
   @$pb.TagNumber(4)
-  set clientTimestampMs($fixnum.Int64 value) => $_setInt64(3, value);
+  set clientTimestampMs($fixnum.Int64 value) => $_setInt64(2, value);
   @$pb.TagNumber(4)
-  $core.bool hasClientTimestampMs() => $_has(3);
+  $core.bool hasClientTimestampMs() => $_has(2);
   @$pb.TagNumber(4)
   void clearClientTimestampMs() => $_clearField(4);
 
@@ -166,11 +143,11 @@ class Envelope extends $pb.GeneratedMessage {
   /// clients are free to evolve it without server coordination.
   /// Required (zero-length allowed for client-defined "ping" semantics).
   @$pb.TagNumber(5)
-  $core.List<$core.int> get payload => $_getN(4);
+  $core.List<$core.int> get payload => $_getN(3);
   @$pb.TagNumber(5)
-  set payload($core.List<$core.int> value) => $_setBytes(4, value);
+  set payload($core.List<$core.int> value) => $_setBytes(3, value);
   @$pb.TagNumber(5)
-  $core.bool hasPayload() => $_has(4);
+  $core.bool hasPayload() => $_has(3);
   @$pb.TagNumber(5)
   void clearPayload() => $_clearField(5);
 
@@ -194,11 +171,11 @@ class Envelope extends $pb.GeneratedMessage {
   /// because the receiver-side dispatcher dedups by op_id) but the
   /// optimization only kicks in once both sides understand the flag.
   @$pb.TagNumber(6)
-  $core.bool get ephemeral => $_getBF(5);
+  $core.bool get ephemeral => $_getBF(4);
   @$pb.TagNumber(6)
-  set ephemeral($core.bool value) => $_setBool(5, value);
+  set ephemeral($core.bool value) => $_setBool(4, value);
   @$pb.TagNumber(6)
-  $core.bool hasEphemeral() => $_has(5);
+  $core.bool hasEphemeral() => $_has(4);
   @$pb.TagNumber(6)
   void clearEphemeral() => $_clearField(6);
 
@@ -213,11 +190,10 @@ class Envelope extends $pb.GeneratedMessage {
   /// list for it — there is none, and there never was. It recomputes
   /// the derivation from the authenticated session's user_id and this
   /// field: a missing or malformed `peer` is `validation_failed`, a
-  /// `peer` that does not derive to `channel_id` is `forbidden`, and
-  /// otherwise the recipients are exactly `{peer}` (plus the sender's
-  /// own other devices, trim 12). A third party cannot send on, create
-  /// or reserve someone else's DM id because they cannot produce a
-  /// `peer` that derives to it from their own user_id.
+  /// `peer` that does not derive to `channel_id` is `forbidden`. A
+  /// third party cannot send on, create or reserve someone else's DM
+  /// id because they cannot produce a `peer` that derives to it from
+  /// their own user_id.
   ///
   /// Recipients are {peer, sender} expanded to devices, minus the
   /// sending device (trim 12), so the sender's own other devices get
@@ -227,11 +203,11 @@ class Envelope extends $pb.GeneratedMessage {
   /// Echoed unchanged on fanout; the recipient already knows the pair
   /// from `sender_user_id` and does not need to read it.
   @$pb.TagNumber(7)
-  $core.String get peer => $_getSZ(6);
+  $core.String get peer => $_getSZ(5);
   @$pb.TagNumber(7)
-  set peer($core.String value) => $_setString(6, value);
+  set peer($core.String value) => $_setString(5, value);
   @$pb.TagNumber(7)
-  $core.bool hasPeer() => $_has(6);
+  $core.bool hasPeer() => $_has(5);
   @$pb.TagNumber(7)
   void clearPeer() => $_clearField(7);
 
@@ -240,35 +216,26 @@ class Envelope extends $pb.GeneratedMessage {
   /// use this for sender attribution; see SYNC_PROTOCOL.md §10.1 for the
   /// display-name resolution rule (contact-book → username → phone).
   @$pb.TagNumber(20)
-  $core.String get senderUserId => $_getSZ(7);
+  $core.String get senderUserId => $_getSZ(6);
   @$pb.TagNumber(20)
-  set senderUserId($core.String value) => $_setString(7, value);
+  set senderUserId($core.String value) => $_setString(6, value);
   @$pb.TagNumber(20)
-  $core.bool hasSenderUserId() => $_has(7);
+  $core.bool hasSenderUserId() => $_has(6);
   @$pb.TagNumber(20)
   void clearSenderUserId() => $_clearField(20);
 
-  /// When the server accepted the envelope, ms since epoch.
+  /// When the server accepted the envelope, ms since epoch. The
+  /// ordering key: every client orders a channel by
+  /// (server_timestamp_ms, op_id) — op_id is a UUIDv7, so ties break
+  /// the same way on every device (SYNC_PROTOCOL.md §6).
   @$pb.TagNumber(21)
-  $fixnum.Int64 get serverTimestampMs => $_getI64(8);
+  $fixnum.Int64 get serverTimestampMs => $_getI64(7);
   @$pb.TagNumber(21)
-  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(8, value);
+  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(7, value);
   @$pb.TagNumber(21)
-  $core.bool hasServerTimestampMs() => $_has(8);
+  $core.bool hasServerTimestampMs() => $_has(7);
   @$pb.TagNumber(21)
   void clearServerTimestampMs() => $_clearField(21);
-
-  /// Per-channel monotonic sequence assigned by the server at fanout
-  /// time. Used by recipients for inbound ordering across senders.
-  /// Distinct from `resource_seq` (which is sender-scoped).
-  @$pb.TagNumber(22)
-  $fixnum.Int64 get deliverySequence => $_getI64(9);
-  @$pb.TagNumber(22)
-  set deliverySequence($fixnum.Int64 value) => $_setInt64(9, value);
-  @$pb.TagNumber(22)
-  $core.bool hasDeliverySequence() => $_has(9);
-  @$pb.TagNumber(22)
-  void clearDeliverySequence() => $_clearField(22);
 }
 
 /// -----------------------------------------------------------------------------
@@ -284,7 +251,6 @@ class Ack extends $pb.GeneratedMessage {
     $core.String? reason,
     $fixnum.Int64? retryAfterMs,
     $fixnum.Int64? serverTimestampMs,
-    $fixnum.Int64? deliverySequence,
   }) {
     final result = create();
     if (opId != null) result.opId = opId;
@@ -292,7 +258,6 @@ class Ack extends $pb.GeneratedMessage {
     if (reason != null) result.reason = reason;
     if (retryAfterMs != null) result.retryAfterMs = retryAfterMs;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
-    if (deliverySequence != null) result.deliverySequence = deliverySequence;
     return result;
   }
 
@@ -318,9 +283,6 @@ class Ack extends $pb.GeneratedMessage {
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..a<$fixnum.Int64>(
         5, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
-    ..a<$fixnum.Int64>(
-        6, _omitFieldNames ? '' : 'deliverySequence', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
@@ -362,7 +324,7 @@ class Ack extends $pb.GeneratedMessage {
 
   /// Server-defined code string. Populated for non-success outcomes.
   /// See SYNC_PROTOCOL.md §8 for the enumerated set:
-  ///   forbidden, prefix_mismatch, out_of_order, rate_limited,
+  ///   forbidden, prefix_mismatch, rate_limited,
   ///   validation_failed, server_busy, storage_unavailable,
   ///   downstream_timeout, fanout_queue_full.
   /// Note: per SYNC_PROTOCOL.md §6a, reasons specific to chat-content
@@ -390,8 +352,8 @@ class Ack extends $pb.GeneratedMessage {
   void clearRetryAfterMs() => $_clearField(4);
 
   /// Server-stamped on success — same value the recipient sees on the
-  /// fanout Envelope. Lets the sender's local store record a stable
-  /// server timestamp without waiting for the fanout echo.
+  /// fanout Envelope. The sender orders its own message by it, exactly
+  /// as every recipient does.
   @$pb.TagNumber(5)
   $fixnum.Int64 get serverTimestampMs => $_getI64(4);
   @$pb.TagNumber(5)
@@ -400,16 +362,6 @@ class Ack extends $pb.GeneratedMessage {
   $core.bool hasServerTimestampMs() => $_has(4);
   @$pb.TagNumber(5)
   void clearServerTimestampMs() => $_clearField(5);
-
-  /// Server-stamped on success — same value as the fanout Envelope.
-  @$pb.TagNumber(6)
-  $fixnum.Int64 get deliverySequence => $_getI64(5);
-  @$pb.TagNumber(6)
-  set deliverySequence($fixnum.Int64 value) => $_setInt64(5, value);
-  @$pb.TagNumber(6)
-  $core.bool hasDeliverySequence() => $_has(5);
-  @$pb.TagNumber(6)
-  void clearDeliverySequence() => $_clearField(6);
 }
 
 enum WsEnvelope_Body { ops, acks, push, reauthRequired, error, notSet }

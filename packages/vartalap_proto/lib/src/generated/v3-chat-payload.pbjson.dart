@@ -82,6 +82,13 @@ const ChatPayload$json = {
     },
     {'1': 'is_typing', '3': 50, '4': 1, '5': 8, '10': 'isTyping'},
     {
+      '1': 'marker_server_timestamp_ms',
+      '3': 60,
+      '4': 1,
+      '5': 4,
+      '10': 'markerServerTimestampMs'
+    },
+    {
       '1': 'meta',
       '3': 100,
       '4': 3,
@@ -112,9 +119,10 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'bG9hZC5BdHRhY2htZW50UgthdHRhY2htZW50cxItChNyZXBseV90b19tZXNzYWdlX2lkGBQgAS'
     'gJUhByZXBseVRvTWVzc2FnZUlkEhQKBWVtb2ppGB4gASgJUgVlbW9qaRJJCg5mb3J3YXJkX3Nv'
     'dXJjZRgoIAEoCzIiLnZhcnRhbGFwLnYzLnBheWxvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZF'
-    'NvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlzVHlwaW5nEj4KBG1ldGEYZCADKAsyKi52YXJ0'
-    'YWxhcC52My5wYXlsb2FkLkNoYXRQYXlsb2FkLk1ldGFFbnRyeVIEbWV0YRo3CglNZXRhRW50cn'
-    'kSEAoDa2V5GAEgASgJUgNrZXkSFAoFdmFsdWUYAiABKAlSBXZhbHVlOgI4AQ==');
+    'NvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlzVHlwaW5nEjsKGm1hcmtlcl9zZXJ2ZXJfdGlt'
+    'ZXN0YW1wX21zGDwgASgEUhdtYXJrZXJTZXJ2ZXJUaW1lc3RhbXBNcxI+CgRtZXRhGGQgAygLMi'
+    'oudmFydGFsYXAudjMucGF5bG9hZC5DaGF0UGF5bG9hZC5NZXRhRW50cnlSBG1ldGEaNwoJTWV0'
+    'YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5EhQKBXZhbHVlGAIgASgJUgV2YWx1ZToCOAE=');
 
 @$core.Deprecated('Use attachmentDescriptor instead')
 const Attachment$json = {

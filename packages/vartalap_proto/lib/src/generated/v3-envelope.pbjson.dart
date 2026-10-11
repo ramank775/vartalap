@@ -57,7 +57,6 @@ const Envelope$json = {
   '2': [
     {'1': 'op_id', '3': 1, '4': 1, '5': 9, '10': 'opId'},
     {'1': 'channel_id', '3': 2, '4': 1, '5': 9, '10': 'channelId'},
-    {'1': 'resource_seq', '3': 3, '4': 1, '5': 4, '10': 'resourceSeq'},
     {
       '1': 'client_timestamp_ms',
       '3': 4,
@@ -76,25 +75,22 @@ const Envelope$json = {
       '5': 4,
       '10': 'serverTimestampMs'
     },
-    {
-      '1': 'delivery_sequence',
-      '3': 22,
-      '4': 1,
-      '5': 4,
-      '10': 'deliverySequence'
-    },
   ],
+  '9': [
+    {'1': 3, '2': 4},
+    {'1': 22, '2': 23},
+  ],
+  '10': ['resource_seq', 'delivery_sequence'],
 };
 
 /// Descriptor for `Envelope`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List envelopeDescriptor = $convert.base64Decode(
     'CghFbnZlbG9wZRITCgVvcF9pZBgBIAEoCVIEb3BJZBIdCgpjaGFubmVsX2lkGAIgASgJUgljaG'
-    'FubmVsSWQSIQoMcmVzb3VyY2Vfc2VxGAMgASgEUgtyZXNvdXJjZVNlcRIuChNjbGllbnRfdGlt'
-    'ZXN0YW1wX21zGAQgASgEUhFjbGllbnRUaW1lc3RhbXBNcxIYCgdwYXlsb2FkGAUgASgMUgdwYX'
-    'lsb2FkEhwKCWVwaGVtZXJhbBgGIAEoCFIJZXBoZW1lcmFsEhIKBHBlZXIYByABKAlSBHBlZXIS'
-    'JAoOc2VuZGVyX3VzZXJfaWQYFCABKAlSDHNlbmRlclVzZXJJZBIuChNzZXJ2ZXJfdGltZXN0YW'
-    '1wX21zGBUgASgEUhFzZXJ2ZXJUaW1lc3RhbXBNcxIrChFkZWxpdmVyeV9zZXF1ZW5jZRgWIAEo'
-    'BFIQZGVsaXZlcnlTZXF1ZW5jZQ==');
+    'FubmVsSWQSLgoTY2xpZW50X3RpbWVzdGFtcF9tcxgEIAEoBFIRY2xpZW50VGltZXN0YW1wTXMS'
+    'GAoHcGF5bG9hZBgFIAEoDFIHcGF5bG9hZBIcCgllcGhlbWVyYWwYBiABKAhSCWVwaGVtZXJhbB'
+    'ISCgRwZWVyGAcgASgJUgRwZWVyEiQKDnNlbmRlcl91c2VyX2lkGBQgASgJUgxzZW5kZXJVc2Vy'
+    'SWQSLgoTc2VydmVyX3RpbWVzdGFtcF9tcxgVIAEoBFIRc2VydmVyVGltZXN0YW1wTXNKBAgDEA'
+    'RKBAgWEBdSDHJlc291cmNlX3NlcVIRZGVsaXZlcnlfc2VxdWVuY2U=');
 
 @$core.Deprecated('Use ackDescriptor instead')
 const Ack$json = {
@@ -118,14 +114,11 @@ const Ack$json = {
       '5': 4,
       '10': 'serverTimestampMs'
     },
-    {
-      '1': 'delivery_sequence',
-      '3': 6,
-      '4': 1,
-      '5': 4,
-      '10': 'deliverySequence'
-    },
   ],
+  '9': [
+    {'1': 6, '2': 7},
+  ],
+  '10': ['delivery_sequence'],
 };
 
 /// Descriptor for `Ack`. Decode as a `google.protobuf.DescriptorProto`.
@@ -133,8 +126,7 @@ final $typed_data.Uint8List ackDescriptor = $convert.base64Decode(
     'CgNBY2sSEwoFb3BfaWQYASABKAlSBG9wSWQSMQoHb3V0Y29tZRgCIAEoDjIXLnZhcnRhbGFwLn'
     'YzLkFja091dGNvbWVSB291dGNvbWUSFgoGcmVhc29uGAMgASgJUgZyZWFzb24SJAoOcmV0cnlf'
     'YWZ0ZXJfbXMYBCABKARSDHJldHJ5QWZ0ZXJNcxIuChNzZXJ2ZXJfdGltZXN0YW1wX21zGAUgAS'
-    'gEUhFzZXJ2ZXJUaW1lc3RhbXBNcxIrChFkZWxpdmVyeV9zZXF1ZW5jZRgGIAEoBFIQZGVsaXZl'
-    'cnlTZXF1ZW5jZQ==');
+    'gEUhFzZXJ2ZXJUaW1lc3RhbXBNc0oECAYQB1IRZGVsaXZlcnlfc2VxdWVuY2U=');
 
 @$core.Deprecated('Use wsEnvelopeDescriptor instead')
 const WsEnvelope$json = {
