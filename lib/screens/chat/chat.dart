@@ -10,9 +10,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/chat_search.dart';
+import 'package:vartalap/screens/chat/voice_note.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -92,6 +95,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Message being replied to, if any.
   MessageRow? _replyTo;
+
+  /// The voice note being recorded; null while the composer is text.
+  AudioRecorder? _recorder;
+  DateTime _recordingSince = DateTime.now();
+  Timer? _recordingTicker;
+  static const Duration _maxVoiceNote = Duration(minutes: 15);
 
   /// The one delete sitting in its undo window. Committing is ours to
   /// do — the timer outlives the snackbar, and [dispose] flushes — so a
@@ -209,6 +218,13 @@ class _ChatScreenState extends State<ChatScreen> {
         messageId: pendingDelete,
       ));
     }
+    // A voice note is sent on purpose or not at all.
+    _recordingTicker?.cancel();
+    final recorder = _recorder;
+    if (recorder != null) {
+      recorder.cancel().whenComplete(recorder.dispose).ignore();
+    }
+    unawaited(stopVoiceNote());
     _failureSub?.cancel();
     _scroll.dispose();
     _readMarkerSub?.cancel();
@@ -697,6 +713,94 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// The mic (the send button while there is nothing to send).
+  /// ponytail: tap to start, then send or discard; hold-to-record with
+  /// slide-to-cancel is a gesture on top of the same two calls.
+  Future<void> _startRecording() async {
+    setState(() => _sending = true);
+    AudioRecorder? recorder;
+    try {
+      if (!await Permission.microphone.request().isGranted) {
+        _toast('Allow the microphone to record voice messages.');
+        return;
+      }
+      final stamp = DateFormat('yyyyMMdd-HHmmss').format(DateTime.now());
+      // Straight into the durable dir: the upload may not run for hours.
+      final path =
+          '${(await widget.chatService.assets.dir).path}/voice-$stamp.m4a';
+      recorder = AudioRecorder();
+      await recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 32000,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: path,
+      );
+    } catch (_) {
+      recorder?.dispose().ignore();
+      _toast("Couldn't start recording.");
+      return;
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+    if (!mounted) {
+      recorder.cancel().whenComplete(recorder.dispose).ignore();
+      return;
+    }
+    _inputFocus.unfocus();
+    setState(() {
+      _recorder = recorder;
+      _recordingSince = DateTime.now();
+    });
+    _recordingTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (DateTime.now().difference(_recordingSince) >= _maxVoiceNote) {
+        _stopRecording(send: true);
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
+  /// Ends the recording: [send] sends it as a voice note (as a reply,
+  /// if one is set up), otherwise the file is deleted.
+  Future<void> _stopRecording({required bool send}) async {
+    final recorder = _recorder;
+    if (recorder == null) return;
+    _recordingTicker?.cancel();
+    // ponytail: wall-clock length, long by however long a phone call
+    // paused the recorder; read it off the file if that ever shows.
+    final duration = DateTime.now().difference(_recordingSince);
+    setState(() {
+      _recorder = null;
+      _sending = send;
+    });
+    try {
+      // Under a second is a mis-tap, not a message.
+      if (!send || duration < const Duration(seconds: 1)) {
+        await recorder.cancel();
+        return;
+      }
+      final path = await recorder.stop();
+      final userId = widget.authService.currentUserId;
+      if (path == null || userId == null) return;
+      await widget.chatService.sendAttachment(
+        channelId: widget.channelId,
+        authorUserId: userId,
+        path: path,
+        replyToMessageId: _replyTo?.messageId,
+        durationMs: duration.inMilliseconds,
+      );
+      if (mounted) setState(() => _replyTo = null);
+    } catch (_) {
+      _toast("Couldn't send the voice message.");
+    } finally {
+      await recorder.dispose();
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   Future<void> _onSend() async {
     final body = _input.text.trim();
     if (body.isEmpty) return;
@@ -921,6 +1025,11 @@ class _ChatScreenState extends State<ChatScreen> {
             sending: _sending,
             onSend: _onSend,
             onAttach: _onAttach,
+            onMic: _startRecording,
+            recording: _recorder == null
+                ? null
+                : DateTime.now().difference(_recordingSince),
+            onStopRecording: (send) => _stopRecording(send: send),
             editing: _editingMessageId != null,
             replyPreview: _replyTo == null ? null : _preview(_replyTo!),
             onCancelCompose:
@@ -989,6 +1098,17 @@ class _MessageInput extends StatelessWidget {
   /// Opens the attachment sheet (frame d1's paperclip).
   final VoidCallback onAttach;
 
+  /// Starts a voice note. The send button is a mic while there is
+  /// nothing to send.
+  final VoidCallback onMic;
+
+  /// How long the voice note has been recording, null when it isn't;
+  /// the text row is then a recording bar.
+  final Duration? recording;
+
+  /// Ends the recording: true sends it, false discards it.
+  final ValueChanged<bool> onStopRecording;
+
   /// Composer is in edit mode — the send button applies a
   /// MESSAGE_UPDATE to an existing message instead of sending a new one.
   final bool editing;
@@ -1005,6 +1125,9 @@ class _MessageInput extends StatelessWidget {
     required this.sending,
     required this.onSend,
     required this.onAttach,
+    required this.onMic,
+    required this.onStopRecording,
+    this.recording,
     this.editing = false,
     this.replyPreview,
     this.onCancelCompose,
@@ -1079,6 +1202,29 @@ class _MessageInput extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            if (recording != null) ...[
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: 'Discard',
+                color: scheme.error,
+                onPressed: () => onStopRecording(false),
+              ),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: [
+                      Icon(Icons.circle, size: 12, color: scheme.error),
+                      const SizedBox(width: kSpaceSm),
+                      Text(
+                        mmss(recording!),
+                        style: TextStyle(color: scheme.onSurface),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ] else ...[
             IconButton(
               icon: const Icon(Icons.attach_file),
               tooltip: 'Attach',
@@ -1112,31 +1258,52 @@ class _MessageInput extends StatelessWidget {
                 ),
               ),
             ),
+            ],
             const SizedBox(width: kSpaceSm),
-            Material(
-              color: scheme.primary,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: sending ? null : onSend,
-                child: Padding(
-                  padding: const EdgeInsets.all(kSpaceSm + kSpaceXs),
-                  child: sending
-                      ? SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: scheme.onPrimary,
-                          ),
-                        )
-                      : Icon(
-                          editing ? Icons.check_rounded : Icons.send_rounded,
-                          size: 20,
-                          color: scheme.onPrimary,
-                        ),
-                ),
-              ),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: controller,
+              builder: (context, value, _) {
+                final mic = recording == null &&
+                    !editing &&
+                    value.text.trim().isEmpty;
+                return Material(
+                  color: scheme.primary,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: sending
+                        ? null
+                        : recording != null
+                            ? () => onStopRecording(true)
+                            : mic
+                                ? onMic
+                                : onSend,
+                    child: Padding(
+                      padding: const EdgeInsets.all(kSpaceSm + kSpaceXs),
+                      child: sending
+                          ? SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: scheme.onPrimary,
+                              ),
+                            )
+                          : Icon(
+                              editing
+                                  ? Icons.check_rounded
+                                  : mic
+                                      ? Icons.mic
+                                      : Icons.send_rounded,
+                              semanticLabel:
+                                  mic ? 'Record voice message' : null,
+                              size: 20,
+                              color: scheme.onPrimary,
+                            ),
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -1666,6 +1833,9 @@ class _AttachmentView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (attachment.mimeType.startsWith('audio/')) {
+      return VoiceNoteView(attachment: attachment, tint: tint);
+    }
     if (!_isImage) {
       return Padding(
         padding: const EdgeInsets.only(bottom: kSpaceXs),

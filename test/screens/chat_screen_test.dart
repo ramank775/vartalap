@@ -346,6 +346,43 @@ void main() {
     expect(find.text('accounts.pdf'), findsOneWidget);
     expect(find.text('shot.jpg'), findsNothing);
   });
+
+  testWidgets('an inbound voice note shows a play button and its length',
+      (tester) async {
+    await pumpChat(tester);
+    await tester.runAsync(() => _insertWithAttachment(
+        store, 'm-voice', 'audio/mp4', 'voice.m4a', 3,
+        durationMs: 7000));
+    await settle(tester);
+
+    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+    expect(
+      find.text('00:07'),
+      findsOneWidget,
+      reason: 'Idle, the bubble shows the length the sender recorded.',
+    );
+    expect(find.text('voice.m4a'), findsNothing);
+  });
+
+  testWidgets('the send button is a mic until there is something to send',
+      (tester) async {
+    await pumpChat(tester);
+    expect(find.byIcon(Icons.mic), findsOneWidget);
+    expect(find.byIcon(Icons.send_rounded), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'hello');
+    await tester.pump();
+    expect(find.byIcon(Icons.send_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.mic), findsNothing);
+
+    await tester.enterText(find.byType(TextField), '   ');
+    await tester.pump();
+    expect(
+      find.byIcon(Icons.mic),
+      findsOneWidget,
+      reason: 'Whitespace sends nothing, so it is still a mic.',
+    );
+  });
 }
 
 Future<void> _insertWithAttachment(
@@ -353,8 +390,9 @@ Future<void> _insertWithAttachment(
   String messageId,
   String mimeType,
   String filename,
-  int seq,
-) =>
+  int seq, {
+  int durationMs = 0,
+}) =>
     store.applyInboundMessage(
       localUserId: localUserId,
       channelId: channelId,
@@ -372,6 +410,7 @@ Future<void> _insertWithAttachment(
             mimeType: mimeType,
             filename: filename,
             sizeBytes: fixnum.Int64(2048),
+            durationMs: durationMs,
           ),
         ],
       ).writeToBuffer(),

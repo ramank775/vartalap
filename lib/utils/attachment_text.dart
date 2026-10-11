@@ -7,7 +7,9 @@ String messagePreview(String body, String? attachmentMime) {
       ? ('📷', 'Photo')
       : attachmentMime.startsWith('video/')
           ? ('🎥', 'Video')
-          : ('📄', 'File');
+          : attachmentMime.startsWith('audio/')
+              ? ('🎤', 'Voice message')
+              : ('📄', 'File');
   return '$glyph ${body.isEmpty ? kind : body}';
 }
 

@@ -63,6 +63,8 @@ dependencies:
   # plugin loader. 3.4.0 is the same connector with a working Groovy
   # build file. Unpin when upstream fixes the build script.
   unifiedpush_android: 3.4.0
+  record: ^7.1.2
+  just_audio: ^0.10.6
 
 dev_dependencies:
   flutter_test:
