@@ -34,6 +34,7 @@ import 'package:vartalap_transport/vartalap_transport.dart';
 Uint8List _encodeChatPayload({
   required String messageId,
   required String body,
+  String contentType = 'text/plain',
   String? replyToMessageId,
 }) =>
     pb.ChatPayload(
@@ -41,7 +42,7 @@ Uint8List _encodeChatPayload({
       type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
       messageId: messageId,
       body: body,
-      contentType: 'text/plain',
+      contentType: contentType,
       replyToMessageId: replyToMessageId,
     ).writeToBuffer();
 
@@ -239,11 +240,14 @@ class ChatService {
   /// (same frame as the send-button tap) — local commit is the
   /// critical-path latency target (<100ms, V3_ARCHITECTURE
   /// "Performance targets").
+  /// [contentType] other than `text/plain` marks a contact, location
+  /// or event carried as standard text in [body] (decision 133).
   Future<void> sendMessage({
     required String channelId,
     required String body,
     required String authorUserId,
     String? replyToMessageId,
+    String contentType = 'text/plain',
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -254,7 +258,7 @@ class ChatService {
       channelId: channelId,
       authorUserId: authorUserId,
       body: body,
-      contentType: 'text/plain',
+      contentType: contentType,
       replyToMessageId: replyToMessageId,
       clientTimestampMs: now,
       serverTimestampMs: null,
@@ -276,6 +280,7 @@ class ChatService {
       payload: _encodeChatPayload(
         messageId: messageId,
         body: body,
+        contentType: contentType,
         replyToMessageId: replyToMessageId,
       ),
       status: OpStatus.pending,
@@ -507,6 +512,24 @@ class ChatService {
   /// without firing a server call (the screen passes an empty list
   /// when contacts permission is denied or the address book has no
   /// phone numbers).
+  /// The Vartalap user behind any of [normalizedPhones] (a shared
+  /// contact card's numbers), via the same hashed lookup as
+  /// [discoverContacts]; null if none of them is on Vartalap.
+  Future<ContactRow?> findUserByPhone(
+    List<String> normalizedPhones, {
+    required String name,
+  }) async {
+    if (normalizedPhones.isEmpty) return null;
+    final hashes = {
+      for (final p in normalizedPhones) sha256.convert(utf8.encode(p)).toString(),
+    };
+    final known = await discoverContacts(
+      normalizedPhones: normalizedPhones,
+      contactBookNamesByPhone: {for (final p in normalizedPhones) p: name},
+    );
+    return known.where((c) => hashes.contains(c.phoneHash)).firstOrNull;
+  }
+
   Future<List<ContactRow>> discoverContacts({
     List<String> normalizedPhones = const [],
     Map<String, String> contactBookNamesByPhone = const {},

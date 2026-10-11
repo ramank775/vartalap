@@ -6,18 +6,23 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/chat_search.dart';
+import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/attachment_text.dart';
+import 'package:vartalap/utils/phone_number.dart';
+import 'package:vartalap/utils/rich_message.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -401,6 +406,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final canEdit = mine &&
         !msg.tombstoned &&
         (msg.body ?? '').isNotEmpty &&
+        !isRichType(msg.contentType) &&
         (msg.attachments == null || msg.serverTimestampMs != null);
     // Otherwise closing the sheet hands focus back to the composer and the
     // keyboard pops up after a delete or react; Edit and Reply ask for it.
@@ -569,35 +575,55 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// Composer attach button (frame d1). One sheet: the camera, the
-  /// gallery for photos and videos (photos we can size for the bubble)
-  /// and the system file picker for everything else.
+  /// gallery for photos and videos (photos we can size for the bubble),
+  /// the system file picker for everything else, and the text-format
+  /// kinds — contact, location, event (decision 133).
   Future<void> _onAttach() async {
+    const options = [
+      (Icons.photo_camera_outlined, 'Camera', 'camera'),
+      (Icons.image_outlined, 'Gallery', 'gallery'),
+      (Icons.insert_drive_file_outlined, 'Document', 'file'),
+      (Icons.person_outline, 'Contact', 'contact'),
+      (Icons.location_on_outlined, 'Location', 'location'),
+      (Icons.event_outlined, 'Event', 'event'),
+    ];
     final choice = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Camera'),
-              onTap: () => Navigator.of(ctx).pop('camera'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.image_outlined),
-              title: const Text('Photo or video'),
-              onTap: () => Navigator.of(ctx).pop('gallery'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_file),
-              title: const Text('File'),
-              onTap: () => Navigator.of(ctx).pop('file'),
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: GridView.count(
+            crossAxisCount: 3,
+            shrinkWrap: true,
+            padding: const EdgeInsets.all(kSpaceLg),
+            mainAxisSpacing: kSpaceMd,
+            children: [
+              for (final (icon, label, value) in options)
+                InkWell(
+                  borderRadius: BorderRadius.circular(kRadiusMd),
+                  onTap: () => Navigator.of(ctx).pop(value),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundColor: scheme.primaryContainer,
+                        child: Icon(icon, color: scheme.onPrimaryContainer),
+                      ),
+                      const SizedBox(height: kSpaceSm),
+                      Text(label),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
     if (choice == null || !mounted) return;
+    if (choice == 'contact') return _shareContact();
+    if (choice == 'location') return _shareLocation();
+    if (choice == 'event') return _shareEvent();
 
     String? sourcePath;
     var width = 0;
@@ -674,10 +700,144 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Send a contact, location or event: standard text in the body,
+  /// the kind in `content_type` (decision 133).
+  Future<void> _sendRich(String body, String contentType) async {
+    final userId = widget.authService.currentUserId;
+    if (userId == null) return;
+    await widget.chatService.sendMessage(
+      channelId: widget.channelId,
+      body: body,
+      authorUserId: userId,
+      replyToMessageId: _replyTo?.messageId,
+      contentType: contentType,
+    );
+    if (mounted) setState(() => _replyTo = null);
+  }
+
+  /// The system contact picker, then the picked card as a vCard (no
+  /// photo — it would dwarf the message).
+  Future<void> _shareContact() async {
+    if (!await Permission.contacts.request().isGranted) {
+      _toast('Vartalap needs contacts access to share a contact');
+      return;
+    }
+    try {
+      final id = await FlutterContacts.native.showPicker();
+      if (id == null) return;
+      final contact = await FlutterContacts.get(id, properties: {
+        ContactProperty.name,
+        ContactProperty.phone,
+        ContactProperty.email,
+      });
+      if (contact == null) return;
+      await _sendRich(FlutterContacts.vCard.export(contact), kContactType);
+    } on PlatformException catch (e) {
+      _toast('Could not open contacts: ${e.code}');
+    }
+  }
+
+  /// Current location only, after a confirm that says how precise it is
+  /// (decision 135: no map to pick a place on).
+  Future<void> _shareLocation() async {
+    if (!await Permission.locationWhenInUse.request().isGranted) {
+      _toast('Vartalap needs location access to share where you are');
+      return;
+    }
+    _toast('Finding your location…');
+    final point = await currentLocation();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (point == null) {
+      _toast("Couldn't get your location. Is location turned on?");
+      return;
+    }
+    final send = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Send your current location?'),
+        content: Text([
+          if (point.accuracyM != null)
+            'Accurate to ${point.accuracyM!.round()} m',
+          '${point.lat.toStringAsFixed(5)}, ${point.lng.toStringAsFixed(5)}',
+        ].join('\n')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    if (send == true) await _sendRich(point.toUri(), kLocationType);
+  }
+
+  Future<void> _shareEvent() async {
+    final event = await Navigator.of(context).push<EventInfo>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const EventComposerScreen(),
+      ),
+    );
+    if (event == null) return;
+    final now = DateTime.now();
+    await _sendRich(
+      event.toIcs(uid: '${now.microsecondsSinceEpoch}@vartalap', stamp: now),
+      kEventType,
+    );
+  }
+
+  /// "Message" on a shared contact card: find which of its numbers is
+  /// on Vartalap and open that chat.
+  Future<void> _messageContact(String vcard) async {
+    final userId = widget.authService.currentUserId;
+    final contact = FlutterContacts.vCard.import(vcard).firstOrNull;
+    if (userId == null || contact == null) return;
+    final countryCode = '+${(await defaultCountry()).dialCode}';
+    final phones = [
+      for (final p in contact.phones)
+        normalizePhoneNumber(p.number, countryCode: countryCode),
+    ].whereType<String>().toList();
+    final name = contactName(vcard);
+    final ContactRow? user;
+    try {
+      user = await widget.chatService.findUserByPhone(phones, name: name);
+    } catch (_) {
+      _toast("Couldn't check right now. Try again later.");
+      return;
+    }
+    if (!mounted) return;
+    if (user == null) {
+      _toast("$name isn't on Vartalap yet");
+      return;
+    }
+    if (user.userId == userId) return;
+    final channelId = await widget.chatService.startDirectMessage(
+      localUserId: userId,
+      peerUserId: user.userId,
+      peerName: user.displayLabel,
+    );
+    if (!mounted || channelId == widget.channelId) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ChatScreen(
+        channelId: channelId,
+        channelName: user!.displayLabel,
+        channelKind: 'dm',
+        chatService: widget.chatService,
+        authService: widget.authService,
+      ),
+    ));
+  }
+
   /// One-line description for a reply quote or the reply bar.
   static String _preview(MessageRow m) => messagePreview(
         m.body ?? '',
-        m.attachments == null ? null : m.contentType,
+        m.contentType,
+        attachment: m.attachments != null,
       );
 
   /// Intrinsic pixel size of a picked image, or null if it will not
@@ -881,6 +1041,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     onReactionTap: (emoji) => _toggleReaction(msg, emoji),
                     onRetry:
                         failedOpId == null ? null : () => _retry(failedOpId),
+                    onMessageContact: _messageContact,
                   ));
 
                   // Insert a date chip between this message and the
@@ -1267,6 +1428,9 @@ class _MessageBubble extends StatelessWidget {
   /// state — renders the frame d1 red bubble with inline Retry.
   final VoidCallback? onRetry;
 
+  /// "Message" on a shared contact card (its vCard).
+  final ValueChanged<String>? onMessageContact;
+
   const _MessageBubble({
     super.key,
     required this.message,
@@ -1280,6 +1444,7 @@ class _MessageBubble extends StatelessWidget {
     this.senderLabel,
     this.replyPreview,
     this.onRetry,
+    this.onMessageContact,
   });
 
   /// `messages.attachments` is a ChatPayload holding only the repeated
@@ -1299,6 +1464,8 @@ class _MessageBubble extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final failed = onRetry != null;
     final tombstoned = message.tombstoned;
+    // A contact / location / event renders as a card, never its body.
+    final rich = !tombstoned && isRichType(message.contentType);
 
     final bg = failed
         ? scheme.errorContainer
@@ -1401,6 +1568,13 @@ class _MessageBubble extends StatelessWidget {
                   ],
                   for (final a in _attachments)
                     if (!tombstoned) _AttachmentView(attachment: a, tint: fg),
+                  if (rich)
+                    RichMessageView(
+                      contentType: message.contentType!,
+                      body: message.body ?? '',
+                      tint: fg,
+                      onMessage: onMessageContact,
+                    ),
                   // Wrap lets the meta (time+tick) sit at the end of the
                   // last line of text if there's room, or drop to a new
                   // line if the text fills the full width.
@@ -1428,7 +1602,7 @@ class _MessageBubble extends StatelessWidget {
                             ),
                           ],
                         )
-                      else
+                      else if (!rich)
                         Text(
                           message.body ?? '',
                           style:

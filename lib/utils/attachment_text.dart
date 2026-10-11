@@ -1,14 +1,30 @@
+import 'package:vartalap/utils/rich_message.dart';
+
 /// How a message reads in one line — chat list, reply quote, reply
-/// bar. [attachmentMime] is the attachment's type, null for plain text.
-/// A caption follows the glyph; with no caption the kind is spelled out.
-String messagePreview(String body, String? attachmentMime) {
-  if (attachmentMime == null) return body;
-  final (glyph, kind) = attachmentMime.startsWith('image/')
-      ? ('📷', 'Photo')
-      : attachmentMime.startsWith('video/')
-          ? ('🎥', 'Video')
-          : ('📄', 'File');
-  return '$glyph ${body.isEmpty ? kind : body}';
+/// bar. With an [attachment], [contentType] is its type: a caption
+/// follows the glyph, and with no caption the kind is spelled out.
+/// Contact, location and event messages (decision 133) say what they
+/// are rather than show their vCard / geo / iCalendar body.
+String messagePreview(
+  String body,
+  String? contentType, {
+  required bool attachment,
+}) {
+  if (attachment) {
+    final type = contentType ?? '';
+    final (glyph, kind) = type.startsWith('image/')
+        ? ('📷', 'Photo')
+        : type.startsWith('video/')
+            ? ('🎥', 'Video')
+            : ('📄', 'File');
+    return '$glyph ${body.isEmpty ? kind : body}';
+  }
+  return switch (contentType) {
+    kContactType => '👤 ${contactName(body)}',
+    kLocationType => '📍 Location',
+    kEventType => '📅 ${EventInfo.parse(body)?.title ?? 'Event'}',
+    _ => body,
+  };
 }
 
 String humanFileSize(int bytes) {

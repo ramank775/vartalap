@@ -79,14 +79,16 @@ void main() {
         (tester) async {
       await _pumpTile(
         tester,
-        _entry(lastMessagePreview: '', lastMessageAttachmentType: 'image/jpeg'),
+        _entry(lastMessagePreview: '', lastMessageContentType: 'image/jpeg',
+            lastMessageHasAttachment: true),
       );
       expect(find.textContaining('📷 Photo', findRichText: true), findsOneWidget);
 
       // A .txt attachment is text/plain too; it is still a file.
       await _pumpTile(
         tester,
-        _entry(lastMessagePreview: '', lastMessageAttachmentType: 'text/plain'),
+        _entry(lastMessagePreview: '', lastMessageContentType: 'text/plain',
+            lastMessageHasAttachment: true),
       );
       expect(find.textContaining('📄 File', findRichText: true), findsOneWidget);
 
@@ -94,7 +96,8 @@ void main() {
         tester,
         _entry(
           lastMessagePreview: 'Sunset',
-          lastMessageAttachmentType: 'image/jpeg',
+          lastMessageContentType: 'image/jpeg',
+          lastMessageHasAttachment: true,
         ),
       );
       expect(find.textContaining('📷 Sunset', findRichText: true), findsOneWidget);
@@ -383,7 +386,8 @@ ChannelListEntry _entry({
   int? mutedUntilMs,
   bool hasFailedOp = false,
   String? lastMessagePreview = 'hello',
-  String? lastMessageAttachmentType,
+  String? lastMessageContentType,
+  bool lastMessageHasAttachment = false,
 }) =>
     ChannelListEntry(
       channelId: channelId,
@@ -396,7 +400,8 @@ ChannelListEntry _entry({
       mutedUntilMs: mutedUntilMs,
       hasFailedOp: hasFailedOp,
       lastMessagePreview: lastMessagePreview,
-      lastMessageAttachmentType: lastMessageAttachmentType,
+      lastMessageContentType: lastMessageContentType,
+      lastMessageHasAttachment: lastMessageHasAttachment,
       lastMessageAuthor: 'u-peer',
       lastMessageTombstoned: false,
     );

@@ -489,7 +489,8 @@ class ChannelTile extends StatelessWidget {
         ? '(message deleted)'
         : messagePreview(
             entry.lastMessagePreview ?? '',
-            entry.lastMessageAttachmentType,
+            entry.lastMessageContentType,
+            attachment: entry.lastMessageHasAttachment,
           );
     return Text.rich(
       TextSpan(

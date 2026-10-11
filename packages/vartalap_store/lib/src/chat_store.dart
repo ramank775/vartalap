@@ -1577,8 +1577,8 @@ class ChatStore {
                  AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
              c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
-             CASE WHEN m.attachments IS NULL THEN NULL
-                  ELSE m.content_type END AS last_message_attachment_type,
+             m.content_type AS last_message_content_type,
+             m.attachments IS NOT NULL AS last_message_has_attachment,
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned,
              EXISTS (SELECT 1 FROM outbound_ops o
@@ -2003,8 +2003,8 @@ class ChatStore {
                  AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
              c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
-             CASE WHEN m.attachments IS NULL THEN NULL
-                  ELSE m.content_type END AS last_message_attachment_type,
+             m.content_type AS last_message_content_type,
+             m.attachments IS NOT NULL AS last_message_has_attachment,
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned
       FROM channels c
@@ -2046,8 +2046,8 @@ class ChatStore {
                  AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
              c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
-             CASE WHEN m.attachments IS NULL THEN NULL
-                  ELSE m.content_type END AS last_message_attachment_type,
+             m.content_type AS last_message_content_type,
+             m.attachments IS NOT NULL AS last_message_has_attachment,
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned
       FROM channels c
@@ -2105,8 +2105,8 @@ class ChatStore {
         mutedUntilMs: r['muted_until_ms'] as int?,
         hasFailedOp: ((r['has_failed_op'] as int?) ?? 0) != 0,
         lastMessagePreview: r['last_message_preview'] as String?,
-        lastMessageAttachmentType:
-            r['last_message_attachment_type'] as String?,
+        lastMessageContentType: r['last_message_content_type'] as String?,
+        lastMessageHasAttachment: r['last_message_has_attachment'] == 1,
         lastMessageAuthor: r['last_message_author'] as String?,
         lastMessageTombstoned:
             ((r['last_message_tombstoned'] as int?) ?? 0) != 0,
