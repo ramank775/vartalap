@@ -104,7 +104,8 @@ class _ChatScreenState extends State<ChatScreen> {
   AudioRecorder? _recorder;
   DateTime _recordingSince = DateTime.now();
   Timer? _recordingTicker;
-  static const Duration _maxVoiceNote = Duration(minutes: 15);
+  // Owner: one minute, then it sends itself.
+  static const Duration _maxVoiceNote = Duration(minutes: 1);
 
   /// The one delete sitting in its undo window. Committing is ours to
   /// do — the timer outlives the snackbar, and [dispose] flushes — so a
