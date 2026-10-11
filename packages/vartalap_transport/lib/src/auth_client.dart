@@ -315,13 +315,28 @@ class AuthClient implements AuthTokenProvider {
         .toList();
   }
 
-  /// `POST /v3.0/push/topic` — AUTH_CONTRACT §5.1. A null (or empty)
-  /// [topicUrl] deregisters this `(user_id, deviceId)`.
+  /// `GET /v3.0/push/vapid` — AUTH_CONTRACT §5.0. The server's VAPID
+  /// public key (base64url, 87 chars), handed to the distributor on
+  /// register so it only accepts pushes this server signed.
+  Future<String> getVapidKey() async {
+    final resp = await _get('/v3.0/push/vapid', headers: _authHeaders());
+    _assertOk(resp, 'getVapidKey');
+    return _decodeJson(resp)['vapidPublicKey'] as String;
+  }
+
+  /// `POST /v3.0/push/topic` — AUTH_CONTRACT §5.1. Registers the Web
+  /// Push [endpoint] with the device's [p256dh] / [auth] keys; a null
+  /// [endpoint] deregisters this `(user_id, deviceId)` and sends no keys.
   Future<void> registerPushTopic({
-    required String? topicUrl,
+    required String? endpoint,
+    String? p256dh,
+    String? auth,
   }) async {
     final resp = await _post('/v3.0/push/topic',
-        body: {'topicUrl': topicUrl}, headers: _authHeaders());
+        body: endpoint == null
+            ? {'endpoint': null}
+            : {'endpoint': endpoint, 'p256dh': p256dh, 'auth': auth},
+        headers: _authHeaders());
     _assertOk(resp, 'registerPushTopic');
   }
 

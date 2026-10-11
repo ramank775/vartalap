@@ -331,6 +331,75 @@ void main() {
     });
   });
 
+  group('push (AUTH_CONTRACT §5)', () {
+    const vapid = 'BOr6qTqDDQ5GNw8yC2v2Q8x5LJQfj3zLc8l2E2kQyQ8hT4Pq9b0u8Q2uB7wF5yJ'
+        'bL3pZ6nQ0kS1vX4cT9mA2dEQ';
+
+    test('getVapidKey reads vapidPublicKey from GET /v3.0/push/vapid',
+        () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+      server.handler = (req) async {
+        expect(req.method, 'GET');
+        expect(req.uri.path, '/v3.0/push/vapid');
+        expect(req.headers.value('authorization'), 'Bearer ak');
+        _respond(req, 200, {'vapidPublicKey': vapid});
+      };
+
+      expect(await client.getVapidKey(), vapid);
+    });
+
+    test('registerPushTopic posts endpoint, p256dh and auth', () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+      late Map<String, dynamic> body;
+      server.handler = (req) async {
+        expect(req.method, 'POST');
+        expect(req.uri.path, '/v3.0/push/topic');
+        body =
+            jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
+        _respond(req, 200, {'status': true});
+      };
+
+      await client.registerPushTopic(
+        endpoint: 'https://fcm.googleapis.com/fcm/send/tok',
+        p256dh: 'BNcR',
+        auth: 'tBHI',
+      );
+      expect(body, {
+        'endpoint': 'https://fcm.googleapis.com/fcm/send/tok',
+        'p256dh': 'BNcR',
+        'auth': 'tBHI',
+      });
+    });
+
+    test('a null endpoint deregisters and sends no keys', () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+      late Map<String, dynamic> body;
+      server.handler = (req) async {
+        body =
+            jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
+        _respond(req, 200, {'status': true});
+      };
+
+      await client.registerPushTopic(endpoint: null);
+      expect(body, {'endpoint': null});
+    });
+
+    test('400 INVALID_PUSH_KEYS surfaces the error code', () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+      server.handler = (req) async {
+        _respond(req, 400, {
+          'error': {'code': 'INVALID_PUSH_KEYS', 'message': 'bad keys'}
+        });
+      };
+
+      await expectLater(
+        client.registerPushTopic(endpoint: 'https://ntfy.sh/up1'),
+        throwsA(isA<AuthClientException>()
+            .having((e) => e.errorCode, 'errorCode', 'INVALID_PUSH_KEYS')),
+      );
+    });
+  });
+
   group('deleteAccount', () {
     test('200 succeeds', () async {
       client.restoreSession(accesskey: 'ak', userId: 'u');

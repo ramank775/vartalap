@@ -40,14 +40,14 @@ final ConfigStore configStore = ConfigStore();
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  final services = await initializeApp();
-
-  // The ntfy distributor starts this entrypoint in a background engine
-  // to deliver a wake (`unifiedpush` README). Everything the wake needs
-  // — pull `/sync/pending`, reconnect the WS, post the local
-  // notification — is already wired by initializeApp; there is no UI to
-  // run, so we stop short of runApp and let the callback fire.
-  if (args.contains('--unifiedpush-bg')) return;
+  // A distributor starts this entrypoint in a background engine to
+  // deliver a wake (`unifiedpush` README). Everything the wake needs —
+  // pull `/sync/pending`, reconnect the WS, post the local notification
+  // — is wired by initializeApp; there is no UI to run, so we stop short
+  // of runApp and let the callback fire.
+  final background = args.contains('--unifiedpush-bg');
+  final services = await initializeApp(background: background);
+  if (background) return;
 
   // Decision 8 (docs/V3_ARCHITECTURE.md): Sentry is only initialized when
   // the user has already opted in from Settings. Off (the default) means
@@ -81,8 +81,8 @@ class AppServices {
   final PushService pushService;
   final bool consentAccepted;
 
-  /// False until the user has answered the "install ntfy" prompt once
-  /// (decision 6 first-run onboarding). Only ever gates the prompt.
+  /// False until the user has answered the push chooser once (decision
+  /// 6 first-run onboarding). Only ever gates the prompt.
   final bool pushPromptSeen;
 
   /// Inbound WS_PUSH fanout applier. Null pre-login: it's constructed
@@ -148,7 +148,8 @@ class AppServices {
   }
 }
 
-Future<AppServices> initializeApp() async {
+/// [background]: the engine a distributor starts to deliver a wake.
+Future<AppServices> initializeApp({bool background = false}) async {
   await configStore.init();
 
   // --- config / secure-storage bootstrapping --------------------------------
@@ -247,7 +248,7 @@ Future<AppServices> initializeApp() async {
   // AUTH_CONTRACT §5.1 — deregister while the accesskey still works.
   authService.onBeforeLogout = pushService.deregister;
   try {
-    await pushService.start();
+    await pushService.start(reconcile: !background);
   } catch (e) {
     // No distributor plugin (desktop, tests) — push is simply off.
     debugPrint('Push init failed: $e');
@@ -341,9 +342,9 @@ class _AppState extends State<App> {
     _username = widget.services.authService.username;
     _usernameSub = widget.services.authService.usernameChange.listen((u) {
       setState(() => _username = u);
-      // AUTH_CONTRACT §2.4: push/topic is behind the USERNAME_REQUIRED
-      // gate like every other authenticated route, so the topic can
-      // only be registered once the handle lands.
+      // AUTH_CONTRACT §2.4: push/vapid and push/topic are behind the
+      // USERNAME_REQUIRED gate like every other authenticated route, so
+      // the endpoint can only be registered once the handle lands.
       if (u != null) unawaited(widget.services.pushService.refresh());
     });
     _authSub = widget.services.authService.authStateChange.listen((loggedIn) {
@@ -373,7 +374,7 @@ class _AppState extends State<App> {
           // Kick the WS transport so it connects now that we have an
           // accesskey. If already connected this is a no-op.
           unawaited(widget.services.wsTransport.start());
-          // AUTH_CONTRACT §5.1: the topic is stored per (user, device),
+          // AUTH_CONTRACT §5.1: the endpoint is stored per (user, device),
           // so a new session must re-post the endpoint it holds — once
           // the §2.4 username gate is open (the usernameChange listener
           // above covers the signup case).
@@ -439,14 +440,17 @@ class _AppState extends State<App> {
       config: configStore,
     );
     if (_pushPromptSeen) return chats;
-    // Decision 6 first-run onboarding: the one screen that asks for the
-    // ntfy app, shown after the username step and only while the
-    // distributor is actually missing.
+    // Decision 6 first-run onboarding: the push chooser, shown after the
+    // username step and only while there is a question to ask (Google
+    // on offer, or no single push app to use silently).
     return ValueListenableBuilder<PushState>(
       valueListenable: widget.services.pushService.state,
       builder: (context, pushState, child) =>
-          pushState == PushState.distributorMissing
-              ? PushOnboardingScreen(onDone: _onPushPromptDone)
+          pushState == PushState.choiceNeeded
+              ? PushOnboardingScreen(
+                  push: widget.services.pushService,
+                  onDone: _onPushPromptDone,
+                )
               : child!,
       child: chats,
     );
