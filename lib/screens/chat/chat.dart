@@ -287,7 +287,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     setState(() {
       _memberNames = {
-        for (final m in members) m.userId: m.contact?.displayLabel ?? 'Unknown',
+        for (final m in members)
+          m.userId: m.contact?.displayLabel ?? 'Unknown',
       };
     });
   }
@@ -398,67 +399,65 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (!msg.tombstoned)
-                _ReactionBar(
-                  selected: msg.reactions
-                      .where(
-                          (r) => r.userId == widget.authService.currentUserId)
-                      .map((r) => r.emoji)
-                      .toSet(),
-                  onPick: (emoji) {
-                    Navigator.of(sheetCtx).pop();
-                    _toggleReaction(msg, emoji);
-                  },
+            if (!msg.tombstoned)
+              _ReactionBar(
+                selected: msg.reactions
+                    .where((r) => r.userId == widget.authService.currentUserId)
+                    .map((r) => r.emoji)
+                    .toSet(),
+                onPick: (emoji) {
+                  Navigator.of(sheetCtx).pop();
+                  _toggleReaction(msg, emoji);
+                },
+              ),
+            if (!msg.tombstoned)
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  setState(() {
+                    _replyTo = msg;
+                    _editingMessageId = null;
+                  });
+                },
+              ),
+            if (canEdit)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Edit'),
+                subtitle: const Text('Everyone sees it marked as edited'),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  _startEdit(msg);
+                },
+              ),
+            if (!msg.tombstoned && (msg.body ?? '').isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: const Text('Copy text'),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  Clipboard.setData(ClipboardData(text: msg.body ?? ''));
+                  _toast('Copied');
+                },
+              ),
+            if (mine && !msg.tombstoned)
+              ListTile(
+                leading: Icon(Icons.delete_outline,
+                    color: Theme.of(sheetCtx).colorScheme.error),
+                title: Text(
+                  'Delete for everyone',
+                  style: TextStyle(color: Theme.of(sheetCtx).colorScheme.error),
                 ),
-              if (!msg.tombstoned)
-                ListTile(
-                  leading: const Icon(Icons.reply),
-                  title: const Text('Reply'),
-                  onTap: () {
-                    Navigator.of(sheetCtx).pop();
-                    setState(() {
-                      _replyTo = msg;
-                      _editingMessageId = null;
-                    });
-                  },
+                subtitle: Text(
+                  'You have ${widget.undoWindow.inSeconds} seconds to undo',
                 ),
-              if (canEdit)
-                ListTile(
-                  leading: const Icon(Icons.edit_outlined),
-                  title: const Text('Edit'),
-                  subtitle: const Text('Everyone sees it marked as edited'),
-                  onTap: () {
-                    Navigator.of(sheetCtx).pop();
-                    _startEdit(msg);
-                  },
-                ),
-              if (!msg.tombstoned && (msg.body ?? '').isNotEmpty)
-                ListTile(
-                  leading: const Icon(Icons.copy_outlined),
-                  title: const Text('Copy text'),
-                  onTap: () {
-                    Navigator.of(sheetCtx).pop();
-                    Clipboard.setData(ClipboardData(text: msg.body ?? ''));
-                    _toast('Copied');
-                  },
-                ),
-              if (mine && !msg.tombstoned)
-                ListTile(
-                  leading: Icon(Icons.delete_outline,
-                      color: Theme.of(sheetCtx).colorScheme.error),
-                  title: Text(
-                    'Delete for everyone',
-                    style:
-                        TextStyle(color: Theme.of(sheetCtx).colorScheme.error),
-                  ),
-                  subtitle: Text(
-                    'You have ${widget.undoWindow.inSeconds} seconds to undo',
-                  ),
-                  onTap: () {
-                    Navigator.of(sheetCtx).pop();
-                    _deleteMessage(msg);
-                  },
-                ),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  _deleteMessage(msg);
+                },
+              ),
             ],
           ),
         ),
@@ -469,8 +468,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _toggleReaction(MessageRow msg, String emoji) async {
     final userId = widget.authService.currentUserId;
     if (userId == null) return;
-    final already =
-        msg.reactions.any((r) => r.userId == userId && r.emoji == emoji);
+    final already = msg.reactions
+        .any((r) => r.userId == userId && r.emoji == emoji);
     await widget.chatService.reactToMessage(
       channelId: widget.channelId,
       messageId: msg.messageId,
@@ -486,7 +485,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _editingMessageId = msg.messageId;
     });
     _input.text = msg.body ?? '';
-    _input.selection = TextSelection.collapsed(offset: _input.text.length);
+    _input.selection =
+        TextSelection.collapsed(offset: _input.text.length);
   }
 
   void _cancelCompose() {
@@ -808,7 +808,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     isMine: mine,
                     showTail: showTail,
                     chatColors: chatColors,
-                    highlighted: _highlightedMessageId == msg.messageId,
+                    highlighted:
+                        _highlightedMessageId == msg.messageId,
                     senderLabel: senderLabel,
                     localUserId: currentUserId,
                     replyPreview: msg.replyToMessageId == null
@@ -859,9 +860,10 @@ class _ChatScreenState extends State<ChatScreen> {
             onAttach: _onAttach,
             editing: _editingMessageId != null,
             replyPreview: _replyTo?.body,
-            onCancelCompose: (_editingMessageId != null || _replyTo != null)
-                ? _cancelCompose
-                : null,
+            onCancelCompose:
+                (_editingMessageId != null || _replyTo != null)
+                    ? _cancelCompose
+                    : null,
           ),
         ],
       ),
@@ -965,117 +967,110 @@ class _MessageInput extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (editing || replyPreview != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: kSpaceSm),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: kSpaceSm,
-                  vertical: kSpaceXs,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(kRadiusSm),
-                  border: Border(
-                    left: BorderSide(color: scheme.primary, width: 3),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      editing ? Icons.edit_outlined : Icons.reply,
-                      size: 16,
-                      color: scheme.primary,
-                    ),
-                    const SizedBox(width: kSpaceSm),
-                    Expanded(
-                      child: Text(
-                        editing
-                            ? 'Editing message'
-                            : (replyPreview!.isEmpty
-                                ? 'Message'
-                                : replyPreview!),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      visualDensity: VisualDensity.compact,
-                      tooltip: 'Cancel',
-                      onPressed: onCancelCompose,
-                    ),
-                  ],
-                ),
+        if (editing || replyPreview != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: kSpaceSm),
+            padding: const EdgeInsets.symmetric(
+              horizontal: kSpaceSm,
+              vertical: kSpaceXs,
+            ),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(kRadiusSm),
+              border: Border(
+                left: BorderSide(color: scheme.primary, width: 3),
               ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            ),
+            child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file),
-                  tooltip: 'Attach',
-                  color: scheme.onSurfaceVariant,
-                  onPressed: sending ? null : onAttach,
-                ),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(kRadiusXl),
-                    ),
-                    child: TextField(
-                      controller: controller,
-                      minLines: 1,
-                      maxLines: 4,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        // The rounded container is the background; the
-                        // theme's square fill would paint over it.
-                        filled: false,
-                        border: InputBorder.none,
-                        hintText: 'Message',
-                        hintStyle: TextStyle(color: scheme.onSurfaceVariant),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: kSpaceMd,
-                          vertical: kSpaceSm + kSpaceXs,
-                        ),
-                      ),
-                    ),
-                  ),
+                Icon(
+                  editing ? Icons.edit_outlined : Icons.reply,
+                  size: 16,
+                  color: scheme.primary,
                 ),
                 const SizedBox(width: kSpaceSm),
-                Material(
-                  color: scheme.primary,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: sending ? null : onSend,
-                    child: Padding(
-                      padding: const EdgeInsets.all(kSpaceSm + kSpaceXs),
-                      child: sending
-                          ? SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: scheme.onPrimary,
-                              ),
-                            )
-                          : Icon(
-                              editing
-                                  ? Icons.check_rounded
-                                  : Icons.send_rounded,
-                              size: 20,
-                              color: scheme.onPrimary,
-                            ),
+                Expanded(
+                  child: Text(
+                    editing
+                        ? 'Editing message'
+                        : (replyPreview!.isEmpty ? 'Message' : replyPreview!),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Cancel',
+                  onPressed: onCancelCompose,
                 ),
               ],
             ),
+          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.attach_file),
+              tooltip: 'Attach',
+              color: scheme.onSurfaceVariant,
+              onPressed: sending ? null : onAttach,
+            ),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(kRadiusXl),
+                ),
+                child: TextField(
+                  controller: controller,
+                  minLines: 1,
+                  maxLines: 4,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Message',
+                    hintStyle: TextStyle(color: scheme.onSurfaceVariant),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: kSpaceMd,
+                      vertical: kSpaceSm + kSpaceXs,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: kSpaceSm),
+            Material(
+              color: scheme.primary,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: sending ? null : onSend,
+                child: Padding(
+                  padding: const EdgeInsets.all(kSpaceSm + kSpaceXs),
+                  child: sending
+                      ? SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: scheme.onPrimary,
+                          ),
+                        )
+                      : Icon(
+                          editing ? Icons.check_rounded : Icons.send_rounded,
+                          size: 20,
+                          color: scheme.onPrimary,
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
           ],
         ),
       ),
@@ -1297,125 +1292,124 @@ class _MessageBubble extends StatelessWidget {
               isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            GestureDetector(
-              onLongPress: onLongPress,
-              child: PhysicalShape(
-                clipper: _BubbleClipper(isMine: isMine, showTail: showTail),
-                color: bg,
-                elevation: 0.5,
-                shadowColor: Colors.black26,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: !isMine && showTail ? 16 : 12,
-                    right: isMine && showTail ? 16 : 12,
-                    top: 7,
-                    bottom: 6,
-                  ),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.68,
+        GestureDetector(
+          onLongPress: onLongPress,
+          child: PhysicalShape(
+          clipper: _BubbleClipper(isMine: isMine, showTail: showTail),
+          color: bg,
+          elevation: 0.5,
+          shadowColor: Colors.black26,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: !isMine && showTail ? 16 : 12,
+              right: isMine && showTail ? 16 : 12,
+              top: 7,
+              bottom: 6,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.68,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (senderLabel != null) ...[
+                    Text(
+                      senderLabel!,
+                      style: TextStyle(
+                        color: _senderColor(senderLabel!),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 2),
+                  ],
+                  if (replyPreview != null && !tombstoned) ...[
+                    _ReplyQuote(text: replyPreview!, tint: fg),
+                    const SizedBox(height: 4),
+                  ],
+                  for (final a in _attachments)
+                    if (!tombstoned) _AttachmentView(attachment: a, tint: fg),
+                  // Wrap lets the meta (time+tick) sit at the end of the
+                  // last line of text if there's room, or drop to a new
+                  // line if the text fills the full width.
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.end,
+                    spacing: 6,
+                    runSpacing: 2,
+                    children: [
+                      if (tombstoned)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.block,
+                                size: 14,
+                                color: fg.withValues(alpha: 0.6)),
+                            const SizedBox(width: 4),
+                            Text(
+                              'This message was deleted',
+                              style: TextStyle(
+                                color: fg.withValues(alpha: 0.6),
+                                fontSize: 15,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        Text(
+                          message.body ?? '',
+                          style:
+                              TextStyle(color: fg, fontSize: 16, height: 1.35),
+                        ),
+                      meta,
+                    ],
+                  ),
+                  if (failed) ...[
+                    const SizedBox(height: 2),
+                    Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (senderLabel != null) ...[
-                          Text(
-                            senderLabel!,
-                            style: TextStyle(
-                              color: _senderColor(senderLabel!),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                        ],
-                        if (replyPreview != null && !tombstoned) ...[
-                          _ReplyQuote(text: replyPreview!, tint: fg),
-                          const SizedBox(height: 4),
-                        ],
-                        for (final a in _attachments)
-                          if (!tombstoned)
-                            _AttachmentView(attachment: a, tint: fg),
-                        // Wrap lets the meta (time+tick) sit at the end of the
-                        // last line of text if there's room, or drop to a new
-                        // line if the text fills the full width.
-                        Wrap(
-                          alignment: WrapAlignment.end,
-                          crossAxisAlignment: WrapCrossAlignment.end,
-                          spacing: 6,
-                          runSpacing: 2,
-                          children: [
-                            if (tombstoned)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.block,
-                                      size: 14,
-                                      color: fg.withValues(alpha: 0.6)),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'This message was deleted',
-                                    style: TextStyle(
-                                      color: fg.withValues(alpha: 0.6),
-                                      fontSize: 15,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            else
-                              Text(
-                                message.body ?? '',
-                                style: TextStyle(
-                                    color: fg, fontSize: 16, height: 1.35),
-                              ),
-                            meta,
-                          ],
+                        Text(
+                          'Not sent',
+                          style: TextStyle(fontSize: 11, color: fg),
                         ),
-                        if (failed) ...[
-                          const SizedBox(height: 2),
-                          Row(
+                        const SizedBox(width: kSpaceSm),
+                        InkWell(
+                          onTap: onRetry,
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              Icon(Icons.refresh, size: 14, color: fg),
+                              const SizedBox(width: 2),
                               Text(
-                                'Not sent',
-                                style: TextStyle(fontSize: 11, color: fg),
-                              ),
-                              const SizedBox(width: kSpaceSm),
-                              InkWell(
-                                onTap: onRetry,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.refresh, size: 14, color: fg),
-                                    const SizedBox(width: 2),
-                                    Text(
-                                      'Retry',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: fg,
-                                      ),
-                                    ),
-                                  ],
+                                'Retry',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: fg,
                                 ),
                               ),
                             ],
                           ),
-                        ],
+                        ),
                       ],
                     ),
-                  ),
-                ),
+                  ],
+                ],
               ),
             ),
-            if (message.reactions.isNotEmpty && !tombstoned)
-              _ReactionChips(
-                reactions: message.reactions,
-                localUserId: localUserId,
-                onTap: onReactionTap,
-              ),
+          ),
+        ),
+        ),
+        if (message.reactions.isNotEmpty && !tombstoned)
+          _ReactionChips(
+            reactions: message.reactions,
+            localUserId: localUserId,
+            onTap: onReactionTap,
+          ),
           ],
         ),
       ),
@@ -1555,8 +1549,7 @@ class _ReplyQuote extends StatelessWidget {
       decoration: BoxDecoration(
         color: tint.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(kRadiusSm),
-        border: Border(
-            left: BorderSide(color: tint.withValues(alpha: 0.5), width: 3)),
+        border: Border(left: BorderSide(color: tint.withValues(alpha: 0.5), width: 3)),
       ),
       child: Text(
         text.isEmpty ? 'Message' : text,
@@ -1606,37 +1599,37 @@ class _AttachmentView extends StatelessWidget {
       return Padding(
         padding: const EdgeInsets.only(bottom: kSpaceXs),
         child: InkWell(
-          onTap: () => _openFile(context),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.insert_drive_file_outlined, size: 28, color: tint),
-              const SizedBox(width: kSpaceSm),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: tint, fontSize: 14),
+        onTap: () => _openFile(context),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.insert_drive_file_outlined, size: 28, color: tint),
+            const SizedBox(width: kSpaceSm),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: tint, fontSize: 14),
+                  ),
+                  Text(
+                    _humanSize(attachment.sizeBytes.toInt()),
+                    style: TextStyle(
+                      color: tint.withValues(alpha: 0.7),
+                      fontSize: 11,
                     ),
-                    Text(
-                      _humanSize(attachment.sizeBytes.toInt()),
-                      style: TextStyle(
-                        color: tint.withValues(alpha: 0.7),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Icon(Icons.download_outlined,
-                  size: 18, color: tint.withValues(alpha: 0.7)),
-            ],
-          ),
+            ),
+            Icon(Icons.download_outlined,
+                size: 18, color: tint.withValues(alpha: 0.7)),
+          ],
+        ),
         ),
       );
     }

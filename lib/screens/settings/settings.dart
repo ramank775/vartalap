@@ -224,8 +224,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     int created = 0;
     for (final u in users) {
       final phone = u['phone'] as String?;
-      final displayName =
-          u['display_name'] as String? ?? u['username'] as String? ?? 'Dummy';
+      final displayName = u['display_name'] as String? ??
+          u['username'] as String? ??
+          'Dummy';
       if (phone == null || existingPhones.contains(phone)) continue;
       final contact = Contact(
         name: Name(first: displayName),
@@ -287,22 +288,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
-          _SectionHeader(
-              label: 'Appearance', scheme: scheme, textTheme: textTheme),
+          _SectionHeader(label: 'Appearance', scheme: scheme,
+              textTheme: textTheme),
           ListTile(
-            leading:
-                Icon(Icons.palette_outlined, color: scheme.onSurfaceVariant),
+            leading: Icon(Icons.palette_outlined,
+                color: scheme.onSurfaceVariant),
             title: const Text('Theme'),
             subtitle: Text(_themeLabel(_themeMode)),
             trailing: const Icon(Icons.chevron_right),
             onTap: _openThemePicker,
           ),
           const Divider(height: 1),
-          _SectionHeader(
-              label: 'Privacy', scheme: scheme, textTheme: textTheme),
+          _SectionHeader(label: 'Privacy', scheme: scheme,
+              textTheme: textTheme),
           SwitchListTile(
-            secondary:
-                Icon(Icons.bug_report_outlined, color: scheme.onSurfaceVariant),
+            secondary: Icon(Icons.bug_report_outlined,
+                color: scheme.onSurfaceVariant),
             title: const Text('Crash reporting (Sentry)'),
             subtitle: const Text(
               'Send anonymous crash reports to help improve the app. '
@@ -313,8 +314,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           if (_sentryOptIn) ...[
             ListTile(
-              leading:
-                  Icon(Icons.send_outlined, color: scheme.onSurfaceVariant),
+              leading: Icon(Icons.send_outlined,
+                  color: scheme.onSurfaceVariant),
               title: const Text('Send test event'),
               subtitle: const Text(
                 'Confirms the configured Sentry backend is receiving events.',
@@ -340,8 +341,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
           if (kDebugMode) ...[
             const Divider(height: 1),
-            _SectionHeader(
-                label: 'Developer', scheme: scheme, textTheme: textTheme),
+            _SectionHeader(label: 'Developer', scheme: scheme,
+                textTheme: textTheme),
             ListTile(
               leading: Icon(Icons.group_add_outlined,
                   color: scheme.onSurfaceVariant),
@@ -355,12 +356,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
           _PushSection(scheme: scheme, textTheme: textTheme),
           const Divider(height: 1),
-          _SectionHeader(
-              label: 'Account', scheme: scheme, textTheme: textTheme),
+          _SectionHeader(label: 'Account', scheme: scheme,
+              textTheme: textTheme),
           if (_hasV2Data)
             ListTile(
-              leading:
-                  Icon(Icons.download_outlined, color: scheme.onSurfaceVariant),
+              leading: Icon(Icons.download_outlined,
+                  color: scheme.onSurfaceVariant),
               title: const Text('Download v2 chats'),
               subtitle: const Text(
                 'Save a copy of your chats from the old app.',
@@ -376,12 +377,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: _confirmLogout,
           ),
           const Divider(height: 1),
-          _SectionHeader(label: 'About', scheme: scheme, textTheme: textTheme),
+          _SectionHeader(label: 'About', scheme: scheme,
+              textTheme: textTheme),
           ListTile(
             leading: Icon(Icons.info_outline, color: scheme.onSurfaceVariant),
             title: const Text('Version'),
             subtitle: Text(
-              info == null ? '—' : '${info.version} (${info.buildNumber})',
+              info == null
+                  ? '—'
+                  : '${info.version} (${info.buildNumber})',
             ),
           ),
           ListTile(
@@ -391,10 +395,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => showLicensePage(
               context: context,
-              applicationName:
-                  info?.appName ?? widget.config.packageInfo.appName,
-              applicationVersion:
-                  info == null ? null : '${info.version}+${info.buildNumber}',
+              applicationName: info?.appName ?? widget.config.packageInfo.appName,
+              applicationVersion: info == null
+                  ? null
+                  : '${info.version}+${info.buildNumber}',
             ),
           ),
           const SizedBox(height: kSpaceXl),
@@ -432,7 +436,9 @@ class _PushSection extends StatelessWidget {
           children: [
             const Divider(height: 1),
             _SectionHeader(
-                label: 'Notifications', scheme: scheme, textTheme: textTheme),
+                label: 'Notifications',
+                scheme: scheme,
+                textTheme: textTheme),
             ListTile(
               leading: Icon(Icons.notifications_outlined,
                   color: scheme.onSurfaceVariant),
