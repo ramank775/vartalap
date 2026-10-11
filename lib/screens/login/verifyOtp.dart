@@ -8,7 +8,16 @@ import 'package:vartalap/theme/theme.dart';
 
 class VerifyOtpScreen extends StatefulWidget {
   final AuthService authService;
-  const VerifyOtpScreen({super.key, required this.authService});
+
+  /// The E.164 number the code was just sent to; only the phone screen
+  /// opens this one, right after a successful send.
+  final String phone;
+
+  const VerifyOtpScreen({
+    super.key,
+    required this.authService,
+    required this.phone,
+  });
 
   @override
   State<VerifyOtpScreen> createState() => _VerifyOtpScreenState();
@@ -27,14 +36,9 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
   Future<void> _onConfirm() async {
     final otp = _otpController.text.trim();
     if (otp.length < 6) return;
-    final phone = widget.authService.phoneNumber;
-    if (phone == null) {
-      _showError(['No pending OTP flow — go back and re-enter your phone.']);
-      return;
-    }
     setState(() => _working = true);
     try {
-      await widget.authService.verifyOtp(phone, otp);
+      await widget.authService.verifyOtp(widget.phone, otp);
       if (mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
@@ -76,8 +80,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
               ),
               const SizedBox(height: kSpaceSm),
               Text(
-                'Enter the 6-digit code sent to '
-                '${widget.authService.phoneNumber ?? 'your number'}',
+                'Enter the 6-digit code sent to ${widget.phone}',
                 style: textTheme.bodyLarge?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),

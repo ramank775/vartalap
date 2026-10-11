@@ -73,8 +73,7 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
     _debounce = Timer(kUsernameCheckDebounce, () async {
       if (!mounted || _inFlight != next) return;
       try {
-        final result =
-            await widget.authService.checkUsernameAvailability(next);
+        final result = await widget.authService.checkUsernameAvailability(next);
         if (!mounted || _controller.text.trim().toLowerCase() != next) return;
         setState(() => _availability =
             result.available ? _Availability.available : _Availability.taken);
@@ -85,8 +84,7 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
     });
   }
 
-  bool get _canContinue =>
-      !_saving && _availability == _Availability.available;
+  bool get _canContinue => !_saving && _availability == _Availability.available;
 
   Future<void> _onContinue() async {
     if (!_canContinue) return;
@@ -95,7 +93,8 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
       _saveError = null;
     });
     try {
-      await widget.authService.setUsername(_controller.text.trim().toLowerCase());
+      await widget.authService
+          .setUsername(_controller.text.trim().toLowerCase());
       widget.onDone?.call();
     } catch (e) {
       if (mounted) {
@@ -206,8 +205,8 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                     padding: const EdgeInsets.only(top: kSpaceSm),
                     child: Text(
                       helper,
-                      style: text.bodySmall
-                          ?.copyWith(color: _helperColor(scheme)),
+                      style:
+                          text.bodySmall?.copyWith(color: _helperColor(scheme)),
                     ),
                   ),
                 Padding(
@@ -237,8 +236,8 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                   'Your username is how people find you. '
                   'Your phone number stays private.',
                   textAlign: TextAlign.center,
-                  style: text.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  style:
+                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
                 ),
               ],
             ),

@@ -100,7 +100,10 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _loading = false);
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => VerifyOtpScreen(authService: widget.authService),
+          builder: (_) => VerifyOtpScreen(
+            authService: widget.authService,
+            phone: phone,
+          ),
         ),
       );
     } catch (e) {
