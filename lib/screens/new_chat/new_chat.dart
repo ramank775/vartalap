@@ -414,11 +414,13 @@ class _ContactsList extends StatelessWidget {
 
         final contacts = filter(snapshot.data ?? []);
         if (contacts.isEmpty) {
+          // Scrolls so the Find-by-username footer can come up above the
+          // keyboard instead of overflowing under it.
           return Center(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(kSpaceLg),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
                     width: 96,

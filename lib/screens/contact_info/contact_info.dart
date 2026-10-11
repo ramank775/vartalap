@@ -125,7 +125,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 Avator(text: label, width: kAvatarXl, height: kAvatarXl),
                 const SizedBox(height: kSpaceMd),
                 Text(label, style: text.headlineSmall),
-                if (contact.username != null)
+                // displayLabel falls back to "@username" when there is no
+                // name; don't print the handle twice.
+                if (contact.username != null && !label.startsWith('@'))
                   Text(
                     '@${contact.username}',
                     style:
@@ -169,7 +171,6 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             ),
           ),
           const SizedBox(height: kSpaceMd),
-          const Divider(height: 1),
           FutureBuilder<List<ChannelListEntry>>(
             future: _sharedGroups,
             builder: (context, snapshot) {
@@ -178,6 +179,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Full width: the theme's 72dp indent is for rows with
+                  // an avatar, and this separates whole sections.
+                  const Divider(height: 1, indent: 0),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                         kSpaceMd, kSpaceMd, kSpaceMd, kSpaceSm),
