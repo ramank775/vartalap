@@ -75,8 +75,13 @@ class Avator extends StatelessWidget {
 
   Widget _generated(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final bgColor =
-        getColor(seed ?? text, opacity: 0.8, brightness: brightness);
+    // Pre-blended onto the page surface so the avatar is opaque: a
+    // translucent one took on the green app bar behind it and looked a
+    // different colour in the chat header than in lists.
+    final bgColor = Color.alphaBlend(
+      getColor(seed ?? text, opacity: 0.8, brightness: brightness),
+      Theme.of(context).colorScheme.surface,
+    );
 
     return Container(
       width: width,
