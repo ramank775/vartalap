@@ -17,6 +17,10 @@
 
 - Download or clone the repo `https://github.com/ramank775/vartalap.git`
 - Get the required dependencies `flutter pub get`
+- Run a build variant: `flutter run --flavor devFoss` (no Google code;
+  push through a push app such as ntfy) or `--flavor devGms` (adds the
+  opt-in Google Play services push). `prodFoss` / `prodGms` are the
+  release apps.
 
 - Setup local chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
 - Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
@@ -51,7 +55,7 @@ Gitpod command
 - Connect from your Gitpod to your localhost for debugging
     `adb connect NGROK_ADDRESS:NGROK_PORT`
 
-    `flutter run`
+    `flutter run --flavor devFoss`
 
 Chat Server
 - Start chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.

@@ -1,68 +1,131 @@
-/// Push wake path — UnifiedPush with the ntfy Android app pinned as the
-/// only distributor (V3_ARCHITECTURE.md decision 6, decisions 3/35/57).
+/// Push wake path — UnifiedPush with whichever distributor the user
+/// picked: any push app (ntfy, NextPush, Sunup, a self-hosted ntfy, …)
+/// or, in gms builds, the embedded FCM distributor that talks to Google
+/// Play services (V3_ARCHITECTURE.md decision 6, DECISIONS 119-121).
 ///
-/// The wake is content-free (SYNC_PROTOCOL.md §12.1: title "Vartalap",
-/// body "New activity"), so everything this service can do on a message
-/// is: pull `/sync/pending`, nudge the WS back up, and — if the app is
-/// not on screen — post a local "New activity" notification.
+/// Every endpoint is a Web Push endpoint: the server encrypts to this
+/// device's keys and signs with its VAPID key (AUTH_CONTRACT §5); the
+/// connector decrypts. The plaintext is a content-free wake
+/// (SYNC_PROTOCOL.md §12.1), so everything this service can do on a
+/// message is: pull `/sync/pending`, nudge the WS back up, and — if the
+/// app is not on screen — post a local "New activity" notification.
 ///
 /// Endpoint lifecycle:
-///   register with ntfy → `onNewEndpoint(url)` → `POST /v3.0/push/topic`
-///   (AUTH_CONTRACT §5.1) → remember what we posted → logout posts null
-///   and unregisters.
+///   `GET /v3.0/push/vapid` → register with the chosen distributor →
+///   `onNewEndpoint(url, keys)` → `POST /v3.0/push/topic` (AUTH_CONTRACT
+///   §5.1) → remember what we posted → logout posts null and
+///   unregisters.
 library vartalap.services.push_service;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:unifiedpush/unifiedpush.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
-/// The one distributor v3.0 supports. A user-facing distributor picker
-/// is v3.1 (decision 6).
-const String kNtfyDistributorPackage = 'io.heckel.ntfy';
+/// SharedPreferences key: the push method the user chose —
+/// [kPushChoiceGoogle], [kPushChoiceNone] or a push app's package name.
+/// Per device, like the onboarding flag, so it survives logout.
+const String kPushChoiceKey = 'push_choice';
 
-/// Where "Install" sends the user. F-Droid first — it is the FOSS
-/// store the rest of the app assumes; ntfy.sh/docs carries the direct
-/// APK and the Play link for anyone without F-Droid.
-const String kNtfyInstallUrl = 'https://f-droid.org/packages/io.heckel.ntfy/';
+/// Google Play services, through the embedded FCM distributor (gms only).
+const String kPushChoiceGoogle = 'google';
+
+/// "Not now": messages arrive only while the app is open.
+const String kPushChoiceNone = 'none';
 
 const int _wakeNotificationId = 1;
 
+/// Which push method to use, or null when the user has to be asked.
+///
+/// A saved choice wins while it still works. Without one the app picks
+/// only when there is nothing to ask: Google is not on offer and exactly
+/// one push app is installed. Google is never picked for the user
+/// (DECISIONS 120).
+String? resolvePushChoice({
+  required String? saved,
+  required bool googleAvailable,
+  required List<String> distributors,
+}) {
+  if (saved == kPushChoiceNone ||
+      (saved == kPushChoiceGoogle && googleAvailable) ||
+      distributors.contains(saved)) {
+    return saved;
+  }
+  if (!googleAvailable && distributors.length == 1) {
+    return distributors.single;
+  }
+  return null;
+}
+
 enum PushState {
-  /// Before [PushService.start] has looked at the system.
+  /// Before [PushService.refresh] has looked at the system, or while a
+  /// registration is on its way.
   unknown,
 
   /// Endpoint held AND accepted by the server for this user.
   registered,
 
-  /// The ntfy app is not installed — nothing can be registered.
-  distributorMissing,
+  /// No push method chosen and none the app may pick by itself — the
+  /// chooser has to ask (onboarding, Settings).
+  choiceNeeded,
+
+  /// The user chose "Not now".
+  off,
 
   /// Registered with nobody: logged out, or the distributor dropped us.
   disabled,
 
-  /// We have (or can get) an endpoint but the server said no.
+  /// The distributor refused, handed us no encryption keys, or the
+  /// server said no.
   failed,
 }
 
-/// The slice of the `unifiedpush` plugin this service uses. A seam, not
-/// an abstraction: it exists so the state machine can be unit-tested
-/// without an Android distributor.
+/// What the chooser can offer right now.
+class PushOptions {
+  /// A gms build on a phone with Play services.
+  final bool google;
+
+  /// Installed push apps: package → app name.
+  final Map<String, String> distributors;
+
+  const PushOptions({required this.google, required this.distributors});
+}
+
+/// The slice of the `unifiedpush` plugin (plus the app's `vartalap/push`
+/// channel) this service uses. A seam, not an abstraction: it exists so
+/// the state machine can be unit-tested without an Android distributor.
 abstract class UnifiedPushApi {
   Future<void> initialize({
-    required void Function(String endpointUrl) onNewEndpoint,
+    required void Function(String url, String? p256dh, String? auth)
+        onNewEndpoint,
     required void Function() onUnregistered,
     required void Function() onMessage,
     required void Function(String reason) onRegistrationFailed,
   });
+
+  /// Installed push apps by package — not the embedded Google one.
   Future<List<String>> getDistributors();
-  Future<void> saveDistributor(String distributor);
-  Future<void> register();
+
+  /// A gms build on a phone with Play services.
+  Future<bool> googleAvailable();
+
+  /// A push app's name, or null if the system won't say.
+  Future<String?> label(String distributor);
+
+  /// [choice] is [kPushChoiceGoogle] or a package from [getDistributors].
+  Future<void> saveDistributor(String choice);
+
+  Future<void> register({required String vapid});
+
   Future<void> unregister();
 }
 
@@ -70,44 +133,77 @@ abstract class UnifiedPushApi {
 class PluginUnifiedPush implements UnifiedPushApi {
   const PluginUnifiedPush();
 
+  /// MainActivity's channel; the Google check lives only in the gms
+  /// source set, the foss one always answers false.
+  static const MethodChannel _channel = MethodChannel('vartalap/push');
+
+  /// In gms builds the embedded FCM distributor answers as this app.
+  static Future<String> _self() async =>
+      (await PackageInfo.fromPlatform()).packageName;
+
   @override
   Future<void> initialize({
-    required void Function(String endpointUrl) onNewEndpoint,
+    required void Function(String url, String? p256dh, String? auth)
+        onNewEndpoint,
     required void Function() onUnregistered,
     required void Function() onMessage,
     required void Function(String reason) onRegistrationFailed,
   }) async {
     await UnifiedPush.initialize(
-      onNewEndpoint: (endpoint, _) => onNewEndpoint(endpoint.url),
+      onNewEndpoint: (endpoint, _) => onNewEndpoint(endpoint.url,
+          endpoint.pubKeySet?.pubKey, endpoint.pubKeySet?.auth),
       onRegistrationFailed: (reason, _) => onRegistrationFailed(reason.name),
       onUnregistered: (_) => onUnregistered(),
+      // Already decrypted by the connector, and only ever a wake.
       onMessage: (_, __) => onMessage(),
     );
   }
 
   @override
-  Future<List<String>> getDistributors() => UnifiedPush.getDistributors();
+  Future<List<String>> getDistributors() async {
+    final self = await _self();
+    return [
+      for (final d in await UnifiedPush.getDistributors())
+        if (d != self) d,
+    ];
+  }
 
   @override
-  Future<void> saveDistributor(String distributor) =>
-      UnifiedPush.saveDistributor(distributor);
+  Future<bool> googleAvailable() async =>
+      await _channel.invokeMethod<bool>('googleAvailable') ?? false;
 
   @override
-  Future<void> register() => UnifiedPush.register();
+  Future<String?> label(String distributor) =>
+      _channel.invokeMethod<String>('appLabel', distributor);
+
+  @override
+  Future<void> saveDistributor(String choice) async =>
+      UnifiedPush.saveDistributor(
+          choice == kPushChoiceGoogle ? await _self() : choice);
+
+  @override
+  Future<void> register({required String vapid}) =>
+      UnifiedPush.register(vapid: vapid);
 
   @override
   Future<void> unregister() => UnifiedPush.unregister();
 }
 
+typedef _Endpoint = ({String url, String p256dh, String auth});
+
 class PushService {
-  /// The endpoint the distributor handed us, whatever the server knows.
+  /// The endpoint and keys the distributor handed us, as JSON, whatever
+  /// the server knows.
   static const String keyEndpoint = 'v3.push.endpoint';
 
-  /// `<user_id>|<endpoint>` — the pair we last got a 200 for. There is
-  /// no server readback route (notification-ms exposes register and an
-  /// internal delete only), so this is the client's record of "what the
-  /// server has". A mismatch on login or app start means re-post.
+  /// `<user_id>|<endpoint>|<p256dh>|<auth>` — what we last got a 200
+  /// for. There is no server readback route, so this is the client's
+  /// record of "what the server has". A mismatch on login or app start
+  /// means re-post.
   static const String keyRegisteredEndpoint = 'v3.push.registeredEndpoint';
+
+  /// The server's VAPID public key we last registered with.
+  static const String keyVapid = 'v3.push.vapid';
 
   final AuthClient _authClient;
   final UnifiedPushApi _push;
@@ -130,10 +226,17 @@ class PushService {
   final ValueNotifier<PushState> state =
       ValueNotifier<PushState>(PushState.unknown);
 
-  String? _endpoint;
+  _Endpoint? _endpoint;
 
   /// The endpoint currently held, or null if we have none.
-  String? get endpoint => _endpoint;
+  String? get endpoint => _endpoint?.url;
+
+  /// The push method in use as of the last [refresh] — see
+  /// [kPushChoiceKey] — or null while the user has not chosen one.
+  String? choice;
+
+  /// [choice] for people: "Google Play services" or the push app's name.
+  String? choiceLabel;
 
   PushService({
     required AuthClient authClient,
@@ -147,12 +250,14 @@ class PushService {
         _notifyOverride = notifyWake,
         _requestPermission = requestPermission;
 
-  /// Wire the distributor callbacks and reconcile. Called once per
-  /// isolate at boot — including the background isolate the ntfy app
-  /// starts (`--unifiedpush-bg`), which is where a wake lands when the
-  /// app is not running.
-  Future<void> start() async {
-    _endpoint = await _storage.read(key: keyEndpoint);
+  /// Wire the distributor callbacks and, unless [reconcile] is false,
+  /// register. Called once per isolate at boot — including the
+  /// background isolate a distributor starts (`--unifiedpush-bg`), which
+  /// is where a wake lands when the app is not running. That one passes
+  /// `reconcile: false`: it has no MainActivity channel to ask about
+  /// Google, and the next foreground start registers anyway.
+  Future<void> start({bool reconcile = true}) async {
+    _endpoint = _decodeEndpoint(await _storage.read(key: keyEndpoint));
     await _push.initialize(
       onNewEndpoint: _onNewEndpoint,
       onUnregistered: _onUnregistered,
@@ -163,61 +268,140 @@ class PushService {
       // Registers the tap handler; harmless if it is never shown.
       await _initNotifications();
     }
+    if (reconcile) await refresh();
+  }
+
+  /// What the chooser can offer.
+  Future<PushOptions> options() async {
+    final distributors = await _push.getDistributors();
+    return PushOptions(
+      google: await _push.googleAvailable(),
+      distributors: {
+        for (final d in distributors) d: await _push.label(d) ?? d,
+      },
+    );
+  }
+
+  /// The chooser's answer. Asks for the notification grant only now,
+  /// after the user said yes to push — never before, where the dialog
+  /// would cover the explanation.
+  Future<void> choose(String choice) async {
+    final prefs = await SharedPreferences.getInstance();
+    final previous = prefs.getString(kPushChoiceKey);
+    await prefs.setString(kPushChoiceKey, choice);
+    if (choice == kPushChoiceNone) {
+      await _dropRegistration();
+      this.choice = choice;
+      choiceLabel = null;
+      state.value = PushState.off;
+      return;
+    }
+    await _requestNotificationPermission();
+    if (previous != null && previous != kPushChoiceNone && previous != choice) {
+      // Switching: the old distributor's registration goes; the new
+      // endpoint replaces it on the server (AUTH_CONTRACT §5.1).
+      try {
+        await _push.unregister();
+      } catch (_) {/* distributor gone */}
+      await _forgetEndpoint();
+    }
     await refresh();
   }
 
-  /// Pin ntfy and (re)register. Safe to call repeatedly — the settings
-  /// row's "re-register" action and every login go through here.
+  /// Apply the saved choice and (re)register. Safe to call repeatedly —
+  /// app start, every login and the Settings row's Retry go through here.
   Future<void> refresh() async {
-    final distributors = await _push.getDistributors();
-    if (!distributors.contains(kNtfyDistributorPackage)) {
-      state.value = PushState.distributorMissing;
+    // Nothing to register for before login, and no prompt belongs on
+    // the intro screen; login calls back in here.
+    if (_authClient.currentUserId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(kPushChoiceKey);
+    final resolved = resolvePushChoice(
+      saved: saved,
+      googleAvailable: await _push.googleAvailable(),
+      distributors: await _push.getDistributors(),
+    );
+    choice = resolved;
+    choiceLabel = switch (resolved) {
+      null || kPushChoiceNone => null,
+      kPushChoiceGoogle => 'Google Play services',
+      final package => await _push.label(package) ?? package,
+    };
+    if (resolved == null) {
+      state.value = PushState.choiceNeeded;
       return;
     }
-    await _push.saveDistributor(kNtfyDistributorPackage);
-    await _push.register();
+    if (resolved == kPushChoiceNone) {
+      state.value = PushState.off;
+      return;
+    }
+    if (resolved != saved) {
+      // Picked for the user — the one push app, no Google question.
+      // Remember it like a choice, and ask for the grant the chooser
+      // would have asked for.
+      await prefs.setString(kPushChoiceKey, resolved);
+      await _requestNotificationPermission();
+    }
+    final vapid = await _vapidKey();
+    if (vapid == null) {
+      state.value = PushState.failed;
+      return;
+    }
+    state.value = PushState.unknown;
+    await _push.saveDistributor(resolved);
+    await _push.register(vapid: vapid);
     // Nothing else to do until onNewEndpoint fires — except when we
     // already hold an endpoint the server has not confirmed for this
     // user (fresh login on a device that was registered before).
     await _syncEndpoint();
   }
 
-  /// AUTH_CONTRACT §4.6 step 3 — the server drops the topic on revoke
+  /// AUTH_CONTRACT §4.6 step 3 — the server drops the endpoint on revoke
   /// too, but we say it explicitly first (the revoke may never reach
   /// it) and stop the distributor from holding a dead registration.
   Future<void> deregister() async {
+    await _dropRegistration();
+    state.value = PushState.disabled;
+  }
+
+  Future<void> _dropRegistration() async {
     if (_authClient.currentAccesskey != null) {
       try {
-        await _authClient.registerPushTopic(topicUrl: null);
+        await _authClient.registerPushTopic(endpoint: null);
       } catch (_) {
-        // Offline logout — the server clears the topic on revoke, and
-        // a stale topic only ever produces a content-free wake.
+        // Offline logout — the server clears the endpoint on revoke,
+        // and a stale one only ever produces a content-free wake.
       }
     }
     try {
       await _push.unregister();
     } catch (_) {/* distributor gone */}
-    _endpoint = null;
-    await _storage.delete(key: keyEndpoint);
-    await _storage.delete(key: keyRegisteredEndpoint);
-    state.value = PushState.disabled;
+    await _forgetEndpoint();
   }
 
   void dispose() => state.dispose();
 
   // ---- distributor callbacks -------------------------------------------
 
-  Future<void> _onNewEndpoint(String url) async {
-    _endpoint = url;
-    await _storage.write(key: keyEndpoint, value: url);
+  Future<void> _onNewEndpoint(String url, String? p256dh, String? auth) async {
+    if (p256dh == null || auth == null) {
+      // The server only sends encrypted Web Push (AUTH_CONTRACT §5), so
+      // an endpoint without keys can never be used — posting it would
+      // only earn INVALID_PUSH_KEYS.
+      debugPrint('UnifiedPush endpoint came without Web Push keys');
+      state.value = PushState.failed;
+      return;
+    }
+    _endpoint = (url: url, p256dh: p256dh, auth: auth);
+    await _storage.write(
+      key: keyEndpoint,
+      value: jsonEncode({'endpoint': url, 'p256dh': p256dh, 'auth': auth}),
+    );
     await _syncEndpoint();
-    await _requestNotificationPermission();
   }
 
   Future<void> _onUnregistered() async {
-    _endpoint = null;
-    await _storage.delete(key: keyEndpoint);
-    await _storage.delete(key: keyRegisteredEndpoint);
+    await _forgetEndpoint();
     state.value = PushState.disabled;
   }
 
@@ -240,22 +424,66 @@ class PushService {
 
   // ---- server registration ---------------------------------------------
 
+  /// AUTH_CONTRACT §5.0. Cached, so a start without network still
+  /// registers with the last key. A rotated key invalidates the endpoint
+  /// the distributor minted for the old one (FCM binds the token to it):
+  /// forget it, so the one the re-register yields is posted fresh.
+  Future<String?> _vapidKey() async {
+    final cached = await _storage.read(key: keyVapid);
+    final String fresh;
+    try {
+      fresh = await _authClient.getVapidKey();
+    } catch (e) {
+      // Offline, or not signed in yet.
+      debugPrint('push/vapid failed: $e');
+      return cached;
+    }
+    if (fresh != cached) {
+      if (cached != null) await _forgetEndpoint();
+      await _storage.write(key: keyVapid, value: fresh);
+    }
+    return fresh;
+  }
+
   Future<void> _syncEndpoint() async {
-    final url = _endpoint;
+    final ep = _endpoint;
     final userId = _authClient.currentUserId;
-    if (url == null || userId == null) return;
-    final marker = '$userId|$url';
+    if (ep == null || userId == null) return;
+    final marker = '$userId|${ep.url}|${ep.p256dh}|${ep.auth}';
     if (await _storage.read(key: keyRegisteredEndpoint) == marker) {
       state.value = PushState.registered;
       return;
     }
     try {
-      await _authClient.registerPushTopic(topicUrl: url);
+      await _authClient.registerPushTopic(
+          endpoint: ep.url, p256dh: ep.p256dh, auth: ep.auth);
       await _storage.write(key: keyRegisteredEndpoint, value: marker);
       state.value = PushState.registered;
     } catch (e) {
       debugPrint('push/topic registration failed: $e');
       state.value = PushState.failed;
+    }
+  }
+
+  Future<void> _forgetEndpoint() async {
+    _endpoint = null;
+    await _storage.delete(key: keyEndpoint);
+    await _storage.delete(key: keyRegisteredEndpoint);
+  }
+
+  static _Endpoint? _decodeEndpoint(String? raw) {
+    if (raw == null) return null;
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return (
+        url: json['endpoint'] as String,
+        p256dh: json['p256dh'] as String,
+        auth: json['auth'] as String,
+      );
+    } catch (_) {
+      // A pre-Web-Push install stored the bare URL: no keys, so it is
+      // useless — the next registration brings a full one.
+      return null;
     }
   }
 
@@ -276,7 +504,7 @@ class PushService {
 
   Future<void> _showWakeNotification() async {
     // On screen → the chat list already repainted off the pull.
-    // `lifecycleState` is null in the background isolate the ntfy app
+    // `lifecycleState` is null in the background isolate a distributor
     // starts, which is exactly when we do want the notification.
     if (SchedulerBinding.instance.lifecycleState ==
         AppLifecycleState.resumed) {
@@ -309,11 +537,9 @@ class PushService {
   /// POST_NOTIFICATIONS is API 33+ only; `permission_handler` answers
   /// "granted" everywhere else.
   ///
-  /// ponytail: fired when an endpoint lands, which is a foreground
-  /// moment in practice (app start / just-finished login). In the
-  /// background isolate there is no activity to show the dialog on and
-  /// this silently returns denied — the onboarding screen and the
-  /// Settings row are the paths that re-ask.
+  /// ponytail: asked once per choice (the chooser, or the silent pick of
+  /// the only push app), both foreground moments. A user who denies it
+  /// is re-asked only by choosing again in Settings.
   Future<void> _requestNotificationPermission() async {
     try {
       await (_requestPermission ?? Permission.notification.request)();

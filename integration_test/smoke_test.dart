@@ -13,7 +13,7 @@
 ///
 ///   flutter drive --driver=test_driver/integration_test.dart \
 ///     --target=integration_test/smoke_test.dart -d emulator-5554 \
-///     --flavor dev \
+///     --flavor devFoss \
 ///     --dart-define=API_URL=http://10.0.2.2:8086 \
 ///     --dart-define=WS_URL=ws://10.0.2.2:8086/wss
 @Timeout(Duration(minutes: 10))
@@ -138,15 +138,17 @@ void main() {
     await _shot(tester, binding, '05-username');
     await tester.tap(find.text('Continue'));
 
-    // ---- 6. ntfy onboarding (no distributor on the emulator) ----------
+    // ---- 6. push chooser (no distributor on the emulator) -------------
     await _waitFor(
       tester,
       find.byType(ChatsScreen),
-      also: find.text('Later'),
+      also: find.text('Not now'),
     );
-    if (find.text('Later').evaluate().isNotEmpty) {
+    if (find.text('Not now').evaluate().isNotEmpty) {
       await _shot(tester, binding, '06-push-onboarding');
-      await tester.tap(find.text('Later'));
+      await tester.tap(find.text('Not now'));
+      await _pump(tester);
+      await tester.tap(find.text('Continue'));
     }
 
     // ---- 7. chats -----------------------------------------------------

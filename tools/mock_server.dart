@@ -561,6 +561,11 @@ void _log(String msg) {
   print('[$ts] $msg');
 }
 
+/// The mock's VAPID public key (AUTH_CONTRACT §5.0): the shape of an
+/// uncompressed P-256 point, base64url without padding, 87 chars.
+const String kMockVapidPublicKey =
+    'BMockVapidKey0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-0123456789';
+
 /// One REST request the server handled. Tests assert on these instead
 /// of scraping logs.
 class RecordedRequest {
@@ -1143,6 +1148,8 @@ class MockServer {
       await _handleGetUser(req);
     } else if (method == 'POST' && path == '/v3.0/contacts/lookup') {
       await _handleContactLookup(req);
+    } else if (method == 'GET' && path == '/v3.0/push/vapid') {
+      _handlePushVapid(req);
     } else if (method == 'POST' && path == '/v3.0/push/topic') {
       await _handlePushTopic(req);
     } else if (method == 'POST' && path == '/v3.0/channels') {
@@ -1610,36 +1617,69 @@ class MockServer {
     _respondJson(req, 200, {'users': created, 'count': created.length});
   }
 
+  /// AUTH_CONTRACT §5.0 — same gating as §5.1.
+  void _handlePushVapid(HttpRequest req) {
+    final session = _authenticate(req);
+    if (session == null) return;
+    _record(req, const {}, 200);
+    _respondJson(req, 200, {'vapidPublicKey': kMockVapidPublicKey});
+  }
+
   /// AUTH_CONTRACT §5.1 — register, replace or (null/"") deregister the
-  /// ntfy topic of the calling device. Validates the HTTPS scheme and a
-  /// basic URL shape exactly like notification-ms; the mock has no
-  /// configured `--ntfy-base-url`, so the host prefix check is the one
-  /// server rule it cannot mirror.
+  /// Web Push endpoint of the calling device. Validates the endpoint
+  /// shape and the key sizes like notification-ms; the one rule it
+  /// cannot mirror is "the host resolves only to public addresses",
+  /// since the mock does no DNS.
   Future<void> _handlePushTopic(HttpRequest req) async {
     final session = _authenticate(req);
     if (session == null) return;
     final body = await _readJsonBody(req);
-    final topicUrl = body['topicUrl'] as String?;
-    if (topicUrl == null || topicUrl.isEmpty) {
-      _log('Push topic cleared for userId=${session.userId}');
+    final endpoint = body['endpoint'] as String?;
+    if (endpoint == null || endpoint.isEmpty) {
+      _log('Push endpoint cleared for userId=${session.userId}');
       _record(req, body, 200);
       _respondJson(req, 200, {'status': true});
       return;
     }
-    final parsed = Uri.tryParse(topicUrl);
-    if (parsed == null || parsed.scheme != 'https' || parsed.host.isEmpty) {
+    final parsed = Uri.tryParse(endpoint);
+    if (parsed == null ||
+        parsed.scheme != 'https' ||
+        parsed.host.isEmpty ||
+        parsed.userInfo.isNotEmpty ||
+        endpoint.length > 2048) {
       _record(req, body, 400);
       _respondJson(req, 400, {
         'error': {
-          'code': 'INVALID_TOPIC_URL',
-          'message': 'topicUrl must be an https URL'
+          'code': 'INVALID_PUSH_ENDPOINT',
+          'message': 'endpoint must be an https URL without userinfo'
         }
       });
       return;
     }
-    _log('Push topic registered for userId=${session.userId}: $topicUrl');
+    if (_base64UrlLength(body['p256dh']) != 65 ||
+        _base64UrlLength(body['auth']) != 16) {
+      _record(req, body, 400);
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'INVALID_PUSH_KEYS',
+          'message': 'p256dh must be 65 bytes and auth 16 bytes, base64url'
+        }
+      });
+      return;
+    }
+    _log('Push endpoint registered for userId=${session.userId}: $endpoint');
     _record(req, body, 200);
     _respondJson(req, 200, {'status': true});
+  }
+
+  /// Decoded length of a base64url (padded or not) string, or -1.
+  static int _base64UrlLength(Object? value) {
+    if (value is! String) return -1;
+    try {
+      return base64Url.decode(base64Url.normalize(value)).length;
+    } on FormatException {
+      return -1;
+    }
   }
 
   // Client-triggered pull. Returns base64 of raw WS_PUSH WsEnvelope frames

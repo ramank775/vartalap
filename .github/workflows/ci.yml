@@ -52,6 +52,11 @@ jobs:
 
   apk:
     runs-on: ubuntu-latest
+    # DECISIONS 121: foss (no Google code) and gms (adds the embedded FCM
+    # distributor) are separate APKs; each gets its own dex check.
+    strategy:
+      matrix:
+        push: [foss, gms]
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -80,24 +85,18 @@ jobs:
           keyAlias=ciupload
           storeFile=${{ github.workspace }}/ci-release.jks
           EOF
-      - name: Build dev-flavor release APK
+      - name: Build the dev ${{ matrix.push }} release APK
         run: |
-          flutter build apk --release --flavor dev \
+          flutter build apk --release --flavor dev${{ matrix.push == 'foss' && 'Foss' || 'Gms' }} \
             --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.org' }} \
             --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.org/wss' }} \
             --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
       # Release plan §5: the shipped classes.dex is the release-time half of
-      # the degoogle gate (scripts/degoogle_gate.sh only checks source/config).
-      - name: Verify no Firebase/GMS classes in the built APK
-        run: |
-          mkdir dex_check
-          unzip -o -j build/app/outputs/flutter-apk/app-dev-release.apk 'classes*.dex' -d dex_check
-          if strings dex_check/*.dex | grep -E 'Lcom/google/firebase|Lcom/google/android/gms'; then
-            echo "FAIL: Firebase/Google Play Services classes found in APK" >&2
-            exit 1
-          fi
-          echo "OK: no Firebase/GMS classes in APK"
+      # the degoogle gate. foss: no Firebase, Play services or embedded FCM
+      # distributor classes; gms: no Firebase or Play services classes.
+      - name: Verify the APK's classes (degoogle gate)
+        run: bash scripts/degoogle_gate.sh apk build/app/outputs/flutter-apk/app-dev${{ matrix.push }}-release.apk ${{ matrix.push }}
       - uses: actions/upload-artifact@v7
         with:
-          name: vartalap-dev-release-apk
-          path: build/app/outputs/flutter-apk/app-dev-release.apk
+          name: vartalap-dev-${{ matrix.push }}-release-apk
+          path: build/app/outputs/flutter-apk/app-dev${{ matrix.push }}-release.apk

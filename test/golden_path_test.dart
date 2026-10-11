@@ -23,6 +23,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -34,6 +35,7 @@ import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 import '../tools/mock_server.dart';
+import 'fake_unified_push.dart';
 
 const String phoneA = '+15550100001';
 const String phoneB = '+15550100002';
@@ -1144,15 +1146,17 @@ void main() {
     });
 
     // ---- 12 -------------------------------------------------------------
-    test('12. push: the ntfy endpoint reaches POST /v3.0/push/topic and '
-        'round-trips out of storage', () async {
-      // AUTH_CONTRACT §2.4: push/topic sits behind the USERNAME_REQUIRED
-      // gate, so the handle comes first — same order the app uses
-      // (main.dart registers off usernameChange).
+    test('12. push: the VAPID key goes to register, and the endpoint with '
+        'its Web Push keys reaches POST /v3.0/push/topic', () async {
+      // AUTH_CONTRACT §2.4: push/vapid and push/topic sit behind the
+      // USERNAME_REQUIRED gate, so the handle comes first — same order
+      // the app uses (main.dart registers off usernameChange).
       await h.authService.setUsername('golden_bob');
+      SharedPreferences.setMockInitialValues({});
 
+      // One push app and no Google: used without asking.
       final storage = _InMemoryStorage();
-      final distributor = _FakeDistributor();
+      final distributor = FakeUnifiedPush(distributors: const [_ntfy]);
       final push = PushService(
         authClient: h.authClient,
         unifiedPush: distributor,
@@ -1161,9 +1165,18 @@ void main() {
         requestPermission: () async {},
       );
       await push.start();
+      expect(distributor.registerVapids, [kMockVapidPublicKey],
+          reason: 'AUTH_CONTRACT §5.0: the key from GET /v3.0/push/vapid is '
+              'handed to the distributor on register.');
 
       const endpoint = 'https://ntfy.example/u/goldenpath32chars';
-      await distributor.emitEndpoint(endpoint);
+      // RFC 8291 sizes, base64url without padding: a 65-byte P-256
+      // point and a 16-byte secret. The strict mock checks both.
+      final p256dh = base64Url
+          .encode([4, ...List.filled(64, 7)])
+          .replaceAll('=', '');
+      final auth = base64Url.encode(List.filled(16, 9)).replaceAll('=', '');
+      await distributor.emitEndpoint(endpoint, p256dh: p256dh, auth: auth);
       // The distributor callback is fire-and-forget (`void Function`),
       // so the POST it kicks off settles on its own schedule.
       await h.waitFor(() => push.state.value == PushState.registered);
@@ -1172,19 +1185,20 @@ void main() {
           .where((r) => r.method == 'POST' && r.path == '/v3.0/push/topic')
           .toList();
       expect(
-        posts.map((r) => r.body['topicUrl']),
-        [endpoint],
-        reason: 'AUTH_CONTRACT §5.1: the endpoint the distributor hands the '
-            'client is posted verbatim as topicUrl.',
+        posts.map((r) => r.body),
+        [
+          {'endpoint': endpoint, 'p256dh': p256dh, 'auth': auth}
+        ],
+        reason: 'AUTH_CONTRACT §5.1: the endpoint and keys the connector '
+            'hands the client are posted verbatim.',
       );
       expect(posts.single.status, 200);
-      expect(push.state.value, PushState.registered);
 
       // Survives a restart: a fresh service on the same storage finds
       // the endpoint and does not re-post it.
       final restarted = PushService(
         authClient: h.authClient,
-        unifiedPush: _FakeDistributor(),
+        unifiedPush: FakeUnifiedPush(distributors: const [_ntfy]),
         storage: storage,
         notifyWake: () async {},
         requestPermission: () async {},
@@ -1205,7 +1219,7 @@ void main() {
       await push.deregister();
       final last = h.mock.requests
           .lastWhere((r) => r.path == '/v3.0/push/topic');
-      expect(last.body['topicUrl'], isNull);
+      expect(last.body, {'endpoint': null});
       expect(last.status, 200);
 
       push.dispose();
@@ -1379,39 +1393,7 @@ List<pb.ProfileEdited> _peerProfileEdits(_Harness h) {
   return out;
 }
 
-/// The ntfy app, minus Android. `PushService` only ever asks it for the
-/// distributor list and a registration; the endpoint arrives on the
-/// callback, which the test fires by hand.
-class _FakeDistributor implements UnifiedPushApi {
-  void Function(String)? _onNewEndpoint;
-
-  @override
-  Future<void> initialize({
-    required void Function(String endpointUrl) onNewEndpoint,
-    required void Function() onUnregistered,
-    required void Function() onMessage,
-    required void Function(String reason) onRegistrationFailed,
-  }) async {
-    _onNewEndpoint = onNewEndpoint;
-  }
-
-  @override
-  Future<List<String>> getDistributors() async => [kNtfyDistributorPackage];
-
-  @override
-  Future<void> saveDistributor(String distributor) async {}
-
-  @override
-  Future<void> register() async {}
-
-  @override
-  Future<void> unregister() async {}
-
-  Future<void> emitEndpoint(String url) async {
-    _onNewEndpoint!(url);
-    await Future<void>.delayed(Duration.zero);
-  }
-}
+const _ntfy = 'io.heckel.ntfy';
 
 // ---------------------------------------------------------------------------
 // Harness — the lib/main.dart initializeApp() wiring, minus the widgets.

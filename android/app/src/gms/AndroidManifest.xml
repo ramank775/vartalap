@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- GooglePush.available() looks Play services up by package. -->
+    <queries>
+        <package android:name="com.google.android.gms" />
+    </queries>
+</manifest>
