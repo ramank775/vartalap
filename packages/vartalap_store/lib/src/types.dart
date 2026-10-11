@@ -172,6 +172,11 @@ class MessageRow {
   /// SYNC_PROTOCOL §6 ordering key. Null on our own message until its
   /// op is ACKed.
   final int? serverTimestampMs;
+
+  /// The time to show: the server's, which both sides agree on and which
+  /// matches the order on screen; the phone's own clock only until our
+  /// own message is ACKed.
+  int get displayTimestampMs => serverTimestampMs ?? clientTimestampMs;
   final MessageState state;
   final int stateUpdatedAt;
   final bool isEdited;

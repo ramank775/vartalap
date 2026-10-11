@@ -123,6 +123,34 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
+  testWidgets('a bubble shows the server time, not the sender\'s clock',
+      (tester) async {
+    await pumpChat(tester);
+    await q(
+      tester,
+      () => store.applyInboundMessage(
+        localUserId: localUserId,
+        channelId: channelId,
+        opId: 'seed-late',
+        messageId: 'm-late',
+        senderUserId: peerUserId,
+        body: 'sent late',
+        contentType: 'text/plain',
+        attachments: null,
+        forwardSource: null,
+        replyToMessageId: null,
+        // The sender's phone said 5:47; the server accepted it at 5:53.
+        clientTimestampMs: DateTime(2026, 10, 11, 17, 47).millisecondsSinceEpoch,
+        serverTimestampMs: DateTime(2026, 10, 11, 17, 53).millisecondsSinceEpoch,
+        nowMs: DateTime(2026, 10, 11, 17, 53).millisecondsSinceEpoch,
+      ),
+    );
+    await settle(tester);
+
+    expect(find.text('5:53 PM'), findsOneWidget);
+    expect(find.text('5:47 PM'), findsNothing);
+  });
+
   testWidgets('sheet on my own message offers Edit and Delete; a peer '
       'message offers neither', (tester) async {
     await pumpChat(tester);

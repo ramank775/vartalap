@@ -825,13 +825,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   // next older one (i+1) if they fall on different days.
                   // Also insert one above the very oldest message.
                   final thisDate = DateTime.fromMillisecondsSinceEpoch(
-                      msg.clientTimestampMs);
+                      msg.displayTimestampMs);
                   final bool needsDateChip;
                   if (i == messages.length - 1) {
                     needsDateChip = true; // oldest message
                   } else {
                     final olderDate = DateTime.fromMillisecondsSinceEpoch(
-                        messages[i + 1].clientTimestampMs);
+                        messages[i + 1].displayTimestampMs);
                     needsDateChip = thisDate.year != olderDate.year ||
                         thisDate.month != olderDate.month ||
                         thisDate.day != olderDate.day;
@@ -1248,7 +1248,7 @@ class _MessageBubble extends StatelessWidget {
 
     // The phone's 12/24-hour setting, same as the chat list.
     final timeStr = TimeOfDay.fromDateTime(
-      DateTime.fromMillisecondsSinceEpoch(message.clientTimestampMs),
+      DateTime.fromMillisecondsSinceEpoch(message.displayTimestampMs),
     ).format(context);
 
     // The meta row (time + optional tick) that tucks into the message.
