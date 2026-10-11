@@ -239,6 +239,24 @@ void main() {
     expect(_payload(op).body, 'my corrected message');
   });
 
+  testWidgets('confirming an edit with the text unchanged sends nothing',
+      (tester) async {
+    await pumpChat(tester);
+    final before = (await ops(tester)).length;
+    await longPress(tester, 'my own message');
+    await tester.tap(find.text('Edit'));
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.tap(find.byIcon(Icons.check_rounded));
+    await settle(tester);
+
+    expect(find.text('Editing message'), findsNothing);
+    expect((await ops(tester)).length, before);
+    expect((await q(tester, () => store.fetchMessage('m-mine')))?.isEdited,
+        isFalse);
+  });
+
   testWidgets('Delete tombstones immediately and UNDO inside the window '
       'restores it without enqueueing anything', (tester) async {
     await pumpChat(tester);

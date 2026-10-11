@@ -251,14 +251,18 @@ class ChatStore {
         [nowMs, opId],
       );
       if (messageId != null) {
+        // Only a not-yet-sent message moves to `sending`. An edit, delete
+        // or reaction also targets a message, one that is already sent,
+        // delivered or read (or someone else's): flipping it back put a
+        // clock on an edited message and nothing ever lifted it.
         await txn.update(
           'messages',
           {
             'message_state': MessageState.sending.wire,
             'state_updated_at': nowMs,
           },
-          where: 'message_id = ?',
-          whereArgs: [messageId],
+          where: 'message_id = ? AND message_state = ?',
+          whereArgs: [messageId, MessageState.pending.wire],
         );
       }
     });

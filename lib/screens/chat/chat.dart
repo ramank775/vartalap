@@ -50,6 +50,11 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _input = TextEditingController();
+  final FocusNode _inputFocus = FocusNode();
+
+  /// The body as it was when Edit started; confirming it unchanged sends
+  /// nothing (an edit would mark the message "edited" for no change).
+  String? _editingOriginal;
   bool _sending = false;
   StreamSubscription<List<MessageRow>>? _readMarkerSub;
   String? _lastMarkedReadMessageId;
@@ -221,6 +226,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _input.removeListener(_onInputChanged);
     _input.dispose();
+    _inputFocus.dispose();
     super.dispose();
   }
 
@@ -420,6 +426,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     _replyTo = msg;
                     _editingMessageId = null;
                   });
+                  _inputFocus.requestFocus();
                 },
               ),
             if (canEdit)
@@ -484,9 +491,11 @@ class _ChatScreenState extends State<ChatScreen> {
       _replyTo = null;
       _editingMessageId = msg.messageId;
     });
-    _input.text = msg.body ?? '';
+    _editingOriginal = msg.body ?? '';
+    _input.text = _editingOriginal!;
     _input.selection =
         TextSelection.collapsed(offset: _input.text.length);
+    _inputFocus.requestFocus();
   }
 
   void _cancelCompose() {
@@ -644,6 +653,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _onSend() async {
     final body = _input.text.trim();
     if (body.isEmpty) return;
+    if (_editingMessageId != null && body == _editingOriginal?.trim()) {
+      _cancelCompose();
+      return;
+    }
     final userId = widget.authService.currentUserId;
     if (userId == null) return;
     setState(() => _sending = true);
@@ -855,6 +868,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           _MessageInput(
             controller: _input,
+            focusNode: _inputFocus,
             sending: _sending,
             onSend: _onSend,
             onAttach: _onAttach,
@@ -919,6 +933,7 @@ class _DateChip extends StatelessWidget {
 
 class _MessageInput extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode focusNode;
   final bool sending;
   final VoidCallback onSend;
 
@@ -937,6 +952,7 @@ class _MessageInput extends StatelessWidget {
 
   const _MessageInput({
     required this.controller,
+    required this.focusNode,
     required this.sending,
     required this.onSend,
     required this.onAttach,
@@ -1028,6 +1044,7 @@ class _MessageInput extends StatelessWidget {
                 ),
                 child: TextField(
                   controller: controller,
+                  focusNode: focusNode,
                   minLines: 1,
                   maxLines: 4,
                   textCapitalization: TextCapitalization.sentences,
