@@ -111,7 +111,8 @@ class _ChatScreenState extends State<ChatScreen> {
   /// The one delete sitting in its undo window. Committing is ours to
   /// do — the timer outlives the snackbar, and [dispose] flushes — so a
   /// tombstone can never strand un-enqueued.
-  String? _deletingMessageId;
+  /// Tombstoned locally, waiting out the undo window together.
+  List<String> _deletingMessageIds = const [];
   Timer? _deleteTimer;
 
   /// Per-message keys so [Scrollable.ensureVisible] can jump to a row by
@@ -125,11 +126,11 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _highlightedMessageId;
   Timer? _highlightTimer;
 
-  /// Long-pressed message (WhatsApp's selection): the app bar turns
-  /// into its actions and the reaction bar floats over it, following it
-  /// through [_selectedLink]. ponytail: one at a time; multi-select
-  /// (delete/copy several) when someone asks.
-  String? _selectedId;
+  /// Selected messages (WhatsApp's selection, in the order picked):
+  /// long-press starts it, taps add and remove. The app bar shows what
+  /// can be done to all of them; with exactly one, the reaction bar
+  /// floats over it, following it through [_selectedLink].
+  final Set<String> _selectedIds = {};
   final LayerLink _selectedLink = LayerLink();
 
   /// The page last rendered, for the selection bar's fresh copy of the
@@ -233,11 +234,10 @@ class _ChatScreenState extends State<ChatScreen> {
     // Leaving the screen ends the undo window: commit rather than
     // leaving a tombstone that nobody will ever enqueue.
     _deleteTimer?.cancel();
-    final pendingDelete = _deletingMessageId;
-    if (pendingDelete != null) {
+    for (final id in _deletingMessageIds) {
       unawaited(widget.chatService.commitDelete(
         channelId: widget.channelId,
-        messageId: pendingDelete,
+        messageId: id,
       ));
     }
     // A voice note is sent on purpose or not at all.
@@ -477,84 +477,118 @@ class _ChatScreenState extends State<ChatScreen> {
       (msg.body ?? '').isNotEmpty &&
       !isRichType(msg.contentType);
 
+  /// Long-press: starts a selection, or adds/removes while one is open.
   void _select(MessageRow msg) {
     HapticFeedback.mediumImpact();
     // Otherwise the keyboard stays up over the actions; Edit and Reply
     // ask for it again.
     _inputFocus.unfocus();
-    final box = _messageKeys[msg.messageId]?.currentContext?.findRenderObject()
-        as RenderBox?;
-    final list = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    _toggleSelected(msg);
+  }
+
+  void _toggleSelected(MessageRow msg) {
     setState(() {
-      _selectedId = msg.messageId;
-      _barBelow = box != null &&
-          list != null &&
-          box.localToGlobal(Offset.zero).dy -
-                  list.localToGlobal(Offset.zero).dy <
-              64;
+      if (!_selectedIds.remove(msg.messageId)) {
+        _selectedIds.add(msg.messageId);
+      }
+      if (_selectedIds.length == 1) _placeBar(_selectedIds.single);
     });
   }
 
+  /// The reaction bar goes under the message when it's too close to the
+  /// top of the list to fit above.
+  void _placeBar(String messageId) {
+    final box = _messageKeys[messageId]?.currentContext?.findRenderObject()
+        as RenderBox?;
+    final list = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    _barBelow = box != null &&
+        list != null &&
+        box.localToGlobal(Offset.zero).dy -
+                list.localToGlobal(Offset.zero).dy <
+            64;
+  }
+
   void _clearSelection() {
-    if (_selectedId != null) setState(() => _selectedId = null);
+    if (_selectedIds.isNotEmpty) setState(_selectedIds.clear);
   }
 
   void _reply(MessageRow msg) {
     setState(() {
-      _selectedId = null;
+      _selectedIds.clear();
       _replyTo = msg;
       _editingMessageId = null;
     });
     _inputFocus.requestFocus();
   }
 
-  void _copy(MessageRow msg) {
+  /// One message copies as its text; several as WhatsApp does, one
+  /// "[date time] Name: text" line each, oldest first.
+  void _copy(List<MessageRow> msgs) {
     _clearSelection();
-    Clipboard.setData(ClipboardData(text: msg.body ?? ''));
-    _toast('Copied');
+    final String text;
+    if (msgs.length == 1) {
+      text = msgs.single.body ?? '';
+    } else {
+      final sorted = [...msgs]
+        ..sort((a, b) => a.displayTimestampMs.compareTo(b.displayTimestampMs));
+      final when = DateFormat.yMd().add_jm();
+      text = [
+        for (final m in sorted)
+          '[${when.format(DateTime.fromMillisecondsSinceEpoch(m.displayTimestampMs))}] '
+              '${_isMine(m) ? 'You' : (_memberNames[m.authorUserId] ?? widget.channelName)}: '
+              '${m.body ?? ''}',
+      ].join('\n');
+    }
+    Clipboard.setData(ClipboardData(text: text));
+    _toast(msgs.length == 1 ? 'Copied' : '${msgs.length} messages copied');
   }
 
-  /// The selection app bar: what you can do with the long-pressed
-  /// message (WhatsApp's contextual bar).
-  AppBar _selectionBar(MessageRow msg) => AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: 'Cancel',
-          onPressed: _clearSelection,
-        ),
-        actions: [
-          if (!msg.tombstoned)
-            IconButton(
-              icon: const Icon(Icons.reply),
-              tooltip: 'Reply',
-              onPressed: () => _reply(msg),
-            ),
-          if (_canCopy(msg))
-            IconButton(
-              icon: const Icon(Icons.copy_outlined),
-              tooltip: 'Copy',
-              onPressed: () => _copy(msg),
-            ),
-          if (_canEdit(msg))
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'Edit',
-              onPressed: () {
-                _clearSelection();
-                _startEdit(msg);
-              },
-            ),
-          if (_isMine(msg) && !msg.tombstoned)
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: 'Delete for everyone',
-              onPressed: () {
-                _clearSelection();
-                _deleteMessage(msg);
-              },
-            ),
-        ],
-      );
+  /// The selection app bar: the count, and what can be done to every
+  /// selected message (WhatsApp's contextual bar). Reply and Edit need
+  /// exactly one.
+  AppBar _selectionBar(List<MessageRow> sel) {
+    final one = sel.length == 1 ? sel.single : null;
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Cancel',
+        onPressed: _clearSelection,
+      ),
+      title: Text('${sel.length}'),
+      actions: [
+        if (one != null && !one.tombstoned)
+          IconButton(
+            icon: const Icon(Icons.reply),
+            tooltip: 'Reply',
+            onPressed: () => _reply(one),
+          ),
+        if (sel.every(_canCopy))
+          IconButton(
+            icon: const Icon(Icons.copy_outlined),
+            tooltip: 'Copy',
+            onPressed: () => _copy(sel),
+          ),
+        if (one != null && _canEdit(one))
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit',
+            onPressed: () {
+              _clearSelection();
+              _startEdit(one);
+            },
+          ),
+        if (sel.every((m) => _isMine(m) && !m.tombstoned))
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Delete for everyone',
+            onPressed: () {
+              _clearSelection();
+              _deleteMessages(sel);
+            },
+          ),
+      ],
+    );
+  }
 
   Future<void> _toggleReaction(MessageRow msg, String emoji) async {
     final userId = widget.authService.currentUserId;
@@ -591,22 +625,27 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// Decision 11: tombstone now, enqueue in [ChatScreen.undoWindow].
-  /// Only one delete is ever pending — a second one commits the first
-  /// rather than racing it.
-  Future<void> _deleteMessage(MessageRow msg) async {
+  /// One delete (of one or several messages) is pending at a time — a
+  /// new one commits the last rather than racing it — and one Undo
+  /// brings back everything it took.
+  Future<void> _deleteMessages(List<MessageRow> msgs) async {
     await _flushPendingDelete();
-    await widget.chatService.deleteMessage(
-      messageId: msg.messageId,
-      undoWindow: widget.undoWindow,
-    );
+    for (final m in msgs) {
+      await widget.chatService.deleteMessage(
+        messageId: m.messageId,
+        undoWindow: widget.undoWindow,
+      );
+    }
     if (!mounted) return;
-    _deletingMessageId = msg.messageId;
+    final ids = [for (final m in msgs) m.messageId];
+    _deletingMessageIds = ids;
     _deleteTimer = Timer(widget.undoWindow, () {
-      final id = _deletingMessageId;
-      _deletingMessageId = null;
-      if (id == null) return;
-      unawaited(widget.chatService
-          .commitDelete(channelId: widget.channelId, messageId: id));
+      final pending = _deletingMessageIds;
+      _deletingMessageIds = const [];
+      for (final id in pending) {
+        unawaited(widget.chatService
+            .commitDelete(channelId: widget.channelId, messageId: id));
+      }
     });
 
     final messenger = ScaffoldMessenger.of(context);
@@ -617,15 +656,21 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           _UndoCountdown(window: widget.undoWindow),
           const SizedBox(width: kSpaceSm),
-          const Expanded(child: Text('Message deleted')),
+          Expanded(
+            child: Text(ids.length == 1
+                ? 'Message deleted'
+                : '${ids.length} messages deleted'),
+          ),
         ],
       ),
       action: SnackBarAction(
         label: 'UNDO',
         onPressed: () {
           _deleteTimer?.cancel();
-          _deletingMessageId = null;
-          unawaited(widget.chatService.undoDelete(msg.messageId));
+          _deletingMessageIds = const [];
+          for (final id in ids) {
+            unawaited(widget.chatService.undoDelete(id));
+          }
         },
       ),
     ));
@@ -635,11 +680,12 @@ class _ChatScreenState extends State<ChatScreen> {
   /// leaving the screen). Idempotent — the store no-ops if Undo won.
   Future<void> _flushPendingDelete() async {
     _deleteTimer?.cancel();
-    final id = _deletingMessageId;
-    _deletingMessageId = null;
-    if (id == null) return;
-    await widget.chatService
-        .commitDelete(channelId: widget.channelId, messageId: id);
+    final pending = _deletingMessageIds;
+    _deletingMessageIds = const [];
+    for (final id in pending) {
+      await widget.chatService
+          .commitDelete(channelId: widget.channelId, messageId: id);
+    }
   }
 
   /// Composer attach button (frame d1). One sheet: the camera, the
@@ -1072,17 +1118,21 @@ class _ChatScreenState extends State<ChatScreen> {
     final scheme = Theme.of(context).colorScheme;
     final chatColors = VartalapTheme.chatColorsOf(context);
 
-    final selected = _selectedId == null
-        ? null
-        : _lastMessages.where((m) => m.messageId == _selectedId).firstOrNull;
+    // Rows that left the page (cleared history) drop out of it.
+    final selected = _selectedIds.isEmpty
+        ? const <MessageRow>[]
+        : [
+            for (final id in _selectedIds)
+              ..._lastMessages.where((m) => m.messageId == id),
+          ];
     // Back closes the selection first, like WhatsApp.
     return PopScope(
-      canPop: selected == null,
+      canPop: selected.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _clearSelection();
       },
       child: Scaffold(
-      appBar: selected != null
+      appBar: selected.isNotEmpty
           ? _selectionBar(selected)
           : AppBar(
         titleSpacing: 0,
@@ -1196,11 +1246,14 @@ class _ChatScreenState extends State<ChatScreen> {
                           : null;
 
                   final failedOpId = _failedOps[msg.messageId];
-                  final isSelected = _selectedId == msg.messageId;
+                  final isSelected = _selectedIds.contains(msg.messageId);
+                  final selecting = _selectedIds.isNotEmpty;
                   final replyTo = msg.replyToMessageId;
                   items.add(_SwipeToReply(
                     key: ValueKey('swipe-${msg.messageId}'),
-                    onReply: msg.tombstoned ? null : () => _reply(msg),
+                    onReply: msg.tombstoned || selecting
+                        ? null
+                        : () => _reply(msg),
                     child: _MessageBubble(
                     key: _keyForMessage(msg.messageId),
                     message: msg,
@@ -1209,7 +1262,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     chatColors: chatColors,
                     highlighted: isSelected ||
                         _highlightedMessageId == msg.messageId,
-                    link: isSelected ? _selectedLink : null,
+                    link: isSelected && _selectedIds.length == 1
+                        ? _selectedLink
+                        : null,
                     senderLabel: senderLabel,
                     localUserId: currentUserId,
                     replyPreview:
@@ -1218,9 +1273,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         ? null
                         : () => _jumpToMessage(replyTo),
                     onLongPress: () => _select(msg),
-                    // While one is selected, a tap anywhere on a bubble
-                    // just lets go of it.
-                    onTap: _selectedId == null ? null : _clearSelection,
+                    // While selecting, a tap adds or removes a message.
+                    onTap: selecting ? () => _toggleSelected(msg) : null,
                     onReactionTap: (emoji) => _toggleReaction(msg, emoji),
                     onRetry:
                         failedOpId == null ? null : () => _retry(failedOpId),
@@ -1248,7 +1302,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   }
                 }
 
-                final sel = selected;
+                final sel = selected.length == 1 ? selected.single : null;
                 return Stack(
                   key: _listKey,
                   children: [
@@ -2018,8 +2072,13 @@ class _MessageBubble extends StatelessWidget {
         _LinkTarget(
           link: link,
           child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onLongPress: onLongPress,
           onTap: onTap,
+          // While selecting, a tap anywhere toggles the message — the
+          // photo, card buttons and play button inside sit it out.
+          child: IgnorePointer(
+          ignoring: onTap != null,
           child: PhysicalShape(
           clipper: _BubbleClipper(isMine: isMine, showTail: showTail),
           color: bg,
@@ -2138,6 +2197,7 @@ class _MessageBubble extends StatelessWidget {
               ),
             ),
           ),
+        ),
         ),
         ),
         ),

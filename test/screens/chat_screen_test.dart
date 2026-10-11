@@ -10,6 +10,7 @@ library vartalap.screens.chat_screen_test;
 
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -176,6 +177,95 @@ void main() {
           'button that provably does nothing.',
     );
     expect(find.byTooltip('Delete for everyone'), findsNothing);
+  });
+
+  testWidgets('tapping more messages while selecting adds them; the '
+      'actions narrow to what fits all of them', (tester) async {
+    await pumpChat(tester);
+    await longPress(tester, 'my own message');
+    expect(find.text('1'), findsOneWidget);
+
+    await tester.tap(find.textContaining('their message'));
+    await settle(tester);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.byTooltip('Copy'), findsOneWidget);
+    expect(find.byTooltip('Reply'), findsNothing,
+        reason: 'Reply and Edit need exactly one message.');
+    expect(find.byTooltip('Edit'), findsNothing);
+    expect(find.byTooltip('Delete for everyone'), findsNothing,
+        reason: 'One of the two is not mine to delete.');
+
+    await tester.tap(find.textContaining('their message'));
+    await settle(tester);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.byTooltip('Edit'), findsOneWidget);
+
+    await tester.tap(find.textContaining('my own message'));
+    await settle(tester);
+    expect(find.byTooltip('Cancel'), findsNothing,
+        reason: 'Letting go of the last one ends the selection.');
+  });
+
+  testWidgets('copying several messages gives WhatsApp-style lines, oldest '
+      'first', (tester) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      },
+    );
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await pumpChat(tester);
+
+    // Picked newest first; copied oldest first.
+    await longPress(tester, 'their message');
+    await tester.tap(find.textContaining('my own message'));
+    await settle(tester);
+    await tester.tap(find.byTooltip('Copy'));
+    await settle(tester);
+
+    final lines = copied!.split('\n');
+    expect(lines, hasLength(2));
+    expect(lines[0], matches(RegExp(r'^\[.+\] You: my own message$')));
+    expect(lines[1], matches(RegExp(r'^\[.+\] Peer: their message$')));
+  });
+
+  testWidgets('deleting several selected messages tombstones them all and '
+      'one UNDO brings them all back', (tester) async {
+    await pumpChat(tester);
+    await q(tester,
+        () => _insert(store, 'm-mine-2', localUserId, 'my second message', 3));
+    await settle(tester);
+    final opsBefore = (await ops(tester)).length;
+
+    await longPress(tester, 'my own message');
+    await tester.tap(find.textContaining('my second message'));
+    await settle(tester);
+    await tester.tap(find.byTooltip('Delete for everyone'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('2 messages deleted'), findsOneWidget);
+    for (final id in ['m-mine', 'm-mine-2']) {
+      expect((await q(tester, () => store.fetchMessage(id)))?.tombstoned,
+          isTrue);
+    }
+    expect((await ops(tester)).length, opsBefore,
+        reason: 'Decision 11: nothing is sent inside the undo window.');
+
+    await tester.tap(find.text('UNDO'));
+    await settle(tester);
+    for (final id in ['m-mine', 'm-mine-2']) {
+      expect((await q(tester, () => store.fetchMessage(id)))?.tombstoned,
+          isFalse);
+    }
+    expect((await ops(tester)).length, opsBefore);
   });
 
   testWidgets('swiping a message right starts a reply to it',
