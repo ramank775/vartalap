@@ -961,6 +961,59 @@ void main() {
       );
     });
 
+    // ---- 7g -------------------------------------------------------------
+    test('7g. peer ops that beat their message here are applied when it '
+        'lands (SYNC_PROTOCOL §6b)', () async {
+      // The server keeps no order: an edit, a delete and a reaction can
+      // reach us before the message they target. The mock delivers them
+      // first, stamped after their creates, the way a stateless server
+      // with a slow create path would.
+      final t = DateTime.now().millisecondsSinceEpoch;
+      final edited = 'golden-early-edit-$t';
+      final deleted = 'golden-early-delete-$t';
+      final reacted = 'golden-early-react-$t';
+      h.mock.injectPeerEdit(
+          channelId: dmChannel,
+          messageId: edited,
+          body: 'edited before it arrived',
+          serverTimestampMs: t + 2);
+      h.mock.injectPeerDelete(
+          channelId: dmChannel, messageId: deleted, serverTimestampMs: t + 4);
+      h.mock.injectPeerReaction(
+          channelId: dmChannel,
+          messageId: reacted,
+          emoji: '\u{1F525}',
+          serverTimestampMs: t + 6);
+      Future<int> parked() async => (await h.store.db
+              .rawQuery('SELECT COUNT(*) c FROM pending_ops'))
+          .single['c'] as int;
+      await h.waitForAsync(() async => await parked() == 3);
+      expect(await parked(), 3,
+          reason: '§6b: an op on a message we do not hold is kept, not '
+              'dropped.');
+
+      for (final (id, ts) in [(edited, t + 1), (deleted, t + 3), (reacted, t + 5)]) {
+        h.mock.injectPeerMessage(
+            channelId: dmChannel,
+            body: 'original $id',
+            messageId: id,
+            serverTimestampMs: ts);
+      }
+      await h.waitForAsync(
+          () async => await h.store.fetchMessage(reacted) != null);
+
+      final e = await h.store.fetchMessage(edited);
+      expect([e?.body, e?.isEdited], ['edited before it arrived', true],
+          reason: '§6b: the parked edit applies once the create lands.');
+      final d = await h.store.fetchMessage(deleted);
+      expect([d?.tombstoned, d?.body], [true, null],
+          reason: '§6b: a delete that came first stores the message '
+              'already tombstoned.');
+      expect(await h.reactionsOf(reacted), ['$peerUserId:\u{1F525}'],
+          reason: '§6b: the parked reaction applies once the create lands.');
+      expect(await parked(), 0);
+    });
+
     // ---- 8 --------------------------------------------------------------
     test('8. logout wipes the local store', () async {
       await h.authService.logout();

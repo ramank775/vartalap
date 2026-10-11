@@ -17,6 +17,7 @@ void main() {
       'contacts',
       'outbound_ops',
       'op_id_seen',
+      'pending_ops',
     ]) {
       final count = await store.db.rawQuery('SELECT COUNT(*) c FROM $tbl');
       expect(count.single['c'], 0, reason: tbl);
@@ -107,7 +108,7 @@ void main() {
         .map((r) => r['name']);
     expect(tables, isNot(contains('resource_seq')));
     expect(tables, isNot(contains('snapshots')));
-    expect(tables, contains('reactions'),
+    expect(tables, containsAll(['reactions', 'pending_ops']),
         reason: 'the v2 DDL runs after the migration');
 
     final msgs = await store.fetchChannelMessages('g-1');

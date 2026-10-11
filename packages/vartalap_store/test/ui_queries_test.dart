@@ -549,6 +549,7 @@ void main() {
         messageId: 'm-live',
         senderUserId: 'u-peer',
         emoji: '\u{1F44D}',
+        serverTimestampMs: 300,
         nowMs: 300,
       );
 

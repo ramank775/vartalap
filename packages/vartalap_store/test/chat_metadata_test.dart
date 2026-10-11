@@ -92,6 +92,45 @@ void main() {
     });
   });
 
+  group('pending_ops (SYNC_PROTOCOL §6b)', () {
+    test('early ops are bounded by age and by count', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+        channelId: 'g-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+      );
+      Future<void> park(String id, int nowMs) => store.applyInboundReactionAdd(
+            channelId: 'g-1',
+            opId: 'op-$id',
+            messageId: 'm-never-$id',
+            senderUserId: 'u-peer',
+            emoji: 'x',
+            serverTimestampMs: nowMs,
+            nowMs: nowMs,
+          );
+      Future<int> count() async => (await store.db
+              .rawQuery('SELECT COUNT(*) c FROM pending_ops'))
+          .single['c'] as int;
+
+      await park('old', 0);
+      const month = 31 * 24 * 3600 * 1000;
+      await park('new', month);
+      expect(await count(), 1, reason: 'older than 30 days is dropped');
+
+      for (var i = 0; i < 1000; i++) {
+        await park('n$i', month + 1 + i);
+      }
+      expect(await count(), 1000, reason: 'and at most 1,000 are kept');
+      final oldest = await store.db.query('pending_ops',
+          orderBy: 'received_at', limit: 1);
+      expect(oldest.single['op_id'], 'op-n0',
+          reason: 'the oldest go first');
+    });
+  });
+
   group('applyInboundMessage dedup', () {
     test('a message_id we already hold is a complete no-op', () async {
       final store = await ChatStore.open(path: inMemoryDatabasePath);

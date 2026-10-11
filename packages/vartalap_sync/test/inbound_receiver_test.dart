@@ -204,36 +204,164 @@ void main() {
     fail('message was not tombstoned within timeout');
   });
 
-  test(
-    'TYPE_REACTION_ADD against a missing message is silently dropped',
-    () async {
-      pushes.add(_makeEnvelope(
-        opId: 'op-react-miss',
-        senderUserId: _peerUserId,
+  // --- Out-of-order arrival (SYNC_PROTOCOL §6b) --------------------------
+
+  Future<String?> bodyOf(String id) async =>
+      (await store.fetchMessage(id))?.body;
+  Future<int> parked() async => (await store.db
+          .rawQuery('SELECT COUNT(*) c FROM pending_ops'))
+      .single['c'] as int;
+  pb.Envelope create(String id, String body, int ts,
+          {String sender = _peerUserId}) =>
+      _makeEnvelope(
+        opId: 'op-create-$id',
+        senderUserId: sender,
         payload: _chatPayload(
-          type: pb.ChatPayloadType.TYPE_REACTION_ADD,
-          messageId: 'm-nonexistent',
-          emoji: 'thumbsup',
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: id,
+          body: body,
         ),
-        serverTimestampMs: 9000,
-      ));
-      await _pumpQueue();
-
-      final reactions = await store.db.rawQuery(
-        'SELECT COUNT(*) c FROM reactions WHERE message_id = ?',
-        ['m-nonexistent'],
+        serverTimestampMs: ts,
       );
-      expect(reactions.single['c'], 0);
 
-      final seen = await store.db.rawQuery(
-        'SELECT COUNT(*) c FROM op_id_seen '
-        'WHERE channel_id = ? AND op_id = ?',
-        [_channelId, 'op-react-miss'],
-      );
-      expect(seen.single['c'], 1,
-          reason: 'op_id_seen recorded even on gate drop');
-    },
-  );
+  test('an edit that beats its create is applied when the create lands',
+      () async {
+    pushes.add(_makeEnvelope(
+      opId: 'op-early-edit',
+      senderUserId: _peerUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+        messageId: 'm-late',
+        body: 'edited',
+      ),
+      serverTimestampMs: 9100,
+    ));
+    await _pumpQueue();
+    expect(await store.fetchMessage('m-late'), isNull);
+    expect(await parked(), 1, reason: 'kept, not dropped');
+    expect(await store.hasSeenOpId(_channelId, 'op-early-edit'), isTrue);
+
+    pushes.add(create('m-late', 'original', 9000));
+    await _settle(store, 'm-late', present: true);
+    final row = await store.fetchMessage('m-late');
+    expect(row!.body, 'edited');
+    expect(row.isEdited, isTrue);
+    expect(row.lastEditMs, 9100);
+    expect(await parked(), 0);
+  });
+
+  test('a delete that beats its create stores the message tombstoned',
+      () async {
+    final bodiesSeen = <String?>[];
+    final sub = store
+        .watchChannelMessages(_channelId)
+        .listen((rows) => bodiesSeen.addAll(rows.map((m) => m.body)));
+    addTearDown(sub.cancel);
+
+    pushes.add(_makeEnvelope(
+      opId: 'op-early-delete',
+      senderUserId: _peerUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+        messageId: 'm-gone',
+      ),
+      serverTimestampMs: 9100,
+    ));
+    await _pumpQueue();
+    pushes.add(create('m-gone', 'never shown', 9000));
+    await _settle(store, 'm-gone', present: true);
+    await _pumpQueue();
+
+    final row = await store.fetchMessage('m-gone');
+    expect(row!.tombstoned, isTrue);
+    expect(row.body, isNull);
+    expect(bodiesSeen, isNot(contains('never shown')),
+        reason: 'create and parked delete apply in one transaction');
+  });
+
+  test('a reaction that beats its create is applied when the create lands',
+      () async {
+    pushes.add(_makeEnvelope(
+      opId: 'op-early-react',
+      senderUserId: _thirdUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_REACTION_ADD,
+        messageId: 'm-react',
+        emoji: 'thumbsup',
+      ),
+      serverTimestampMs: 9100,
+    ));
+    await _pumpQueue();
+    pushes.add(create('m-react', 'react to me', 9000));
+    await _settle(store, 'm-react', present: true);
+
+    final reactions = await store.db.query('reactions',
+        where: 'message_id = ?', whereArgs: ['m-react']);
+    expect(reactions.map((r) => '${r['user_id']}:${r['emoji']}'),
+        ['$_thirdUserId:thumbsup'],
+        reason: 'anyone may react, so no authorship gate here');
+  });
+
+  test('an early edit from a non-author is still dropped once the author '
+      'is known', () async {
+    pushes.add(_makeEnvelope(
+      opId: 'op-early-hijack',
+      senderUserId: _thirdUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+        messageId: 'm-guarded',
+        body: 'hijacked',
+      ),
+      serverTimestampMs: 9100,
+    ));
+    pushes.add(_makeEnvelope(
+      opId: 'op-early-hijack-delete',
+      senderUserId: _thirdUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+        messageId: 'm-guarded',
+      ),
+      serverTimestampMs: 9200,
+    ));
+    await _pumpQueue();
+    pushes.add(create('m-guarded', 'original', 9000));
+    await _settle(store, 'm-guarded', present: true);
+
+    final row = await store.fetchMessage('m-guarded');
+    expect(row!.body, 'original', reason: '§6a.3 authorship gate');
+    expect(row.isEdited, isFalse);
+    expect(row.tombstoned, isFalse);
+    expect(await parked(), 0, reason: 'judged once, then discarded');
+  });
+
+  test('early ops replay in server-timestamp order, not arrival order',
+      () async {
+    // Arrives first, but stamped after the edit.
+    pushes.add(_makeEnvelope(
+      opId: 'op-second',
+      senderUserId: _peerUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+        messageId: 'm-twice',
+        body: 'final',
+      ),
+      serverTimestampMs: 9300,
+    ));
+    pushes.add(_makeEnvelope(
+      opId: 'op-first',
+      senderUserId: _peerUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+        messageId: 'm-twice',
+        body: 'intermediate',
+      ),
+      serverTimestampMs: 9200,
+    ));
+    await _pumpQueue();
+    pushes.add(create('m-twice', 'original', 9000));
+    await _settle(store, 'm-twice', present: true);
+    expect(await bodyOf('m-twice'), 'final');
+  });
 
   test(
     'a receipt flips our messages up to its timestamp marker, even when '

@@ -293,6 +293,7 @@ class InboundReceiver {
           opId: opId,
           messageId: chat.messageId,
           senderUserId: env.senderUserId,
+          serverTimestampMs: env.serverTimestampMs.toInt(),
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_REACTION_ADD:
@@ -302,6 +303,7 @@ class InboundReceiver {
           messageId: chat.messageId,
           senderUserId: env.senderUserId,
           emoji: chat.emoji,
+          serverTimestampMs: env.serverTimestampMs.toInt(),
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_REACTION_REMOVE:
@@ -311,6 +313,7 @@ class InboundReceiver {
           messageId: chat.messageId,
           senderUserId: env.senderUserId,
           emoji: chat.emoji,
+          serverTimestampMs: env.serverTimestampMs.toInt(),
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_READ_RECEIPT:

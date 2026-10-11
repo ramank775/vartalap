@@ -199,6 +199,31 @@ const List<String> ddl = [
     WHERE target_message_id IS NOT NULL
   ''',
 
+  // SYNC_PROTOCOL §6b — inbound ops that target a message we don't
+  // hold yet (an edit, delete or reaction that beat its create here).
+  // Applied, in server order, the moment the message lands; bounded by
+  // ChatStore. Columns are the decoded op, since the store doesn't
+  // parse ChatPayload.
+  '''
+  CREATE TABLE IF NOT EXISTS pending_ops (
+    op_id                TEXT PRIMARY KEY,
+    channel_id           TEXT NOT NULL REFERENCES channels(channel_id) ON DELETE CASCADE,
+    target_message_id    TEXT NOT NULL,
+    kind                 TEXT NOT NULL,
+    sender_user_id       TEXT NOT NULL,
+    server_timestamp_ms  INTEGER NOT NULL,
+    body                 TEXT,
+    content_type         TEXT,
+    attachments          BLOB,
+    emoji                TEXT,
+    received_at          INTEGER NOT NULL
+  )
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_pending_ops_target
+    ON pending_ops(target_message_id)
+  ''',
+
   // §9 op_id_seen
   '''
   CREATE TABLE IF NOT EXISTS op_id_seen (
