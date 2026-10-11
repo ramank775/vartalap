@@ -3,7 +3,6 @@ library vartalap.screens.startup.destructive_reset_consent;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
@@ -79,8 +78,8 @@ class _DestructiveResetConsentScreenState
                   'Vartalap v3 is a clean relaunch. Your previous chats and '
                   'login are not carried over, so you will need to sign in '
                   'again.\n\n'
-                  'Your v2 chats are kept on this device. Download a copy '
-                  'now, or any time later from Settings.',
+                  'Your v2 chats are kept on this device. You can download '
+                  'a copy any time from Settings.',
                   textAlign: TextAlign.center,
                   style: textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurface,
@@ -103,14 +102,6 @@ class _DestructiveResetConsentScreenState
                           ),
                         )
                       : const Text('Continue'),
-                ),
-              ),
-              const SizedBox(height: kSpaceSm),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: _working ? null : () => saveV2Chats(context),
-                  child: const Text('Download v2 chats'),
                 ),
               ),
             ],

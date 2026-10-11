@@ -570,10 +570,10 @@ launch:
 
 > "Vartalap v3 is a clean relaunch. Your previous chats and login are not
 > carried over, so you will need to sign in again. Your v2 chats are kept on
-> this device. Download a copy now, or any time later from Settings."
+> this device. You can download a copy any time from Settings."
 
-"Download v2 chats" (on that screen and in Settings while the archive
-exists) saves a consistent snapshot of the DB (`VACUUM INTO`) through the
+The screen's only action is "Continue". "Download v2 chats" lives in
+Settings, shown while the archive exists, and saves a consistent snapshot of the DB (`VACUUM INTO`) through the
 system "Save as" picker. "Continue" starts the OTP flow. A fresh install
 with no v2 DB skips the screen.
 
