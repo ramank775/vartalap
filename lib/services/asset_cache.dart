@@ -41,6 +41,9 @@ String mimeForPath(String path) {
     'webm' => 'video/webm',
     '3gp' => 'video/3gpp',
     'mp3' => 'audio/mpeg',
+    'm4a' => 'audio/mp4',
+    'aac' => 'audio/aac',
+    'ogg' || 'opus' => 'audio/ogg',
     'zip' => 'application/zip',
     _ => 'application/octet-stream',
   };

@@ -1132,6 +1132,7 @@ class ChatService {
             filename: spec['name'] as String? ?? '',
             width: spec['width'] as int? ?? 0,
             height: spec['height'] as int? ?? 0,
+            durationMs: spec['durationMs'] as int? ?? 0,
           ),
         ],
       ).writeToBuffer();
@@ -1198,6 +1199,7 @@ class ChatService {
     String? replyToMessageId,
     int width = 0,
     int height = 0,
+    int durationMs = 0,
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -1219,6 +1221,7 @@ class ChatService {
       'category': 'message',
       'width': width,
       'height': height,
+      'durationMs': durationMs,
       'body': caption ?? '',
       if (replyToMessageId != null) 'replyTo': replyToMessageId,
     };

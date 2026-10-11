@@ -11,12 +11,12 @@ String messagePreview(
   required bool attachment,
 }) {
   if (attachment) {
-    final type = contentType ?? '';
-    final (glyph, kind) = type.startsWith('image/')
-        ? ('📷', 'Photo')
-        : type.startsWith('video/')
-            ? ('🎥', 'Video')
-            : ('📄', 'File');
+    final (glyph, kind) = switch ((contentType ?? '').split('/').first) {
+      'image' => ('📷', 'Photo'),
+      'video' => ('🎥', 'Video'),
+      'audio' => ('🎤', 'Voice message'),
+      _ => ('📄', 'File'),
+    };
     return '$glyph ${body.isEmpty ? kind : body}';
   }
   return switch (contentType) {

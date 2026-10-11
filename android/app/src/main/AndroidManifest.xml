@@ -11,6 +11,7 @@
     <!-- Share current location in a chat (decision 135). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <queries>
         <!-- If your app opens https URLs -->
         <intent>

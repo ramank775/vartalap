@@ -6,6 +6,7 @@
 /// of a presigned download.
 library vartalap.screens.attachment_test;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:fixnum/fixnum.dart' as fixnum;
@@ -15,6 +16,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/utils/attachment_text.dart';
 import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
@@ -153,6 +155,44 @@ void main() {
     ));
     await settle(tester);
     expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('a voice note carries its length, before and after upload',
+      (tester) async {
+    await boot(tester);
+
+    late String messageId;
+    await tester.runAsync(() async {
+      final file = File('${tmp.path}/voice-20261011-101500.m4a')
+        ..writeAsBytesSync([0, 0, 0, 24]);
+      messageId = await chat.sendAttachment(
+        channelId: channelId,
+        authorUserId: localUserId,
+        path: file.path,
+        durationMs: 7300,
+      );
+    });
+
+    final row = await tester.runAsync(() => store.fetchMessage(messageId));
+    expect(row!.contentType, 'audio/mp4');
+    final attachment =
+        pb.ChatPayload.fromBuffer(row.attachments!).attachments.single;
+    expect(attachment.durationMs, 7300);
+
+    final ops = await tester.runAsync(() => store.db.query('outbound_ops'));
+    final spec = jsonDecode(utf8.decode(ops!.single['payload'] as List<int>))
+        as Map<String, dynamic>;
+    expect(
+      spec['durationMs'],
+      7300,
+      reason: 'The upload op re-encodes the attachment with the fileId; '
+          'the length has to ride along in its spec or the peer gets 0.',
+    );
+  });
+
+  test('a voice note reads as one in the chat list and reply quotes', () {
+    expect(messagePreview('', 'audio/mp4', attachment: true), '🎤 Voice message');
+    expect(messagePreview('for you', 'audio/ogg', attachment: true), '🎤 for you');
   });
 
   testWidgets('the media screen grids images and lists documents below',
