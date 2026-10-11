@@ -40,6 +40,9 @@ class RichMessageView extends StatelessWidget {
   final String contentType;
   final String body;
   final Color tint;
+
+  /// The bubble's time + tick, set above the card's buttons.
+  final Widget? footer;
   final ValueChanged<String>? onMessage;
 
   const RichMessageView({
@@ -47,90 +50,126 @@ class RichMessageView extends StatelessWidget {
     required this.contentType,
     required this.body,
     required this.tint,
+    this.footer,
     this.onMessage,
   });
 
   @override
   Widget build(BuildContext context) => switch (contentType) {
-        kContactType => _ContactCard(vcard: body, tint: tint, onMessage: onMessage),
-        kLocationType => _LocationCard(point: GeoPoint.parse(body), tint: tint),
-        _ => _EventCard(event: EventInfo.parse(body), tint: tint),
+        kContactType => _ContactCard(
+            vcard: body, tint: tint, footer: footer, onMessage: onMessage),
+        kLocationType => _LocationCard(
+            point: GeoPoint.parse(body), tint: tint, footer: footer),
+        _ => _EventCard(
+            event: EventInfo.parse(body), tint: tint, footer: footer),
       };
 }
 
-/// Glyph tile + lines + actions: the shape all three cards share.
+/// A 44 px rounded tile with an icon: the location / fallback leading.
+Widget _tile(IconData icon, Color tint) => Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, color: tint),
+    );
+
+/// Leading + lines, the time, then a row of actions: the shape all
+/// three cards share (WhatsApp's contact card).
 class _Card extends StatelessWidget {
-  final IconData icon;
+  final Widget leading;
   final Color tint;
   final List<Widget> lines;
+  final Widget? footer;
   final List<(String, VoidCallback)> actions;
   final VoidCallback? onTap;
 
   const _Card({
-    required this.icon,
+    required this.leading,
     required this.tint,
     required this.lines,
+    this.footer,
     this.actions = const [],
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: kSpaceXs),
-      child: SizedBox(
-        width: 240,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(kRadiusSm),
+    final accent = Theme.of(context).colorScheme.primary;
+    final rule = tint.withValues(alpha: 0.15);
+    return SizedBox(
+      width: 240,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: tint.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(kRadiusSm),
-                    ),
-                    child: Icon(icon, color: tint),
-                  ),
-                  const SizedBox(width: kSpaceSm),
+                  leading,
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: lines,
                     ),
                   ),
                 ],
               ),
             ),
-            if (actions.isNotEmpty) ...[
-              Divider(
-                height: kSpaceMd,
-                indent: 0,
-                endIndent: 0,
-                color: tint.withValues(alpha: 0.2),
-              ),
-              Row(
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 2, 6, 4),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: footer ?? const SizedBox.shrink(),
+            ),
+          ),
+          if (actions.isNotEmpty) ...[
+            Divider(height: 1, thickness: 1, indent: 0, endIndent: 0, color: rule),
+            SizedBox(
+              height: 40,
+              child: Row(
                 children: [
-                  for (final (label, onPressed) in actions)
+                  for (final (i, (label, onPressed)) in actions.indexed) ...[
+                    if (i > 0)
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        indent: 8,
+                        endIndent: 8,
+                        color: rule,
+                      ),
                     Expanded(
                       child: TextButton(
                         onPressed: onPressed,
-                        style: TextButton.styleFrom(foregroundColor: tint),
+                        style: TextButton.styleFrom(
+                          foregroundColor: accent,
+                          minimumSize: const Size.fromHeight(40),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: const RoundedRectangleBorder(),
+                          textStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                         child: Text(label),
                       ),
                     ),
+                  ],
                 ],
               ),
-            ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -168,9 +207,15 @@ void _toast(BuildContext context, String text) =>
 class _ContactCard extends StatelessWidget {
   final String vcard;
   final Color tint;
+  final Widget? footer;
   final ValueChanged<String>? onMessage;
 
-  const _ContactCard({required this.vcard, required this.tint, this.onMessage});
+  const _ContactCard({
+    required this.vcard,
+    required this.tint,
+    this.footer,
+    this.onMessage,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -179,9 +224,22 @@ class _ContactCard extends StatelessWidget {
       contact = FlutterContacts.vCard.import(vcard).firstOrNull;
     } catch (_) {}
     final phones = contact?.phones.map((p) => p.number).toList() ?? const [];
+    final name = contactName(vcard);
     return _Card(
-      icon: Icons.person_outline,
+      leading: CircleAvatar(
+        radius: 22,
+        backgroundColor: tint.withValues(alpha: 0.12),
+        child: Text(
+          name.characters.first.toUpperCase(),
+          style: TextStyle(
+            color: tint,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
       tint: tint,
+      footer: footer,
       lines: [
         _title(contactName(vcard), tint),
         for (final p in phones.take(2)) _line(p, tint),
@@ -211,8 +269,9 @@ class _ContactCard extends StatelessWidget {
 class _LocationCard extends StatelessWidget {
   final GeoPoint? point;
   final Color tint;
+  final Widget? footer;
 
-  const _LocationCard({required this.point, required this.tint});
+  const _LocationCard({required this.point, required this.tint, this.footer});
 
   /// Whatever maps app is installed; the OSM website when there is none.
   Future<void> _open(BuildContext context) async {
@@ -233,14 +292,16 @@ class _LocationCard extends StatelessWidget {
     final p = point;
     if (p == null) {
       return _Card(
-        icon: Icons.location_off_outlined,
+        leading: _tile(Icons.location_off_outlined, tint),
         tint: tint,
+        footer: footer,
         lines: [_title('Location', tint), _line('Unreadable location', tint)],
       );
     }
     return _Card(
-      icon: Icons.location_on_outlined,
+      leading: _tile(Icons.location_on_outlined, tint),
       tint: tint,
+      footer: footer,
       onTap: () => _open(context),
       lines: [
         _title('Location', tint),
@@ -256,8 +317,9 @@ class _LocationCard extends StatelessWidget {
 class _EventCard extends StatelessWidget {
   final EventInfo? event;
   final Color tint;
+  final Widget? footer;
 
-  const _EventCard({required this.event, required this.tint});
+  const _EventCard({required this.event, required this.tint, this.footer});
 
   Future<void> _addToCalendar(BuildContext context, EventInfo e) async {
     final added = await _intent('addEvent', {
@@ -277,8 +339,9 @@ class _EventCard extends StatelessWidget {
     final e = event;
     if (e == null) {
       return _Card(
-        icon: Icons.event_busy_outlined,
+        leading: _tile(Icons.event_busy_outlined, tint),
         tint: tint,
+        footer: footer,
         lines: [_title('Event', tint), _line('Unreadable event', tint)],
       );
     }
@@ -287,8 +350,40 @@ class _EventCard extends StatelessWidget {
         ? ''
         : ' – ${TimeOfDay.fromDateTime(e.end!).format(context)}';
     return _Card(
-      icon: Icons.event_outlined,
+      // A tear-off calendar page: month over day.
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: tint.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              DateFormat.MMM().format(e.start).toUpperCase(),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                height: 1.1,
+              ),
+            ),
+            Text(
+              '${e.start.day}',
+              style: TextStyle(
+                color: tint,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
       tint: tint,
+      footer: footer,
       lines: [
         _title(e.title.isEmpty ? 'Event' : e.title, tint),
         _line('${DateFormat.MMMEd().format(e.start)} · $time$end', tint,

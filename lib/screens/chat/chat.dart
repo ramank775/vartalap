@@ -3,6 +3,7 @@ library vartalap.screens.chat.chat;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
@@ -338,6 +339,17 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// After a send, show it: the list is reversed, so the newest
+  /// message is at offset 0.
+  void _toBottom() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
   void _jumpToMessage(String messageId) {
     setState(() => _highlightedMessageId = messageId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -594,7 +606,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// gallery for photos and videos (photos we can size for the bubble),
   /// the system file picker for everything else, and the text-format
   /// kinds — contact, location, event (decision 133).
-  Future<void> _onAttach() async {
+  Future<void> _onAttach({String? preset}) async {
     const options = [
       (Icons.photo_camera_outlined, 'Camera', 'camera'),
       (Icons.image_outlined, 'Gallery', 'gallery'),
@@ -603,7 +615,7 @@ class _ChatScreenState extends State<ChatScreen> {
       (Icons.location_on_outlined, 'Location', 'location'),
       (Icons.event_outlined, 'Event', 'event'),
     ];
-    final choice = await showModalBottomSheet<String>(
+    final choice = preset ?? await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) {
         final scheme = Theme.of(ctx).colorScheme;
@@ -706,6 +718,7 @@ class _ChatScreenState extends State<ChatScreen> {
         width: width,
         height: height,
       );
+      _toBottom();
       if (mounted) setState(() => _replyTo = null);
     } on ArgumentError catch (e) {
       _toast('${e.message}');
@@ -728,6 +741,7 @@ class _ChatScreenState extends State<ChatScreen> {
       replyToMessageId: _replyTo?.messageId,
       contentType: contentType,
     );
+    _toBottom();
     if (mounted) setState(() => _replyTo = null);
   }
 
@@ -952,6 +966,7 @@ class _ChatScreenState extends State<ChatScreen> {
         replyToMessageId: _replyTo?.messageId,
         durationMs: duration.inMilliseconds,
       );
+      _toBottom();
       if (mounted) setState(() => _replyTo = null);
     } catch (_) {
       _toast("Couldn't send the voice message.");
@@ -986,6 +1001,7 @@ class _ChatScreenState extends State<ChatScreen> {
           authorUserId: userId,
           replyToMessageId: _replyTo?.messageId,
         );
+        _toBottom();
       }
       if (mounted) {
         setState(() {
@@ -1186,6 +1202,7 @@ class _ChatScreenState extends State<ChatScreen> {
             sending: _sending,
             onSend: _onSend,
             onAttach: _onAttach,
+            onCamera: () => _onAttach(preset: 'camera'),
             onMic: _startRecording,
             recording: _recorder == null
                 ? null
@@ -1259,6 +1276,9 @@ class _MessageInput extends StatelessWidget {
   /// Opens the attachment sheet (frame d1's paperclip).
   final VoidCallback onAttach;
 
+  /// Straight to the camera, from the composer box.
+  final VoidCallback onCamera;
+
   /// Starts a voice note. The send button is a mic while there is
   /// nothing to send.
   final VoidCallback onMic;
@@ -1286,6 +1306,7 @@ class _MessageInput extends StatelessWidget {
     required this.sending,
     required this.onSend,
     required this.onAttach,
+    required this.onCamera,
     required this.onMic,
     required this.onStopRecording,
     this.recording,
@@ -1294,180 +1315,200 @@ class _MessageInput extends StatelessWidget {
     this.onCancelCompose,
   });
 
+  /// Height of the box and of the round button beside it.
+  static const double _height = 48;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: kSpaceSm,
-          vertical: kSpaceSm,
-        ),
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          border: Border(
-            top: BorderSide(
-              color: scheme.outlineVariant.withValues(alpha: 0.3),
-              width: 0.5,
-            ),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-        if (editing || replyPreview != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: kSpaceSm),
-            padding: const EdgeInsets.symmetric(
-              horizontal: kSpaceSm,
-              vertical: kSpaceXs,
-            ),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(kRadiusSm),
-              border: Border(
-                left: BorderSide(color: scheme.primary, width: 3),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  editing ? Icons.edit_outlined : Icons.reply,
-                  size: 16,
-                  color: scheme.primary,
-                ),
-                const SizedBox(width: kSpaceSm),
-                Expanded(
-                  child: Text(
-                    editing
-                        ? 'Editing message'
-                        : (replyPreview!.isEmpty ? 'Message' : replyPreview!),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Cancel',
-                  onPressed: onCancelCompose,
-                ),
-              ],
-            ),
-          ),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (recording != null) ...[
+    final muted = scheme.onSurfaceVariant;
+    // WhatsApp's composer: one rounded box holding the reply/edit
+    // preview, the text, the paperclip and the camera, and the round
+    // send/mic button beside it at the same height.
+    final box = recording != null
+        ? Row(
+            children: [
               IconButton(
                 icon: const Icon(Icons.delete_outline),
                 tooltip: 'Discard',
                 color: scheme.error,
                 onPressed: () => onStopRecording(false),
               ),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: Row(
-                    children: [
-                      Icon(Icons.circle, size: 12, color: scheme.error),
-                      const SizedBox(width: kSpaceSm),
-                      Text(
-                        mmss(recording!),
-                        style: TextStyle(color: scheme.onSurface),
-                      ),
-                    ],
-                  ),
-                ),
+              Icon(Icons.circle, size: 10, color: scheme.error),
+              const SizedBox(width: kSpaceSm),
+              Text(
+                mmss(recording!),
+                style: TextStyle(color: scheme.onSurface, fontSize: 16),
               ),
-            ] else ...[
-            IconButton(
-              icon: const Icon(Icons.attach_file),
-              tooltip: 'Attach',
-              color: scheme.onSurfaceVariant,
-              onPressed: sending ? null : onAttach,
-            ),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(kRadiusXl),
-                ),
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  minLines: 1,
-                  maxLines: 4,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(
-                    // The rounded container is the background; the
-                    // theme's square fill would paint over it.
-                    filled: false,
-                    border: InputBorder.none,
-                    hintText: 'Message',
-                    hintStyle: TextStyle(color: scheme.onSurfaceVariant),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: kSpaceMd,
-                      vertical: kSpaceSm + kSpaceXs,
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.only(right: kSpaceMd),
+                child: Text('Recording…', style: TextStyle(color: muted)),
+              ),
+            ],
+          )
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (editing || replyPreview != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: ColoredBox(
+                      color: scheme.surface.withValues(alpha: 0.7),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          children: [
+                            Container(width: 4, color: scheme.primary),
+                            const SizedBox(width: kSpaceSm + kSpaceXs),
+                            Icon(
+                              editing ? Icons.edit_outlined : Icons.reply,
+                              size: 16,
+                              color: scheme.primary,
+                            ),
+                            const SizedBox(width: kSpaceSm),
+                            Expanded(
+                              child: Text(
+                                editing
+                                    ? 'Editing message'
+                                    : (replyPreview!.isEmpty
+                                        ? 'Message'
+                                        : replyPreview!),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 13, color: muted),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              visualDensity: VisualDensity.compact,
+                              tooltip: 'Cancel',
+                              onPressed: onCancelCompose,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      minLines: 1,
+                      maxLines: 5,
+                      textCapitalization: TextCapitalization.sentences,
+                      style: const TextStyle(fontSize: 16),
+                      decoration: InputDecoration(
+                        // The rounded box is the background; the
+                        // theme's square fill would paint over it.
+                        filled: false,
+                        border: InputBorder.none,
+                        isDense: true,
+                        hintText: 'Message',
+                        hintStyle: TextStyle(color: muted),
+                        contentPadding:
+                            const EdgeInsets.fromLTRB(18, 13, 0, 13),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Transform.rotate(
+                      angle: -0.6,
+                      child: const Icon(Icons.attach_file),
+                    ),
+                    tooltip: 'Attach',
+                    color: muted,
+                    onPressed: sending ? null : onAttach,
+                  ),
+                  // WhatsApp hides the camera once there's text.
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: controller,
+                    builder: (context, value, _) =>
+                        value.text.isEmpty && !editing
+                            ? IconButton(
+                                icon: const Icon(Icons.photo_camera_outlined),
+                                tooltip: 'Camera',
+                                color: muted,
+                                onPressed: sending ? null : onCamera,
+                              )
+                            : const SizedBox(width: kSpaceXs),
+                  ),
+                ],
+              ),
+            ],
+          );
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Container(
+                constraints: const BoxConstraints(minHeight: _height),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(_height / 2),
+                ),
+                child: box,
               ),
             ),
-            ],
-            const SizedBox(width: kSpaceSm),
+            const SizedBox(width: 6),
             ValueListenableBuilder<TextEditingValue>(
               valueListenable: controller,
               builder: (context, value, _) {
                 final mic = recording == null &&
                     !editing &&
                     value.text.trim().isEmpty;
-                return Material(
-                  color: scheme.primary,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: sending
-                        ? null
-                        : recording != null
-                            ? () => onStopRecording(true)
-                            : mic
-                                ? onMic
-                                : onSend,
-                    child: Padding(
-                      padding: const EdgeInsets.all(kSpaceSm + kSpaceXs),
-                      child: sending
-                          ? SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
+                return SizedBox.square(
+                  dimension: _height,
+                  child: Material(
+                    color: scheme.primary,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: sending
+                          ? null
+                          : recording != null
+                              ? () => onStopRecording(true)
+                              : mic
+                                  ? onMic
+                                  : onSend,
+                      child: Center(
+                        child: sending
+                            ? SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.onPrimary,
+                                ),
+                              )
+                            : Icon(
+                                editing
+                                    ? Icons.check_rounded
+                                    : mic
+                                        ? Icons.mic
+                                        : Icons.send_rounded,
+                                semanticLabel:
+                                    mic ? 'Record voice message' : null,
+                                size: 22,
                                 color: scheme.onPrimary,
                               ),
-                            )
-                          : Icon(
-                              editing
-                                  ? Icons.check_rounded
-                                  : mic
-                                      ? Icons.mic
-                                      : Icons.send_rounded,
-                              semanticLabel:
-                                  mic ? 'Record voice message' : null,
-                              size: 20,
-                              color: scheme.onPrimary,
-                            ),
+                      ),
                     ),
                   ),
                 );
               },
             ),
-          ],
-        ),
           ],
         ),
       ),
@@ -1651,31 +1692,73 @@ class _MessageBubble extends StatelessWidget {
       DateTime.fromMillisecondsSinceEpoch(message.displayTimestampMs),
     ).format(context);
 
-    // The meta row (time + optional tick) that tucks into the message.
-    final meta = Row(
-      mainAxisSize: MainAxisSize.min,
+    // Time + tick (+ "edited"); white when it sits on a photo.
+    Widget metaIn(Color color) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (message.isEdited && !tombstoned) ...[
+              Text(
+                'edited',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+            Text(timeStr, style: TextStyle(fontSize: 11, color: color)),
+            if (isMine && !tombstoned) ...[
+              const SizedBox(width: 3),
+              _stateIcon(message.state, color),
+            ],
+          ],
+        );
+    final meta = metaIn(timestampColor);
+
+    final attachments = tombstoned ? const <pb.Attachment>[] : _attachments;
+    final body = message.body ?? '';
+    // Photos, files, voice notes and cards sit in a tight frame, and
+    // without a caption they carry the time themselves (WhatsApp): on
+    // the photo, beside the voice note's length, above a card's buttons.
+    final media = attachments.isNotEmpty || rich;
+    final selfTimed = media && (rich || body.isEmpty);
+    Widget pad(Widget child) => media
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 2),
+            child: child,
+          )
+        : child;
+
+    // The time tucks in after the last line of text: a transparent copy
+    // of its text (plus the tick's width) holds its place in the
+    // paragraph, so it drops to a line of its own only when the last
+    // line is full. Screen readers get the body alone.
+    final metaSpace = TextSpan(
+      style: const TextStyle(fontSize: 11, color: Colors.transparent),
       children: [
+        const WidgetSpan(child: SizedBox(width: 8)),
         if (message.isEdited && !tombstoned) ...[
-          Text(
-            'edited',
-            style: TextStyle(
-              fontSize: 11,
-              fontStyle: FontStyle.italic,
-              color: timestampColor,
-            ),
+          const TextSpan(
+            text: 'edited',
+            style: TextStyle(fontStyle: FontStyle.italic),
           ),
-          const SizedBox(width: 4),
+          const WidgetSpan(child: SizedBox(width: 4)),
         ],
-        Text(
-          timeStr,
-          style: TextStyle(fontSize: 11, color: timestampColor),
-        ),
-        if (isMine && !tombstoned) ...[
-          const SizedBox(width: 3),
-          _stateIcon(message.state, timestampColor),
-        ],
+        TextSpan(text: timeStr),
+        if (isMine && !tombstoned) const WidgetSpan(child: SizedBox(width: 18)),
       ],
     );
+    Widget withMeta(InlineSpan content, String spoken) => Stack(
+          children: [
+            Text.rich(
+              TextSpan(children: [content, metaSpace]),
+              semanticsLabel: spoken,
+              style: TextStyle(color: fg, fontSize: 16, height: 1.35),
+            ),
+            Positioned(right: 0, bottom: 1, child: meta),
+          ],
+        );
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 600),
@@ -1704,112 +1787,111 @@ class _MessageBubble extends StatelessWidget {
           elevation: 0.5,
           shadowColor: Colors.black26,
           child: Padding(
-            padding: EdgeInsets.only(
-              left: !isMine && showTail ? 16 : 12,
-              right: isMine && showTail ? 16 : 12,
-              top: 7,
-              bottom: 6,
-            ),
+            // The tail is drawn outside the box, so both sides match.
+            padding: media
+                ? const EdgeInsets.all(4)
+                : const EdgeInsets.fromLTRB(12, 7, 12, 6),
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.68,
               ),
+              // A media bubble is the media's width and its caption wraps
+              // inside it (WhatsApp); a text bubble is as wide as its
+              // text. Either way every piece shares one width, so the
+              // time can sit flush right.
+              child: _BubbleWidth(
+              media: media,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (senderLabel != null) ...[
-                    Text(
+                  if (senderLabel != null)
+                    pad(Text(
                       senderLabel!,
                       style: TextStyle(
                         color: _senderColor(senderLabel!),
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                  ],
+                    )),
                   if (replyPreview != null && !tombstoned) ...[
                     _ReplyQuote(text: replyPreview!, tint: fg),
                     const SizedBox(height: 4),
                   ],
-                  for (final a in _attachments)
-                    if (!tombstoned) _AttachmentView(attachment: a, tint: fg),
+                  for (final (i, a) in attachments.indexed)
+                    _AttachmentView(
+                      attachment: a,
+                      tint: fg,
+                      footer: selfTimed && i == attachments.length - 1
+                          ? (onPhoto) =>
+                              metaIn(onPhoto ? Colors.white : timestampColor)
+                          : null,
+                    ),
                   if (rich)
                     RichMessageView(
                       contentType: message.contentType!,
-                      body: message.body ?? '',
+                      body: body,
                       tint: fg,
+                      footer: meta,
                       onMessage: onMessageContact,
                     ),
-                  // Wrap lets the meta (time+tick) sit at the end of the
-                  // last line of text if there's room, or drop to a new
-                  // line if the text fills the full width.
-                  Wrap(
-                    alignment: WrapAlignment.end,
-                    crossAxisAlignment: WrapCrossAlignment.end,
-                    spacing: 6,
-                    runSpacing: 2,
-                    children: [
-                      if (tombstoned)
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.block,
-                                size: 14,
-                                color: fg.withValues(alpha: 0.6)),
-                            const SizedBox(width: 4),
-                            Text(
-                              'This message was deleted',
+                  if (!selfTimed)
+                    pad(withMeta(
+                      tombstoned
+                          ? TextSpan(
                               style: TextStyle(
                                 color: fg.withValues(alpha: 0.6),
                                 fontSize: 15,
                                 fontStyle: FontStyle.italic,
                               ),
-                            ),
-                          ],
-                        )
-                      else if (!rich)
-                        Text(
-                          message.body ?? '',
-                          style:
-                              TextStyle(color: fg, fontSize: 16, height: 1.35),
-                        ),
-                      meta,
-                    ],
-                  ),
-                  if (failed) ...[
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Not sent',
-                          style: TextStyle(fontSize: 11, color: fg),
-                        ),
-                        const SizedBox(width: kSpaceSm),
-                        InkWell(
-                          onTap: onRetry,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.refresh, size: 14, color: fg),
-                              const SizedBox(width: 2),
-                              Text(
-                                'Retry',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: fg,
+                              children: [
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: Icon(Icons.block,
+                                      size: 14,
+                                      color: fg.withValues(alpha: 0.6)),
                                 ),
-                              ),
-                            ],
+                                const TextSpan(
+                                    text: ' This message was deleted'),
+                              ],
+                            )
+                          : TextSpan(text: body),
+                      tombstoned ? 'This message was deleted' : body,
+                    )),
+                  if (failed)
+                    pad(Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Not sent',
+                            style: TextStyle(fontSize: 11, color: fg),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: kSpaceSm),
+                          InkWell(
+                            onTap: onRetry,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.refresh, size: 14, color: fg),
+                                const SizedBox(width: 2),
+                                Text(
+                                  'Retry',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: fg,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
                 ],
+              ),
               ),
             ),
           ),
@@ -1865,6 +1947,20 @@ class _MessageBubble extends StatelessWidget {
         return Icon(Icons.error_outline, size: 15, color: Colors.red[300]);
     }
   }
+}
+
+/// Media bubbles are [_AttachmentView.width] wide (or the bubble's max,
+/// if less); text bubbles take their text's width.
+class _BubbleWidth extends StatelessWidget {
+  final bool media;
+  final Widget child;
+
+  const _BubbleWidth({required this.media, required this.child});
+
+  @override
+  Widget build(BuildContext context) => media
+      ? SizedBox(width: _AttachmentView.width, child: child)
+      : IntrinsicWidth(child: child);
 }
 
 /// Clips the bubble shape. Without a tail it's a plain rounded rect.
@@ -1972,16 +2068,27 @@ class _ReplyQuote extends StatelessWidget {
   }
 }
 
-/// One attachment on a bubble. An image mime type renders inline and
-/// opens full-screen on tap; anything else is a file row that fetches
-/// on tap. `attachment.url` is a local path while our own upload is
-/// still in flight and a media-ms fileId afterwards — [AssetCache]
-/// resolves both.
+/// One attachment on a bubble. An image renders inline and opens
+/// full-screen on tap; audio is a voice note; anything else is a
+/// document box that opens on tap. `attachment.url` is a local path
+/// while our own upload is still in flight and a media-ms fileId
+/// afterwards — [AssetCache] resolves both.
 class _AttachmentView extends StatelessWidget {
   final pb.Attachment attachment;
   final Color tint;
 
-  const _AttachmentView({required this.attachment, required this.tint});
+  /// The bubble's time + tick when there is no caption to carry it;
+  /// `onPhoto` asks for the white version that sits on an image.
+  final Widget Function(bool onPhoto)? footer;
+
+  const _AttachmentView({
+    required this.attachment,
+    required this.tint,
+    this.footer,
+  });
+
+  /// Media width; the bubble is this plus its 4 px frame.
+  static const double width = 240;
 
   bool get _isImage => attachment.mimeType.startsWith('image/');
 
@@ -2008,50 +2115,13 @@ class _AttachmentView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (attachment.mimeType.startsWith('audio/')) {
-      return VoiceNoteView(attachment: attachment, tint: tint);
-    }
-    if (!_isImage) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: kSpaceXs),
-        child: InkWell(
-        onTap: () => _openFile(context),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              attachment.mimeType.startsWith('video/')
-                  ? Icons.play_circle_outline
-                  : Icons.insert_drive_file_outlined,
-              size: 28,
-              color: tint,
-            ),
-            const SizedBox(width: kSpaceSm),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: tint, fontSize: 14),
-                  ),
-                  Text(
-                    humanFileSize(attachment.sizeBytes.toInt()),
-                    style: TextStyle(
-                      color: tint.withValues(alpha: 0.7),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        ),
+      return VoiceNoteView(
+        attachment: attachment,
+        tint: tint,
+        footer: footer?.call(false),
       );
     }
+    if (!_isImage) return _document(context);
 
     // Reserve the sender-declared aspect ratio where we have one so the
     // bubble doesn't jump when the bytes land.
@@ -2066,25 +2136,130 @@ class _AttachmentView extends StatelessWidget {
         icon: Icons.broken_image_outlined,
       ),
     );
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: kSpaceXs),
-      child: GestureDetector(
-        onTap: () => showAssetViewer(
-          context,
-          uri: attachment.url,
-          title: attachment.filename.isEmpty ? null : attachment.filename,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(kRadiusMd),
-          child: SizedBox(
-            width: 220,
-            child: (w > 0 && h > 0)
-                ? AspectRatio(aspectRatio: w / h, child: image)
-                : SizedBox(height: 160, child: image),
+    final time = footer;
+    return GestureDetector(
+      onTap: () => showAssetViewer(
+        context,
+        uri: attachment.url,
+        title: attachment.filename.isEmpty ? null : attachment.filename,
+      ),
+      child: ClipRRect(
+        // The bubble's 18 px corner less its 4 px frame.
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+          width: double.infinity,
+          child: Stack(
+            children: [
+              // Tall shots are cropped to a sensible height (WhatsApp).
+              SizedBox(
+                height: (w > 0 && h > 0) ? math.min(width * h / w, 320) : 160,
+                width: double.infinity,
+                child: image,
+              ),
+              if (time != null)
+                Positioned(
+                  right: 6,
+                  bottom: 6,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black38,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      child: time(true),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  /// WhatsApp's document box: type glyph, name, size and extension.
+  Widget _document(BuildContext context) {
+    final isVideo = attachment.mimeType.startsWith('video/');
+    final details = [
+      humanFileSize(attachment.sizeBytes.toInt()),
+      if (_name.contains('.')) extForPath(_name).toUpperCase(),
+    ].where((s) => s.isNotEmpty).join(' · ');
+    final time = footer;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: width,
+          child: Material(
+            color: tint.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => _openFile(context),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: tint.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        isVideo
+                            ? Icons.play_arrow_rounded
+                            : Icons.description_outlined,
+                        color: tint,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tint,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (details.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              details,
+                              style: TextStyle(
+                                color: tint.withValues(alpha: 0.6),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (time != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 2),
+            child: Align(alignment: Alignment.centerRight, child: time(false)),
+          ),
+      ],
     );
   }
 }

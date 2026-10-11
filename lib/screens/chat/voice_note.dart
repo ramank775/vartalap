@@ -65,10 +65,14 @@ class VoiceNoteView extends StatelessWidget {
   final pb.Attachment attachment;
   final Color tint;
 
+  /// The bubble's time + tick, on the length's line (WhatsApp).
+  final Widget? footer;
+
   const VoiceNoteView({
     super.key,
     required this.attachment,
     required this.tint,
+    this.footer,
   });
 
   Future<void> _toggle(BuildContext context) async {
@@ -138,43 +142,66 @@ class VoiceNoteView extends StatelessWidget {
     final progress = total.inMilliseconds == 0
         ? 0.0
         : (position.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: kSpaceXs),
-      child: SizedBox(
-        width: 220,
+    final time = footer;
+    return SizedBox(
+      width: 240,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 4, 6, 2),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              icon: Icon(
-                playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            Material(
+              color: tint.withValues(alpha: 0.1),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => _toggle(context),
+                child: SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Icon(
+                    playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    size: 30,
+                    color: tint,
+                    semanticLabel: playing ? 'Pause' : 'Play voice message',
+                  ),
+                ),
               ),
-              iconSize: 32,
-              color: tint,
-              tooltip: playing ? 'Pause' : 'Play voice message',
-              onPressed: () => _toggle(context),
             ),
+            const SizedBox(width: kSpaceSm + kSpaceXs),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Puts the bar on the button's centre line.
+                  const SizedBox(height: 20),
                   // ponytail: a bar, no seek; a Slider here when someone
                   // asks to scrub.
-                  LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 3,
-                    color: tint,
-                    backgroundColor: tint.withValues(alpha: 0.2),
-                  ),
-                  const SizedBox(height: kSpaceXs),
-                  Text(
-                    // Total while idle, position once started.
-                    mmss(
-                        playing || position > Duration.zero ? position : total),
-                    style: TextStyle(
-                      color: tint.withValues(alpha: 0.7),
-                      fontSize: 11,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 4,
+                      color: tint,
+                      backgroundColor: tint.withValues(alpha: 0.2),
                     ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text(
+                        // Total while idle, position once started.
+                        mmss(playing || position > Duration.zero
+                            ? position
+                            : total),
+                        style: TextStyle(
+                          color: tint.withValues(alpha: 0.7),
+                          fontSize: 11,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (time != null) time,
+                    ],
                   ),
                 ],
               ),

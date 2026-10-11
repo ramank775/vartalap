@@ -118,7 +118,7 @@ void main() {
   /// this file is pumped by hand: the chat screen holds indeterminate
   /// progress indicators, which never settle.
   Future<void> longPress(WidgetTester tester, String body) async {
-    await tester.longPress(find.text(body));
+    await tester.longPress(find.textContaining(body));
     await settle(tester);
     await tester.pump(const Duration(milliseconds: 400));
   }
@@ -272,7 +272,7 @@ void main() {
     // budget of its own or the UNDO tap below lands on nothing.
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('This message was deleted'), findsOneWidget);
+    expect(find.textContaining('This message was deleted'), findsOneWidget);
     expect(find.text('Message deleted'), findsOneWidget);
     expect(
       (await q(tester, () => store.fetchMessage('m-mine')))?.tombstoned,
