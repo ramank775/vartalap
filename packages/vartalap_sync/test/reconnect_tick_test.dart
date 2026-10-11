@@ -150,6 +150,61 @@ void main() {
     );
   });
 
+  test('a retrying op is re-dispatched once its retry time comes round, '
+      'with nothing else happening', timeout: const Timeout(Duration(seconds: 15)),
+      () async {
+    final store = await ChatStore.open(path: inMemoryDatabasePath);
+    await store.insertChannel(
+      channelId: 'c-retry',
+      kind: 'one_to_one',
+      ownerUserId: 'u-self',
+      createdAt: 1000,
+    );
+    final dueAt = DateTime.now().millisecondsSinceEpoch + 300;
+    await store.enqueueOutboundOp(OutboundOpRow(
+      opId: 'op-retry',
+      transport: OpTransport.ws,
+      kind: OpKind.chatPayload,
+      restMethod: null,
+      restPath: null,
+      resourceId: 'c-retry',
+      payload: const [0x01],
+      status: OpStatus.retrying,
+      attempts: 1,
+      nextRetryAt: dueAt, // not due when the scheduler starts
+      dispatchedAt: null,
+      lastError: 'upload_error',
+      acknowledgedAt: null,
+      createdAt: 1000,
+      targetMessageId: null,
+      targetChannelId: 'c-retry',
+    ));
+    final scheduler = SyncScheduler(
+      store: store,
+      wsTransport: _ScriptedTransport(),
+      restTransport: _ScriptedTransport(),
+      backoff: const FixedBackoff(Duration(milliseconds: 10)),
+      sweepInterval: const Duration(milliseconds: 100),
+    );
+    addTearDown(() async {
+      await scheduler.stop();
+      await store.close();
+    });
+
+    await scheduler.start();
+    expect((await store.fetchOutboundOp('op-retry'))?.attempts, 1);
+
+    final sw = Stopwatch()..start();
+    var attempts = 1;
+    while (sw.elapsed < const Duration(seconds: 3) && attempts == 1) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      attempts = (await store.fetchOutboundOp('op-retry'))?.attempts ?? 1;
+    }
+    expect(attempts, 2,
+        reason: 'the sweep must wake the dispatcher for a due retry; '
+            'otherwise it waits for an unrelated enqueue that may never come');
+  });
+
   test('stop() releases the transport state subscriptions',
       timeout: const Timeout(Duration(seconds: 15)), () async {
     final store = await storeWithPendingOp('op-stopped', 'c-stopped');

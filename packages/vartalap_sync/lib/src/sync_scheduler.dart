@@ -422,7 +422,12 @@ class SyncScheduler {
         );
       }
     }
-    if (stuck.isNotEmpty) tickSoon();
+    // Always tick: a `retrying` op whose next_retry_at has come round has
+    // nothing else to wake it (no enqueue, ACK or reconnect on an idle
+    // chat), so a failed upload or a transient reject sat there forever.
+    // ponytail: retries fire up to one sweepInterval (10 s) late; arm a
+    // timer for the earliest next_retry_at if that ever matters.
+    tickSoon();
   }
 
   // ---------------------------------------------------------------------
