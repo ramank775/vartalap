@@ -5,7 +5,7 @@
 /// based on two flags:
 ///
 /// 1. `v3_consent_accepted` (SharedPreferences) — show the destructive-
-///    reset consent screen on first v3 launch over leftover v2 data.
+///    relaunch screen on first v3 launch over leftover v2 data.
 /// 2. [AuthService.isLoggedIn] — show the intro/login flow or the
 ///    chat list.
 library vartalap.main;
@@ -28,6 +28,7 @@ import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
@@ -152,6 +153,7 @@ Future<AppServices> initializeApp() async {
 
   // --- config / secure-storage bootstrapping --------------------------------
   final prefs = await SharedPreferences.getInstance();
+  await archiveV2Data();
   final consentAccepted =
       (prefs.getBool(kV3ConsentAcceptedKey) ?? false) || !await hasV2Data();
   VartalapTheme.themeMode = switch (prefs.getString('theme_mode')) {

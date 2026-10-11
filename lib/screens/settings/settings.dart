@@ -15,6 +15,7 @@ import 'package:vartalap/config/sentry_config.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/push_service.dart';
+import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/theme/theme.dart';
 
@@ -42,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _sentryOptIn = false;
   final TextEditingController _dsnController = TextEditingController();
   PackageInfo? _packageInfo;
+  bool _hasV2Data = false;
 
   @override
   void initState() {
@@ -70,12 +72,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } else {
       info = await PackageInfo.fromPlatform();
     }
+    final hasV2 = await hasV2Data();
     if (!mounted) return;
     setState(() {
       _themeMode = mode;
       _sentryOptIn = optIn;
       _dsnController.text = dsnOverride;
       _packageInfo = info;
+      _hasV2Data = hasV2;
     });
   }
 
@@ -354,6 +358,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(height: 1),
           _SectionHeader(label: 'Account', scheme: scheme,
               textTheme: textTheme),
+          if (_hasV2Data)
+            ListTile(
+              leading: Icon(Icons.download_outlined,
+                  color: scheme.onSurfaceVariant),
+              title: const Text('Download v2 chats'),
+              subtitle: const Text(
+                'Save a copy of your chats from the old app.',
+              ),
+              onTap: () => saveV2Chats(context),
+            ),
           ListTile(
             leading: Icon(Icons.logout, color: scheme.error),
             title: Text(

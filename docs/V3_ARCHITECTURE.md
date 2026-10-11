@@ -132,8 +132,8 @@ parallel.
 
 **Cross-device concurrent edits are out of scope.** v3 launch is one active
 device per user (see Out of scope). The per-field CRDT / LWW conversation
-from prior drafts is removed. Reinstall is handled as first-launch destructive
-reset with explicit user consent (see v3 release model).
+from prior drafts is removed. The v2 upgrade is handled by a first-launch
+relaunch screen that keeps the v2 DB for download (see v3 release model).
 
 ---
 
@@ -315,8 +315,8 @@ load-bearing claims:
 **Breaking change from v2:** the `x-user` HTTP header now carries
 `user_id` (9 hex chars), not the phone number. v3 is a clean
 break — no parallel-run window. v2 clients hitting v3 endpoints
-fail authentication; this is surfaced via the destructive-reset
-consent screen on first launch.
+fail authentication; this is surfaced via the relaunch screen on
+first launch.
 
 ---
 
@@ -562,21 +562,23 @@ in v3.
 ---
 
 ## v3 release model
-v3 ships as a **versionCode update to the existing Vartalap app ID**. On
-first launch of the v3 build, the user sees a **destructive-reset consent
-screen**:
+v3 ships as a **versionCode update to the existing Vartalap app ID**. v2
+chats are not imported. On launch, v2's sqflite DB (`databases/Chat` on
+Android) is moved, unchanged, into v3's documents dir (`v2_archive/`), and
+only when that archive exists the user sees a **relaunch screen** on first
+launch:
 
 > "Vartalap v3 is a clean relaunch. Your previous chats and login are not
-> carried over. Continuing will clear local v2 data and require you to sign
-> in again. Install or keep Vartalap v2 if you need your existing history."
+> carried over, so you will need to sign in again. Your v2 chats are kept on
+> this device. Download a copy now, or any time later from Settings."
 
-If the user consents: local v2 data is wiped, OTP flow begins. If the user
-cancels: the app shows the reset screen on every launch until consent.
+"Download v2 chats" (on that screen and in Settings while the archive
+exists) saves a consistent snapshot of the DB (`VACUUM INTO`) through the
+system "Save as" picker. "Continue" starts the OTP flow. A fresh install
+with no v2 DB skips the screen.
 
-This is honest about the data loss (v2 history does not come forward) and
-avoids the complexity of publishing a separate app listing. Users who want
-to keep v2 history can sideload the v2 APK and run both during the
-transition.
+This is honest about the history not coming forward, never destroys it,
+and avoids the complexity of publishing a separate app listing.
 
 **Per the degoogle decision:** the release signing key stays the same as v2
 (required for Play Store update continuity).
@@ -663,7 +665,7 @@ Step numbers are the canonical reference (no "Phase N" shorthand).
    classification.
 9. **Client domain + sync packages:** local store impl, per-resource
    sequence scheduler, op id generation, receiver dedup, tombstone / undo.
-10. **App UI:** first-launch destructive-reset consent → login flow → chat
+10. **App UI:** first-launch relaunch screen (v2 upgraders) → login flow → chat
     list → chat screen, against the new stack.
 11. **Push integration:** ntfy-direct, ntfy-app-install onboarding prompt,
     push-topic registration, wake-on-message.
@@ -735,8 +737,8 @@ open questions remain.
 6. ~~Conflict-resolution policy for cross-device concurrent edits?~~
    **Removed: one device per user, cross-device CRDT / LWW is out of scope.**
 7. ~~Is the app renamed, or a versionCode bump on the existing ID?~~
-   **Resolved: versionCode bump on the existing app ID, destructive-reset
-   consent on first launch.**
+   **Resolved: versionCode bump on the existing app ID, relaunch screen on
+   first launch with the v2 DB kept for download.**
 8. ~~What's the v3 launch criterion?~~ **Resolved: v2 golden path on Android
    without Firebase, plus opt-in Sentry. See decision 9.**
 9. ~~**Contact-discovery privacy protocol.**~~ **Resolved: SHA-256

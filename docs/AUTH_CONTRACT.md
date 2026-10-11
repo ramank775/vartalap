@@ -93,7 +93,8 @@ do not improvise.
   phone lookup with rate limits is v3.0; PSI is deferred to v4.
 - **No E2E encryption.** Server reads message bodies for fanout;
   E2E is a v4 conversation.
-- **No legacy migration.** v3 ships as a destructive-reset relaunch.
+- **No legacy migration.** v3 ships as a clean relaunch; v2's local DB is
+  kept for download, never imported.
   This contract is the only auth surface; the v0.1 Firebase migration
   table, the v0.1 Firebase-compat test cases, and the v0.1 open
   questions list are all dropped.
@@ -334,7 +335,7 @@ parallel-run window, see `V3_ARCHITECTURE.md` decision 1). Every
 v3 client and every v3 server route MUST use `user_id` for
 `x-user`. Any v2 client hitting a v3 endpoint will fail
 authentication; this is intentional and surfaced via the
-destructive-reset consent screen on first launch
+relaunch screen on first launch
 (`V3_ARCHITECTURE.md` release model).
 
 For new endpoints introduced in v3, the canonical authentication
