@@ -195,6 +195,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
       ),
       actions: [
         PopupMenuButton<String>(
+          // M3 colours this icon onSurfaceVariant, not the app bar's
+          // foreground, which left it dark on the green bar.
+          iconColor: Theme.of(context).appBarTheme.foregroundColor,
           onSelected: (value) async {
             if (value == 'profile') {
               Navigator.of(context).push(
