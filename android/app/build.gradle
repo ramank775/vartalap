@@ -77,7 +77,8 @@ android {
         }
     }
     
-    flavorDimensions += "app"
+    // Variants are app x push: devFoss, devGms, prodFoss, prodGms.
+    flavorDimensions += ["app", "push"]
 
     productFlavors {
         
@@ -91,6 +92,19 @@ android {
         prod {
             dimension "app"
             resValue "string", "app_name", "Vartalap"
+        }
+
+        // No Google code at all (F-Droid, GitHub). V3_ARCHITECTURE
+        // decision 1; scripts/degoogle_gate.sh and the CI dex check
+        // hold it to that.
+        foss {
+            dimension "push"
+        }
+
+        // Adds only the embedded FCM distributor, for opt-in Google push
+        // (GitHub, Play Store). DECISIONS 121.
+        gms {
+            dimension "push"
         }
     }
     lint {
@@ -117,6 +131,10 @@ configurations.all {
 }
 
 dependencies {
+    // UnifiedPush distributor that registers with Play services over IPC
+    // (no Firebase SDK). The app's own package then shows up as a
+    // distributor; PushService offers it as "Google Play services".
+    gmsImplementation 'org.unifiedpush.android:embedded-fcm-distributor:3.1.0'
     implementation 'androidx.browser:browser:1.4.0'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7"
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'

@@ -10,7 +10,15 @@
             "request": "launch",
             "type": "dart",
             "args": [
-                "--flavor=dev"
+                "--flavor=devFoss"
+            ]
+        }, {
+            "name": "Vartalap-Dev (Google push)",
+            "program": "lib/main.dart",
+            "request": "launch",
+            "type": "dart",
+            "args": [
+                "--flavor=devGms"
             ]
         }, {
             "name": "Flutter:profile",
