@@ -15,8 +15,9 @@ library vartalap.services.asset_cache;
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -37,6 +38,7 @@ String mimeForPath(String path) {
     'txt' => 'text/plain',
     'mp4' => 'video/mp4',
     'mp3' => 'audio/mpeg',
+    'zip' => 'application/zip',
     _ => 'application/octet-stream',
   };
 }
@@ -114,10 +116,14 @@ class AssetCache {
   /// free to sweep, into ours — the upload op may not run for hours.
   /// Returns the new absolute path.
   Future<String> importPicked(String sourcePath) async {
-    final base = await dir;
-    final name = '${DateTime.now().microsecondsSinceEpoch}-'
-        '${sourcePath.split('/').last}';
-    final copied = await File(sourcePath).copy('${base.path}/$name');
+    // A unique folder, not a name prefix: the basename is what the
+    // recipient sees as the file name.
+    final folder = await Directory(
+      '${(await dir).path}/${DateTime.now().microsecondsSinceEpoch}',
+    ).create();
+    final copied = await File(
+      sourcePath,
+    ).copy('${folder.path}/${sourcePath.split('/').last}');
     return copied.path;
   }
 
@@ -139,5 +145,43 @@ Future<String?> pickPhoto(AssetCache cache) async {
     return await cache.importPicked(picked.path);
   } catch (_) {
     return null;
+  }
+}
+
+/// The sender chose [name]: keep a bare basename so it cannot climb
+/// out of the folder we write it into.
+String safeFileName(String name) {
+  final base = name.split(RegExp(r'[/\\]')).last;
+  return (base.isEmpty || base == '.' || base == '..') ? 'attachment' : base;
+}
+
+/// Fetch an attachment and hand it to whatever installed app opens
+/// [mime]; when none does, offer the system "Save to…" picker instead.
+/// False if the bytes could not be had or the hand-off failed.
+Future<bool> openAttachment(
+  AssetCache cache, {
+  required String uri,
+  required String name,
+  required String mime,
+}) async {
+  try {
+    final bytes = await cache.bytes(uri);
+    if (bytes == null) return false;
+    final safe = safeFileName(name);
+    final dir = await Directory(
+      '${(await getTemporaryDirectory()).path}/open',
+    ).create(recursive: true);
+    final file = await File('${dir.path}/$safe').writeAsBytes(bytes);
+    final opened = await const MethodChannel('vartalap/files')
+        .invokeMethod<bool>('open', {
+      'path': file.path,
+      'mime': mime.isEmpty ? '*/*' : mime,
+    });
+    if (opened != true) {
+      await FilePicker.platform.saveFile(fileName: safe, bytes: bytes);
+    }
+    return true;
+  } catch (_) {
+    return false;
   }
 }

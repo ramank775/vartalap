@@ -115,6 +115,14 @@ class _FileRow extends StatelessWidget {
     return ListTile(
       leading: const Icon(Icons.insert_drive_file_outlined),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      onTap: a == null || AssetCache.instance == null
+          ? null
+          : () => openAttachment(
+                AssetCache.instance!,
+                uri: a.url,
+                name: name,
+                mime: a.mimeType,
+              ),
       subtitle: Text(DateFormat.yMMMd().format(
         DateTime.fromMillisecondsSinceEpoch(
           message.serverTimestampMs ?? message.clientTimestampMs,

@@ -1605,16 +1605,17 @@ class _AttachmentView extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
     final cache = AssetCache.instance;
     if (cache == null) return;
-    messenger.showSnackBar(
-      SnackBar(content: Text('Downloading $_name…')),
+    final ok = await openAttachment(
+      cache,
+      uri: attachment.url,
+      name: _name,
+      mime: attachment.mimeType,
     );
-    final bytes = await cache.bytes(attachment.url);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(
-      content: Text(bytes == null
-          ? "Couldn't download $_name"
-          : '$_name saved to your Vartalap files'),
-    ));
+    if (!ok) {
+      messenger.showSnackBar(
+        SnackBar(content: Text("Couldn't open $_name")),
+      );
+    }
   }
 
   @override
@@ -1650,8 +1651,6 @@ class _AttachmentView extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.download_outlined,
-                size: 18, color: tint.withValues(alpha: 0.7)),
           ],
         ),
         ),
