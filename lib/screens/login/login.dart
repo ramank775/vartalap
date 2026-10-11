@@ -8,6 +8,7 @@ import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/login/verifyOtp.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/countries.dart';
 import 'package:vartalap/utils/phone_number.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
@@ -20,9 +21,11 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _countryCodeController =
-      TextEditingController(text: kDefaultCountryCode);
+  /// Dial code digits, no `+`. Kept in sync with [_country] both ways:
+  /// picking a country fills it, typing a code picks the country.
+  final TextEditingController _countryCodeController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  Country? _country;
   bool _loading = false;
 
   /// The E.164 form of the two fields combined — recomputed on every
@@ -30,31 +33,52 @@ class _LoginScreenState extends State<LoginScreen> {
   String get _e164 =>
       normalizePhoneNumber(
         _phoneController.text.trim(),
-        countryCode: _countryCodeController.text.trim(),
+        countryCode: '+${_countryCodeController.text}',
       ) ??
       '';
-  bool get _isValid => isValidE164(_e164);
+  bool get _isValid => _country != null && isValidE164(_e164);
 
   @override
   void initState() {
     super.initState();
-    _loadCountryCode();
-    _countryCodeController.addListener(_onFieldChanged);
+    _loadCountry();
+    _countryCodeController.addListener(_onCodeChanged);
     _phoneController.addListener(_onFieldChanged);
   }
 
-  Future<void> _loadCountryCode() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(kCountryCodePrefKey);
-    if (saved == null || !mounted) return;
-    _countryCodeController.text = saved;
+  Future<void> _loadCountry() async {
+    final country = await defaultCountry();
+    // Don't clobber a code the user already started typing.
+    if (!mounted || _countryCodeController.text.isNotEmpty) return;
+    _setCountry(country);
   }
+
+  void _setCountry(Country country) {
+    _country = country;
+    _countryCodeController.text = country.dialCode;
+  }
+
+  void _onCodeChanged() => setState(() {
+        _country = countryForDialCode(
+          _countryCodeController.text,
+          current: _country,
+        );
+      });
 
   void _onFieldChanged() => setState(() {});
 
+  Future<void> _pickCountry() async {
+    final picked = await showModalBottomSheet<Country>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _CountrySheet(),
+    );
+    if (picked != null) setState(() => _setCountry(picked));
+  }
+
   @override
   void dispose() {
-    _countryCodeController.removeListener(_onFieldChanged);
+    _countryCodeController.removeListener(_onCodeChanged);
     _phoneController.removeListener(_onFieldChanged);
     _countryCodeController.dispose();
     _phoneController.dispose();
@@ -68,8 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     final phone = _e164;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        kCountryCodePrefKey, _countryCodeController.text.trim());
+    await prefs.setString(kCountryIsoPrefKey, _country!.iso);
     setState(() => _loading = true);
     try {
       await widget.authService.sendOtp(phone);
@@ -151,19 +174,49 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: kSpaceLg),
                           Container(
                             constraints: const BoxConstraints(maxWidth: 500),
+                            child: InkWell(
+                              key: const Key('countryPicker'),
+                              borderRadius: BorderRadius.circular(kRadiusMd),
+                              onTap: _pickCountry,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  suffixIcon: Icon(Icons.arrow_drop_down),
+                                ),
+                                child: Text(
+                                  _country == null
+                                      ? 'Invalid country code'
+                                      : '${_country!.flag}  ${_country!.name}',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.titleMedium?.copyWith(
+                                    color: _country == null
+                                        ? scheme.error
+                                        : scheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: kSpaceSm),
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 500),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 SizedBox(
-                                  width: 72,
+                                  width: 96,
                                   child: TextField(
                                     key: const Key('countryCodeField'),
                                     controller: _countryCodeController,
-                                    keyboardType: TextInputType.phone,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                      LengthLimitingTextInputFormatter(4),
+                                    ],
                                     maxLines: 1,
                                     style: textTheme.titleLarge,
-                                    decoration: const InputDecoration(
-                                      hintText: '+91',
+                                    decoration: InputDecoration(
+                                      prefixText: '+',
+                                      prefixStyle: textTheme.titleLarge,
                                     ),
                                   ),
                                 ),
@@ -178,11 +231,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       if (!_loading) _onSend();
                                     },
                                     style: textTheme.titleLarge,
-                                    decoration: InputDecoration(
-                                      prefixIcon: Icon(
-                                        Icons.phone_outlined,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
+                                    decoration: const InputDecoration(
                                       hintText: 'Phone number',
                                     ),
                                   ),
@@ -234,6 +283,62 @@ class _LoginScreenState extends State<LoginScreen> {
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Searchable country list, returned to the phone screen on tap.
+class _CountrySheet extends StatefulWidget {
+  const _CountrySheet();
+
+  @override
+  State<_CountrySheet> createState() => _CountrySheetState();
+}
+
+class _CountrySheetState extends State<_CountrySheet> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _query.toLowerCase().replaceAll('+', '');
+    final matches = kCountries
+        .where(
+            (c) => c.name.toLowerCase().contains(q) || c.dialCode.startsWith(q))
+        .toList();
+    return FractionallySizedBox(
+      heightFactor: 0.9,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(kSpaceMd),
+            child: TextField(
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Search country or code',
+              ),
+              onChanged: (v) => setState(() => _query = v.trim()),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              // Keep the last rows reachable above the keyboard.
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              itemCount: matches.length,
+              itemBuilder: (_, i) {
+                final c = matches[i];
+                return ListTile(
+                  leading: Text(c.flag, style: const TextStyle(fontSize: 24)),
+                  title: Text(c.name),
+                  trailing: Text('+${c.dialCode}'),
+                  onTap: () => Navigator.pop(context, c),
+                );
+              },
+            ),
           ),
         ],
       ),

@@ -1,8 +1,31 @@
-/// Preference key for the remembered country code (§4.7 plumbing — the
-/// login screen's country-code field persists here; new users default to
-/// [kDefaultCountryCode]).
-const String kCountryCodePrefKey = 'country_code';
+import 'dart:io';
+
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vartalap/utils/countries.dart';
+
+/// Preference key for the remembered country (ISO 3166-1 alpha-2): the
+/// login screen saves it on Next, the contact matcher reads its dial code.
+const String kCountryIsoPrefKey = 'country_iso';
+const String kDefaultCountryIso = 'IN';
 const String kDefaultCountryCode = '+91';
+
+/// The remembered country, else the SIM's (like WhatsApp), else India.
+Future<Country> defaultCountry() async {
+  final prefs = await SharedPreferences.getInstance();
+  final saved = countryForIso(prefs.getString(kCountryIsoPrefKey));
+  if (saved != null) return saved;
+  // The channel lives in Android's MainActivity only.
+  if (Platform.isAndroid) {
+    try {
+      final sim = await const MethodChannel('vartalap/sim')
+          .invokeMethod<String>('countryIso');
+      final fromSim = countryForIso(sim);
+      if (fromSim != null) return fromSim;
+    } catch (_) {}
+  }
+  return countryForIso(kDefaultCountryIso)!;
+}
 
 /// E.164 pattern: `+` followed by 7-15 digits, first digit non-zero.
 final RegExp _e164Pattern = RegExp(r'^\+[1-9]\d{6,14}$');
@@ -16,8 +39,8 @@ bool isValidE164(String phone) => _e164Pattern.hasMatch(phone);
 /// user's own remembered country-code field.
 String? normalizePhoneNumber(String phoneNumber,
     {String countryCode = kDefaultCountryCode}) {
-  // Remove space
-  phoneNumber = phoneNumber.replaceAll(' ', '');
+  // Drop the separators people type or paste: spaces, dashes, dots, brackets.
+  phoneNumber = phoneNumber.replaceAll(RegExp(r'[\s\-.()]'), '');
   // Check if it's a valid phone number by parsing the string into integer
   if (int.tryParse(phoneNumber) == null) {
     return null;

@@ -1,5 +1,5 @@
-/// LoginScreen widget tests — country-code field + E.164 validation
-/// gating "Send OTP" (§4.7 plumbing: replaces the hard-coded +91 hack).
+/// LoginScreen widget tests: WhatsApp-style country row + code field
+/// kept in sync, E.164 validation gating "Send OTP", remembered country.
 library vartalap.screens.login_screen_test;
 
 import 'package:flutter/material.dart';
@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/screens/login/login.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/utils/countries.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 void main() {
@@ -25,32 +26,34 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('country code field defaults to +91; Send OTP disabled empty',
+  String codeText(WidgetTester tester) => tester
+      .widget<TextField>(find.byKey(const Key('countryCodeField')))
+      .controller!
+      .text;
+
+  ElevatedButton nextButton(WidgetTester tester) =>
+      tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+
+  testWidgets('defaults to India (+91) with no saved country or SIM',
       (tester) async {
-    final auth = _FakeAuthService();
-    await pumpLogin(tester, authService: auth);
+    await pumpLogin(tester, authService: _FakeAuthService());
 
-    final countryField =
-        tester.widget<TextField>(find.byKey(const Key('countryCodeField')));
-    expect(countryField.controller?.text, '+91');
-
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-    expect(button.onPressed, isNull);
+    expect(codeText(tester), '91');
+    expect(find.textContaining('India'), findsOneWidget);
+    expect(nextButton(tester).onPressed, isNull);
   });
 
-  testWidgets('valid phone + default country code enables Send OTP and sends',
+  testWidgets('valid phone sends E.164, ignoring typed separators',
       (tester) async {
     final auth = _FakeAuthService();
     await pumpLogin(tester, authService: auth);
 
     await tester.enterText(
       find.widgetWithText(TextField, 'Phone number'),
-      '9999999999',
+      '99999-99999',
     );
     await tester.pumpAndSettle();
-
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-    expect(button.onPressed, isNotNull);
+    expect(nextButton(tester).onPressed, isNotNull);
 
     await tester.tap(find.byType(ElevatedButton));
     await tester.pumpAndSettle();
@@ -58,32 +61,70 @@ void main() {
     expect(auth.sentPhones, ['+919999999999']);
   });
 
-  testWidgets('invalid country code keeps Send OTP disabled', (tester) async {
-    final auth = _FakeAuthService();
-    await pumpLogin(tester, authService: auth);
-
-    await tester.enterText(
-      find.byKey(const Key('countryCodeField')),
-      '91',
-    );
+  testWidgets('typing a code picks its country; unknown code disables Next',
+      (tester) async {
+    await pumpLogin(tester, authService: _FakeAuthService());
     await tester.enterText(
       find.widgetWithText(TextField, 'Phone number'),
-      '9999999999',
+      '2025550123',
     );
-    await tester.pumpAndSettle();
 
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-    expect(button.onPressed, isNull);
+    await tester.enterText(find.byKey(const Key('countryCodeField')), '1');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('United States'), findsOneWidget);
+    expect(nextButton(tester).onPressed, isNotNull);
+
+    await tester.enterText(find.byKey(const Key('countryCodeField')), '999');
+    await tester.pumpAndSettle();
+    expect(find.text('Invalid country code'), findsOneWidget);
+    expect(nextButton(tester).onPressed, isNull);
   });
 
-  testWidgets('country code is remembered across launches', (tester) async {
-    SharedPreferences.setMockInitialValues({'country_code': '+44'});
+  testWidgets('picking a country from the list fills its code', (tester) async {
     final auth = _FakeAuthService();
     await pumpLogin(tester, authService: auth);
 
-    final countryField =
-        tester.widget<TextField>(find.byKey(const Key('countryCodeField')));
-    expect(countryField.controller?.text, '+44');
+    await tester.tap(find.byKey(const Key('countryPicker')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Search country or code'),
+      'canada',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Canada'));
+    await tester.pumpAndSettle();
+
+    // Canada shares +1 with the US; the picked country must stick.
+    expect(codeText(tester), '1');
+    expect(find.textContaining('Canada'), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Phone number'),
+      '4165550123',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pumpAndSettle();
+    expect(auth.sentPhones, ['+14165550123']);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('country_iso'), 'CA');
+  });
+
+  testWidgets('the saved country is remembered across launches',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({'country_iso': 'GB'});
+    await pumpLogin(tester, authService: _FakeAuthService());
+
+    expect(codeText(tester), '44');
+    expect(find.textContaining('United Kingdom'), findsOneWidget);
+  });
+
+  test('country lookups', () {
+    expect(countryForIso('in')!.flag, '\u{1F1EE}\u{1F1F3}');
+    expect(countryForDialCode('44')!.iso, 'GB');
+    expect(countryForDialCode('7')!.iso, 'RU');
+    expect(countryForDialCode('1684')!.iso, 'AS');
+    expect(countryForDialCode('999'), isNull);
   });
 }
 

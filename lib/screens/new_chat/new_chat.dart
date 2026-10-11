@@ -158,8 +158,8 @@ class _ContactsTabState extends State<_ContactsTab>
     final (phones, names) = await _readDeviceContacts();
     _phoneByHash
       ..clear()
-      ..addEntries(phones.map(
-          (p) => MapEntry(sha256.convert(utf8.encode(p)).toString(), p)));
+      ..addEntries(phones
+          .map((p) => MapEntry(sha256.convert(utf8.encode(p)).toString(), p)));
     return widget.chatService.discoverContacts(
       normalizedPhones: phones,
       contactBookNamesByPhone: names,
@@ -201,6 +201,8 @@ class _ContactsTabState extends State<_ContactsTab>
     );
     final phones = <String>{};
     final names = <String, String>{};
+    // Local numbers (no +) take the user's own country, not a fixed +91.
+    final countryCode = '+${(await defaultCountry()).dialCode}';
     for (final c in contacts) {
       final dn = c.displayName?.trim() ?? '';
       final fn = c.name?.first?.trim() ?? '';
@@ -209,7 +211,7 @@ class _ContactsTabState extends State<_ContactsTab>
         final raw = (p.normalizedNumber?.isNotEmpty ?? false)
             ? p.normalizedNumber!
             : p.number;
-        final normalized = normalizePhoneNumber(raw);
+        final normalized = normalizePhoneNumber(raw, countryCode: countryCode);
         if (normalized == null) continue;
         phones.add(normalized);
         if (label != null) names.putIfAbsent(normalized, () => label);
@@ -607,8 +609,8 @@ class _FindByUsernameState extends State<_FindByUsername> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-              kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
+          padding:
+              const EdgeInsets.fromLTRB(kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
           child: TextField(
             controller: _handle,
             autocorrect: false,
