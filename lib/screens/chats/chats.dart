@@ -484,9 +484,18 @@ class ChannelTile extends StatelessWidget {
       );
     }
 
+    final body = entry.lastMessagePreview ?? '';
+    final type = entry.lastMessageContentType ?? '';
     final preview = entry.lastMessageTombstoned
         ? '(message deleted)'
-        : entry.lastMessagePreview ?? '';
+        // Only an attachment has no body; its type says which kind.
+        : body.isNotEmpty || type.isEmpty
+            ? body
+            : type.startsWith('image/')
+                ? '📷 Photo'
+                : type.startsWith('video/')
+                    ? '🎥 Video'
+                    : '📄 File';
     return Text.rich(
       TextSpan(
         children: [

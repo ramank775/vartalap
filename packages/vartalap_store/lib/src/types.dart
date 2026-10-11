@@ -328,6 +328,10 @@ class ChannelListEntry {
   /// channel has no messages yet (or the last message row is missing).
   final String? lastMessagePreview;
 
+  /// MIME of the last message (`text/plain`, or an attachment's type),
+  /// so an attachment with no caption can still say what it is.
+  final String? lastMessageContentType;
+
   /// Author of the preview-bearing message. Caller resolves the
   /// display name against its own contacts cache.
   final String? lastMessageAuthor;
@@ -360,6 +364,7 @@ class ChannelListEntry {
     this.mutedUntilMs,
     this.hasFailedOp = false,
     required this.lastMessagePreview,
+    this.lastMessageContentType,
     required this.lastMessageAuthor,
     required this.lastMessageTombstoned,
     this.peerContact,

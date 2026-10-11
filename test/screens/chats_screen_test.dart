@@ -75,6 +75,20 @@ void main() {
       expect(find.textContaining('see you at 6'), findsNothing);
     });
 
+    testWidgets('an uncaptioned attachment says what it is', (tester) async {
+      await _pumpTile(
+        tester,
+        _entry(lastMessagePreview: '', lastMessageContentType: 'image/jpeg'),
+      );
+      expect(find.textContaining('Photo', findRichText: true), findsOneWidget);
+
+      await _pumpTile(
+        tester,
+        _entry(lastMessagePreview: '', lastMessageContentType: 'text/plain'),
+      );
+      expect(find.textContaining('File', findRichText: true), findsOneWidget);
+    });
+
     testWidgets('group rows carry the glyph avatar and a sender prefix',
         (tester) async {
       await _pumpTile(
@@ -358,6 +372,7 @@ ChannelListEntry _entry({
   int? mutedUntilMs,
   bool hasFailedOp = false,
   String? lastMessagePreview = 'hello',
+  String? lastMessageContentType,
 }) =>
     ChannelListEntry(
       channelId: channelId,
@@ -370,6 +385,7 @@ ChannelListEntry _entry({
       mutedUntilMs: mutedUntilMs,
       hasFailedOp: hasFailedOp,
       lastMessagePreview: lastMessagePreview,
+      lastMessageContentType: lastMessageContentType,
       lastMessageAuthor: 'u-peer',
       lastMessageTombstoned: false,
     );
