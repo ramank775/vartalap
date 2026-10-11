@@ -413,9 +413,16 @@ class PushService {
   /// A wake is content-free: pull whatever the server queued, get the
   /// WS back up, and tell the user something happened if they are not
   /// already looking at the app.
+  /// How long a wake may spend pulling before the notification goes up.
+  @visibleForTesting
+  Duration wakeBudget = const Duration(seconds: 5);
+
   Future<void> _onMessage() async {
+    // Android freezes a background app a few seconds after the push wakes
+    // it, so the pull gets a short budget and the notification always
+    // follows: an unreachable server must not swallow the "you have mail".
     try {
-      await onWake?.call();
+      await onWake?.call().timeout(wakeBudget);
     } catch (e) {
       debugPrint('Push wake pull failed: $e');
     }

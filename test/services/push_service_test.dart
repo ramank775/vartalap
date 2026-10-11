@@ -6,6 +6,7 @@
 /// machine through a fake distributor.
 library vartalap.services.push_service_test;
 
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/push_service.dart';
@@ -303,6 +304,19 @@ void main() {
       await f.push.emitMessage();
 
       expect(order, ['wake', 'notify']);
+    });
+
+    test('a pull that hangs still notifies once the budget runs out',
+        () async {
+      final f = _Fixture(distributors: const [_ntfy]);
+      f.service.onWake = () => Completer<void>().future; // never completes
+      f.service.wakeBudget = const Duration(milliseconds: 50);
+      await f.service.start();
+
+      await f.push.emitMessage();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(f.notifyCount, 1);
     });
 
     test('a failing pull still notifies', () async {
