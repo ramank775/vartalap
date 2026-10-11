@@ -54,6 +54,12 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        // The theme's app bar is primary-coloured with light icons; on a
+        // transparent bar over the surface they would be invisible.
+        foregroundColor: scheme.onSurface,
+        systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
         elevation: 0,
       ),
       body: SafeArea(
