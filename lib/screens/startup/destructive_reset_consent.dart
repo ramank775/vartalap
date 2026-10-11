@@ -11,7 +11,25 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/app_logo.dart';
 
 const String kV3ConsentAcceptedKey = 'v3_consent_accepted';
-const String _kV2DbFilename = 'vartalap.db';
+
+/// v2's sqflite DB: `getDatabasesPath()/Chat`, which is the app's
+/// `databases/` dir on Android (a sibling of path_provider's
+/// `app_flutter/` documents dir) and Documents on iOS.
+Future<File> _v2DbFile() async {
+  final docs = await getApplicationDocumentsDirectory();
+  final dir = Platform.isAndroid ? '${docs.parent.path}/databases' : docs.path;
+  return File('$dir/Chat');
+}
+
+/// True only when a v2 install left data behind; a fresh v3 install has
+/// nothing to reset, so the consent screen is skipped.
+Future<bool> hasV2Data() async {
+  try {
+    return await (await _v2DbFile()).exists();
+  } catch (_) {
+    return false;
+  }
+}
 
 class DestructiveResetConsentScreen extends StatefulWidget {
   final VoidCallback onAccepted;
@@ -45,10 +63,10 @@ class _DestructiveResetConsentScreenState
 
   Future<void> _wipeV2Database() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final v2File = File('${dir.path}/$_kV2DbFilename');
-      if (await v2File.exists()) {
-        await v2File.delete();
+      final db = await _v2DbFile();
+      for (final suffix in ['', '-journal', '-wal', '-shm']) {
+        final f = File('${db.path}$suffix');
+        if (await f.exists()) await f.delete();
       }
     } catch (_) {}
   }

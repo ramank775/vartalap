@@ -5,7 +5,7 @@
 /// based on two flags:
 ///
 /// 1. `v3_consent_accepted` (SharedPreferences) — show the destructive-
-///    reset consent screen on first v3 launch.
+///    reset consent screen on first v3 launch over leftover v2 data.
 /// 2. [AuthService.isLoggedIn] — show the intro/login flow or the
 ///    chat list.
 library vartalap.main;
@@ -152,7 +152,8 @@ Future<AppServices> initializeApp() async {
 
   // --- config / secure-storage bootstrapping --------------------------------
   final prefs = await SharedPreferences.getInstance();
-  final consentAccepted = prefs.getBool(kV3ConsentAcceptedKey) ?? false;
+  final consentAccepted =
+      (prefs.getBool(kV3ConsentAcceptedKey) ?? false) || !await hasV2Data();
   VartalapTheme.themeMode = switch (prefs.getString('theme_mode')) {
     'light' => ThemeMode.light,
     'dark' => ThemeMode.dark,
