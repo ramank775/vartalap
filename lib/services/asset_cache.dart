@@ -140,7 +140,13 @@ class AssetCache {
 /// widget test, a platform without one).
 Future<String?> pickPhoto(AssetCache cache) async {
   try {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+    // Avatars render at most a screen wide; every contact downloads one.
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 640,
+      maxHeight: 640,
+      imageQuality: 85,
+    );
     if (picked == null) return null;
     return await cache.importPicked(picked.path);
   } catch (_) {

@@ -592,8 +592,14 @@ class _ChatScreenState extends State<ChatScreen> {
     var height = 0;
     try {
       if (choice == 'image') {
-        final picked =
-            await ImagePicker().pickImage(source: ImageSource.gallery);
+        // ponytail: one fixed "standard quality" (WhatsApp sends ~1600px);
+        // an HD toggle is a preview-screen option when that screen exists.
+        final picked = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 2048,
+          maxHeight: 2048,
+          imageQuality: 85,
+        );
         if (picked == null) return;
         sourcePath = picked.path;
         // Sender-declared dimensions let the bubble reserve the right
