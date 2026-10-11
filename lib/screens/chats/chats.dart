@@ -183,7 +183,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.normal,
-                          color: scheme.onSurface.withValues(alpha: 0.7),
+                          // On the app bar, so its foreground, not
+                          // onSurface (dark on the green bar).
+                          color: (Theme.of(context)
+                                      .appBarTheme
+                                      .foregroundColor ??
+                                  scheme.onSurface)
+                              .withValues(alpha: 0.8),
                         ),
                       ),
                   ],
@@ -539,9 +545,7 @@ class _UnreadBadge extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 24),
       decoration: BoxDecoration(
         color: muted ? Colors.transparent : chatColors.unreadBadge,
-        border: muted
-            ? Border.all(color: scheme.outline)
-            : null,
+        border: muted ? Border.all(color: scheme.outline) : null,
         borderRadius: BorderRadius.circular(kRadiusFull),
       ),
       child: Text(

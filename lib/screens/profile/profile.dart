@@ -83,10 +83,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
     _subs.add(widget.authService.displayNameChange
         .listen((_) => _refreshIfMounted()));
-    _subs.add(widget.authService.usernameChange
-        .listen((_) => _refreshIfMounted()));
-    _subs.add(widget.authService.statusTextChange
-        .listen((_) => _refreshIfMounted()));
+    _subs.add(
+        widget.authService.usernameChange.listen((_) => _refreshIfMounted()));
+    _subs.add(
+        widget.authService.statusTextChange.listen((_) => _refreshIfMounted()));
   }
 
   void _refreshIfMounted() {
@@ -171,8 +171,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (candidate == auth.username) {
                 return _RowAvailability.available;
               }
-              final result =
-                  await auth.checkUsernameAvailability(candidate);
+              final result = await auth.checkUsernameAvailability(candidate);
               return result.available
                   ? _RowAvailability.available
                   : _RowAvailability.unavailable;
@@ -232,8 +231,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           // the username, never the number (§2.5).
           if (auth.username != null)
             ListTile(
-              leading: Icon(Icons.qr_code_2_rounded,
-                  color: scheme.onSurfaceVariant),
+              leading:
+                  Icon(Icons.qr_code_2_rounded, color: scheme.onSurfaceVariant),
               title: const Text('QR code'),
               subtitle: Text(
                 _qrOpen
@@ -290,8 +289,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Text(
                 _signOutArmed ? 'Tap again to confirm' : 'Sign out',
                 style: TextStyle(
-                  fontWeight:
-                      _signOutArmed ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: _signOutArmed ? FontWeight.w700 : FontWeight.w500,
                 ),
               ),
             ),
@@ -445,9 +443,10 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
     final validator = widget.validator;
     final asyncCheck = widget.availabilityCheck;
     setState(() {
-      _validationError = (next.isEmpty && widget.allowEmpty) || validator == null
-          ? null
-          : validator(next);
+      _validationError =
+          (next.isEmpty && widget.allowEmpty) || validator == null
+              ? null
+              : validator(next);
       // Don't fire the network check for unchanged or sync-invalid input.
       if (asyncCheck == null || unchanged || _validationError != null) {
         _availability = _RowAvailability.idle;
@@ -679,8 +678,8 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
           if (widget.caption != null)
             Text(
               widget.caption!,
-              style: textTheme.bodySmall
-                  ?.copyWith(color: scheme.onSurfaceVariant),
+              style:
+                  textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
         ],
       ),

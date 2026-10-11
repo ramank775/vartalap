@@ -321,7 +321,12 @@ class _SelectedMembersStrip extends StatelessWidget {
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    Avator(text: name, width: kAvatarMd, height: kAvatarMd),
+                    Avator(
+                      text: name,
+                      seed: personSeed(context, userId),
+                      width: kAvatarMd,
+                      height: kAvatarMd,
+                    ),
                     Positioned(
                       right: -4,
                       top: -4,
@@ -387,7 +392,12 @@ class _SelectableContactTile extends StatelessWidget {
     return ListTile(
       leading: Stack(
         children: [
-          Avator(text: name, width: kAvatarMd, height: kAvatarMd),
+          Avator(
+            text: name,
+            seed: personSeed(context, contact.userId),
+            width: kAvatarMd,
+            height: kAvatarMd,
+          ),
           if (selected)
             Positioned(
               right: 0,
@@ -421,9 +431,8 @@ class _SelectableContactTile extends StatelessWidget {
               style: TextStyle(color: scheme.onSurfaceVariant),
             )
           : null,
-      tileColor: selected
-          ? scheme.primaryContainer.withValues(alpha: 0.2)
-          : null,
+      tileColor:
+          selected ? scheme.primaryContainer.withValues(alpha: 0.2) : null,
       onTap: onTap,
     );
   }

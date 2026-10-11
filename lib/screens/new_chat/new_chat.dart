@@ -493,7 +493,12 @@ class _ContactTile extends StatelessWidget {
         ? '@${contact.username}'
         : null;
     return ListTile(
-      leading: Avator(text: name, width: kAvatarMd, height: kAvatarMd),
+      leading: Avator(
+        text: name,
+        seed: personSeed(context, contact.userId),
+        width: kAvatarMd,
+        height: kAvatarMd,
+      ),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: subtitle != null
           ? Text(
@@ -916,7 +921,13 @@ class _GroupTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = entry.title;
     return ListTile(
-      leading: Avator(text: name, width: kAvatarMd, height: kAvatarMd),
+      leading: Avator(
+        text: name,
+        seed: entry.channelId,
+        isGroup: true,
+        width: kAvatarMd,
+        height: kAvatarMd,
+      ),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       onTap: onTap,
     );

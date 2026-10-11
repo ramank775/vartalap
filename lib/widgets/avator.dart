@@ -1,7 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/utils/color_helper.dart';
+import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/widgets/asset_image.dart';
+import 'package:vartalap_sync/vartalap_sync.dart' show dmChannelId;
+
+/// Colour seed for a person: the id of your DM with them. The chat list
+/// and chat header seed a DM by its channel id, so seeding people the
+/// same way gives one person one colour on every screen.
+String personSeed(BuildContext context, String userId) {
+  final me = AppServicesProvider.maybeOf(context)?.authService.currentUserId;
+  return me == null ? userId : dmChannelId(me, userId);
+}
 
 /// One avatar for people and groups alike.
 ///
@@ -175,8 +185,7 @@ class EditableAvator extends StatelessWidget {
                         color: scheme.onPrimary,
                       ),
                     )
-                  : Icon(Icons.photo_camera,
-                      size: 16, color: scheme.onPrimary),
+                  : Icon(Icons.photo_camera, size: 16, color: scheme.onPrimary),
             ),
           ),
         ],

@@ -48,12 +48,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   Future<List<ChannelListEntry>> _loadSharedGroups() async {
     final me = widget.authService.currentUserId;
     if (me == null) return const [];
-    final mine = await widget.chatService
-        .fetchMemberChannels(userId: me, kind: 'group');
+    final mine =
+        await widget.chatService.fetchMemberChannels(userId: me, kind: 'group');
     final shared = <ChannelListEntry>[];
     for (final g in mine) {
-      final members =
-          await widget.chatService.fetchChannelMembers(g.channelId);
+      final members = await widget.chatService.fetchChannelMembers(g.channelId);
       if (members.any((m) => m.userId == widget.contact.userId)) {
         shared.add(g);
       }
@@ -122,7 +121,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
           Center(
             child: Column(
               children: [
-                Avator(text: label, width: kAvatarXl, height: kAvatarXl),
+                Avator(
+                  text: label,
+                  seed: personSeed(context, contact.userId),
+                  width: kAvatarXl,
+                  height: kAvatarXl,
+                ),
                 const SizedBox(height: kSpaceMd),
                 Text(label, style: text.headlineSmall),
                 // displayLabel falls back to "@username" when there is no
@@ -130,8 +134,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 if (contact.username != null && !label.startsWith('@'))
                   Text(
                     '@${contact.username}',
-                    style:
-                        text.titleMedium?.copyWith(color: scheme.primary),
+                    style: text.titleMedium?.copyWith(color: scheme.primary),
                   ),
                 if (contact.statusText != null &&
                     contact.statusText!.isNotEmpty)
@@ -164,8 +167,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 const SizedBox(width: kSpaceXs),
                 Text(
                   'Their number is not shown here',
-                  style: text.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  style:
+                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
                 ),
               ],
             ),

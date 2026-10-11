@@ -329,8 +329,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     );
   }
 
-  static String _memberCount(int n) =>
-      '$n ${n == 1 ? "member" : "members"}';
+  static String _memberCount(int n) => '$n ${n == 1 ? "member" : "members"}';
 
   /// Local-only, so there is nothing to confirm and nothing that can
   /// fail — the consequence is written under the tile and the next
@@ -343,10 +342,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   }
 
   static String _roleOf(List<ChannelMemberRow> members, String? userId) =>
-      members
-          .where((m) => m.userId == userId)
-          .map((m) => m.role)
-          .firstOrNull ??
+      members.where((m) => m.userId == userId).map((m) => m.role).firstOrNull ??
       'member';
 
   /// Decision 80: the change lands locally at once and rides the
@@ -664,7 +660,7 @@ class _MemberTile extends StatelessWidget {
     return ListTile(
       leading: Avator(
         text: name,
-        seed: member.userId,
+        seed: personSeed(context, member.userId),
         avatarUrl: member.contact?.avatarUrl,
         width: kAvatarMd,
         height: kAvatarMd,
