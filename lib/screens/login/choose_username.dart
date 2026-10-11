@@ -84,6 +84,17 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
     });
   }
 
+  /// Fills in a random handle and runs it through the same availability
+  /// check as typing; on the rare clash the user just taps again.
+  void _onGenerate() {
+    final name = generateUsername();
+    _controller.value = TextEditingValue(
+      text: name,
+      selection: TextSelection.collapsed(offset: name.length),
+    );
+    _onChanged(name);
+  }
+
   bool get _canContinue => !_saving && _availability == _Availability.available;
 
   Future<void> _onContinue() async {
@@ -177,7 +188,6 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SizedBox(height: kSpaceLg),
                       Text('Choose your username', style: text.headlineMedium),
                       const SizedBox(height: kSpaceSm),
                       Text(
@@ -188,7 +198,7 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(height: kSpaceXl),
+                      const SizedBox(height: kSpaceLg),
                       TextField(
                         controller: _controller,
                         autofocus: true,
@@ -209,21 +219,27 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                           suffixIcon: _suffix(scheme),
                         ),
                       ),
-                      if (helper != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: kSpaceSm),
-                          child: Text(
-                            helper,
-                            style: text.bodySmall
-                                ?.copyWith(color: _helperColor(scheme)),
+                      // One line: the status once there is one, the rules
+                      // until then, so the layout doesn't jump under the
+                      // keyboard.
+                      Padding(
+                        padding: const EdgeInsets.only(top: kSpaceSm),
+                        child: Text(
+                          helper ?? kUsernameRulesHint,
+                          style: text.bodySmall?.copyWith(
+                            color: helper != null
+                                ? _helperColor(scheme)
+                                : scheme.onSurfaceVariant,
                           ),
                         ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: kSpaceXs),
-                        child: Text(
-                          kUsernameRulesHint,
-                          style: text.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: const Key('generateUsername'),
+                          onPressed: _saving ? null : _onGenerate,
+                          icon: const Icon(Icons.casino_outlined),
+                          label: const Text('Generate one for me'),
                         ),
                       ),
                       const Spacer(),

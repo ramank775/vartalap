@@ -2,6 +2,7 @@
 library vartalap.screens.choose_username_screen_test;
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/username.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 void main() {
@@ -105,6 +107,28 @@ void main() {
       reason: 'AUTH_CONTRACT §2.4: wire values are lower-case only; the '
           'client lower-cases before sending.',
     );
+  });
+
+  testWidgets('Generate fills an available handle and enables Continue',
+      (tester) async {
+    final auth = _FakeAuthService();
+    await pump(tester, auth);
+
+    await tester.tap(find.byKey(const Key('generateUsername')));
+    await settleCheck(tester);
+
+    final name =
+        tester.widget<TextField>(find.byType(TextField)).controller!.text;
+    expect(auth.checked, [name]);
+    expect(find.text('@$name is available'), findsOneWidget);
+    expect(tester.widget<FilledButton>(continueButton()).onPressed, isNotNull);
+  });
+
+  test('generated handles always pass the username rules', () {
+    for (var seed = 0; seed < 2000; seed++) {
+      final name = generateUsername(Random(seed));
+      expect(validateUsername(name), isNull, reason: name);
+    }
   });
 
   testWidgets('a PATCH that loses the uniqueness race is surfaced',

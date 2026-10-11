@@ -5,6 +5,8 @@
 /// Profile screen, so the two can never drift apart.
 library vartalap.utils.username;
 
+import 'dart:math';
+
 /// Sync-only validator for usernames — AUTH_CONTRACT §2.4/§4.5.
 ///
 /// Charset/length only. The server has the final say on uniqueness (via
@@ -40,3 +42,95 @@ const String kUsernameRulesHint =
 /// How long to wait after the last keystroke before asking the server
 /// whether a candidate is free.
 const Duration kUsernameCheckDebounce = Duration(milliseconds: 400);
+
+const List<String> _adjectives = [
+  'bold',
+  'brave',
+  'breezy',
+  'bright',
+  'calm',
+  'cheery',
+  'clever',
+  'cosy',
+  'crisp',
+  'gentle',
+  'golden',
+  'happy',
+  'jolly',
+  'keen',
+  'kind',
+  'lively',
+  'lucky',
+  'mellow',
+  'merry',
+  'misty',
+  'nimble',
+  'plucky',
+  'quick',
+  'quiet',
+  'rapid',
+  'rosy',
+  'silver',
+  'snowy',
+  'starry',
+  'sunny',
+  'swift',
+  'tidy',
+  'vivid',
+  'warm',
+  'wise',
+  'witty',
+  'zesty',
+  'zippy',
+];
+
+const List<String> _nouns = [
+  'bison',
+  'cedar',
+  'comet',
+  'dolphin',
+  'ember',
+  'falcon',
+  'firefly',
+  'galaxy',
+  'harbor',
+  'heron',
+  'island',
+  'jasmine',
+  'kite',
+  'koala',
+  'lantern',
+  'lemur',
+  'lotus',
+  'mango',
+  'maple',
+  'meadow',
+  'monsoon',
+  'nova',
+  'orchid',
+  'otter',
+  'owl',
+  'panda',
+  'parrot',
+  'peacock',
+  'pebble',
+  'quokka',
+  'river',
+  'robin',
+  'saffron',
+  'sparrow',
+  'tiger',
+  'tulip',
+  'willow',
+  'zebra',
+];
+
+/// A readable random handle such as `quietfalcon42` for the "Generate"
+/// button: adjective + noun + 2 digits, about 130k combinations, always
+/// valid under [validateUsername]. Availability is still the server's call.
+String generateUsername([Random? random]) {
+  final r = random ?? Random();
+  return '${_adjectives[r.nextInt(_adjectives.length)]}'
+      '${_nouns[r.nextInt(_nouns.length)]}'
+      '${10 + r.nextInt(90)}';
+}
