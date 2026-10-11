@@ -72,7 +72,8 @@ class ChatInfoScreen extends StatefulWidget {
 
 class _ChatInfoScreenState extends State<ChatInfoScreen> {
   late Future<List<ChannelMemberRow>> _membersFuture;
-  late Future<List<MessageRow>> _mediaFuture;
+  /// Photos plus files — everything the Media screen lists.
+  late Future<int> _mediaCount;
 
   /// Channel row, for the avatar and the local mute flag. Re-read
   /// after the mute sheet closes so the bar and the tile agree.
@@ -112,7 +113,10 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   void initState() {
     super.initState();
     _membersFuture = widget.chatService.fetchChannelMembers(widget.channelId);
-    _mediaFuture = widget.chatService.fetchMedia(widget.channelId);
+    _mediaCount = Future.wait([
+      widget.chatService.fetchMedia(widget.channelId),
+      widget.chatService.fetchFiles(widget.channelId),
+    ]).then((lists) => lists[0].length + lists[1].length);
     _reloadChannel();
     // A rejected role change is rolled back in the store
     // (`_rollbackMemberRole`); the screen's job is to say so and show
@@ -221,10 +225,10 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 _DmIdentityBlock(peer: peer!),
               ],
               const Divider(),
-              FutureBuilder<List<MessageRow>>(
-                future: _mediaFuture,
+              FutureBuilder<int>(
+                future: _mediaCount,
                 builder: (ctx, mediaSnap) {
-                  final count = mediaSnap.data?.length;
+                  final count = mediaSnap.data;
                   return _InfoTile(
                     icon: Icons.image_outlined,
                     title: 'Media, links and docs',

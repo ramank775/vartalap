@@ -53,14 +53,17 @@ void main() {
     expect(find.text('Nothing shared yet'), findsOneWidget);
   });
 
-  testWidgets('Media tile counts the images it found', (tester) async {
+  testWidgets('Media tile counts images and files', (tester) async {
     await _pumpInfo(
       tester,
-      _FakeChatService(media: [_imageMessage('m-1'), _imageMessage('m-2')]),
+      _FakeChatService(
+        media: [_imageMessage('m-1'), _imageMessage('m-2')],
+        files: [_imageMessage('m-3')],
+      ),
       kind: 'group',
     );
 
-    expect(find.text('2 items'), findsOneWidget);
+    expect(find.text('3 items'), findsOneWidget);
   });
 
   testWidgets('a muted group shows the mute bar and the mute on the tile',
@@ -385,11 +388,13 @@ MessageRow _imageMessage(String id) => MessageRow(
 class _FakeChatService implements ChatService {
   final List<String> calls = [];
   final List<MessageRow> media;
+  final List<MessageRow> files;
   final List<ChannelMemberRow> members;
   int? mutedUntilMs;
 
   _FakeChatService({
     this.media = const [],
+    this.files = const [],
     this.members = const [],
     this.mutedUntilMs,
   });
@@ -418,6 +423,9 @@ class _FakeChatService implements ChatService {
 
   @override
   Future<List<MessageRow>> fetchMedia(String channelId) async => media;
+
+  @override
+  Future<List<MessageRow>> fetchFiles(String channelId) async => files;
 
   @override
   Future<ChannelListEntry?> fetchChannel(String channelId) async =>
