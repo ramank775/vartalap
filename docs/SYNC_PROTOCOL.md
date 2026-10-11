@@ -938,7 +938,7 @@ through a parallel transport adapter.
 | `/v3.0/channels/<id>/members` | POST | Add members | yes |
 | `/v3.0/channels/<id>/members/<user_id>` | DELETE | Remove member | yes |
 | `/v3.0/users/me` | PATCH | Edit own profile (incl username) | yes |
-| `/v3.0/push/topic` | POST | Register/replace ntfy topic | no |
+| `/v3.0/push/topic` | POST | Register/replace the Web Push endpoint | no |
 
 REST READS (no queue, no fanout): `/v3.0/users/me` GET,
 `/v3.0/users/<id>` GET, `/v3.0/contacts/lookup` POST. Auth endpoints
@@ -1188,31 +1188,35 @@ Push is **independent of the sync wire**. ntfy-direct per
 When the server enqueues an envelope into the undelivered queue for
 a recipient AND the recipient has no active WS connection, the
 server MUST publish a minimal wake notification to the recipient's
-registered ntfy topic:
+registered Web Push endpoint (AUTH_CONTRACT §5):
 
-- Body: short, generic. Example: `"New activity"`. MUST NOT contain
+- Plaintext `{"t":"wake"}`, encrypted to the device (RFC 8291) and
+  signed with the server's VAPID key (RFC 8292). MUST NOT contain
   message content.
-- Title: `"Vartalap"`.
+- The client shows its own generic notification ("New activity");
+  the push itself carries no title or text.
 
-Rationale: ntfy topics are not E2E encrypted at v3.0; the client
-will reconnect WS and drain the undelivered queue, which carries the
-full payload.
+Rationale: the push service (ntfy, FCM, …) only relays; even
+encrypted, a wake-only payload means a compromised or curious push
+service learns nothing but timing. The client reconnects WS and
+drains the undelivered queue, which carries the full payload.
 
 Coalescing: if multiple envelopes are enqueued in quick succession,
-the server MAY debounce the ntfy publish (no more than one wake per
+the server MAY debounce the publish (no more than one wake per
 5 seconds per recipient).
 
-### 12.2 Topic registration
+### 12.2 Endpoint registration
 
-`POST /v3.0/push/topic` per AUTH_CONTRACT §5. The topic is keyed by
-`(user_id, deviceId)`.
+`GET /v3.0/push/vapid` then `POST /v3.0/push/topic` per AUTH_CONTRACT
+§5. The endpoint is keyed by `(user_id, deviceId)`.
 
 ### 12.3 Client reconnect flow
 
-ntfy Android app receives the wake → fires intent → Vartalap process
-wakes → reopens WS → drain protocol runs (§10.6, undelivered
-queue). No client-initiated request to the ntfy topic other than
-registration.
+The distributor (ntfy app, FCM via the embedded distributor, …)
+receives the wake → delivers it to Vartalap → the UnifiedPush
+connector decrypts it → Vartalap reopens WS → drain protocol runs
+(§10.6, undelivered queue). No client-initiated request to the push
+service other than registration.
 
 ---
 
@@ -1433,7 +1437,7 @@ this list is the client's problem.
 | Undelivered queue | delivery-manager | Redis (`undelivered:<user_id>`) | 30 days rolling per user |
 | Dedup window (WS + REST) | profile-ms (new) | Redis (`dedup:<user_id>`) | 10k entries per user, 7 days rolling |
 | Resource seq tracking | message-ms | Redis (`seq:<user_id>:<resource_id>`) | aligned with dedup window |
-| ntfy topic registrations | notification-ms (new) | MongoDB, keyed by `(user_id, deviceId)` | forever (until logout or replacement) |
+| Web Push endpoint registrations (`endpoint`, `p256dh`, `auth`) | notification-ms (new) | MongoDB, keyed by `(user_id, deviceId)` | until logout, replacement, or a 404/410 from the push service |
 | OTP sessions | profile-ms | MongoDB (authDB) | 1h post-expiry |
 | Accesskey → user_id mapping | profile-ms | in-memory cache + MongoDB | accesskey lifetime |
 | Refresh tokens | profile-ms | MongoDB | 90 days |

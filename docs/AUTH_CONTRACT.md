@@ -790,29 +790,70 @@ the operation is a no-op when nothing exists to delete.
 
 ---
 
-## 5. Push topic registration
+## 5. Push registration (UnifiedPush + Web Push)
 
-Per `V3_ARCHITECTURE.md` decision 6: ntfy-direct, with the ntfy
-Android app as the pinned distributor. The server publishes wake
-notifications to the user's registered ntfy topic when an
-undelivered message accumulates for an offline user (see
-`SYNC_PROTOCOL.md` §12).
+Per `V3_ARCHITECTURE.md` decision 6 as amended by DECISIONS 120/121:
+the client registers through **UnifiedPush with whatever distributor
+the user has** (ntfy, NextPush, Sunup, a self-hosted ntfy, …) or, in
+`gms` builds and only after the user explicitly opts in, the
+**embedded FCM distributor** that talks to Google Play services. The
+server does not know or care which: every endpoint is a standard
+**Web Push** endpoint (RFC 8030). The server publishes a wake
+notification there when an undelivered message accumulates for an
+offline user (see `SYNC_PROTOCOL.md` §12).
+
+**Wire format of every push.** RFC 8030 `POST <endpoint>` with:
+- body encrypted per RFC 8291 (`Content-Encoding: aes128gcm`) to the
+  device's `p256dh` / `auth` keys;
+- `Authorization: vapid t=<JWT>, k=<vapidPublicKey>` per RFC 8292
+  (`aud` = the endpoint's origin, `sub` = the configured
+  `--vapid-subject`, `exp` ≤ 12 h);
+- `TTL: 86400`, `Urgency: high`.
+
+The plaintext is wake-only, never message content:
+```json
+{ "t": "wake" }
+```
+The client treats any decrypted message as "pull now"
+(`SYNC_PROTOCOL.md` §12); it ignores the body beyond that.
+
+### 5.0 `GET /v3.0/push/vapid`
+
+Returns the server's VAPID public key, which the client passes to
+`UnifiedPush.register(vapid: …)` so the distributor (FCM in
+particular) only accepts pushes signed by this server.
+
+**Headers:** `Authorization: Bearer <accesskey>` (same gating as §5.1).
+**Success response `200 OK`:**
+```json
+{ "vapidPublicKey": "BOr6…" }
+```
+`vapidPublicKey` is the uncompressed P-256 point, base64url without
+padding (87 chars). It changes only when the operator rotates the
+VAPID key pair; a client that sees a different key MUST re-register
+with its distributor and re-post §5.1.
 
 ### 5.1 `POST /v3.0/push/topic`
 
-Register or replace the ntfy topic for the authenticated session.
+Register or replace the push endpoint for the authenticated session.
+(The path keeps its v3.0-draft name; it carries a Web Push endpoint,
+not an ntfy topic.)
 
 **Headers:** `Authorization: Bearer <accesskey>`
 **Request body:**
 ```json
 {
-  "topicUrl": "https://ntfy.vartalap/u/abc123xyz"
+  "endpoint": "https://ntfy.sh/upAbC123…",
+  "p256dh": "BNcR…",
+  "auth": "tBHI…"
 }
 ```
 
 | Field | Type | Required | Constraint |
 |---|---|---|---|
-| `topicUrl` | string \| null | yes | Full HTTPS URL of the ntfy topic the client subscribed to. `null` or `""` deregisters. Server validates HTTPS scheme and a basic URL shape; on invalid, rejects with `INVALID_TOPIC_URL`. |
+| `endpoint` | string \| null | yes | The UnifiedPush endpoint URL. `null` or `""` deregisters (then `p256dh`/`auth` are ignored). Otherwise MUST be `https`, ≤ 2048 chars, no userinfo, and its host MUST resolve only to public unicast addresses (no loopback, RFC 1918, link-local, CGNAT `100.64.0.0/10`, ULA `fc00::/7`, multicast or unspecified). Violations → `400 INVALID_PUSH_ENDPOINT`. |
+| `p256dh` | string | when `endpoint` set | The device's ECDH public key from the UnifiedPush connector: uncompressed P-256 point, base64url, 65 bytes decoded. Else `400 INVALID_PUSH_KEYS`. |
+| `auth` | string | when `endpoint` set | The 16-byte auth secret, base64url. Else `400 INVALID_PUSH_KEYS`. |
 
 **Success response `200 OK`:**
 ```json
@@ -820,35 +861,52 @@ Register or replace the ntfy topic for the authenticated session.
 ```
 
 **Server storage.** `notification-ms` owns a table keyed by
-`(user_id, deviceId)`. A registration replaces any prior URL
-for the same key — at most one topic per `(user_id, deviceId)`.
-The server MUST publish wake notifications only to the most
-recently registered URL.
+`(user_id, deviceId)` holding `{ endpoint, p256dh, auth }`. A
+registration replaces any prior one for the same key — at most one
+endpoint per `(user_id, deviceId)`. The server MUST publish only to
+the most recently registered endpoint.
 
 **Why `(user_id, deviceId)` and not just `user_id`.** v3.0
 is single-device per user, but the data model already supports
-multi-device (one topic per device); v3.1 will switch on multiple
+multi-device (one endpoint per device); v3.1 will switch on multiple
 active sessions without a schema migration.
 
-**Topic URL ownership.** The server does not validate that the
-client actually subscribed to the topic on the ntfy server. The
-client picks a topic URL random enough that it is not guessable
-(suggested: `https://<ntfy-host>/u/<random-32-char-base32>`); if a
-client registers a topic it doesn't own, it just doesn't get its
-own notifications. There is no third-party harm.
+**Sending rules (SSRF and hygiene).** The server makes outbound
+requests to client-supplied URLs, so at **send** time (not only at
+registration, to defeat DNS rebinding) it MUST: resolve the host,
+refuse if any resolved address is non-public (same list as above),
+connect to a validated address, not follow redirects, use a 5 s
+timeout, and ignore the response body. Responses:
+- `201`/`200`/`202` — delivered to the push service.
+- `404` / `410` — the endpoint is gone: delete the registration.
+- `413` / `400` — log; never retry the same payload.
+- `429` / `5xx` — retry later with backoff, honouring `Retry-After`.
+
+**Dev escape hatch.** `--push-allow-private-endpoints` lets
+`http` and private addresses through, for a local ntfy reached at
+`http://10.0.2.2:…` from an emulator. Like `--expose-dev-otp`, it
+MUST NOT be set in any real deployment.
+
+**Endpoint ownership.** The server does not verify that the client
+owns the endpoint. Registering someone else's endpoint only means
+your own wake-ups go to them, encrypted to keys you supplied, so
+they can't read them and the payload says nothing anyway. There is
+no third-party harm beyond a stray wake-up, bounded by §11 rate
+limits.
 
 ### 5.2 Implicit deregistration
 
-The server MUST deregister the ntfy topic in three cases:
+The server MUST deregister the push endpoint in four cases:
 1. `POST /v3.0/auth/session/revoke` (logout).
 2. Account deletion (§8).
-3. Phone rebind (§9) — old session's topic stays registered until
+3. Phone rebind (§9) — old session's endpoint stays registered until
    the rebind completes; on completion, the old session is revoked
-   and its topic deregistered.
+   and its endpoint deregistered.
+4. The push service answers `404` or `410` for the endpoint (§5.1).
 
-Phone rebind keeping the same `user_id` means **no topic
+Phone rebind keeping the same `user_id` means **no endpoint
 migration is required** — the new session on the new phone
-registers its own topic, the old one is dropped.
+registers its own endpoint, the old one is dropped.
 
 ---
 
@@ -1555,7 +1613,8 @@ Every error response, on every endpoint, uses this shape:
 | 400 | `INVALID_USERNAME` | profile patch | `username` shape violation |
 | 400 | `INVALID_USERNAME_KEY` | profile patch | `usernameKey` not 4 digits, or set while `username` is `null` |
 | 400 | `INVALID_CONFIRMATION` | account delete | confirmation string mismatch |
-| 400 | `INVALID_TOPIC_URL` | push topic | URL shape violation |
+| 400 | `INVALID_PUSH_ENDPOINT` | push topic | Endpoint not https, too long, has userinfo, or resolves to a non-public address (§5.1) |
+| 400 | `INVALID_PUSH_KEYS` | push topic | `p256dh` / `auth` missing or malformed (§5.1) |
 | 400 | `MALFORMED_REQUEST` | all | missing/extra fields, malformed JSON |
 | 400 | `BATCH_TOO_LARGE` | contact lookup | > 100 hashes |
 | 400 | `validation_failed` | all | catch-all schema rejection (lowercase intentionally; aligns with `SYNC_PROTOCOL.md` §8.4) |
@@ -1747,7 +1806,7 @@ skipped (but not before step 3 completes):**
 
 | Call | Purpose | Skip impact |
 |---|---|---|
-| `POST /v3.0/push/topic` | Register ntfy topic | User receives messages only when foreground (no wake-on-message). Recommended on first launch after ntfy app subscribe completes. |
+| `GET /v3.0/push/vapid` + `POST /v3.0/push/topic` | Register a Web Push endpoint (§5) | User receives messages only when foreground (no wake-on-message). Recommended right after the push choice on first launch. |
 | `PATCH /v3.0/users/me` (`usernameKey`) | Optionally gate discovery of the username with a 4-digit key | Username stays discoverable by anyone who knows it (§7.6). |
 | `PATCH /v3.0/users/me` (`displayName`, `avatarUrl`, `statusText`) | Profile metadata | Other users see fallback display per §2.4 resolution rule. |
 | `POST /v3.0/contacts/lookup` | Find Vartalap-using contacts | The "new chat" picker has no contact suggestions; user can still start chats by phone if they know one. |
@@ -1929,11 +1988,13 @@ ship in v3.0.
    everything else not on the §2.4 gate-exempt list) return
    403 USERNAME_REQUIRED. displayName MAY still be omitted/null.
 
-7. [Optional, prompted] CLIENT subscribes to ntfy topic locally,
-   then registers it:
+7. [Optional, prompted] CLIENT fetches the VAPID key, registers with
+   the chosen UnifiedPush distributor, then posts the endpoint:
+   GET /v3.0/push/vapid  ← 200 { vapidPublicKey: "BOr6…" }
    POST /v3.0/push/topic
    Authorization: Bearer d4f5a1c9-…
-   { topicUrl: "https://ntfy.vartalap/u/abc123xyz" }
+   { endpoint: "https://ntfy.sh/upAbC123…", p256dh: "BNcR…",
+     auth: "tBHI…" }
    ← 200 { status: true }
    USER MAY SKIP — messages arrive only when app is foreground.
 

@@ -35,6 +35,13 @@ relaunch built on explicit decisions — not inherited assumptions.
 ### 1. Degoogle, literally
 Zero Firebase, zero Google-specific dependencies ship in v3.
 
+*Amended 2026-10-11 (DECISIONS 121):* this holds for the `foss` build
+in full. The `gms` build adds exactly one library, UnifiedPush's
+embedded FCM distributor (Apache-2.0, no Firebase SDK, no Google
+classes), used only for opt-in Google push (decision 6). Nothing below
+returns: no Firebase SDKs, no google-services plugin, no
+`google-services.json`.
+
 - `firebase_core`, `firebase_auth`, `firebase_messaging`, `firebase_performance`,
   `firebase_crashlytics`, `firebase_app_check` — removed from `pubspec.yaml`.
 - `com.google.gms.google-services`, `com.google.firebase.firebase-perf`,
@@ -194,20 +201,28 @@ packages, decided post-spike.
 
 ---
 
-### 6. Push notifications — ntfy-direct for v3.0
-**Decision: ntfy-direct, distributor-shaped.** Vartalap depends on the ntfy
-Android app installed as the push distributor. ntfy maintains the persistent
-connection; Vartalap is woken by intent on new-message arrival. First-run
-onboarding: if ntfy app is not installed, prompt user to install (link to
-F-Droid / ntfy direct APK). No Google FCM, no foreground service in Vartalap
-itself, no user-facing distributor picker (ntfy is the pinned distributor).
+### 6. Push notifications — UnifiedPush + Web Push (amended 2026-10-11)
+**Decision (DECISIONS 119-121): any UnifiedPush distributor, plus opt-in
+Google push, behind one interface.** The app registers through
+UnifiedPush with whatever distributor the user has (ntfy, NextPush,
+Sunup, a self-hosted ntfy, …). In `gms` builds the app also embeds
+UnifiedPush's FCM distributor (`org.unifiedpush.android:embedded-fcm-distributor`,
+no Firebase SDK, talks to Play services over IPC); it is used only
+after the user explicitly picks "Google Play services" on the push
+screen. The server sends the same RFC 8030 Web Push, encrypted
+(RFC 8291) and VAPID-signed (RFC 8292), to every endpoint, so no
+Firebase project or Google server credential exists. Wire details:
+AUTH_CONTRACT §5.
 
-This is effectively UnifiedPush with one pinned distributor, which is
-simpler to ship than full UnifiedPush (no distributor-choice UI) while
-remaining FOSS and Google-free.
+Builds: `foss` (no Google code; F-Droid and GitHub; decision 1's
+degoogle gate applies) and `gms` (adds only the embedded distributor;
+GitHub and Play Store).
 
-**UnifiedPush (multi-distributor) is deferred to v3.1** when there is
-evidence users want distributor choice.
+*Original v3.0 draft, superseded:* ntfy-direct with ntfy as the one
+pinned distributor and the server publishing only to its own ntfy
+host. That failed in practice because the ntfy app registers
+UnifiedPush endpoints on its own default server (`ntfy.sh`), which
+the server refused (decision 119).
 
 **Push decision timing.** Push mechanism was previously listed as a
 Phase 4 concern. It is moved earlier: the push mechanism decision must be
@@ -531,7 +546,7 @@ dual-transport model; v3.1 migrates.
 
 ┌─────────────────────────────────────────────────────┐
 │  PUSH PATH (independent of sync)                     │
-│  chat-server → ntfy topic → ntfy Android app →       │
+│  chat-server → Web Push → distributor (ntfy/FCM/…) → │
 │    intent to Vartalap → app reads new messages via WS│
 └─────────────────────────────────────────────────────┘
 ```
