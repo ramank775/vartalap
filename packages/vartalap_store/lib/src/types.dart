@@ -328,9 +328,9 @@ class ChannelListEntry {
   /// channel has no messages yet (or the last message row is missing).
   final String? lastMessagePreview;
 
-  /// MIME of the last message (`text/plain`, or an attachment's type),
-  /// so an attachment with no caption can still say what it is.
-  final String? lastMessageContentType;
+  /// MIME of the last message's attachment; null for plain text. Lets
+  /// the row say "📷 Photo" where the body alone would say nothing.
+  final String? lastMessageAttachmentType;
 
   /// Author of the preview-bearing message. Caller resolves the
   /// display name against its own contacts cache.
@@ -364,7 +364,7 @@ class ChannelListEntry {
     this.mutedUntilMs,
     this.hasFailedOp = false,
     required this.lastMessagePreview,
-    this.lastMessageContentType,
+    this.lastMessageAttachmentType,
     required this.lastMessageAuthor,
     required this.lastMessageTombstoned,
     this.peerContact,

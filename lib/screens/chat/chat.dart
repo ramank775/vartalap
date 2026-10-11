@@ -11,11 +11,13 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
+import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/chat_search.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/attachment_text.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -394,7 +396,12 @@ class _ChatScreenState extends State<ChatScreen> {
     // §6a.3: recipients drop an UPDATE/DELETE that isn't from the
     // author, so offering either on someone else's message would be a
     // button that does nothing.
-    final canEdit = mine && !msg.tombstoned && (msg.body ?? '').isNotEmpty;
+    // An attachment is editable (its caption) once the server has it;
+    // before that it still points at a local file (editMessage).
+    final canEdit = mine &&
+        !msg.tombstoned &&
+        (msg.body ?? '').isNotEmpty &&
+        (msg.attachments == null || msg.serverTimestampMs != null);
     // Otherwise closing the sheet hands focus back to the composer and the
     // keyboard pops up after a delete or react; Edit and Reply ask for it.
     _inputFocus.unfocus();
@@ -632,6 +639,15 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    if (!mounted) return;
+    final caption = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => AttachmentPreviewScreen(path: sourcePath!),
+      ),
+    );
+    if (caption == null || !mounted) return;
+
     final userId = widget.authService.currentUserId;
     if (userId == null) return;
     setState(() => _sending = true);
@@ -643,6 +659,7 @@ class _ChatScreenState extends State<ChatScreen> {
         channelId: widget.channelId,
         authorUserId: userId,
         path: path,
+        caption: caption.isEmpty ? null : caption,
         replyToMessageId: _replyTo?.messageId,
         width: width,
         height: height,
@@ -656,6 +673,12 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) setState(() => _sending = false);
     }
   }
+
+  /// One-line description for a reply quote or the reply bar.
+  static String _preview(MessageRow m) => messagePreview(
+        m.body ?? '',
+        m.attachments == null ? null : m.contentType,
+      );
 
   /// Intrinsic pixel size of a picked image, or null if it will not
   /// decode (the bubble then falls back to a fixed height).
@@ -716,6 +739,8 @@ class _ChatScreenState extends State<ChatScreen> {
           isTyping: false,
         );
       }
+    } on ArgumentError catch (e) {
+      _toast('${e.message}');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -820,7 +845,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 // ever looks broken rather than merely sparse.
                 final bodyById = {
                   for (final m in messages)
-                    if (!m.tombstoned) m.messageId: m.body ?? '',
+                    if (!m.tombstoned) m.messageId: _preview(m),
                 };
                 final items = <Widget>[];
                 for (int i = 0; i < messages.length; i++) {
@@ -897,7 +922,7 @@ class _ChatScreenState extends State<ChatScreen> {
             onSend: _onSend,
             onAttach: _onAttach,
             editing: _editingMessageId != null,
-            replyPreview: _replyTo?.body,
+            replyPreview: _replyTo == null ? null : _preview(_replyTo!),
             onCancelCompose:
                 (_editingMessageId != null || _replyTo != null)
                     ? _cancelCompose
@@ -1669,7 +1694,7 @@ class _AttachmentView extends StatelessWidget {
                     style: TextStyle(color: tint, fontSize: 14),
                   ),
                   Text(
-                    _humanSize(attachment.sizeBytes.toInt()),
+                    humanFileSize(attachment.sizeBytes.toInt()),
                     style: TextStyle(
                       color: tint.withValues(alpha: 0.7),
                       fontSize: 11,
@@ -1717,13 +1742,6 @@ class _AttachmentView extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static String _humanSize(int bytes) {
-    if (bytes <= 0) return '';
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).round()} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
 

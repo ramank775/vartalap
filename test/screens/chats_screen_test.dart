@@ -75,18 +75,29 @@ void main() {
       expect(find.textContaining('see you at 6'), findsNothing);
     });
 
-    testWidgets('an uncaptioned attachment says what it is', (tester) async {
+    testWidgets('an attachment says what it is, with its caption if any',
+        (tester) async {
       await _pumpTile(
         tester,
-        _entry(lastMessagePreview: '', lastMessageContentType: 'image/jpeg'),
+        _entry(lastMessagePreview: '', lastMessageAttachmentType: 'image/jpeg'),
       );
-      expect(find.textContaining('Photo', findRichText: true), findsOneWidget);
+      expect(find.textContaining('📷 Photo', findRichText: true), findsOneWidget);
+
+      // A .txt attachment is text/plain too; it is still a file.
+      await _pumpTile(
+        tester,
+        _entry(lastMessagePreview: '', lastMessageAttachmentType: 'text/plain'),
+      );
+      expect(find.textContaining('📄 File', findRichText: true), findsOneWidget);
 
       await _pumpTile(
         tester,
-        _entry(lastMessagePreview: '', lastMessageContentType: 'text/plain'),
+        _entry(
+          lastMessagePreview: 'Sunset',
+          lastMessageAttachmentType: 'image/jpeg',
+        ),
       );
-      expect(find.textContaining('File', findRichText: true), findsOneWidget);
+      expect(find.textContaining('📷 Sunset', findRichText: true), findsOneWidget);
     });
 
     testWidgets('group rows carry the glyph avatar and a sender prefix',
@@ -372,7 +383,7 @@ ChannelListEntry _entry({
   int? mutedUntilMs,
   bool hasFailedOp = false,
   String? lastMessagePreview = 'hello',
-  String? lastMessageContentType,
+  String? lastMessageAttachmentType,
 }) =>
     ChannelListEntry(
       channelId: channelId,
@@ -385,7 +396,7 @@ ChannelListEntry _entry({
       mutedUntilMs: mutedUntilMs,
       hasFailedOp: hasFailedOp,
       lastMessagePreview: lastMessagePreview,
-      lastMessageContentType: lastMessageContentType,
+      lastMessageAttachmentType: lastMessageAttachmentType,
       lastMessageAuthor: 'u-peer',
       lastMessageTombstoned: false,
     );

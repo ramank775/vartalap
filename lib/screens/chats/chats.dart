@@ -23,6 +23,7 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/chat_action_sheets.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
+import 'package:vartalap/utils/attachment_text.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
@@ -484,18 +485,12 @@ class ChannelTile extends StatelessWidget {
       );
     }
 
-    final body = entry.lastMessagePreview ?? '';
-    final type = entry.lastMessageContentType ?? '';
     final preview = entry.lastMessageTombstoned
         ? '(message deleted)'
-        // Only an attachment has no body; its type says which kind.
-        : body.isNotEmpty || type.isEmpty
-            ? body
-            : type.startsWith('image/')
-                ? '📷 Photo'
-                : type.startsWith('video/')
-                    ? '🎥 Video'
-                    : '📄 File';
+        : messagePreview(
+            entry.lastMessagePreview ?? '',
+            entry.lastMessageAttachmentType,
+          );
     return Text.rich(
       TextSpan(
         children: [
