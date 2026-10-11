@@ -1032,6 +1032,9 @@ class _MessageInput extends StatelessWidget {
                   maxLines: 4,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(
+                    // The rounded container is the background; the
+                    // theme's square fill would paint over it.
+                    filled: false,
                     border: InputBorder.none,
                     hintText: 'Message',
                     hintStyle: TextStyle(color: scheme.onSurfaceVariant),
