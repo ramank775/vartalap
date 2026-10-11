@@ -59,7 +59,8 @@ message ChatPayload {
   // TYPE_MESSAGE_FORWARD, this is the new message's id (client-
   // generated UUIDv7). For UPDATE / DELETE / REACTION_*, this is
   // the existing message being targeted. For TYPE_READ_RECEIPT it is
-  // the read-up-to marker: the newest message the sender has read.
+  // the read-up-to marker: the newest message the sender has read; for
+  // TYPE_DELIVERY_RECEIPT, the newest one their device has stored.
   // Unused (empty) for TYPE_TYPING.
   string message_id = 3;
 
@@ -131,6 +132,15 @@ enum ChatPayloadType {
   // `ephemeral = true` (v3-envelope.proto): no ACK, no resource_seq,
   // no persistence, lossy by design. `is_typing` carries the state.
   TYPE_TYPING = 8;
+
+  // Sender's device has stored this channel's messages up to and
+  // including `message_id`. Recipients flip their OWN authored
+  // messages at or before that marker to "delivered" (grey double
+  // tick), never back from "read". Same authorship gating and
+  // transport as TYPE_READ_RECEIPT; sent once per burst of inbound
+  // messages per channel, not once per message. In a group the first
+  // member's receipt flips the tick, as with read.
+  TYPE_DELIVERY_RECEIPT = 9;
 
   // Future client-defined types: pinned messages, polls, replies-as-
   // first-class, ephemeral messages, etc. Adding a new value here

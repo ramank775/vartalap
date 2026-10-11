@@ -1492,9 +1492,12 @@ the point.
 - **Stateless WS authentication via signed token (JWT).** Considered
   and rejected for v3.0 (see AUTH_CONTRACT §15).
 - **Presence (online / last-seen).** Deferred per V3_ARCHITECTURE
-  out-of-scope. Read receipts and typing indicators are NOT in this
-  list — `MessageStateChanged` (read receipts) and the ephemeral
-  `Typing` event ship in v3.0; see §10.2.
+  out-of-scope. Receipts and typing indicators are NOT in this list:
+  delivery and read receipts ship in v3.0 as client-to-client
+  `ChatPayload{TYPE_DELIVERY_RECEIPT}` / `{TYPE_READ_RECEIPT}` up-to
+  markers (v3-chat-payload.proto; the recipient's device sends the
+  delivery one once per burst of stored messages), and typing as an
+  ephemeral `ChatPayload{TYPE_TYPING}`; see §10.2.
 - **Per-op priority / QoS hints.** All ops processed at the same
   priority.
 - **Server-side payload introspection for moderation / spam.**

@@ -64,6 +64,16 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static const ChatPayloadType TYPE_TYPING =
       ChatPayloadType._(8, _omitEnumNames ? '' : 'TYPE_TYPING');
 
+  /// Sender's device has stored this channel's messages up to and
+  /// including `message_id`. Recipients flip their OWN authored
+  /// messages at or before that marker to "delivered" (grey double
+  /// tick), never back from "read". Same authorship gating and
+  /// transport as TYPE_READ_RECEIPT; sent once per burst of inbound
+  /// messages per channel, not once per message. In a group the first
+  /// member's receipt flips the tick, as with read.
+  static const ChatPayloadType TYPE_DELIVERY_RECEIPT =
+      ChatPayloadType._(9, _omitEnumNames ? '' : 'TYPE_DELIVERY_RECEIPT');
+
   static const $core.List<ChatPayloadType> values = <ChatPayloadType>[
     TYPE_UNSPECIFIED,
     TYPE_MESSAGE_CREATE,
@@ -74,10 +84,11 @@ class ChatPayloadType extends $pb.ProtobufEnum {
     TYPE_MESSAGE_FORWARD,
     TYPE_READ_RECEIPT,
     TYPE_TYPING,
+    TYPE_DELIVERY_RECEIPT,
   ];
 
   static final $core.List<ChatPayloadType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 8);
+      $pb.ProtobufEnum.$_initByValueList(values, 9);
   static ChatPayloadType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

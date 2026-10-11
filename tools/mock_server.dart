@@ -824,6 +824,23 @@ class MockServer {
         ),
       );
 
+  /// Inject a peer-authored delivery receipt: [senderUserId]'s device
+  /// has stored [messageId] and everything before it (grey ✓✓).
+  ({String messageId, String opId}) injectPeerDeliveryReceipt({
+    required String channelId,
+    required String messageId,
+    String senderUserId = seedPeerUserId,
+  }) =>
+      _fanoutPeerChatPayload(
+        channelId,
+        senderUserId,
+        pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT,
+          messageId: messageId,
+        ),
+      );
+
   /// Inject a peer typing indicator as an `ephemeral=true` WS_PUSH —
   /// live-only, no ACK, no dedup, dropped for offline members.
   void injectPeerTyping({

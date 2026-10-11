@@ -103,6 +103,13 @@ class InboundReceiver {
   /// own-user events.
   Stream<TypingEvent> get typingEvents => _typingCtrl.stream;
 
+  final StreamController<String> _peerMessageCtrl =
+      StreamController<String>.broadcast();
+
+  /// Channel ids that just stored a message from someone else. ChatService
+  /// turns bursts of these into one TYPE_DELIVERY_RECEIPT per channel.
+  Stream<String> get peerMessagesStored => _peerMessageCtrl.stream;
+
   InboundReceiver({
     required this.store,
     required this.pushes,
@@ -141,6 +148,7 @@ class InboundReceiver {
       await Future.wait(_inFlight.toList());
     }
     if (!_typingCtrl.isClosed) await _typingCtrl.close();
+    if (!_peerMessageCtrl.isClosed) await _peerMessageCtrl.close();
   }
 
   Future<void> _track(Future<void> future) {
@@ -260,6 +268,9 @@ class InboundReceiver {
           deliverySequence: env.deliverySequence.toInt(),
           nowMs: clock.nowMs(),
         );
+        if (env.senderUserId != localUserId && !_peerMessageCtrl.isClosed) {
+          _peerMessageCtrl.add(channelId);
+        }
       case pb.ChatPayloadType.TYPE_MESSAGE_UPDATE:
         await store.applyInboundMessageUpdate(
           channelId: channelId,
@@ -304,7 +315,9 @@ class InboundReceiver {
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_READ_RECEIPT:
-        await _handleReadReceipt(env, chat);
+        await _handleReceipt(env, chat, MessageState.read);
+      case pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT:
+        await _handleReceipt(env, chat, MessageState.delivered);
       case pb.ChatPayloadType.TYPE_TYPING:
         // Typing must ride `ephemeral=true`; on the persistent path it
         // would be a stale indicator by the time it applied. Drop it,
@@ -399,14 +412,16 @@ class InboundReceiver {
     ));
   }
 
-  /// §6a read receipt (decision 56). [chat.messageId] is the sender's
-  /// read-up-to marker: every message the LOCAL user authored in this
-  /// channel at or before it flips to `read`. The authorship filter is
-  /// the §6a.3 gate — a receipt never touches a third party's rows, and
-  /// our own echo (sender == us) is ignored.
-  Future<void> _handleReadReceipt(
+  /// §6a read / delivery receipt (decision 56). [chat.messageId] is the
+  /// sender's up-to marker: every message the LOCAL user authored in this
+  /// channel at or before it flips to [state] (`read` or `delivered`;
+  /// [ChatStore.applyMessageStateChange] never moves a row backwards).
+  /// The authorship filter is the §6a.3 gate — a receipt never touches a
+  /// third party's rows, and our own echo (sender == us) is ignored.
+  Future<void> _handleReceipt(
     pb.Envelope env,
     pb.ChatPayload chat,
+    MessageState state,
   ) async {
     if (env.senderUserId != localUserId && chat.messageId.isNotEmpty) {
       final rows = await store.db.rawQuery(
@@ -422,7 +437,7 @@ class InboundReceiver {
       for (final row in rows) {
         await store.applyMessageStateChange(
           messageId: row['message_id'] as String,
-          newState: MessageState.read,
+          newState: state,
           changedAtMs: env.serverTimestampMs.toInt(),
         );
       }

@@ -133,6 +133,7 @@ class AppServices {
     final prev = inboundReceiver;
     inboundReceiver = null;
     chatService.bindTypingSource(null);
+    chatService.bindDeliverySource(null);
     if (prev != null) {
       await prev.stop();
     }
@@ -145,6 +146,7 @@ class AppServices {
     await next.start();
     inboundReceiver = next;
     chatService.bindTypingSource(next.typingEvents);
+    chatService.bindDeliverySource(next.peerMessagesStored);
   }
 }
 

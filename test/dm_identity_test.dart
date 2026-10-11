@@ -697,6 +697,7 @@ class _Client {
     final prev = inbound;
     inbound = null;
     chat.bindTypingSource(null);
+    chat.bindDeliverySource(null);
     await prev?.stop();
     final next = InboundReceiver(
       store: store,
@@ -706,6 +707,7 @@ class _Client {
     await next.start();
     inbound = next;
     chat.bindTypingSource(next.typingEvents);
+    chat.bindDeliverySource(next.peerMessagesStored);
   }
 
   /// Offline = no socket and no network for REST. Anything enqueued

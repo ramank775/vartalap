@@ -821,6 +821,12 @@ void main() {
       await h.waitForAsync(
           () async => await h.store.fetchMessage(unread.messageId) != null);
 
+      // Storing a peer message sends a delivery receipt on its own (one
+      // per burst per channel), so the author's tick goes grey ✓✓.
+      await h.waitFor(() => h.peerSaw(
+          pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT,
+          messageId: unread.messageId));
+
       // Outbound receipt: a normal WS op naming the newest peer message.
       await h.chat.markRead(dmChannel);
       await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_READ_RECEIPT,
@@ -862,6 +868,28 @@ void main() {
         reason: 'v3-chat-payload.proto: message_id on a TYPE_READ_RECEIPT '
             'is a read-up-to marker, and the §6a.3 authorship gate limits '
             'the flip to the local user\'s own rows.',
+      );
+
+      // Inbound delivery receipt is delivered-UP-TO too, and never moves
+      // a read message back.
+      final d1 = await h.sendAndSettle(dmChannel, 'deliver me 1');
+      final d2 = await h.sendAndSettle(dmChannel, 'deliver me 2');
+      h.mock.injectPeerDeliveryReceipt(
+        channelId: dmChannel,
+        messageId: d2!.messageId,
+      );
+      await h.waitForAsync(() async =>
+          (await h.store.fetchMessage(d1!.messageId))?.state ==
+          MessageState.delivered);
+      expect(
+        [
+          (await h.store.fetchMessage(d1!.messageId))?.state,
+          (await h.store.fetchMessage(d2.messageId))?.state,
+          (await h.store.fetchMessage(newer.messageId))?.state,
+        ],
+        [MessageState.delivered, MessageState.delivered, MessageState.read],
+        reason: 'TYPE_DELIVERY_RECEIPT flips own messages up to the marker '
+            'to delivered; the already-read ones stay read.',
       );
 
       // Outbound typing: an ephemeral ChatPayload, never a 0x53 forgery.
@@ -1501,6 +1529,7 @@ class _Harness {
     final prev = inbound;
     inbound = null;
     chat.bindTypingSource(null);
+    chat.bindDeliverySource(null);
     await prev?.stop();
     final next = InboundReceiver(
       store: store,
@@ -1511,6 +1540,7 @@ class _Harness {
     await next.start();
     inbound = next;
     chat.bindTypingSource(next.typingEvents);
+    chat.bindDeliverySource(next.peerMessagesStored);
   }
 
   /// AUTH_CONTRACT §3.1/§3.2 plus the post-login wiring `App.initState`

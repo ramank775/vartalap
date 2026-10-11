@@ -28,6 +28,7 @@ const ChatPayloadType$json = {
     {'1': 'TYPE_MESSAGE_FORWARD', '2': 6},
     {'1': 'TYPE_READ_RECEIPT', '2': 7},
     {'1': 'TYPE_TYPING', '2': 8},
+    {'1': 'TYPE_DELIVERY_RECEIPT', '2': 9},
   ],
 };
 
@@ -37,7 +38,7 @@ final $typed_data.Uint8List chatPayloadTypeDescriptor = $convert.base64Decode(
     '9DUkVBVEUQARIXChNUWVBFX01FU1NBR0VfVVBEQVRFEAISFwoTVFlQRV9NRVNTQUdFX0RFTEVU'
     'RRADEhUKEVRZUEVfUkVBQ1RJT05fQUREEAQSGAoUVFlQRV9SRUFDVElPTl9SRU1PVkUQBRIYCh'
     'RUWVBFX01FU1NBR0VfRk9SV0FSRBAGEhUKEVRZUEVfUkVBRF9SRUNFSVBUEAcSDwoLVFlQRV9U'
-    'WVBJTkcQCA==');
+    'WVBJTkcQCBIZChVUWVBFX0RFTElWRVJZX1JFQ0VJUFQQCQ==');
 
 @$core.Deprecated('Use chatPayloadDescriptor instead')
 const ChatPayload$json = {

@@ -81,11 +81,9 @@ Uint8List _encodeTyping({required bool isTyping}) => pb.ChatPayload(
 /// consumes a `resource_seq` on the channel. The server fans the
 /// opaque bytes on; every recipient flips its OWN messages at or
 /// before the marker to read.
-Uint8List _encodeReadReceipt({required String messageId}) => pb.ChatPayload(
-      version: 1,
-      type: pb.ChatPayloadType.TYPE_READ_RECEIPT,
-      messageId: messageId,
-    ).writeToBuffer();
+Uint8List _encodeReceipt(pb.ChatPayloadType type, String messageId) =>
+    pb.ChatPayload(version: 1, type: type, messageId: messageId)
+        .writeToBuffer();
 
 class ChatService {
   final ChatStore _store;
@@ -101,6 +99,8 @@ class ChatService {
   final StreamController<TypingEvent> _typingCtrl =
       StreamController<TypingEvent>.broadcast();
   StreamSubscription<TypingEvent>? _typingSub;
+  StreamSubscription<String>? _deliverySub;
+  final Map<String, Timer> _deliveryTimers = {};
 
   Stream<TypingEvent> get typingEvents => _typingCtrl.stream;
 
@@ -113,6 +113,38 @@ class ChatService {
     if (source == null) return;
     _typingSub = source.listen((e) {
       if (!_typingCtrl.isClosed) _typingCtrl.add(e);
+    });
+  }
+
+  /// Replace the source of "a peer message was stored in channel X"
+  /// (InboundReceiver.peerMessagesStored). Each burst per channel becomes
+  /// one TYPE_DELIVERY_RECEIPT naming the newest peer message, so the
+  /// author's tick goes grey ✓✓. Pass `null` to detach. Idempotent.
+  void bindDeliverySource(Stream<String>? source) {
+    _deliverySub?.cancel();
+    _deliverySub = null;
+    for (final t in _deliveryTimers.values) {
+      t.cancel();
+    }
+    _deliveryTimers.clear();
+    if (source == null) return;
+    _deliverySub = source.listen((channelId) {
+      // ponytail: in-memory 500 ms debounce per channel; a receipt still
+      // pending when the process dies is lost, and the next peer message
+      // or the read receipt covers it.
+      _deliveryTimers[channelId]?.cancel();
+      _deliveryTimers[channelId] = Timer(
+        const Duration(milliseconds: 500),
+        () {
+          _deliveryTimers.remove(channelId);
+          // Fire-and-forget: a failed receipt only costs the grey tick.
+          _enqueueReceipt(channelId, pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT)
+              .catchError((Object e) {
+            // ignore: avoid_print
+            print('ChatService: delivery receipt for $channelId failed: $e');
+          });
+        },
+      );
     });
   }
 
@@ -369,8 +401,17 @@ class ChatService {
   /// the author's tick flips to read on their device. Best-effort: if
   /// the op enqueue fails the local read marker still moves.
   Future<void> markRead(String channelId) async {
+    await _store.markChannelRead(channelId, _clock.nowMs());
+    await _enqueueReceipt(channelId, pb.ChatPayloadType.TYPE_READ_RECEIPT);
+  }
+
+  /// Enqueues a read or delivery receipt naming the newest peer message
+  /// in [channelId]; no-op when logged out or there is none.
+  Future<void> _enqueueReceipt(
+    String channelId,
+    pb.ChatPayloadType type,
+  ) async {
     final now = _clock.nowMs();
-    await _store.markChannelRead(channelId, now);
     final localUserId = _authClient.currentUserId;
     if (localUserId == null) return;
     final messageId = await _store.latestPeerMessageId(
@@ -387,7 +428,7 @@ class ChatService {
       restMethod: null,
       restPath: null,
       resourceId: channelId,
-      payload: _encodeReadReceipt(messageId: messageId),
+      payload: _encodeReceipt(type, messageId),
       status: OpStatus.pending,
       attempts: 0,
       nextRetryAt: now,
@@ -395,7 +436,7 @@ class ChatService {
       lastError: null,
       acknowledgedAt: null,
       createdAt: now,
-      // Read receipt doesn't target a local message row — the ACK just
+      // A receipt doesn't target a local message row — the ACK just
       // deletes the op (scheduler's null-targetMessageId branch).
       targetMessageId: null,
       targetChannelId: channelId,

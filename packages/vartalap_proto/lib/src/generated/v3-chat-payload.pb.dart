@@ -138,7 +138,8 @@ class ChatPayload extends $pb.GeneratedMessage {
   /// TYPE_MESSAGE_FORWARD, this is the new message's id (client-
   /// generated UUIDv7). For UPDATE / DELETE / REACTION_*, this is
   /// the existing message being targeted. For TYPE_READ_RECEIPT it is
-  /// the read-up-to marker: the newest message the sender has read.
+  /// the read-up-to marker: the newest message the sender has read; for
+  /// TYPE_DELIVERY_RECEIPT, the newest one their device has stored.
   /// Unused (empty) for TYPE_TYPING.
   @$pb.TagNumber(3)
   $core.String get messageId => $_getSZ(2);
