@@ -40,6 +40,9 @@ dependencies:
   qr_flutter: ^4.1.0
   connectivity_plus: ^7.1.1
   image_picker: ^1.1.2
+  # Direct only to switch on the Android system photo picker (main.dart).
+  image_picker_android: ^0.8.13
+  image_picker_platform_interface: ^2.10.0
   file_picker: ^10.1.9
   sentry_flutter: ^9.0.0
 

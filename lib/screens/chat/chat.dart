@@ -561,9 +561,9 @@ class _ChatScreenState extends State<ChatScreen> {
         .commitDelete(channelId: widget.channelId, messageId: id);
   }
 
-  /// Composer attach button (frame d1). One sheet, two sources: the
-  /// gallery for photos (which we can size for the bubble) and the
-  /// system file picker for everything else.
+  /// Composer attach button (frame d1). One sheet: the camera, the
+  /// gallery for photos and videos (photos we can size for the bubble)
+  /// and the system file picker for everything else.
   Future<void> _onAttach() async {
     final choice = await showModalBottomSheet<String>(
       context: context,
@@ -572,9 +572,14 @@ class _ChatScreenState extends State<ChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Camera'),
+              onTap: () => Navigator.of(ctx).pop('camera'),
+            ),
+            ListTile(
               leading: const Icon(Icons.image_outlined),
-              title: const Text('Photo'),
-              onTap: () => Navigator.of(ctx).pop('image'),
+              title: const Text('Photo or video'),
+              onTap: () => Navigator.of(ctx).pop('gallery'),
             ),
             ListTile(
               leading: const Icon(Icons.attach_file),
@@ -591,22 +596,32 @@ class _ChatScreenState extends State<ChatScreen> {
     var width = 0;
     var height = 0;
     try {
-      if (choice == 'image') {
+      if (choice != 'file') {
         // ponytail: one fixed "standard quality" (WhatsApp sends ~1600px);
         // an HD toggle is a preview-screen option when that screen exists.
-        final picked = await ImagePicker().pickImage(
-          source: ImageSource.gallery,
-          maxWidth: 2048,
-          maxHeight: 2048,
-          imageQuality: 85,
-        );
+        // Videos go as picked.
+        final picker = ImagePicker();
+        final picked = choice == 'camera'
+            ? await picker.pickImage(
+                source: ImageSource.camera,
+                maxWidth: 2048,
+                maxHeight: 2048,
+                imageQuality: 85,
+              )
+            : await picker.pickMedia(
+                maxWidth: 2048,
+                maxHeight: 2048,
+                imageQuality: 85,
+              );
         if (picked == null) return;
         sourcePath = picked.path;
         // Sender-declared dimensions let the bubble reserve the right
         // aspect ratio before the bytes land.
-        final size = await _decodeSize(picked.path);
-        width = size?.$1 ?? 0;
-        height = size?.$2 ?? 0;
+        if (mimeForPath(picked.path).startsWith('image/')) {
+          final size = await _decodeSize(picked.path);
+          width = size?.$1 ?? 0;
+          height = size?.$2 ?? 0;
+        }
       } else {
         final result = await FilePicker.platform.pickFiles();
         sourcePath = result?.files.single.path;
@@ -1634,7 +1649,13 @@ class _AttachmentView extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.insert_drive_file_outlined, size: 28, color: tint),
+            Icon(
+              attachment.mimeType.startsWith('video/')
+                  ? Icons.play_circle_outline
+                  : Icons.insert_drive_file_outlined,
+              size: 28,
+              color: tint,
+            ),
             const SizedBox(width: kSpaceSm),
             Flexible(
               child: Column(

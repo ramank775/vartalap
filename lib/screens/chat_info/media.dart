@@ -113,7 +113,11 @@ class _FileRow extends StatelessWidget {
     final a = firstAttachment(message);
     final name = (a == null || a.filename.isEmpty) ? 'Attachment' : a.filename;
     return ListTile(
-      leading: const Icon(Icons.insert_drive_file_outlined),
+      leading: Icon(
+        a != null && a.mimeType.startsWith('video/')
+            ? Icons.play_circle_outline
+            : Icons.insert_drive_file_outlined,
+      ),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       onTap: a == null || AssetCache.instance == null
           ? null

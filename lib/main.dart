@@ -15,6 +15,8 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker_android/image_picker_android.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,6 +42,10 @@ final ConfigStore configStore = ConfigStore();
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The system photo picker (redacts GPS, no storage permission) for
+  // photos *and* videos; the plugin's default is a generic file browser.
+  final picker = ImagePickerPlatform.instance;
+  if (picker is ImagePickerAndroid) picker.useAndroidPhotoPicker = true;
   // A distributor starts this entrypoint in a background engine to
   // deliver a wake (`unifiedpush` README). Everything the wake needs —
   // pull `/sync/pending`, reconnect the WS, post the local notification
