@@ -395,6 +395,9 @@ class _ChatScreenState extends State<ChatScreen> {
     // author, so offering either on someone else's message would be a
     // button that does nothing.
     final canEdit = mine && !msg.tombstoned && (msg.body ?? '').isNotEmpty;
+    // Otherwise closing the sheet hands focus back to the composer and the
+    // keyboard pops up after a delete or react; Edit and Reply ask for it.
+    _inputFocus.unfocus();
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,

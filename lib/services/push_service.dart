@@ -500,7 +500,9 @@ class PushService {
     try {
       await _notifications.initialize(
         settings: const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          // A white silhouette: Android draws the small icon as a mask, so
+          // the full-colour launcher icon came out as a white square.
+          android: AndroidInitializationSettings('@drawable/ic_stat_vartalap'),
         ),
         onDidReceiveNotificationResponse: (_) => onNotificationTap?.call(),
       );

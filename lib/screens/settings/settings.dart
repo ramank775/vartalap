@@ -439,6 +439,8 @@ class _PushSection extends StatelessWidget {
         final failed = state == PushState.failed;
         return Column(
           mainAxisSize: MainAxisSize.min,
+          // Stretch, or the section header centres like no other one.
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Divider(height: 1),
             _SectionHeader(
