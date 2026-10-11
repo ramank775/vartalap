@@ -3164,6 +3164,7 @@ class MockServer {
     _respondJson(req, 200, {
       'url': '${apiUrl.toString()}/v3.0/_blob/$fileId',
       'fileId': fileId,
+      'contentType': assets[fileId]!.contentType,
     });
     _log('Presigned upload $fileId owner=${session.userId} size=$size');
   }
@@ -3185,6 +3186,17 @@ class MockServer {
       return;
     }
     if (method == 'PUT') {
+      // Like S3: the content-type is part of the signature.
+      final sent = req.headers.contentType?.mimeType;
+      if (sent != record.contentType) {
+        _respondJson(req, 403, {
+          'error': {
+            'code': 'SignatureDoesNotMatch',
+            'message': 'content-type $sent, signed ${record.contentType}'
+          }
+        });
+        return;
+      }
       final builder = BytesBuilder();
       await for (final chunk in req) {
         builder.add(chunk);

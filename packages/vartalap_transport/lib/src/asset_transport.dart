@@ -94,7 +94,9 @@ class AssetUploadTransport implements Transport {
       await client.putBytes(
         url: presigned.url,
         bytes: bytes,
-        contentType: spec['mime'] as String,
+        // The server's type, not ours: they disagree on anything its
+        // table lacks, and a mismatch fails the signature.
+        contentType: presigned.contentType ?? spec['mime'] as String,
       );
       await client.markUploaded(presigned.fileId);
       await onUploaded(opId, presigned.fileId);

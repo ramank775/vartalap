@@ -48,7 +48,8 @@ class AssetClient {
 
   /// Reserve a fileId and get the signed PUT url. [ext] is the bare
   /// extension (`png`, not `.png`) — the server maps it to the
-  /// content-type it signs, so [putBytes] must send that same type.
+  /// content-type it signs and returns, and [putBytes] must send that
+  /// same type.
   Future<PresignedUpload> presignUpload({
     required String ext,
     required String category,
@@ -67,6 +68,7 @@ class AssetClient {
     return PresignedUpload(
       url: json['url'] as String,
       fileId: json['fileId'] as String,
+      contentType: json['contentType'] as String?,
     );
   }
 
@@ -135,5 +137,14 @@ class AssetClient {
 class PresignedUpload {
   final String url;
   final String fileId;
-  const PresignedUpload({required this.url, required this.fileId});
+
+  /// The content-type signed into [url], which the PUT must send.
+  /// Null from a server older than this field.
+  final String? contentType;
+
+  const PresignedUpload({
+    required this.url,
+    required this.fileId,
+    this.contentType,
+  });
 }

@@ -1168,6 +1168,33 @@ void main() {
       expect(update.attachments.single.url, stored.url);
     });
 
+    // ---- 10b ------------------------------------------------------------
+    test('10b. a voice note uploads although media-ms types .m4a its own '
+        'way: the PUT carries the content-type the server signed', () async {
+      final note = File('${h.tmpDir.path}/voice.m4a')
+        ..writeAsBytesSync(List.filled(64, 7));
+      final id = await h.chat.sendAttachment(
+        channelId: attachmentChannelId,
+        authorUserId: h.authService.currentUserId!,
+        path: note.path,
+        durationMs: 3000,
+      );
+      await h.waitForAsync(() async {
+        final m = await h.store.fetchMessage(id);
+        return m != null &&
+            m.state != MessageState.pending &&
+            m.state != MessageState.sending;
+      });
+      expect(
+        (await h.store.fetchMessage(id))?.state,
+        isAcked,
+        reason: 'The mock, like S3, signs the type it derives from ext '
+            '(octet-stream for m4a) and 403s any other content-type; the '
+            "client must use the presign response's contentType, not its "
+            'own audio/mp4. ${await h.opDebug(attachmentChannelId)}',
+      );
+    });
+
     // ---- 11 -------------------------------------------------------------
     test('11. set profile photo → PATCH /v3.0/users/me → ProfileEdited '
         'fanout carries the avatarUrl', () async {
