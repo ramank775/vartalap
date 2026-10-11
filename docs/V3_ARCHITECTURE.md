@@ -120,6 +120,15 @@ explicit yes/no before it ships.
 ---
 
 ### 4. Sync layer: causal ordering per-resource
+*Amended 2026-10-11 (DECISIONS 127):* the server no longer enforces
+or stores any order. There are no sequence numbers on the wire
+(`resource_seq` and `delivery_sequence` are retired); every client
+orders a channel by `(server_timestamp_ms, op_id)` and handles ops
+that arrive before their target (SYNC_PROTOCOL §6, §6b). The client
+still sends one op per resource at a time, so the guarantee below
+holds for a sender's own queue in the common case, but nothing
+depends on it. The original text follows.
+
 The sync layer guarantees **causal order per resource within a single device**:
 if action A and action B operate on the same resource (same channel, same
 message, same profile) and A was enqueued before B, A reaches the server
@@ -414,8 +423,9 @@ The sync wire is split into two transports with deliberately different
 jobs:
 
 - **WebSocket** carries opaque chat-content payload bytes. The server
-  validates routing — session, channel membership, per-resource
-  sequencing, op_id dedup — and **never parses the inner payload**.
+  validates routing — session, channel membership, best-effort op_id
+  dedup — and **never parses the inner payload** (per-resource
+  sequencing was dropped by DECISIONS 127).
   Adding a new chat-content type (pinned messages, polls, ephemeral
   messages, reactions of new shapes) does not touch chat-server code
   or proto.

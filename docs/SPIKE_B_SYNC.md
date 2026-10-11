@@ -1,6 +1,7 @@
 # Spike B — Sync Package Design
 
 **Status:** Draft, 2026-04-14
+**Note (2026-10-11):** `resource_seq` and `delivery_sequence` are retired (DECISIONS 127); ordering is client-side by `(server_timestamp_ms, op_id)` — see SYNC_PROTOCOL §6. This spike predates that and is kept as written.
 **Branch:** `feat/v3-foundation`
 **Supersedes:** `packages/taskq/` (to be deleted when v3 scaffold lands)
 

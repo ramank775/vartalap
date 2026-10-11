@@ -738,7 +738,7 @@ class MockServer {
   /// they have a socket, otherwise onto their undelivered queue.
   ///
   /// [messageId] and [serverTimestampMs] let a test deliver the create
-  /// AFTER ops that target it (SYNC_PROTOCOL §6: the client copes).
+  /// AFTER ops that target it (SYNC_PROTOCOL §6b: the client copes).
   ({String messageId, String opId}) injectPeerMessage({
     required String channelId,
     required String body,

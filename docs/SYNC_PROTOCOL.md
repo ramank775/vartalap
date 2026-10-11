@@ -21,8 +21,9 @@ chat-server. The sync surface is split into two transports with
 deliberately different jobs:
 
 - **WebSocket** carries opaque chat-content payloads. The server
-  validates routing (membership, sequencing, dedup, session) but
-  **never parses the inner payload bytes**. Adding a new chat-content
+  validates routing (membership, session), dedups best-effort and
+  stamps a server timestamp, but **never parses the inner payload
+  bytes** and keeps no ordering state (§6). Adding a new chat-content
   type does not require a server change.
 - **REST** handles operations the server has to interpret because they
   mutate server-owned state: channel CRUD, membership changes, profile
@@ -53,24 +54,27 @@ behavior is mandated.
   envelopes and REST writes.
 - **resource_id** — The entity an op operates on. For WS envelopes,
   always `channel_id`. For REST writes, the entity being mutated
-  (channel id, user id).
-- **resource_seq** — Monotonic per-`(user_id, resource_id)` sequence
-  number tracked on the client. Increments once per op enqueued.
-  Never reset.
+  (channel id, user id). A client-side scheduling key (§6); it is not
+  a wire field of its own.
 - **outbound queue** — Client-side `outbound_ops` table (see
   `SPIKE_B_SYNC.md` §3). Persistent. Authoritative for "what still
   needs to be sent." Holds both WS envelopes AND mutating REST calls.
-- **undelivered queue** — Server-side Redis FIFO per recipient
-  `user_id`. Envelopes the server could not deliver because the
-  recipient's WS connection is not currently open.
+- **undelivered queue** — Server-side queue per recipient device,
+  durable in MongoDB. Envelopes the server could not deliver because
+  the recipient's WS connection is not currently open.
 - **projection** — Client-side current-state view materialized from
   the event log (see `SPIKE_A_LOCAL_STORE.md`). Updated in the same
   transaction as event append.
 - **tombstone** — A local-only projection marker that a resource has
   been deleted/edited, pending server confirmation. See §9.
-- **server-stamped fields** — `sender_user_id`, `server_timestamp_ms`,
-  `delivery_sequence` on the Envelope. Absent on client→server,
-  populated by the server before fanout.
+- **server-stamped fields** — `sender_user_id` and
+  `server_timestamp_ms` on the Envelope. Absent on client→server,
+  populated by the server before fanout. `server_timestamp_ms` is the
+  ordering key (§6).
+- **best-effort server cache** — State the server keeps only to save
+  work (the dedup window, §7.1; rate-limit counters, §14). It may be
+  in-process or Redis and may be lost on any restart; correctness never
+  depends on it.
 
 ---
 
@@ -257,7 +261,7 @@ EnvelopeBatch {
 Envelope {
   string op_id              // UUIDv7
   string channel_id         // routing target
-  uint64 resource_seq       // per-(user_id, channel_id) monotonic
+  // field 3 (resource_seq) is retired and reserved
   uint64 client_timestamp_ms
   bytes  payload            // opaque to server
   bool   ephemeral          // typing and friends; no ack, no queue
@@ -265,8 +269,7 @@ Envelope {
                             // matches ^d[0-9a-f]{31}$ (§11.3);
                             // absent for groups. Echoed unchanged on
                             // fanout.
-  // sender_user_id, server_timestamp_ms, delivery_sequence absent on
-  // client→server
+  // sender_user_id, server_timestamp_ms absent on client→server
 }
 ```
 
@@ -289,14 +292,14 @@ Ack {
   AckOutcome outcome         // SUCCESS | TRANSIENT | PERMANENT | AUTH_FAILURE
   string reason              // server-defined code (§8)
   uint64 retry_after_ms      // for TRANSIENT and rate_limited
-  uint64 server_timestamp_ms // populated on SUCCESS
-  uint64 delivery_sequence   // populated on SUCCESS
+  uint64 server_timestamp_ms // populated on SUCCESS; the ordering key
+  // field 6 (delivery_sequence) is retired and reserved
 }
 ```
 
 See §8 for the `reason` enumeration. Note: `reason` values are
 limited to things the server can actually evaluate (membership,
-sequencing, prefix, schema, rate, capacity). Chat-content reasons
+prefix, schema, rate, capacity). Chat-content reasons
 (authorship, message existence) are NOT here — server doesn't
 interpret payloads, so it cannot produce those.
 
@@ -331,46 +334,52 @@ violation). Client reconnects per §13.
 
 ## 6. Ordering and serialization
 
-Per-resource-serial-ACK-wait, per `SPIKE_B_SYNC.md` §5. Restated on
-the wire:
+**The server is stateless about ordering.** It keeps no per-user,
+per-resource or per-channel sequence, never buffers, sorts or rejects
+an op for where it falls, and has no `out_of_order` outcome. Ordering
+is the client's job (DECISIONS 127).
+
+**The ordering key** is `(server_timestamp_ms, op_id)`, ascending.
+`server_timestamp_ms` is stamped by the server when it accepts an
+envelope and is the same on the fanout Envelope (field 21) and on the
+sender's Ack (field 5); `op_id` is a UUIDv7, so a timestamp tie breaks
+the same way on every device. A message takes its place from its
+CREATE (or FORWARD). Clients compare messages by that op's
+`server_timestamp_ms` and then by the message's `message_id`, also a
+UUIDv7 the sender minted with the op: it is what every device stores,
+and unlike the op_id it survives a manual re-send.
 
 **Client MUST:**
-1. Assign monotonically increasing `resource_seq` values per
-   `(authenticated_user_id, resource_id)`, starting at 1. Never reset,
-   never skip, never reuse. For WS envelopes, `resource_id =
-   channel_id`. For REST writes, `resource_id` is the targeted entity
-   id (channel id, user id).
-2. Dispatch at most one op per `resource_id` in flight at a time.
-   Scheduler enforces via the §5 query (`SPIKE_B_SYNC.md`).
-3. Dispatch ops on different `resource_id`s in parallel.
+1. Order every channel by the key above on every device: the sender
+   takes `server_timestamp_ms` for its own message from the Ack, a
+   recipient from the fanout Envelope. Never by arrival order, never
+   by `client_timestamp_ms` (advisory).
+2. Sort its own messages that have no Ack yet after everything else,
+   by client time. They have no server timestamp to sort by.
+3. Leave a message where its CREATE put it: an edit, delete or
+   reaction never re-stamps its target.
+4. Accept any arrival order (§6b): a message after a newer one, an
+   edit before the message it edits, a receipt for a message it does
+   not hold. Anything "latest" (the chat-list preview, the read
+   marker) is derived from the key, not from the last row stored.
+
+**Client MAY** keep at most one op per `resource_id` in flight, as the
+reference scheduler does (`SPIKE_B_SYNC.md` §5), so a sender's own
+ops usually arrive in the order they were made. Nothing depends on
+it: different resources, retries and the undelivered queue reorder
+freely, and a permanently rejected op does not doom the ops queued
+behind it.
 
 **Server MUST:**
-1. Be stateless with respect to ordering. Do NOT buffer ops waiting
-   for earlier ops. Do NOT sort incoming ops.
-2. Track `max_seen_resource_seq` per `(user_id, resource_id)` for at
-   least the lifetime of the dedup window (see §7). Storage: Redis
-   hash keyed by `seq:<user_id>:<resource_id>`.
-3. Validate on every op:
-   - `incoming_resource_seq > max_seen_resource_seq` by exactly 1:
-     accept, update max, process.
-   - Strictly greater by more than 1 (skip): reject as
-     `AckPermanent { reason: "out_of_order" }`. Client bug.
-   - Equal or lower: dedup hit (op_id matches stored entry, return
-     stored Ack) or client bug. See §7.
-   - Nothing stored (never seen, expired after the dedup window, or
-     lost on a restart): accept, store it as the max, process. The
-     client never resets its counter, so demanding 1 here would lock
-     the user out of the resource for good.
+1. Stamp `server_timestamp_ms` on every accepted envelope, with the
+   same value on the fanout and on the Ack. A dedup replay (§7.1)
+   returns the original stamp when it still has it.
+2. Not track, validate or store any ordering state, and accept an op
+   regardless of what it has or has not seen from that sender before.
 
-**Cross-resource ops: no coupling.** Different `resource_id`s are
-independent.
-
-**Cross-transport ordering: not coupled.** WS envelopes targeting
-`channel_id=A` and a REST `add_members` targeting `channel_id=A`
-both share `resource_id=A` and DO sequence against each other through
-the same per-resource counter. The scheduler handles cross-transport
-sequencing locally; the server enforces independently per
-`(user_id, resource_id)` regardless of transport.
+Cross-resource and cross-transport ops are not coupled: a REST
+`add_members` and a WS message on the same channel are independent
+on the wire.
 
 ---
 
@@ -386,12 +395,11 @@ The chat-server validates and acts on:
 |---|---|
 | Session identity (`user_id`) | profile-ms accesskey table |
 | Channel membership | channel-ms |
-| Per-`(user_id, channel_id)` `resource_seq` | message-ms Redis (`seq:<user_id>:<channel_id>`) |
-| Op dedup | profile-ms or dedicated Redis (`dedup:<user_id>`) |
+| Op dedup | best-effort server cache (§7.1) |
 | Channel metadata (name, avatar, owner/admin roles) | channel-ms (REST writes only) |
 | Profile (display name, avatar, status, username, phone) | profile-ms (REST writes only) |
 | Push topic registrations | notification-ms (REST writes only) |
-| Undelivered queue | delivery-manager Redis (`undelivered:<user_id>`) |
+| Undelivered queue | delivery-manager, MongoDB (durable) |
 
 ### 6a.2 What the server does NOT touch
 
@@ -427,17 +435,15 @@ For every inbound `Envelope` on the WS wire, the server runs:
    "validation_failed" }`; `dm_chan(user_id, peer) != channel_id` is
    `AckPermanent { reason: "forbidden" }`; otherwise the recipient set
    is exactly `{peer}`.
-4. **Sequencing.** `resource_seq` strictly monotonic for `(user_id,
-   channel_id)` per §6. On skip: `AckPermanent { reason:
-   "out_of_order" }`. On retry within dedup window: return stored
-   Ack.
+4. *(Retired: sequencing. There is no ordering check, §6. A retry the
+   dedup cache still remembers returns the stored Ack, §7.1.)*
 5. **Schema.** `Envelope` proto deserializes successfully. On
    malformed: `AckPermanent { reason: "validation_failed" }`. Note:
    this is envelope-shape validation (op_id is a string, payload is
    bytes); the server does NOT validate the bytes inside `payload`.
 6. **Rate.** Per-user / per-IP limits (§14). On breach: `AckPermanent
    { reason: "rate_limited", retry_after_ms: <ms> }`.
-7. **Capacity.** Downstream availability (Redis fanout queue, etc.).
+7. **Capacity.** Downstream availability (fanout queue, storage, etc.).
    On transient: `AckTransient { reason: "fanout_queue_full" |
    "downstream_timeout" | "storage_unavailable" }`.
 
@@ -455,16 +461,21 @@ is the authoritative record of what that client has accepted.
 
 When a recipient receives a `WS_PUSH` envelope, it:
 1. Decodes `payload` per `v3-chat-payload.proto`.
-2. Checks the inner `ChatPayloadType` against its local state:
+2. Checks the inner `ChatPayloadType` against its local state. If M
+   is not held yet, the op is kept until M arrives and judged then
+   (§6b.1):
    - `TYPE_MESSAGE_UPDATE` for `message_id=M`: apply only if local
      log shows M was authored by `Envelope.sender_user_id` AND M is
      not tombstoned. Otherwise silently drop.
    - `TYPE_MESSAGE_DELETE` for `message_id=M`: apply only if local
      log shows M was authored by `Envelope.sender_user_id`.
      Otherwise silently drop.
-   - `TYPE_REACTION_ADD` / `TYPE_REACTION_REMOVE` for `message_id=M`:
-     apply only if local log contains M (received or sent locally)
-     and M is not tombstoned. Otherwise silently drop.
+   - `TYPE_REACTION_ADD` for `message_id=M`: apply only if M is not
+     tombstoned. Otherwise silently drop.
+   - `TYPE_REACTION_REMOVE` for `message_id=M`: apply (on a
+     tombstoned M it is a harmless no-op).
+   - `TYPE_READ_RECEIPT` / `TYPE_DELIVERY_RECEIPT`: flip only the
+     recipient's OWN messages, by timestamp marker (§6b.2).
    - `TYPE_MESSAGE_CREATE`, `TYPE_MESSAGE_FORWARD`: apply
      unconditionally (the source-message metadata on FORWARD is not
      validated; recipients use it for UI only).
@@ -519,19 +530,65 @@ malicious user could achieve by patching their local client.
 
 ---
 
+## 6b. Out-of-order arrival
+
+Without server sequencing, arrival order is whatever the network,
+retries and the undelivered queue produce. Recipients cope.
+
+### 6b.1 Ops that arrive before their message
+
+`TYPE_MESSAGE_UPDATE`, `TYPE_MESSAGE_DELETE`, `TYPE_REACTION_ADD` and
+`TYPE_REACTION_REMOVE` name an existing `message_id`. When the
+recipient does not hold that message yet, it MUST keep the op rather
+than drop it (and record its `op_id` in `op_id_seen` as usual, §7.2).
+When the message's CREATE or FORWARD is stored, the recipient applies
+the kept ops for it in `(server_timestamp_ms, op_id)` order, in the
+same transaction, through the §6a.4 gates, with authorship judged
+against the message now that it is known:
+
+- an edit or delete applies only if its sender is the message's
+  author; a non-author's is dropped at that point;
+- a delete that came first means the message is stored already
+  tombstoned and is never shown with its body;
+- a reaction applies unless the message is tombstoned by then.
+
+The store of early ops is bounded. The reference client keeps at most
+1,000 of them for at most 30 days; past that an early op is lost. The
+usual such op targets a message this device never receives at all (it
+predates the user joining the group, or the user cleared the chat).
+
+### 6b.2 Receipts carry a timestamp marker
+
+`TYPE_READ_RECEIPT` and `TYPE_DELIVERY_RECEIPT` are up-to markers.
+`message_id` names the newest peer message acknowledged, and
+`marker_server_timestamp_ms` (ChatPayload field 60) carries that
+message's `server_timestamp_ms`. The recipient flips its OWN messages
+(authorship gate, §6a.3) whose `server_timestamp_ms` is at or before
+the marker, to read or delivered, and never moves a row backwards (a
+late delivery receipt does not undo read). It does not need to hold
+`message_id`: in a group the marker is often another member's
+message, and in any channel it may still be in transit. Its own
+messages with no Ack yet have no timestamp and are never flipped.
+
+---
+
 ## 7. Idempotency and dedup
 
 ### 7.1 Server-side dedup window
 
-Server MUST maintain a bounded dedup table per user, used for **both
-WS envelopes and REST writes** that are queued through the outbound
-queue (any op carrying an `op_id`):
+The server SHOULD keep a bounded dedup table per user, used for
+**both WS envelopes and REST writes** that are queued through the
+outbound queue (any op carrying an `op_id`). It is a **best-effort
+server cache**: in-process or Redis, and it may be lost on any
+restart. It saves a re-fanout; correctness never depends on it, since
+recipients dedup by `op_id` (§7.2) and by `message_id`.
 
 - **Size:** 10,000 most recent op_ids per user.
 - **TTL:** 7 days rolling (per-entry).
-- **Storage:** Redis, key `dedup:<user_id>`. Suggested encoding: hash
-  where field is `op_id` and value is the serialized outcome (ACK on
-  WS, HTTP response on REST). FIFO eviction on overflow.
+- **Encoding (suggested):** key `dedup:<user_id>`, hash where field is
+  `op_id` and value is the serialized outcome (ACK with its
+  `server_timestamp_ms` on WS, HTTP response on REST). FIFO eviction
+  on overflow.
 
 On an incoming op:
 1. **`op_id` in dedup, marked applied:** return the stored outcome.
@@ -541,7 +598,8 @@ On an incoming op:
 3. **`op_id` not in dedup:** process normally. On completion, write
    the outcome.
 
-Overflow: treat as case 3. Application-level idempotency MUST hold:
+Overflow or a lost cache: treat as case 3. Application-level
+idempotency MUST hold:
 - Channel create with same client `channel_id` → 409 conflict on REST
   retry; idempotent error.
 - Add members → set-union, adding existing members is a no-op.
@@ -593,7 +651,6 @@ REST error envelopes use the same code set where applicable.
 | `reason` | Meaning | WS? | REST? | HTTP |
 |---|---|---|---|---|
 | `prefix_mismatch` | `op_id` user_id bits ≠ authenticated user. | ✓ | ✓ | 400 |
-| `out_of_order` | `resource_seq` skipped. Client scheduler bug. | ✓ | ✓ | 400 |
 | `forbidden` | User lacks server-verifiable permission. WS: not a member of `channel_id`. REST: lacks owner/admin role on a channel write, attempting to PATCH another user, etc. | ✓ | ✓ | 403 |
 | `not_found` | Server-verifiable resource doesn't exist. REST: channel id unknown, user_id unknown. WS: channel_id unknown to channel-ms. | ✓ | ✓ | 404 |
 | `gone` | Server-verifiable resource was deleted. REST: editing a deleted channel. | (rare) | ✓ | 410 |
@@ -604,7 +661,7 @@ REST error envelopes use the same code set where applicable.
 | `server_busy` | Server overloaded. | ✓ | ✓ | 503 |
 | `storage_unavailable` | Downstream DB/cache unavailable. | ✓ | ✓ | 503 |
 | `downstream_timeout` | Internal microservice call timed out. | ✓ | ✓ | 504 |
-| `fanout_queue_full` | Delivery-manager Redis queue saturated. | ✓ | — | — |
+| `fanout_queue_full` | Delivery-manager queue saturated. | ✓ | — | — |
 
 **Notably absent** from this list: anything about message authorship,
 message existence, reaction state, forward sources. Per §6a, the
@@ -721,12 +778,10 @@ WsEnvelope {
   body.push: Envelope {
     op_id:                <sender's op_id>
     channel_id:           <sender's channel_id>
-    resource_seq:         <sender's resource_seq>  // sender-scoped, opaque to recipient
     client_timestamp_ms:  <sender's value>
     payload:              <sender's opaque bytes>
     sender_user_id:       <server-stamped, authenticated sender's user_id>
-    server_timestamp_ms:  <server-stamped>
-    delivery_sequence:    <server-stamped, per-channel monotonic>
+    server_timestamp_ms:  <server-stamped; the ordering key, §6>
   }
 }
 ```
@@ -846,13 +901,13 @@ authoritative).
 
 ### 10.4 Push frame ordering
 
-Server MUST emit push frames in `delivery_sequence` order per
-channel to a given recipient. Cross-channel ordering is not
-guaranteed.
+Server SHOULD emit push frames to a given recipient in
+`server_timestamp_ms` order. That is all: no per-channel sequence, and
+no guarantee across reconnects, server instances or the undelivered
+queue interleaving with live fanout.
 
-Recipients MAY observe out-of-order arrival across reconnects if a
-drain of the undelivered queue interleaves with live fanout — `op_id`
-dedup ensures correctness regardless.
+Recipients sort by the §6 key anyway and handle ops that arrive before
+their target (§6b); `op_id` dedup (§7.2) absorbs duplicates.
 
 ### 10.5 Recipient client requirements
 
@@ -875,7 +930,8 @@ On receipt of a `WS_PUSH` envelope, the recipient client MUST:
 ### 10.6 Undelivered queue and sync pull
 
 The undelivered queue (§10.3 item 3) is the server-side holding
-area for push frames a recipient's WS wasn't open to receive. v3.0
+area for push frames a recipient's WS wasn't open to receive. It is
+durable (MongoDB): a server restart or deploy does not lose it. v3.0
 drains it exclusively via client pull — the server never pushes
 proactively when a connection opens.
 
@@ -889,8 +945,8 @@ proactively when a connection opens.
 ```
 
 Each entry is a base64-encoded `WsEnvelope` (`proto/v3-envelope.proto`)
-with `type = WS_PUSH`. Frames are ordered by `delivery_sequence` per
-channel — cross-channel ordering is not guaranteed, same as §10.4.
+with `type = WS_PUSH`, in `server_timestamp_ms` order as far as the
+server knows it; recipients sort by the §6 key anyway, same as §10.4.
 
 **Drain semantics:** the server drains the calling user's queue in
 the same request that returns it — at-most-once delivery from the
@@ -955,7 +1011,6 @@ All REST writes carry these standard fields in the body:
 ```json
 {
   "op_id": "01f00000-7000-8000-8abc-...",
-  "resource_seq": 42,
   "client_timestamp_ms": 1744675200000,
   ... endpoint-specific fields ...
 }
@@ -964,8 +1019,9 @@ All REST writes carry these standard fields in the body:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `op_id` | string (UUIDv7) | yes | Dedup key. Same enforcement as WS envelopes (§7.1, prefix bits per §3). |
-| `resource_seq` | integer | yes | Per-`(user_id, resource_id)` monotonic. `resource_id` is the targeted entity id (path parameter). |
 | `client_timestamp_ms` | integer | no | Advisory. |
+
+`resource_seq` is retired (§6); clients do not send it.
 
 Endpoint-specific fields are documented per endpoint in
 AUTH_CONTRACT.md (auth, profile, push) and in this section (channel
@@ -1044,7 +1100,6 @@ Create a group.
 ```json
 {
   "op_id": "...",
-  "resource_seq": 1,
   "channel_id": "01efabcd-7000-8000-8abc-...",
   "kind": "group",
   "name": "Weekend Trip",
@@ -1060,9 +1115,6 @@ Create a group.
 | `name` | Required. |
 | `members` | List of `user_id` (9 hex chars). Creator MUST be included; server validates membership against the authenticated user. |
 
-`resource_id` for sequencing is `channel_id`. `resource_seq` starts
-at 1 (this is the first op on a fresh channel id).
-
 **Success 201:**
 ```json
 {
@@ -1073,8 +1125,7 @@ at 1 (this is the first op on a fresh channel id).
 
 **Errors:** `forbidden` (authenticated user not in `members`),
 `resource_id_taken` (collision),
-`validation_failed`, `prefix_mismatch`, `out_of_order`,
-`rate_limited`.
+`validation_failed`, `prefix_mismatch`, `rate_limited`.
 
 #### `POST /v3.0/channels/<channel_id>/members`
 
@@ -1084,12 +1135,9 @@ Add members.
 ```json
 {
   "op_id": "...",
-  "resource_seq": 7,
   "members": ["e4f5a6b7c", "f5a6b7c8d"]
 }
 ```
-
-`resource_id` for sequencing is `channel_id`.
 
 **Success 200:**
 ```json
@@ -1098,7 +1146,7 @@ Add members.
 
 **Errors:** `forbidden` (not owner/admin), `precondition_failed`
 (group cap exceeded), `not_found` (channel doesn't exist),
-`validation_failed`, `out_of_order`, `rate_limited`.
+`validation_failed`, `rate_limited`.
 
 #### `DELETE /v3.0/channels/<channel_id>/members/<user_id>`
 
@@ -1107,8 +1155,7 @@ Remove a member.
 **Body:**
 ```json
 {
-  "op_id": "...",
-  "resource_seq": 8
+  "op_id": "..."
 }
 ```
 
@@ -1117,7 +1164,7 @@ Remove a member.
 { "member_count": 11 }
 ```
 
-**Errors:** `forbidden`, `not_found`, `out_of_order`, `rate_limited`.
+**Errors:** `forbidden`, `not_found`, `rate_limited`.
 
 #### `PATCH /v3.0/channels/<channel_id>`
 
@@ -1127,7 +1174,6 @@ Edit channel metadata.
 ```json
 {
   "op_id": "...",
-  "resource_seq": 9,
   "name": "Weekend Trip 2.0",
   "avatar_url": null
 }
@@ -1136,7 +1182,7 @@ Edit channel metadata.
 **Success 200:** echoes the updated channel.
 
 **Errors:** `forbidden`, `not_found`, `gone`, `validation_failed`,
-`out_of_order`, `rate_limited`.
+`rate_limited`.
 
 #### `DELETE /v3.0/channels/<channel_id>`
 
@@ -1145,24 +1191,23 @@ Delete a channel (owner only).
 **Body:**
 ```json
 {
-  "op_id": "...",
-  "resource_seq": 10
+  "op_id": "..."
 }
 ```
 
 **Success 204:** no body.
 
-**Errors:** `forbidden`, `not_found`, `out_of_order`, `rate_limited`.
+**Errors:** `forbidden`, `not_found`, `rate_limited`.
 
 ### 11.4 Profile, push, auth endpoints
 
 See `AUTH_CONTRACT.md`. The wire shape there
-is canonical; this doc adds the `op_id` and `resource_seq` fields to
-the documented bodies for queue compatibility.
+is canonical; this doc adds the `op_id` field to the documented
+bodies for queue compatibility.
 
-For `PATCH /v3.0/users/me`, `resource_id` is `user_id` (the
-authenticated user's own).
-For `POST /v3.0/push/topic`, `resource_id` is `user_id`.
+For `PATCH /v3.0/users/me` and `POST /v3.0/push/topic`, the client's
+scheduling `resource_id` (§6) is the authenticated user's own
+`user_id`.
 
 ### 11.5 REST batching
 
@@ -1258,8 +1303,9 @@ On `WS_REAUTH_REQUIRED` or 4001/4002 close:
    then scheduler resumes.
 
 In-flight ops with no ACK at disconnect are handled by Flow C
-timeout sweep (`SPIKE_B_SYNC.md` §5). Dedup by `op_id` (§7) ensures
-the server-processed ops are not duplicated on retry.
+timeout sweep (`SPIKE_B_SYNC.md` §5). Dedup by `op_id` (§7: the
+server's best-effort cache, then each recipient's `op_id_seen`)
+ensures a server-processed op is not applied twice on retry.
 
 ### 13.4 Proactive refresh
 
@@ -1306,6 +1352,9 @@ honors `retry_after_ms` via the scheduler's backoff
 (`SPIKE_B_SYNC.md` §6). Client MUST NOT treat `rate_limited` as
 terminal — the op re-enters the dispatchable pool after the delay.
 
+Rate-limit counters are a best-effort server cache (§2): a restart may
+reset them, which only ever errs towards letting an op through.
+
 ---
 
 ## 15. Failure recovery scenarios
@@ -1330,8 +1379,10 @@ Scenario: app killed after dispatch, before ACK / HTTP response.
 
 Scenario: server killed before emitting ACKs / 2xx responses for
 ops it accepted (or while they were queued downstream).
-- Server: connection-gateway drops connections; Redis state
-  persists (dedup, undelivered queue, seq tracking, channel-ms).
+- Server: connection-gateway drops connections. Durable state
+  survives in MongoDB (undelivered queue, channels, profiles); the
+  best-effort cache (dedup window, rate limits) may not, which costs
+  at most a re-fanout that recipients dedup (§7.2).
 - Client: WS disconnect detected, Flow C times out in-flight ops,
   re-dispatches. REST in-flight ops time out per the HTTP client
   timeout, also re-dispatch.
@@ -1374,8 +1425,8 @@ Scenario: user deletes app data or reinstalls.
   §2; the prefix is bound to the account, not the install — re-OTP
   on the same phone resolves to the same `user_id`).
 - Server: has no message history to replay. chat-server is a
-  relay, not a store. Any undelivered frames in the Redis queue
-  from before the reinstall MAY still be drained on the first WS
+  relay, not a store. Any undelivered frames in the queue from
+  before the reinstall MAY still be drained on the first WS
   connect. Frames acked and fanned out before the wipe are gone
   forever on this device.
 - Channel list: groups come back from `GET /v3.0/channels`. DMs do
@@ -1395,15 +1446,10 @@ queued WS chat-content envelopes for that channel.
   The WS envelopes the client already queued are unaffected at the
   server level (they target an existing channel; sender is still a
   member).
-- Client: per-resource cascade in `SPIKE_B_SYNC.md` §8 applies
-  ONLY when the failure is on the same `resource_id`. For
-  `add_members(channel=A)` rejected, the cascade affects subsequent
-  ops queued against `resource_id=A` — but a `send_message` to A is
-  already targeting an existing channel, so it MAY succeed
-  independently. Client cascade logic should differentiate:
-  rejection of a structural channel op does not invalidate
-  chat-content ops on the same channel unless the channel itself
-  is gone.
+- Client: rolls back the rejected op only. With no server sequence
+  there is no gap for later ops to trip over, so the ops queued behind
+  it on `resource_id=A` are dispatched and judged on their own; a
+  `send_message` to A succeeds while the sender is still a member.
 
 ### 15.8 Undelivered queue overflow
 
@@ -1419,7 +1465,7 @@ accumulate.
 Scenario: a sender emits `TYPE_MESSAGE_DELETE` for a message they
 did not author.
 - Server: validates routing (sender is channel member, prefix
-  matches, sequence in order, schema valid). Sends Ack success.
+  matches, schema valid). Sends Ack success.
 - Recipients: decode payload, run §6a.4 gate, drop silently.
 - Sender: sees their own optimistic tombstone stay applied locally
   (no rollback signal). No effect on other recipients' views.
@@ -1430,7 +1476,8 @@ did not author.
 ## 16. Server-side state and statelessness
 
 The chat-server maintains the following state. Everything NOT in
-this list is the client's problem.
+this list is the client's problem — ordering included: the server is
+stateless about it (§6).
 
 | State | Service | Storage | TTL / Bound |
 |---|---|---|---|
@@ -1438,9 +1485,9 @@ this list is the client's problem.
 | Channel metadata | channel-ms | MongoDB | forever |
 | Channel membership | channel-ms | MongoDB | forever |
 | Active WS connections | connection-gateway | in-memory + Redis pubsub | connection lifetime |
-| Undelivered queue | delivery-manager | Redis (`undelivered:<user_id>`) | 30 days rolling per user |
-| Dedup window (WS + REST) | profile-ms (new) | Redis (`dedup:<user_id>`) | 10k entries per user, 7 days rolling |
-| Resource seq tracking | message-ms | Redis (`seq:<user_id>:<resource_id>`) | aligned with dedup window |
+| Undelivered queue | delivery-manager | MongoDB (durable) | 30 days rolling per user |
+| Dedup window (WS + REST) | profile-ms | best-effort cache (in-process or Redis) | 10k entries per user, 7 days rolling; may be lost on restart |
+| Rate-limit counters | each service enforcing a §14 limit | best-effort cache (in-process or Redis) | the limit window; may be lost on restart |
 | Web Push endpoint registrations (`endpoint`, `p256dh`, `auth`) | notification-ms (new) | MongoDB, keyed by `(user_id, deviceId)` | until logout, replacement, or a 404/410 from the push service |
 | OTP sessions | profile-ms | MongoDB (authDB) | 1h post-expiry |
 | Accesskey → user_id mapping | profile-ms | in-memory cache + MongoDB | accesskey lifetime |
@@ -1551,3 +1598,4 @@ the point.
 | 13 | Server never parses chat payload | `Envelope.payload` is opaque bytes | Server stays simple; recipient enforces authorship/existence; new chat types add no server cost. |
 | 14 | Recipient-enforced authorization | Chat-content authorship, message existence, reaction state checked client-side from local event log | Server has no state to enforce against; recipient's local log is authoritative. |
 | 15 | First-byte payload discrimination | `payload[0] == 0x53` → `ServerEventPayload`; otherwise `ChatPayload` | Lets server-emitted envelopes share the same `Envelope` proto without needing a separate WsType. |
+| 16 | Ordering is client-side | Clients order by `(server_timestamp_ms, op_id)`; no `resource_seq`, no `delivery_sequence`, no `out_of_order`; early ops wait for their message (§6b) | Server stays stateless (DECISIONS 127): nothing to lose on a restart, nothing to reset. |
