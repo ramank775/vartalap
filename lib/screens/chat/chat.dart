@@ -1246,9 +1246,10 @@ class _MessageBubble extends StatelessWidget {
             ? chatColors.senderText.withValues(alpha: 0.6)
             : chatColors.messageTimestamp);
 
-    final timeStr = DateFormat.Hm().format(
+    // The phone's 12/24-hour setting, same as the chat list.
+    final timeStr = TimeOfDay.fromDateTime(
       DateTime.fromMillisecondsSinceEpoch(message.clientTimestampMs),
-    );
+    ).format(context);
 
     // The meta row (time + optional tick) that tucks into the message.
     final meta = Row(

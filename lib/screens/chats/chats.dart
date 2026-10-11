@@ -436,7 +436,7 @@ class ChannelTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            _formatTime(entry.lastActivityMs),
+            _formatTime(context, entry.lastActivityMs),
             style: TextStyle(
               fontSize: 12,
               color: hasUnread && !muted
@@ -508,12 +508,14 @@ class ChannelTile extends StatelessWidget {
     );
   }
 
-  static String _formatTime(int ms) {
+  static String _formatTime(BuildContext context, int ms) {
     final d = DateTime.fromMillisecondsSinceEpoch(ms);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final days = today.difference(DateTime(d.year, d.month, d.day)).inDays;
-    if (days == 0) return DateFormat.jm().format(d);
+    // TimeOfDay follows the phone's 12/24-hour setting; DateFormat.jm()
+    // only follows the locale.
+    if (days == 0) return TimeOfDay.fromDateTime(d).format(context);
     if (days == 1) return 'Yesterday';
     if (days < 7) return DateFormat.E().format(d);
     if (d.year == now.year) return DateFormat.MMMd().format(d);
