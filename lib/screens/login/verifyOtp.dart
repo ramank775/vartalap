@@ -1,6 +1,8 @@
 /// OTP entry screen — uses a standard 6-digit PIN input.
 library vartalap.screens.login.verify_otp;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -13,10 +15,14 @@ class VerifyOtpScreen extends StatefulWidget {
   /// opens this one, right after a successful send.
   final String phone;
 
+  /// How long the server wants before another send (its `retryAfter`).
+  final Duration retryAfter;
+
   const VerifyOtpScreen({
     super.key,
     required this.authService,
     required this.phone,
+    required this.retryAfter,
   });
 
   @override
@@ -26,11 +32,51 @@ class VerifyOtpScreen extends StatefulWidget {
 class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
   final TextEditingController _otpController = TextEditingController();
   bool _working = false;
+  bool _resending = false;
+  int _resendIn = 0;
+  Timer? _resendTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startResendCountdown(widget.retryAfter);
+  }
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _otpController.dispose();
     super.dispose();
+  }
+
+  // ponytail: ticks a counter rather than comparing wall-clock deadlines,
+  // so it can run late if Android stalls the timer in the background; the
+  // server still enforces the real limit.
+  void _startResendCountdown(Duration wait) {
+    _resendTimer?.cancel();
+    _resendIn = wait.inSeconds;
+    if (_resendIn <= 0) return;
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      setState(() => _resendIn--);
+      if (_resendIn <= 0) t.cancel();
+    });
+  }
+
+  Future<void> _onResend() async {
+    setState(() => _resending = true);
+    try {
+      final sent = await widget.authService.sendOtp(widget.phone);
+      if (!mounted) return;
+      _otpController.clear();
+      setState(() => _startResendCountdown(sent.retryAfter));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('New code sent to ${widget.phone}')),
+      );
+    } catch (e) {
+      _showError(['Unable to resend the code.', e.toString()]);
+    } finally {
+      if (mounted) setState(() => _resending = false);
+    }
   }
 
   Future<void> _onConfirm() async {
@@ -72,8 +118,9 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
           padding: const EdgeInsets.all(kSpaceLg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
+            // Spacing is sized so Confirm and the Resend row stay above the
+            // keyboard on a 360x760dp phone.
             children: [
-              const SizedBox(height: kSpaceXl),
               Text(
                 'Verification',
                 style: textTheme.headlineMedium,
@@ -85,13 +132,13 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                   color: scheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: kSpaceXl),
+              const SizedBox(height: kSpaceLg),
               // OTP input with individual character display
               _OtpInput(
                 controller: _otpController,
                 onCompleted: _onConfirm,
               ),
-              const SizedBox(height: kSpaceXl),
+              const SizedBox(height: kSpaceLg),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -108,15 +155,25 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                       : const Text('Confirm'),
                 ),
               ),
-              const SizedBox(height: kSpaceMd),
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(
-                    'Change phone number',
-                    style: TextStyle(color: scheme.primary),
+              const SizedBox(height: kSpaceSm),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Change number'),
                   ),
-                ),
+                  TextButton(
+                    key: const Key('resendButton'),
+                    onPressed: _resendIn > 0 || _resending ? null : _onResend,
+                    child: Text(
+                      _resendIn > 0
+                          ? 'Resend code in ${_resendIn ~/ 60}:'
+                              '${(_resendIn % 60).toString().padLeft(2, '0')}'
+                          : 'Resend code',
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -241,6 +298,7 @@ class _OtpInputState extends State<_OtpInput> {
               autofocus: true,
               keyboardType: TextInputType.number,
               maxLength: 6,
+              onSubmitted: (_) => widget.onCompleted(),
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
                 border: InputBorder.none,

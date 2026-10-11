@@ -95,7 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString(kCountryIsoPrefKey, _country!.iso);
     setState(() => _loading = true);
     try {
-      await widget.authService.sendOtp(phone);
+      final sent = await widget.authService.sendOtp(phone);
       if (!mounted) return;
       setState(() => _loading = false);
       Navigator.of(context).push(
@@ -103,6 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
           builder: (_) => VerifyOtpScreen(
             authService: widget.authService,
             phone: phone,
+            retryAfter: sent.retryAfter,
           ),
         ),
       );

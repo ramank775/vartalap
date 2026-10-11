@@ -119,6 +119,36 @@ void main() {
     expect(find.textContaining('United Kingdom'), findsOneWidget);
   });
 
+  testWidgets('OTP screen: Resend unlocks after the countdown, then restarts',
+      (tester) async {
+    final auth = _FakeAuthService();
+    await pumpLogin(tester, authService: auth);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Phone number'),
+      '9999999999',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pump(); // send resolves
+    await tester.pump(const Duration(milliseconds: 500)); // route in
+
+    TextButton resend() =>
+        tester.widget<TextButton>(find.byKey(const Key('resendButton')));
+    expect(find.text('Enter the 6-digit code sent to +919999999999'),
+        findsOneWidget);
+    expect(find.text('Resend code in 0:30'), findsOneWidget);
+    expect(resend().onPressed, isNull);
+
+    await tester.pump(const Duration(seconds: 30));
+    expect(find.text('Resend code'), findsOneWidget);
+    expect(resend().onPressed, isNotNull);
+
+    await tester.tap(find.byKey(const Key('resendButton')));
+    await tester.pump();
+    expect(auth.sentPhones, ['+919999999999', '+919999999999']);
+    expect(find.text('Resend code in 0:30'), findsOneWidget);
+  });
+
   test('country lookups', () {
     expect(countryForIso('in')!.flag, '\u{1F1EE}\u{1F1F3}');
     expect(countryForDialCode('44')!.iso, 'GB');
