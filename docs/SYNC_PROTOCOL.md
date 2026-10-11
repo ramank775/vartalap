@@ -357,6 +357,10 @@ the wire:
      `AckPermanent { reason: "out_of_order" }`. Client bug.
    - Equal or lower: dedup hit (op_id matches stored entry, return
      stored Ack) or client bug. See §7.
+   - Nothing stored (never seen, expired after the dedup window, or
+     lost on a restart): accept, store it as the max, process. The
+     client never resets its counter, so demanding 1 here would lock
+     the user out of the resource for good.
 
 **Cross-resource ops: no coupling.** Different `resource_id`s are
 independent.
