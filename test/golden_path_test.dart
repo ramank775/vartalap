@@ -1461,8 +1461,113 @@ void main() {
             'ChannelDeleted so their local row is tombstoned too.',
       );
     });
+
+    // ---- 16 -------------------------------------------------------------
+    test('16. rename a group and set its photo → PATCH {name} and '
+        '{avatar_url} both land → our own lines are written', () async {
+      final picked = File('${h.tmpDir.path}/group.png')
+        ..writeAsBytesSync(onePixelPng);
+      await h.chat.renameGroup(rolesChannelId, 'Roles Renamed');
+      await h.chat.setChannelAvatar(channelId: rolesChannelId, path: picked.path);
+
+      final path = '/v3.0/channels/$rolesChannelId';
+      Iterable<RecordedRequest> patches() => h.mock.requests
+          .where((r) => r.method == 'PATCH' && r.path == path);
+      await h.waitFor(() => patches().length >= 2);
+      expect(
+        patches().map((r) => r.status),
+        [200, 200],
+        reason: 'SYNC_PROTOCOL §11.3 spells the body snake_case; the real '
+            'route 400s {avatarUrl}, which once kept every group photo '
+            'from reaching anyone. ${await h.opDebug(rolesChannelId)}',
+      );
+      final server = h.mock.state.channels[rolesChannelId]!;
+      expect(server.name, 'Roles Renamed');
+      expect(h.mock.assets.containsKey(server.avatarUrl), isTrue,
+          reason: 'the server is told the uploaded fileId');
+      expect(
+        await _groupEventKinds(h, rolesChannelId),
+        containsAllInOrder([
+          GroupEventKind.created,
+          GroupEventKind.renamed,
+          GroupEventKind.photo,
+        ]),
+        reason: 'the fanout skips the device that acted, so it writes its '
+            'own "You …" lines',
+      );
+    });
+
+    // ---- 17 -------------------------------------------------------------
+    test('17. added to a group this device has never seen → GET '
+        '/v3.0/channels/{id} → the roster lands with its roles', () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = 'late-join-${DateTime.now().millisecondsSinceEpoch}';
+      h.mock.ensureChannel(
+        channelId: channelId,
+        kind: 'group',
+        ownerUserId: peerUserId,
+        members: [peerUserId, extraMemberId],
+        name: 'Late Join',
+      );
+      h.mock.state.channels[channelId]!.admins.add(extraMemberId);
+      h.mock.addChannelMember(channelId, selfId, actorUserId: extraMemberId);
+
+      await h.waitForAsync(() async => (await h.channelRow(channelId)) != null);
+      expect(
+        h.mock.requests
+            .any((r) => r.method == 'GET' && r.path == '/v3.0/channels/$channelId'),
+        isTrue,
+        reason: 'a ChannelMemberAdded naming us, for a group with no '
+            'ChannelCreated here, is answered by fetching the group',
+      );
+      expect(
+        {
+          for (final m in await h.store.fetchChannelMembers(channelId))
+            m.userId: m.role,
+        },
+        {peerUserId: 'owner', extraMemberId: 'admin', selfId: 'member'},
+        reason: 'decision 150: GET carries roles, so the newcomer sees the '
+            'same owner and admins as everyone else',
+      );
+      expect(await _groupEventKinds(h, channelId), [GroupEventKind.added]);
+    });
+
+    // ---- 18 -------------------------------------------------------------
+    test('18. a group the server has and this device lost is adopted at '
+        'login (§15.6)', () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = 'adopted-${DateTime.now().millisecondsSinceEpoch}';
+      h.mock.ensureChannel(
+        channelId: channelId,
+        kind: 'group',
+        ownerUserId: selfId,
+        members: [selfId, peerUserId],
+        name: 'Adopted',
+      );
+      expect(await h.channelRow(channelId), isNull);
+
+      await h.rebuildInboundReceiverForUser(selfId);
+
+      expect((await h.channelRow(channelId))?['name'], 'Adopted');
+      expect(await h.memberRole(channelId, selfId), 'owner');
+    });
   });
 }
+
+/// The [GroupEvent] kinds written into [channelId], oldest first.
+Future<List<GroupEventKind>> _groupEventKinds(
+  _Harness h,
+  String channelId,
+) async =>
+    [
+      for (final r in await h.store.db.query(
+        'messages',
+        where: 'channel_id = ? AND content_type = ?',
+        whereArgs: [channelId, kGroupEventType],
+        orderBy: 'server_timestamp_ms, message_id',
+      ))
+        GroupEvent.parse(r['body'] as String?)!.kind,
+    ];
 
 /// Channel ids in the §10.2 `ChannelDeleted` events queued for [userId].
 List<String> _peerChannelDeletes(_Harness h, String userId) {
@@ -1630,9 +1735,21 @@ class _Harness {
       pushes: ws.pushes,
       localUserId: userIdHex,
       resolveProfile: (userId) => _resolveContactProfile(authClient, userId),
+      resolveGroup: (channelId) async {
+        final json = await authClient.getChannel(channelId);
+        return json == null ? null : groupRosterFromJson(json);
+      },
     );
     await next.start();
     inbound = next;
+    // AppServices._adoptServerGroups, awaited here so a test can look;
+    // best-effort there too (no username yet → 403, offline → throws).
+    try {
+      await next.adoptGroups({
+        for (final g in await authClient.getChannels())
+          g['channel_id'] as String: groupRosterFromJson(g),
+      });
+    } catch (_) {}
     chat.bindTypingSource(next.typingEvents);
     chat.bindDeliverySource(next.peerMessagesStored);
   }

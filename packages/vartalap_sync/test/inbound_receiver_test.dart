@@ -871,8 +871,8 @@ void main() {
   );
 
   test(
-    'TYPE_CHANNEL_MEMBER_REMOVED of localUserId tombstones the channel '
-    'locally',
+    'TYPE_CHANNEL_MEMBER_REMOVED of localUserId keeps the chat, read '
+    'only, with a "removed you" line',
     () async {
       const grp = 'c-grp-self-rm';
       await store.insertChannel(
@@ -912,13 +912,193 @@ void main() {
         where: 'channel_id = ?',
         whereArgs: [grp],
       );
-      expect(chan.single['tombstoned'], 1);
+      // WhatsApp keeps the history of a group you were removed from.
+      expect(chan.single['tombstoned'], 0);
       final selfRow = await store.db.query(
         'channel_members',
         where: 'channel_id = ? AND user_id = ?',
         whereArgs: [grp, _selfUserId],
       );
       expect(selfRow.single['removed_at'], 550);
+      final events = await _groupEvents(store, grp);
+      expect(events.single.kind, GroupEventKind.removed);
+      expect(events.single.users, [_selfUserId]);
+    },
+  );
+
+  // --- group event lines --------------------------------------------------
+
+  test('ChannelCreated writes "created" and "added you", never unread',
+      () async {
+    const grp = 'c-grp-lines';
+    pushes.add(_makeEnvelope(
+      channelId: grp,
+      opId: 'op-cc-lines',
+      senderUserId: _peerUserId,
+      payload: _serverEventChannelCreated(
+        channelId: grp,
+        kind: 'group',
+        name: 'Trip',
+        members: [_peerUserId, _selfUserId],
+        creator: _peerUserId,
+        createdAtMs: 600,
+      ),
+      serverTimestampMs: 600,
+    ));
+    await _settleOpSeen(store, grp, 'op-cc-lines');
+
+    final events = await _groupEvents(store, grp);
+    expect([for (final e in events) e.kind],
+        [GroupEventKind.created, GroupEventKind.added]);
+    expect(events.first.text, 'Trip');
+    expect(events.last.users, [_selfUserId]);
+    // The chat shows up with the line as its preview, and nothing unread.
+    final entry = (await store.fetchChannelList())
+        .singleWhere((e) => e.channelId == grp);
+    expect(entry.lastMessageContentType, kGroupEventType);
+    expect(entry.unreadCount, 0);
+    // Not a message anyone can be sent a read receipt for.
+    expect(
+      await store.latestPeerMessage(channelId: grp, localUserId: _selfUserId),
+      isNull,
+    );
+  });
+
+  test('MemberAdded writes "added" for new members only, not a role change',
+      () async {
+    const grp = 'c-grp-add';
+    await store.insertChannel(
+        channelId: grp, kind: 'group', ownerUserId: _peerUserId, createdAt: 1);
+    for (final (id, role) in [(_peerUserId, 'owner'), (_selfUserId, 'member')]) {
+      await store.insertChannelMember(
+          channelId: grp, userId: id, role: role, joinedAt: 1);
+    }
+    pushes.add(_makeEnvelope(
+      channelId: grp,
+      opId: 'op-add-third',
+      senderUserId: _peerUserId,
+      payload: _serverEventMemberAdded(
+          channelId: grp, members: [_thirdUserId], addedAtMs: 700),
+      serverTimestampMs: 700,
+    ));
+    pushes.add(_makeEnvelope(
+      channelId: grp,
+      opId: 'op-promote-self',
+      senderUserId: _peerUserId,
+      payload: _serverEventMemberAdded(
+          channelId: grp, members: [_selfUserId], addedAtMs: 710, role: 'admin'),
+      serverTimestampMs: 710,
+    ));
+    await _settleOpSeen(store, grp, 'op-promote-self');
+
+    final events = await _groupEvents(store, grp);
+    expect(events.single.kind, GroupEventKind.added);
+    expect(events.single.users, [_thirdUserId]);
+  });
+
+  test('a member removing themselves reads "left"; a rename reads "renamed"',
+      () async {
+    const grp = 'c-grp-left';
+    await store.insertChannel(
+        channelId: grp, kind: 'group', ownerUserId: _selfUserId, createdAt: 1);
+    for (final id in [_selfUserId, _peerUserId]) {
+      await store.insertChannelMember(
+          channelId: grp, userId: id, role: 'member', joinedAt: 1);
+    }
+    pushes.add(_makeEnvelope(
+      channelId: grp,
+      opId: 'op-rename',
+      senderUserId: _peerUserId,
+      payload: _withDistinguisher(pb.ServerEventPayload(
+        version: 1,
+        type: pb.ServerEventType.CHANNEL_EDITED,
+        channelEdited: pb.ChannelEdited(
+            channelId: grp, name: 'New name', editedAtMs: fixnum.Int64(800)),
+      ).writeToBuffer()),
+      serverTimestampMs: 800,
+    ));
+    pushes.add(_makeEnvelope(
+      channelId: grp,
+      opId: 'op-left',
+      senderUserId: _peerUserId,
+      payload: _serverEventMemberRemoved(
+          channelId: grp, member: _peerUserId, removedAtMs: 810),
+      serverTimestampMs: 810,
+    ));
+    await _settleOpSeen(store, grp, 'op-left');
+
+    final events = await _groupEvents(store, grp);
+    expect([for (final e in events) e.kind],
+        [GroupEventKind.renamed, GroupEventKind.left]);
+    expect(events.first.text, 'New name');
+    expect((await store.fetchChannel(grp))!.name, 'New name');
+  });
+
+  test(
+    'added to a group this device has never seen: fetched with its roles, '
+    'and its messages apply',
+    () async {
+      final asked = <String>[];
+      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final withResolver = InboundReceiver(
+        store: store,
+        pushes: localPushes.stream,
+        localUserId: _selfUserId,
+        clock: clock,
+        resolveGroup: (channelId) async {
+          asked.add(channelId);
+          return (
+            name: 'Late joiners',
+            avatarUrl: null,
+            roles: {
+              _peerUserId: 'owner',
+              _thirdUserId: 'admin',
+              _selfUserId: 'member',
+            },
+            createdAt: 100,
+          );
+        },
+      );
+      await withResolver.start();
+      addTearDown(withResolver.stop);
+      addTearDown(localPushes.close);
+
+      const grp = 'c-grp-unknown';
+      localPushes.add(_makeEnvelope(
+        channelId: grp,
+        opId: 'op-added-late',
+        senderUserId: _thirdUserId,
+        payload: _serverEventMemberAdded(
+            channelId: grp, members: [_selfUserId], addedAtMs: 900),
+        serverTimestampMs: 900,
+      ));
+      localPushes.add(_makeEnvelope(
+        channelId: grp,
+        opId: 'op-first-msg',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: 'm-late-1',
+          body: 'welcome',
+        ),
+        serverTimestampMs: 910,
+      ));
+      await _settleOpSeen(store, grp, 'op-first-msg');
+
+      expect(asked, [grp]);
+      final channel = await store.fetchChannel(grp);
+      expect(channel!.name, 'Late joiners');
+      final roles = {
+        for (final m in await store.fetchChannelMembers(grp)) m.userId: m.role,
+      };
+      expect(roles, {
+        _peerUserId: 'owner',
+        _thirdUserId: 'admin',
+        _selfUserId: 'member',
+      });
+      final events = await _groupEvents(store, grp);
+      expect(events.single.kind, GroupEventKind.added);
+      expect((await store.fetchMessage('m-late-1'))!.body, 'welcome');
     },
   );
 
@@ -1332,4 +1512,15 @@ List<int> _chatPayload({
   // would fire loudly if the schema shifted.
   assert(bytes.isEmpty || bytes[0] != 0x53);
   return Uint8List.fromList(bytes);
+}
+
+/// The group's [GroupEvent] lines, oldest first.
+Future<List<GroupEvent>> _groupEvents(ChatStore store, String channelId) async {
+  final rows = await store.db.query(
+    'messages',
+    where: 'channel_id = ? AND content_type = ?',
+    whereArgs: [channelId, kGroupEventType],
+    orderBy: 'server_timestamp_ms, message_id',
+  );
+  return [for (final r in rows) GroupEvent.parse(r['body'] as String?)!];
 }

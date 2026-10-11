@@ -891,6 +891,80 @@ void main() {
     });
   });
 
+  group('add / remove member rollback', () {
+    Future<ChatStore> groupWith(String kind, String path, Object body) async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      await store.insertChannel(
+          channelId: 'g-add', kind: 'group', ownerUserId: 'u-self',
+          createdAt: 100, name: 'Team');
+      await store.insertChannelMember(
+          channelId: 'g-add', userId: 'u-self', role: 'owner', joinedAt: 100);
+      await store.enqueueOutboundOp(OutboundOpRow(
+        opId: 'op-1',
+        transport: OpTransport.rest,
+        kind: kind,
+        restMethod: kind == OpKind.addMembers ? 'POST' : 'DELETE',
+        restPath: path,
+        resourceId: 'g-add',
+        payload: utf8.encode(jsonEncode(body)),
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: 0,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: 100,
+        targetMessageId: null,
+        targetChannelId: 'g-add',
+      ));
+      return store;
+    }
+
+    Future<List<String>> members(ChatStore store) async =>
+        [for (final m in await store.fetchChannelMembers('g-add')) m.userId];
+
+    test('a rejected add takes them off again, and its line out', () async {
+      final store = await groupWith(OpKind.addMembers,
+          '/v3.0/channels/g-add/members', {'members': ['u-new']});
+      await store.upsertChannelMember(
+          channelId: 'g-add', userId: 'u-new', role: 'member', joinedAt: 150);
+      await store.insertGroupEvent(
+        channelId: 'g-add',
+        messageId: 'ge-op-1',
+        actorUserId: 'u-self',
+        event: const GroupEvent(GroupEventKind.added, users: ['u-new']),
+        atMs: 150,
+      );
+      expect(await members(store), containsAll(['u-self', 'u-new']));
+      expect((await store.fetchChannelList()).single.lastMessageContentType,
+          kGroupEventType);
+
+      await store.applyPermanentReject(
+          opId: 'op-1', reason: 'forbidden', messageId: null, nowMs: 200);
+
+      expect(await members(store), ['u-self']);
+      expect(await store.fetchMessage('ge-op-1'), isNull);
+      // Nothing left to preview, so the chat drops off the list.
+      expect(await store.fetchChannelList(), isEmpty);
+    });
+
+    test('a rejected remove puts them back', () async {
+      final store = await groupWith(OpKind.removeMember,
+          '/v3.0/channels/g-add/members/u-peer', const <String, Object>{});
+      await store.insertChannelMember(
+          channelId: 'g-add', userId: 'u-peer', role: 'member', joinedAt: 100);
+      await store.removeChannelMember(
+          channelId: 'g-add', userId: 'u-peer', removedAtMs: 150);
+      expect(await members(store), ['u-self']);
+
+      await store.markOpDeadLetter(
+          opId: 'op-1', reason: 'forbidden', messageId: null, nowMs: 200);
+
+      expect(await members(store), containsAll(['u-self', 'u-peer']));
+    });
+  });
+
   group('createChannel rollback', () {
     /// An optimistic channel with one member, one message, one
     /// reaction and a pending `POST /v3.0/channels` — the whole shape

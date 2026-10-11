@@ -1061,19 +1061,24 @@ class MockServer {
   }
 
   /// Server-side add of [userId] to [channelId], fanning the §10.2
-  /// `ChannelMemberAdded` event to the existing members.
-  void addChannelMember(String channelId, String userId) {
+  /// `ChannelMemberAdded` to everyone in it afterwards — the new member
+  /// included, who may have no `ChannelCreated` to go on — except the
+  /// [actorUserId]'s device, exactly as on the real server. No actor:
+  /// server-authored, everyone hears it.
+  void addChannelMember(String channelId, String userId, {String? actorUserId}) {
     final channel = state.channels[channelId];
     if (channel == null) throw StateError('unknown channel $channelId');
     channel.members.add(userId);
     state.markDirty();
+    final actor = actorUserId ?? '';
     for (final memberId in channel.members) {
-      if (memberId == userId) continue;
+      if (memberId == actor) continue;
       _enqueueChannelMemberAdded(
         recipientUserId: memberId,
         channelId: channelId,
         newMemberUserIds: [userId],
         role: 'member',
+        actorUserId: actor,
       );
     }
   }
@@ -1130,6 +1135,16 @@ class MockServer {
       await _handlePushTopic(req);
     } else if (method == 'POST' && path == '/v3.0/channels') {
       await _handleCreateChannel(req);
+    } else if (method == 'GET' &&
+        (path == '/v3.0/channels' ||
+            (path.startsWith('/v3.0/channels/') &&
+                !path.substring('/v3.0/channels/'.length).contains('/')))) {
+      await _handleGetChannels(req, path);
+    } else if (method == 'POST' &&
+        path.startsWith('/v3.0/channels/') &&
+        path.endsWith('/members') &&
+        path.split('/').length == 5) {
+      await _handleAddChannelMembers(req, path.split('/')[3]);
     } else if (method == 'DELETE' && _memberPath(path) != null) {
       await _handleDeleteChannelMember(req, _memberPath(path)!);
     } else if (method == 'DELETE' && path.startsWith('/v3.0/channels/')) {
@@ -1974,7 +1989,7 @@ class MockServer {
       }
     }
 
-    leaveChannel(target.channelId, target.userId);
+    leaveChannel(target.channelId, target.userId, actorUserId: session.userId);
 
     final opId = body['op_id'];
     if (opId is String) {
@@ -1994,7 +2009,8 @@ class MockServer {
   /// remaining member — is re-announced as
   /// `ChannelMemberAdded{role:"owner"}`. The last member out takes the
   /// channel with them and gets a `ChannelDeleted`.
-  void leaveChannel(String channelId, String userId) {
+  void leaveChannel(String channelId, String userId, {String? actorUserId}) {
+    final actor = actorUserId ?? userId;
     final channel = state.channels[channelId];
     if (channel == null || !channel.members.contains(userId)) return;
     channel.members.remove(userId);
@@ -2033,6 +2049,7 @@ class MockServer {
         channelId: channelId,
         memberUserId: userId,
         removedAtMs: removedAtMs,
+        actorUserId: actor,
       );
     }
     if (successor == null) return;
@@ -2479,6 +2496,7 @@ class MockServer {
     required String channelId,
     required List<String> newMemberUserIds,
     String role = '',
+    String actorUserId = '',
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final sep = pb.ServerEventPayload(
@@ -2497,7 +2515,7 @@ class MockServer {
       channelId: channelId,
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: '', // server-authored
+      senderUserId: actorUserId, // the real server names the actor
       serverTimestampMs: fixnum.Int64(now),
     );
     final pushFrame = pb.WsEnvelope(
@@ -2519,6 +2537,7 @@ class MockServer {
     required String channelId,
     required String memberUserId,
     required int removedAtMs,
+    String actorUserId = '',
   }) {
     final sep = pb.ServerEventPayload(
       version: 1,
@@ -2535,7 +2554,7 @@ class MockServer {
       channelId: channelId,
       clientTimestampMs: fixnum.Int64(removedAtMs),
       payload: payload,
-      senderUserId: '', // server-authored
+      senderUserId: actorUserId, // the real server names the actor
       serverTimestampMs: fixnum.Int64(removedAtMs),
     );
     final pushFrame = pb.WsEnvelope(
@@ -2665,6 +2684,7 @@ class MockServer {
     String? name,
     required bool avatarUrlPresent,
     String? avatarUrl,
+    String actorUserId = '',
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final body = pb.ChannelEdited(
@@ -2684,7 +2704,7 @@ class MockServer {
       channelId: channelId,
       clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: '', // server-authored
+      senderUserId: actorUserId, // the real server names the actor
       serverTimestampMs: fixnum.Int64(now),
     );
     final pushFrame = pb.WsEnvelope(
@@ -3028,7 +3048,10 @@ class MockServer {
     return jsonDecode(raw) as Map<String, dynamic>;
   }
 
-  void _respondJson(HttpRequest req, int status, Map<String, dynamic> body) {
+  void _respondJson(HttpRequest req, int status, Map<String, dynamic> body) =>
+      _respondJsonValue(req, status, body);
+
+  void _respondJsonValue(HttpRequest req, int status, Object body) {
     req.response.statusCode = status;
     req.response.headers.contentType = ContentType.json;
     req.response.write(jsonEncode(body));
@@ -3410,16 +3433,31 @@ class MockServer {
       return;
     }
 
+    // Joi on the real route: these keys and no others, one edit at least.
+    const allowed = {'op_id', 'client_timestamp_ms', 'name', 'avatar_url'};
+    final unknown = body.keys.where((k) => !allowed.contains(k)).toList();
     final namePresent = body.containsKey('name');
-    final avatarPresent = body.containsKey('avatarUrl');
+    final avatarPresent = body.containsKey('avatar_url');
+    if (unknown.isNotEmpty || !(namePresent || avatarPresent)) {
+      _record(req, body, 400);
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'validation_failed',
+          'message': unknown.isEmpty
+              ? 'name or avatar_url required'
+              : '"${unknown.first}" is not allowed',
+        }
+      });
+      return;
+    }
     if (namePresent) channel.name = body['name'] as String?;
-    if (avatarPresent) channel.avatarUrl = body['avatarUrl'] as String?;
+    if (avatarPresent) channel.avatarUrl = body['avatar_url'] as String?;
     state.markDirty();
 
     final result = {
       'channel_id': channelId,
       'name': channel.name,
-      'avatarUrl': channel.avatarUrl,
+      'avatar_url': channel.avatarUrl,
     };
     final opId = body['op_id'];
     if (opId is String) {
@@ -3438,6 +3476,97 @@ class MockServer {
         name: channel.name,
         avatarUrlPresent: avatarPresent,
         avatarUrl: channel.avatarUrl,
+        actorUserId: session.userId,
+      );
+    }
+  }
+
+  /// `channelView` on the real server: the group as GET returns it.
+  Map<String, dynamic> _channelView(ChannelRecord c) => {
+        'channel_id': c.channelId,
+        'kind': c.kind,
+        'name': c.name,
+        'avatar_url': c.avatarUrl,
+        'members': c.members.toList(),
+        'roles': {for (final m in c.members) m: c.roleOf(m)},
+        'created_at': c.createdAt,
+      };
+
+  /// `GET /v3.0/channels[/{id}]` — the caller's groups, or one of them
+  /// (404 when it isn't one of theirs).
+  Future<void> _handleGetChannels(HttpRequest req, String path) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    _record(req, const {}, 200);
+    if (path == '/v3.0/channels') {
+      _respondJsonValue(req, 200, [
+        for (final c in state.channels.values)
+          if (c.kind == 'group' && c.members.contains(session.userId))
+            _channelView(c),
+      ]);
+      return;
+    }
+    final channel = state.channels[path.substring('/v3.0/channels/'.length)];
+    if (channel == null || !channel.members.contains(session.userId)) {
+      _respondJson(req, 404, {
+        'error': {'code': 'not_found', 'message': 'unknown channel'}
+      });
+      return;
+    }
+    _respondJson(req, 200, _channelView(channel));
+  }
+
+  /// `POST /v3.0/channels/{id}/members` — owner and admins add people;
+  /// everyone in the group afterwards, the actor's device aside, hears
+  /// `ChannelMemberAdded`.
+  Future<void> _handleAddChannelMembers(HttpRequest req, String channelId) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final body = await _readJsonBody(req);
+    final pre = _validateRestOp(session: session, body: body);
+    if (pre != null) {
+      _respondOutcome(req, body, pre);
+      return;
+    }
+    final channel = state.channels[channelId];
+    if (channel == null) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {'code': 'not_found', 'message': 'unknown channel'}
+      });
+      return;
+    }
+    if (!channel.members.contains(session.userId) ||
+        channel.roleOf(session.userId) == 'member') {
+      _record(req, body, 403);
+      _respondJson(req, 403, {
+        'error': {'code': 'forbidden', 'message': 'owner or admin only'}
+      });
+      return;
+    }
+    final added = [
+      for (final id in (body['members'] as List? ?? const []).cast<String>())
+        if (!channel.members.contains(id)) id,
+    ];
+    channel.members.addAll(added);
+    state.markDirty();
+    final result = {'member_count': channel.members.length};
+    final opId = body['op_id'];
+    if (opId is String) {
+      state.recordOutcome(session.userId, opId,
+          StoredOutcome(success: true, status: 200, body: result));
+    }
+    _record(req, body, 200);
+    _respondJson(req, 200, result);
+    if (added.isEmpty) return;
+    for (final memberId in channel.members) {
+      if (memberId == session.userId) continue;
+      _enqueueChannelMemberAdded(
+        recipientUserId: memberId,
+        channelId: channelId,
+        newMemberUserIds: added,
+        role: 'member',
+        actorUserId: session.userId,
       );
     }
   }

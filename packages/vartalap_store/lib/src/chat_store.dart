@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'group_event.dart';
 import 'schema.dart';
 import 'types.dart';
 
@@ -414,7 +415,7 @@ class ChatStore {
           ? const {'outbound_ops', 'messages'}
           // A channel-scoped op rolls back channel_members (a role
           // change) or drops the channel outright (a rejected create).
-          : const {'outbound_ops', 'channel_members', 'channels'},
+          : const {'outbound_ops', 'channel_members', 'channels', 'messages'},
     );
   }
 
@@ -477,6 +478,12 @@ class ChatStore {
       }
       return;
     }
+    if (kind == OpKind.addMembers ||
+        kind == OpKind.removeMember ||
+        kind == OpKind.editChannel) {
+      await _rollbackGroupOp(txn, opId, kind, opRows.single, nowMs);
+      return;
+    }
     if (messageId == null) return;
     switch (kind) {
       case OpKind.messageEdit:
@@ -510,6 +517,63 @@ class ChatStore {
           whereArgs: [messageId],
         );
     }
+  }
+
+  /// Compensating write for a rejected add, remove or rename: the
+  /// membership goes back and the actor's "added"/"removed"/"renamed"
+  /// line (keyed `ge-<op_id>`) comes out.
+  ///
+  /// ponytail: a rejected rename keeps the new name locally — the old
+  /// one isn't snapshotted. The UI only offers rename to owner and
+  /// admins, which is who the server allows; snapshot it if that ever
+  /// drifts.
+  Future<void> _rollbackGroupOp(
+    DatabaseExecutor txn,
+    String opId,
+    String kind,
+    Map<String, Object?> op,
+    int nowMs,
+  ) async {
+    final channelId = op['target_channel_id'] as String?;
+    if (channelId == null) return;
+    if (kind == OpKind.addMembers) {
+      final bytes = op['payload'];
+      final members = bytes is List<int> && bytes.isNotEmpty
+          ? ((jsonDecode(utf8.decode(bytes)) as Map)['members'] as List?)
+                  ?.cast<String>() ??
+              const <String>[]
+          : const <String>[];
+      for (final userId in members) {
+        await txn.update(
+          'channel_members',
+          {'removed_at': nowMs},
+          where: 'channel_id = ? AND user_id = ?',
+          whereArgs: [channelId, userId],
+        );
+      }
+    } else if (kind == OpKind.removeMember) {
+      final userId = (op['rest_path'] as String? ?? '').split('/').last;
+      await txn.update(
+        'channel_members',
+        {'removed_at': null},
+        where: 'channel_id = ? AND user_id = ?',
+        whereArgs: [channelId, userId],
+      );
+    }
+    final gone = await txn.delete(
+      'messages',
+      where: 'message_id = ?',
+      whereArgs: ['ge-$opId'],
+    );
+    if (gone == 0) return;
+    await txn.rawUpdate(
+      'UPDATE channels SET last_message_id = '
+      '(SELECT message_id FROM messages '
+      '  WHERE channel_id = channels.channel_id '
+      '  ORDER BY $_newestFirst LIMIT 1) '
+      'WHERE channel_id = ?',
+      [channelId],
+    );
   }
 
   /// Compensating write for a rejected `PATCH channels/{id}/members/
@@ -743,12 +807,13 @@ class ChatStore {
     required String ownerUserId,
     required int createdAt,
     String? name,
+    String? avatarUrl,
   }) async {
     await db.insert('channels', {
       'channel_id': channelId,
       'kind': kind,
       'name': name,
-      'avatar_url': null,
+      'avatar_url': avatarUrl,
       'owner_user_id': ownerUserId,
       'created_at': createdAt,
       'last_activity_ms': createdAt,
@@ -907,6 +972,47 @@ class ChatStore {
     _notify(inserted
         ? const {'messages', 'reactions', 'channels', 'op_id_seen'}
         : const {'op_id_seen'});
+  }
+
+  /// A [GroupEvent] line, from the §10.2 event a recipient got or the
+  /// action the actor just took. Ordered at [atMs] like any message, and
+  /// brings a deleted chat back like one, but never counts as unread.
+  /// Idempotent on [messageId].
+  Future<void> insertGroupEvent({
+    required String channelId,
+    required String messageId,
+    required String actorUserId,
+    required GroupEvent event,
+    required int atMs,
+  }) async {
+    var inserted = false;
+    await db.transaction((txn) async {
+      inserted = await txn.insert(
+            'messages',
+            {
+              'message_id': messageId,
+              'channel_id': channelId,
+              'author_user_id': actorUserId,
+              'body': event.encode(),
+              'content_type': kGroupEventType,
+              'client_timestamp_ms': atMs,
+              'server_timestamp_ms': atMs,
+              'message_state': MessageState.sent.wire,
+              'state_updated_at': atMs,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          ) !=
+          0;
+      if (!inserted) return;
+      await txn.rawUpdate(
+        'UPDATE channels '
+        'SET last_activity_ms = MAX(last_activity_ms, ?), deleted_locally = 0 '
+        'WHERE channel_id = ?',
+        [atMs, channelId],
+      );
+      await txn.rawUpdate(_refreshLastMessageSql, [messageId]);
+    });
+    if (inserted) _notify(const {'messages', 'channels'});
   }
 
   /// §5.4 — TYPE_MESSAGE_UPDATE apply with §6a.4 authorship gate.
@@ -1529,6 +1635,7 @@ class ChatStore {
       WHERE channel_id = ?
         AND tombstoned = 0
         AND body IS NOT NULL
+        AND content_type IS NOT '$kGroupEventType'
         AND body LIKE ? COLLATE NOCASE
       ORDER BY $_newestFirst
       LIMIT ?
@@ -1769,6 +1876,7 @@ class ChatStore {
       '''
       SELECT message_id, server_timestamp_ms FROM messages
       WHERE channel_id = ? AND tombstoned = 0 AND author_user_id != ?
+        AND content_type IS NOT '$kGroupEventType'
       ORDER BY $_newestFirst
       LIMIT 1
       ''',

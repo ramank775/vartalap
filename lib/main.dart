@@ -135,7 +135,10 @@ class AppServices {
   /// bound to [userIdHex]. Called on every login so the new session's
   /// user_id flows into [InboundReceiver.localUserId] before any push
   /// frame can apply.
-  Future<void> rebuildInboundReceiverForUser(String userIdHex) async {
+  Future<void> rebuildInboundReceiverForUser(
+    String userIdHex, {
+    bool adoptGroups = true,
+  }) async {
     final prev = inboundReceiver;
     inboundReceiver = null;
     chatService.bindTypingSource(null);
@@ -148,9 +151,15 @@ class AppServices {
       pushes: wsTransport.pushes,
       localUserId: userIdHex,
       resolveProfile: (userId) => _resolveContactProfile(authClient, userId),
+      resolveGroup: (channelId) async {
+        final json = await authClient.getChannel(channelId);
+        return json == null ? null : groupRosterFromJson(json);
+      },
     );
     await next.start();
     inboundReceiver = next;
+    // A push wake has seconds to deliver; the foreground app catches up.
+    if (adoptGroups) unawaited(_adoptServerGroups(authClient, next));
     chatService.bindTypingSource(next.typingEvents);
     chatService.bindDeliverySource(next.peerMessagesStored);
   }
@@ -267,7 +276,10 @@ Future<AppServices> initializeApp({bool background = false}) async {
   // apply from first WS connection. Otherwise it lands on authStateChange.
   final restoredUserId = authClient.currentUserId;
   if (restoredUserId != null) {
-    await services.rebuildInboundReceiverForUser(restoredUserId);
+    await services.rebuildInboundReceiverForUser(
+      restoredUserId,
+      adoptGroups: !background,
+    );
     // Best-effort initial pull — picks up anything the server queued
     // between the last connection and now (e.g. seed-peer DM created
     // at OTP-verify on a fresh install). Server never auto-pushes.
@@ -306,6 +318,24 @@ Future<ContactProfile?> _resolveContactProfile(
     displayName: json['displayName'] as String?,
     avatarUrl: json['avatarUrl'] as String?,
   );
+}
+
+/// §15.6 — groups the server has for us that this device doesn't (a
+/// reinstall, or an add whose event was lost). Best-effort: offline,
+/// the next login tries again.
+Future<void> _adoptServerGroups(
+  AuthClient client,
+  InboundReceiver receiver,
+) async {
+  try {
+    final groups = await client.getChannels();
+    await receiver.adoptGroups({
+      for (final g in groups) g['channel_id'] as String: groupRosterFromJson(g),
+    });
+  } catch (e) {
+    // ignore: avoid_print
+    print('adoptServerGroups failed: $e');
+  }
 }
 
 /// Root widget. Subscribes to [AuthService.authStateChange] and swaps

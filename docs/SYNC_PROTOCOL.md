@@ -1199,6 +1199,30 @@ Delete a channel (owner only).
 
 **Errors:** `forbidden`, `not_found`, `rate_limited`.
 
+#### `GET /v3.0/channels` and `GET /v3.0/channels/<channel_id>`
+
+The caller's groups (a list), or one group the caller is in.
+
+**Success 200** (one element of the list):
+```json
+{
+  "channel_id": "01efabcd-...",
+  "kind": "group",
+  "name": "Weekend Trip",
+  "avatar_url": null,
+  "members": ["a0b1c2d3e", "b1c2d3e4f"],
+  "roles": { "a0b1c2d3e": "owner", "b1c2d3e4f": "member" },
+  "created_at": 1744675200123
+}
+```
+
+`roles` maps every member to `owner`, `admin` or `member`, so a client
+that learns of a group from a `ChannelMemberAdded` naming itself (it
+has no `ChannelCreated` for it), or a reinstalled one (§15.6), can
+build the roster with its roles.
+
+**Errors:** `not_found` (no such group, or the caller is not in it).
+
 ### 11.4 Profile, push, auth endpoints
 
 See `AUTH_CONTRACT.md`. The wire shape there

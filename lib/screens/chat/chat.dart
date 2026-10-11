@@ -174,6 +174,14 @@ class _ChatScreenState extends State<ChatScreen> {
   /// sender names so the cache is unused there but cheap to load.
   Map<String, String> _memberNames = const {};
 
+  /// Group only: who is in it now (the header's names, and whether we
+  /// may still send), and its live row (a rename or a new photo from
+  /// someone else lands while the chat is open). Re-read on every
+  /// [GroupEvent] line.
+  List<ChannelMemberRow>? _members;
+  ChannelListEntry? _channel;
+  String? _lastGroupEventId;
+
   @override
   void initState() {
     super.initState();
@@ -205,6 +213,13 @@ class _ChatScreenState extends State<ChatScreen> {
       _loadingOlder = false;
       _hasMoreOlder = rows.length >= _window.limit;
       if (localUserId == null) return;
+      final latestEvent =
+          rows.where((r) => r.contentType == kGroupEventType).firstOrNull;
+      if (latestEvent != null &&
+          latestEvent.messageId != _lastGroupEventId) {
+        _lastGroupEventId = latestEvent.messageId;
+        _loadMemberNames();
+      }
       // Newest peer message first — `watchMessages` returns newest-first.
       MessageRow? latestPeer;
       for (final r in rows) {
@@ -330,21 +345,50 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _loadMemberNames() async {
     final members =
         await widget.chatService.fetchChannelMembers(widget.channelId);
+    // Everyone we know, not just current members: someone who left
+    // still labels their old messages and the "left" line.
+    final contacts = await widget.chatService.discoverContacts();
+    final channel = await widget.chatService.fetchChannel(widget.channelId);
     if (!mounted) return;
     setState(() {
       _memberNames = {
+        for (final c in contacts) c.userId: c.displayLabel,
         for (final m in members)
           m.userId: m.contact?.displayLabel ?? 'Unknown',
       };
+      _members = members;
+      _channel = channel;
     });
   }
+
+  /// "Dev_Two, Asha, You" under a group's name (WhatsApp).
+  String? get _memberLine {
+    final members = _members;
+    if (members == null) return null;
+    final me = widget.authService.currentUserId;
+    final names = [
+      for (final m in members)
+        if (m.userId != me) _memberNames[m.userId] ?? 'Unknown',
+    ]..sort();
+    if (members.any((m) => m.userId == me)) names.add('You');
+    return names.join(', ');
+  }
+
+  /// A group's name follows renames; a DM's is whatever we were given.
+  String get _title => _channel?.name ?? widget.channelName;
+
+  /// False once someone removed us: the chat stays, read only.
+  bool get _canSend =>
+      widget.channelKind != 'group' ||
+      _members == null ||
+      _members!.any((m) => m.userId == widget.authService.currentUserId);
 
   Future<void> _openSearch() async {
     final picked = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => ChatSearchScreen(
           channelId: widget.channelId,
-          channelName: widget.channelName,
+          channelName: _title,
           chatService: widget.chatService,
           localUserId: widget.authService.currentUserId,
         ),
@@ -1142,19 +1186,23 @@ class _ChatScreenState extends State<ChatScreen> {
               MaterialPageRoute(
                 builder: (_) => ChatInfoScreen(
                   channelId: widget.channelId,
-                  channelName: widget.channelName,
+                  channelName: _title,
                   channelKind: widget.channelKind,
                   chatService: widget.chatService,
                   authService: widget.authService,
                 ),
               ),
-            );
+            ).then((_) {
+              // A rename or member change made in there.
+              if (widget.channelKind == 'group') _loadMemberNames();
+            });
           },
           child: Row(
             children: [
               Avator(
-                text: widget.channelName,
+                text: _title,
                 seed: widget.channelId,
+                avatarUrl: _channel?.avatarUrl,
                 isGroup: widget.channelKind == 'group',
                 width: kAvatarSm,
                 height: kAvatarSm,
@@ -1166,7 +1214,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      widget.channelName,
+                      _title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1179,6 +1227,16 @@ class _ChatScreenState extends State<ChatScreen> {
                           fontSize: 12,
                           color: scheme.onPrimary.withValues(alpha: 0.85),
                           fontStyle: FontStyle.italic,
+                        ),
+                      )
+                    else if (_memberLine case final line?)
+                      Text(
+                        line,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onPrimary.withValues(alpha: 0.85),
                         ),
                       ),
                   ],
@@ -1234,7 +1292,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   final msg = messages[i];
                   final mine = msg.authorUserId == currentUserId;
                   final showTail = i == messages.length - 1 ||
-                      messages[i + 1].authorUserId != msg.authorUserId;
+                      messages[i + 1].authorUserId != msg.authorUserId ||
+                      messages[i + 1].contentType == kGroupEventType;
+                  final event = msg.contentType == kGroupEventType
+                      ? GroupEvent.parse(msg.body)
+                      : null;
+                  if (event != null) {
+                    items.add(_CenterChip(
+                      key: _keyForMessage(msg.messageId),
+                      text: groupEventText(
+                        event,
+                        actorUserId: msg.authorUserId,
+                        selfUserId: currentUserId,
+                        nameOf: (id) => _memberNames[id] ?? 'Unknown',
+                      ),
+                    ));
+                  }
 
                   // Sender name appears above the first bubble of a
                   // same-author run, only for groups, only for peer
@@ -1249,6 +1322,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   final isSelected = _selectedIds.contains(msg.messageId);
                   final selecting = _selectedIds.isNotEmpty;
                   final replyTo = msg.replyToMessageId;
+                  if (event == null && msg.contentType != kGroupEventType) {
                   items.add(_SwipeToReply(
                     key: ValueKey('swipe-${msg.messageId}'),
                     onReply: msg.tombstoned || selecting
@@ -1281,6 +1355,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     onMessageContact: _messageContact,
                   ),
                   ));
+                  }
 
                   // Insert a date chip between this message and the
                   // next older one (i+1) if they fall on different days.
@@ -1298,7 +1373,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         thisDate.day != olderDate.day;
                   }
                   if (needsDateChip) {
-                    items.add(_DateChip(date: thisDate));
+                    items.add(_CenterChip(text: _formatDay(thisDate)));
                   }
                 }
 
@@ -1354,6 +1429,20 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
+          if (!_canSend)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(kSpaceLg),
+                child: Text(
+                  "You can't send messages to this group because you're "
+                  'no longer a member.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ),
+            )
+          else
           _MessageInput(
             controller: _input,
             focusNode: _inputFocus,
@@ -1380,16 +1469,21 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-class _DateChip extends StatelessWidget {
-  final DateTime date;
-  const _DateChip({required this.date});
+/// The centred pill a day starts with ("Today"), and the one a group
+/// event reads in ("Asha added you"), as in WhatsApp.
+class _CenterChip extends StatelessWidget {
+  final String text;
+  const _CenterChip({super.key, required this.text});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: kSpaceSm),
+        padding: const EdgeInsets.symmetric(
+          horizontal: kSpaceXl,
+          vertical: kSpaceSm,
+        ),
         child: Container(
           padding: const EdgeInsets.symmetric(
             horizontal: kSpaceMd,
@@ -1397,10 +1491,11 @@ class _DateChip extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: scheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(kRadiusFull),
+            borderRadius: BorderRadius.circular(kRadiusMd),
           ),
           child: Text(
-            _formatDate(date),
+            text,
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
@@ -1411,19 +1506,19 @@ class _DateChip extends StatelessWidget {
       ),
     );
   }
+}
 
-  String _formatDate(DateTime d) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final target = DateTime(d.year, d.month, d.day);
-    final diff = today.difference(target).inDays;
+String _formatDay(DateTime d) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final target = DateTime(d.year, d.month, d.day);
+  final diff = today.difference(target).inDays;
 
-    if (diff == 0) return 'Today';
-    if (diff == 1) return 'Yesterday';
-    if (diff < 7) return DateFormat.EEEE().format(d);
-    if (d.year == now.year) return DateFormat.MMMd().format(d);
-    return DateFormat.yMMMd().format(d);
-  }
+  if (diff == 0) return 'Today';
+  if (diff == 1) return 'Yesterday';
+  if (diff < 7) return DateFormat.EEEE().format(d);
+  if (d.year == now.year) return DateFormat.MMMd().format(d);
+  return DateFormat.yMMMd().format(d);
 }
 
 class _MessageInput extends StatelessWidget {

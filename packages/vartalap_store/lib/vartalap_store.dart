@@ -11,6 +11,7 @@
 library vartalap_store;
 
 export 'src/chat_store.dart' show ChatStore, MessageWindow;
+export 'src/group_event.dart';
 export 'src/schema.dart' show schemaVersion;
 export 'src/types.dart'
     show

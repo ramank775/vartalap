@@ -46,7 +46,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
   /// Created once so rebuilds don't resubscribe and re-run the
   /// underlying SQL query.
   late final Stream<List<ChannelListEntry>> _channelsStream =
-      widget.chatService.watchChannels();
+      widget.chatService.watchChannels().asyncMap((rows) async {
+    // Re-read with every emission: a contact sync renames people
+    // without touching the chat list, so a once-only read goes stale.
+    final contacts = await widget.chatService.discoverContacts();
+    _senderLabels = {for (final c in contacts) c.userId: c.displayLabel};
+    return rows;
+  });
 
   /// author userId → [ContactRow.displayLabel], for the "Vikram:"
   /// sender prefix on group rows. A channel row resolves its own title
@@ -54,23 +60,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
   /// a third party the row has no contact for, so it is resolved here
   /// against the local contacts cache — same resolver, different key.
   Map<String, String> _senderLabels = const {};
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSenderLabels();
-  }
-
-  Future<void> _loadSenderLabels() async {
-    // No phones passed → local cache read, no network.
-    final contacts = await widget.chatService.discoverContacts();
-    if (!mounted) return;
-    setState(() {
-      _senderLabels = {
-        for (final c in contacts) c.userId: c.displayLabel,
-      };
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -111,6 +100,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                       chatColors: chatColors,
                       displayName: entry.title,
                       senderPrefix: _senderPrefix(entry, localUserId),
+                      eventText: _eventText(entry, localUserId),
                       onTap: () => _openChat(context, entry),
                       onLongPress: () => showChatActionsSheet(
                         context: context,
@@ -141,11 +131,25 @@ class _ChatsScreenState extends State<ChatsScreen> {
   /// — there is only one other person in the room.
   String? _senderPrefix(ChannelListEntry entry, String? localUserId) {
     if (entry.kind != 'group') return null;
+    if (entry.lastMessageContentType == kGroupEventType) return null;
     final author = entry.lastMessageAuthor;
     if (author == null) return null;
     if (author == localUserId) return 'You: ';
     final label = _senderLabels[author];
     return label == null ? null : '$label: ';
+  }
+
+  /// A group whose latest line is "Asha added you" previews as that.
+  String? _eventText(ChannelListEntry entry, String? localUserId) {
+    if (entry.lastMessageContentType != kGroupEventType) return null;
+    final event = GroupEvent.parse(entry.lastMessagePreview);
+    if (event == null) return null;
+    return groupEventText(
+      event,
+      actorUserId: entry.lastMessageAuthor ?? '',
+      selfUserId: localUserId,
+      nameOf: (id) => _senderLabels[id] ?? 'Unknown',
+    );
   }
 
   AppBar _buildDefaultAppBar(
@@ -368,6 +372,9 @@ class ChannelTile extends StatelessWidget {
   final ChatColors chatColors;
   final String displayName;
   final String? senderPrefix;
+
+  /// The latest line is a group event, already worded; shown as is.
+  final String? eventText;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
@@ -377,6 +384,7 @@ class ChannelTile extends StatelessWidget {
     required this.chatColors,
     required this.displayName,
     this.senderPrefix,
+    this.eventText,
     required this.onTap,
     this.onLongPress,
   });
@@ -487,7 +495,7 @@ class ChannelTile extends StatelessWidget {
 
     final preview = entry.lastMessageTombstoned
         ? '(message deleted)'
-        : messagePreview(
+        : eventText ?? messagePreview(
             entry.lastMessagePreview ?? '',
             entry.lastMessageContentType,
             attachment: entry.lastMessageHasAttachment,

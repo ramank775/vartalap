@@ -18,6 +18,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
+import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -180,6 +181,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                         ),
                 );
 
+          // Decision 81: the owner and every admin manage the group; a
+          // plain member sees no controls at all.
+          final canManage = _roleOf(members, localUserId) != 'member';
           return ListView(
             children: [
               const SizedBox(height: kSpaceXl),
@@ -188,7 +192,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   children: [
                     Builder(builder: (_) {
                       final avatar = Avator(
-                        text: widget.channelName,
+                        text: _name,
                         seed: widget.channelId,
                         avatarUrl: _channel?.avatarUrl,
                         isGroup: _isGroup,
@@ -205,7 +209,26 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                       );
                     }),
                     const SizedBox(height: kSpaceMd),
-                    Text(widget.channelName, style: textTheme.headlineSmall),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Balances the pencil so the name stays centred.
+                        if (_isGroup && canManage) const SizedBox(width: 48),
+                        Flexible(
+                          child: Text(
+                            _name,
+                            style: textTheme.headlineSmall,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        if (_isGroup && canManage)
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: 'Rename group',
+                            onPressed: _rename,
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: kSpaceXs),
                     Text(
                       _isGroup
@@ -269,11 +292,11 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 _MembersSection(
                   members: members,
                   localUserId: localUserId,
-                  // Decision 81: the owner and every admin can promote
-                  // and demote; a plain member sees no menu at all.
-                  canManageRoles: _roleOf(members, localUserId) != 'member',
+                  canManageRoles: canManage,
                   loading: snap.connectionState == ConnectionState.waiting,
                   onSetRole: _setMemberRole,
+                  onAdd: canManage ? () => _addMembers(members) : null,
+                  onRemove: _removeMember,
                 ),
               ],
               const Divider(),
@@ -362,6 +385,63 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     setState(_reloadMembers);
   }
 
+  /// The group's name now — a rename here or from someone else.
+  String get _name => _channel?.name ?? widget.channelName;
+
+  Future<void> _rename() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _RenameDialog(initial: _name),
+    );
+    if (name == null || name.isEmpty || name == _name) return;
+    await widget.chatService.renameGroup(widget.channelId, name);
+    await _reloadChannel();
+  }
+
+  Future<void> _addMembers(List<ChannelMemberRow> members) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MemberPickerScreen(
+          chatService: widget.chatService,
+          title: 'Add members',
+          doneIcon: Icons.check,
+          exclude: {for (final m in members) m.userId},
+          onDone: (pickerContext, picked) async {
+            await widget.chatService.addMembers(
+              widget.channelId,
+              [for (final c in picked) c.userId],
+            );
+            if (pickerContext.mounted) Navigator.of(pickerContext).pop();
+          },
+        ),
+      ),
+    );
+    if (mounted) setState(_reloadMembers);
+  }
+
+  Future<void> _removeMember(ChannelMemberRow member) async {
+    final name = member.contact?.displayLabel ?? 'Unknown';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: Text('Remove $name from "$_name"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await widget.chatService.removeMember(widget.channelId, member.userId);
+    if (mounted) setState(_reloadMembers);
+  }
+
   void _confirmLeave(BuildContext context, List<ChannelMemberRow> members) {
     final localUserId = widget.authService.currentUserId;
     // Decision 9: an owner may leave, and the group carries on under
@@ -377,7 +457,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Leave ${widget.channelName}?'),
+        title: Text('Leave $_name?'),
         content: Text(
           'You will stop receiving messages and the group will be '
           'removed from Groups and from Chats. Other members stay in '
@@ -427,7 +507,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Delete ${widget.channelName}?'),
+        title: Text('Delete $_name?'),
         content: const Text(
           'Everyone loses this group. Every member loses the chat and '
           'its history, and it cannot be undone. To walk away without '
@@ -464,6 +544,49 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       ),
     );
   }
+}
+
+/// Owns its controller: the dialog is still animating out when
+/// `showDialog` returns, so the caller can't dispose one it made.
+class _RenameDialog extends StatefulWidget {
+  final String initial;
+  const _RenameDialog({required this.initial});
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Group name'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: 100,
+          textCapitalization: TextCapitalization.sentences,
+          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context).pop(_controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      );
 }
 
 /// Slim banner under the header while the chat is muted.
@@ -556,6 +679,8 @@ class _MembersSection extends StatelessWidget {
   final bool canManageRoles;
   final bool loading;
   final Future<void> Function(ChannelMemberRow, String) onSetRole;
+  final VoidCallback? onAdd;
+  final Future<void> Function(ChannelMemberRow) onRemove;
 
   const _MembersSection({
     required this.members,
@@ -563,6 +688,8 @@ class _MembersSection extends StatelessWidget {
     required this.canManageRoles,
     required this.loading,
     required this.onSetRole,
+    required this.onAdd,
+    required this.onRemove,
   });
 
   @override
@@ -583,6 +710,16 @@ class _MembersSection extends StatelessWidget {
                 textTheme.titleSmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ),
+        if (onAdd != null)
+          ListTile(
+            leading: CircleAvatar(
+              radius: kAvatarMd / 2,
+              backgroundColor: scheme.primary,
+              child: Icon(Icons.person_add_alt_1, color: scheme.onPrimary),
+            ),
+            title: const Text('Add members'),
+            onTap: onAdd,
+          ),
         if (loading)
           const Padding(
             padding: EdgeInsets.all(kSpaceLg),
@@ -600,6 +737,7 @@ class _MembersSection extends StatelessWidget {
                   m.role != 'owner' &&
                   m.userId != localUserId,
               onSetRole: onSetRole,
+              onRemove: onRemove,
             ),
       ],
     );
@@ -611,12 +749,14 @@ class _MemberTile extends StatelessWidget {
   final bool isYou;
   final bool canManageRoles;
   final Future<void> Function(ChannelMemberRow, String) onSetRole;
+  final Future<void> Function(ChannelMemberRow) onRemove;
 
   const _MemberTile({
     required this.member,
     required this.isYou,
     required this.canManageRoles,
     required this.onSetRole,
+    required this.onRemove,
   });
 
   @override
@@ -653,6 +793,17 @@ class _MemberTile extends StatelessWidget {
                 onTap: () {
                   Navigator.of(sheetCtx).pop();
                   onSetRole(member, isAdmin ? 'member' : 'admin');
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.person_off_outlined, color: scheme.error),
+                title: Text(
+                  'Remove $name',
+                  style: TextStyle(color: scheme.error),
+                ),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  onRemove(member);
                 },
               ),
             ],

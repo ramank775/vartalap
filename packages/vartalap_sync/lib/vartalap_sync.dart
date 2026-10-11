@@ -15,6 +15,11 @@ export 'src/clock.dart' show Clock, FakeClock;
 export 'src/dm_channel_id.dart' show dmChannelId, isDmChannelId;
 export 'src/failure_watch.dart' show watchFailures;
 export 'src/inbound_receiver.dart'
-    show InboundReceiver, TypingEvent, ContactProfile;
+    show
+        InboundReceiver,
+        TypingEvent,
+        ContactProfile,
+        GroupRoster,
+        groupRosterFromJson;
 export 'src/sync_scheduler.dart' show SyncScheduler;
 export 'src/uuid7.dart' show Uuid7Gen;

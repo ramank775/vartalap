@@ -636,6 +636,13 @@ class ChatService {
         joinedAt: now,
       );
     }
+    await _store.insertGroupEvent(
+      channelId: channelId,
+      messageId: 'ge-$channelId',
+      actorUserId: creatorUserId,
+      event: GroupEvent(GroupEventKind.created, text: name),
+      atMs: now,
+    );
     return channelId;
   }
 
@@ -730,7 +737,7 @@ class ChatService {
         method: 'DELETE',
         path: '/v3.0/channels/$channelId/members/$selfUserId',
         payload: const [],
-        applyLocal: () => _store.leaveGroupLocal(channelId),
+        applyLocal: (_) => _store.leaveGroupLocal(channelId),
       );
 
   /// Delete a group for everyone (decision 9, owner only):
@@ -744,7 +751,7 @@ class ChatService {
         method: 'DELETE',
         path: '/v3.0/channels/$channelId',
         payload: const [],
-        applyLocal: () => _store.deleteGroupLocal(channelId),
+        applyLocal: (_) => _store.deleteGroupLocal(channelId),
       );
 
   /// Promote or demote a member (decision 80):
@@ -764,11 +771,78 @@ class ChatService {
         method: 'PATCH',
         path: '/v3.0/channels/$channelId/members/$userId',
         payload: utf8.encode(jsonEncode({'role': role})),
-        applyLocal: () => _store.setMemberRoleLocal(
+        applyLocal: (_) => _store.setMemberRoleLocal(
           channelId: channelId,
           userId: userId,
           role: role,
         ),
+      );
+
+  /// Add people to a group (owner and admins, decision 81):
+  /// `POST /v3.0/channels/{id}/members`. They show as members at once; a
+  /// terminal reject takes them back off.
+  Future<void> addMembers(String channelId, List<String> userIds) =>
+      _channelMembershipOp(
+        channelId: channelId,
+        caller: 'addMembers',
+        kind: OpKind.addMembers,
+        method: 'POST',
+        path: '/v3.0/channels/$channelId/members',
+        payload: utf8.encode(jsonEncode({'members': userIds})),
+        applyLocal: (opId) async {
+          for (final userId in userIds) {
+            await _store.upsertChannelMember(
+              channelId: channelId,
+              userId: userId,
+              role: 'member',
+              joinedAt: _clock.nowMs(),
+            );
+          }
+          await _ownGroupEvent(channelId, opId,
+              GroupEvent(GroupEventKind.added, users: userIds));
+        },
+      );
+
+  /// Remove someone else from a group (owner and admins):
+  /// `DELETE /v3.0/channels/{id}/members/{user_id}`. Leaving is
+  /// [leaveGroup].
+  Future<void> removeMember(String channelId, String userId) =>
+      _channelMembershipOp(
+        channelId: channelId,
+        caller: 'removeMember',
+        kind: OpKind.removeMember,
+        method: 'DELETE',
+        path: '/v3.0/channels/$channelId/members/$userId',
+        payload: const [],
+        applyLocal: (opId) async {
+          await _store.removeChannelMember(
+            channelId: channelId,
+            userId: userId,
+            removedAtMs: _clock.nowMs(),
+          );
+          await _ownGroupEvent(channelId, opId,
+              GroupEvent(GroupEventKind.removed, users: [userId]));
+        },
+      );
+
+  /// Rename a group (owner and admins): `PATCH /v3.0/channels/{id}`.
+  Future<void> renameGroup(String channelId, String name) =>
+      _channelMembershipOp(
+        channelId: channelId,
+        caller: 'renameGroup',
+        kind: OpKind.editChannel,
+        method: 'PATCH',
+        path: '/v3.0/channels/$channelId',
+        payload: utf8.encode(jsonEncode({'name': name})),
+        applyLocal: (opId) async {
+          await _store.applyChannelEdit(
+            channelId: channelId,
+            name: (value: name),
+            editedAtMs: _clock.nowMs(),
+          );
+          await _ownGroupEvent(channelId, opId,
+              GroupEvent(GroupEventKind.renamed, text: name));
+        },
       );
 
   /// The shape all three group-membership writes share: refuse to touch
@@ -782,7 +856,7 @@ class ChatService {
     required String method,
     required String path,
     required List<int> payload,
-    required Future<void> Function() applyLocal,
+    required Future<void> Function(String opId) applyLocal,
   }) async {
     final rows = await _store.db.query(
       'channels',
@@ -827,9 +901,25 @@ class ChatService {
     );
 
     await _store.enqueueOutboundOp(op);
-    await applyLocal();
+    await applyLocal(op.opId);
     _scheduler.tickSoon();
   }
+
+  /// The actor's own [GroupEvent] line: the server's fanout skips the
+  /// device that acted, so nothing else will write it here. Keyed on
+  /// the op, so a terminal reject can take it back out.
+  Future<void> _ownGroupEvent(
+    String channelId,
+    String opId,
+    GroupEvent event,
+  ) =>
+      _store.insertGroupEvent(
+        channelId: channelId,
+        messageId: 'ge-$opId',
+        actorUserId: _authClient.currentUserId ?? '',
+        event: event,
+        atMs: _clock.nowMs(),
+      );
 
   /// Active members of [channelId], joined with the local contact row
   /// where one exists. Powers the chat-info member list.
@@ -1273,8 +1363,19 @@ class ChatService {
   Future<void> setChannelAvatar({
     required String channelId,
     required String path,
+    bool announce = true,
   }) async {
     await _store.setChannelAvatar(channelId, path);
+    if (announce) {
+      final now = _clock.nowMs();
+      await _store.insertGroupEvent(
+        channelId: channelId,
+        messageId: 'ge-${_uuidGen.next(nowMs: now)}',
+        actorUserId: _authClient.currentUserId ?? '',
+        event: const GroupEvent(GroupEventKind.photo, text: 'set'),
+        atMs: now,
+      );
+    }
     await _enqueueAvatarUpload(
       path: path,
       then: 'channel',
@@ -1371,7 +1472,8 @@ class ChatService {
           path: '/v3.0/channels/$channelId',
           resourceId: channelId,
           channelId: channelId,
-          body: {'avatarUrl': fileId},
+          // §11.3 spells it snake_case; `avatarUrl` is a 400 there.
+          body: {'avatar_url': fileId},
           nowMs: now,
         ));
     }

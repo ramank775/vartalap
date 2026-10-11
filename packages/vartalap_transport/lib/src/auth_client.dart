@@ -297,6 +297,23 @@ class AuthClient implements AuthTokenProvider {
     return _decodeJson(resp);
   }
 
+  /// `GET /v3.0/channels` — the caller's groups (SYNC_PROTOCOL §15.6).
+  Future<List<Map<String, dynamic>>> getChannels() async {
+    final resp = await _get('/v3.0/channels', headers: _authHeaders());
+    _assertOk(resp, 'getChannels');
+    return (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  /// `GET /v3.0/channels/<channel_id>` — one group the caller is in;
+  /// null when the server doesn't know it or the caller isn't in it.
+  Future<Map<String, dynamic>?> getChannel(String channelId) async {
+    final resp =
+        await _get('/v3.0/channels/$channelId', headers: _authHeaders());
+    if (resp.statusCode == 404 || resp.statusCode == 403) return null;
+    _assertOk(resp, 'getChannel');
+    return _decodeJson(resp);
+  }
+
   /// `POST /v3.0/contacts/lookup` — AUTH_CONTRACT §7.2.
   Future<List<ContactMatch>> lookupContacts(
       List<String> phoneHashes) async {

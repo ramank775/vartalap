@@ -19,6 +19,29 @@ class ContactProfile {
   const ContactProfile({this.username, this.displayName, this.avatarUrl});
 }
 
+/// A group as `GET /v3.0/channels[/{id}]` describes it: every member
+/// mapped to `owner`, `admin` or `member`.
+typedef GroupRoster = ({
+  String? name,
+  String? avatarUrl,
+  Map<String, String> roles,
+  int createdAt,
+});
+
+/// One element of `GET /v3.0/channels` as a [GroupRoster]. A server
+/// from before `roles` (decision 150) lists members only: all plain
+/// members, until role events say otherwise.
+GroupRoster groupRosterFromJson(Map<String, dynamic> json) => (
+      name: json['name'] as String?,
+      avatarUrl: json['avatar_url'] as String?,
+      roles: {
+        for (final id in (json['members'] as List? ?? const []).cast<String>())
+          id: 'member',
+        ...?(json['roles'] as Map?)?.cast<String, String>(),
+      },
+      createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
+    );
+
 /// One typing-indicator event observed on the inbound WS stream. Emitted
 /// from `InboundReceiver.typingEvents` when an envelope marked
 /// `ephemeral=true` carries a `ChatPayload{TYPE_TYPING}` body (decision
@@ -74,6 +97,12 @@ class InboundReceiver {
   /// backfill (e.g. in tests that don't care about it).
   final Future<ContactProfile?> Function(String userId)? resolveProfile;
 
+  /// Fetches a group this device has no row for (`GET
+  /// /v3.0/channels/{id}`): one we were added to after it was created
+  /// has no `ChannelCreated` to build it from. Injected for the same
+  /// reason as [resolveProfile]; `null` drops such frames as before.
+  final Future<GroupRoster?> Function(String channelId)? resolveGroup;
+
   StreamSubscription<pb.Envelope>? _sub;
   bool _running = false;
 
@@ -116,6 +145,7 @@ class InboundReceiver {
     required this.localUserId,
     this.clock = Clock.system,
     this.resolveProfile,
+    this.resolveGroup,
   });
 
   /// Subscribe to inbound pushes. Idempotent — re-calling after [stop]
@@ -168,6 +198,20 @@ class InboundReceiver {
       await Future.wait(_inFlight.toList());
     }
   }
+
+  /// §15.6 — the groups the server lists that this device has no row
+  /// for (a reinstall, or an add whose event never got here). Queued
+  /// behind inbound frames, like every other channel write.
+  Future<void> adoptGroups(Map<String, GroupRoster> groups) => _track(
+        _chain = _chain.then((_) async {
+          for (final MapEntry(:key, :value) in groups.entries) {
+            await _materializeGroup(key, value);
+          }
+        }).catchError((Object e) {
+          // ignore: avoid_print
+          print('InboundReceiver: adoptGroups failed: $e');
+        }),
+      );
 
   Future<void> _apply(pb.Envelope env) async {
     if (!_running) return;
@@ -223,6 +267,9 @@ class InboundReceiver {
         return;
       }
       await _ensureDmChannel(channelId, sender, env);
+    } else if (!await store.channelExists(channelId)) {
+      // A group we were added to whose event never reached us.
+      await _fetchGroup(channelId);
     }
 
     pb.ChatPayload chat;
@@ -530,6 +577,17 @@ class InboundReceiver {
   ) async {
     final channelId = body.channelId;
     if (channelId.isEmpty) return;
+    if (await store.channelExists(channelId)) {
+      final at = _eventAt(env);
+      if (body.hasName()) {
+        await _groupEvent(env, GroupEvent(GroupEventKind.renamed,
+            text: body.name), at: at);
+      }
+      if (body.hasAvatarUrl()) {
+        await _groupEvent(env, GroupEvent(GroupEventKind.photo,
+            text: body.avatarUrl), at: at, suffix: '-photo');
+      }
+    }
     await store.applyChannelEdit(
       channelId: channelId,
       name: body.hasName()
@@ -633,6 +691,12 @@ class InboundReceiver {
           joinedAt: createdAt,
         );
       }
+      // WhatsApp's pair: 'Asha created group "Trip"', 'Asha added you'.
+      final at = _eventAt(env);
+      await _groupEvent(env, GroupEvent(GroupEventKind.created,
+          text: body.name), at: at);
+      await _groupEvent(env, GroupEvent(GroupEventKind.added,
+          users: [localUserId]), at: at, suffix: '-1');
     }
     // §7.2 — record op_id_seen even on the creator-echo skip path so a
     // re-fanout doesn't re-evaluate.
@@ -662,6 +726,12 @@ class InboundReceiver {
       limit: 1,
     );
     if (existing.isNotEmpty) {
+      // The same event re-announces a role (decision 80): only members
+      // who weren't in the group get an "added" line.
+      final before = {
+        for (final m in await store.fetchChannelMembers(body.channelId))
+          m.userId,
+      };
       final addedAt = body.addedAtMs.toInt();
       for (final userId in body.members) {
         await store.upsertChannelMember(
@@ -671,6 +741,21 @@ class InboundReceiver {
           joinedAt: addedAt,
         );
       }
+      final added = body.members.where((u) => !before.contains(u)).toList();
+      if (added.contains(localUserId)) {
+        // Back in a group we were removed from: show it again.
+        await store.db.update('channels', {'tombstoned': 0},
+            where: 'channel_id = ?', whereArgs: [body.channelId]);
+      }
+      if (added.isNotEmpty) {
+        await _groupEvent(env, GroupEvent(GroupEventKind.added, users: added),
+            at: _eventAt(env));
+      }
+    } else if (body.members.contains(localUserId) &&
+        await _fetchGroup(body.channelId)) {
+      await _groupEvent(
+          env, GroupEvent(GroupEventKind.added, users: body.members),
+          at: _eventAt(env));
     }
     await store.markOpIdSeen(env.channelId, env.opId, nowMs);
     _resolveUnknownMembers(body.members);
@@ -697,11 +782,84 @@ class InboundReceiver {
         userId: body.member,
         removedAtMs: body.removedAtMs.toInt(),
       );
-      if (body.member == localUserId) {
-        await store.tombstoneChannel(body.channelId);
-      }
+      // Removed by someone else, we keep the chat and its history, read
+      // only (WhatsApp). Our own leave never gets here: the fanout skips
+      // the device that left, and leaving deletes the chat there.
+      await _groupEvent(
+          env,
+          GroupEvent(
+            env.senderUserId == body.member
+                ? GroupEventKind.left
+                : GroupEventKind.removed,
+            users: [body.member],
+          ),
+          at: _eventAt(env));
     }
     await store.markOpIdSeen(env.channelId, env.opId, nowMs);
+  }
+
+  int _eventAt(pb.Envelope env) => env.serverTimestampMs.toInt() != 0
+      ? env.serverTimestampMs.toInt()
+      : clock.nowMs();
+
+  /// One [GroupEvent] line per server event (or two, told apart by
+  /// [suffix]), keyed on the envelope so a re-fanout writes nothing.
+  Future<void> _groupEvent(
+    pb.Envelope env,
+    GroupEvent event, {
+    required int at,
+    String suffix = '',
+  }) =>
+      store.insertGroupEvent(
+        channelId: env.channelId,
+        messageId: 'ge-${env.opId}$suffix',
+        actorUserId: env.senderUserId,
+        event: event,
+        atMs: at,
+      );
+
+  /// [resolveGroup] then [_materializeGroup]; false when the group could
+  /// not be fetched (offline, gone, or no resolver).
+  Future<bool> _fetchGroup(String channelId) async {
+    final resolve = resolveGroup;
+    if (resolve == null) return false;
+    final GroupRoster? roster;
+    try {
+      roster = await resolve(channelId);
+    } catch (e) {
+      // ignore: avoid_print
+      print('InboundReceiver: resolveGroup($channelId) failed: $e');
+      return false;
+    }
+    if (roster == null) return false;
+    await _materializeGroup(channelId, roster);
+    return true;
+  }
+
+  Future<void> _materializeGroup(String channelId, GroupRoster roster) async {
+    if (await store.channelExists(channelId)) return;
+    final owner = roster.roles.entries
+            .where((e) => e.value == 'owner')
+            .map((e) => e.key)
+            .firstOrNull ??
+        '';
+    await store.insertChannel(
+      channelId: channelId,
+      kind: 'group',
+      ownerUserId: owner,
+      createdAt: roster.createdAt,
+      name: roster.name,
+      avatarUrl: roster.avatarUrl,
+    );
+    for (final MapEntry(key: userId, value: role) in roster.roles.entries) {
+      await store.insertChannelMember(
+        channelId: channelId,
+        userId: userId,
+        role: role,
+        joinedAt: roster.createdAt,
+      );
+    }
+    _resolveUnknownMembers(roster.roles.keys);
   }
 
   /// Decision 79: schedule a best-effort [resolveProfile] fetch for every
