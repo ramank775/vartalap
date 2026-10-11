@@ -164,82 +164,94 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
       canPop: false,
       child: Scaffold(
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(kSpaceLg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: kSpaceLg),
-                Text('Choose your username', style: text.headlineMedium),
-                const SizedBox(height: kSpaceSm),
-                Text(
-                  'A username lets people reach you without knowing your '
-                  'number, and is how you appear to anyone who has not '
-                  'saved you.',
-                  style: text.bodyLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+          // Scrolls instead of overflowing when the keyboard leaves less
+          // room than the form; the Spacer still pins Continue low.
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              padding: const EdgeInsets.all(kSpaceLg),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - 2 * kSpaceLg,
                 ),
-                const SizedBox(height: kSpaceXl),
-                TextField(
-                  controller: _controller,
-                  autofocus: true,
-                  enabled: !_saving,
-                  maxLength: 30,
-                  textCapitalization: TextCapitalization.none,
-                  autocorrect: false,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9._]')),
-                  ],
-                  onChanged: _onChanged,
-                  onSubmitted: (_) => _onContinue(),
-                  decoration: InputDecoration(
-                    prefixText: '@',
-                    hintText: 'username',
-                    counterText: '',
-                    suffixIcon: _suffix(scheme),
-                  ),
-                ),
-                if (helper != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: kSpaceSm),
-                    child: Text(
-                      helper,
-                      style:
-                          text.bodySmall?.copyWith(color: _helperColor(scheme)),
-                    ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.only(top: kSpaceXs),
-                  child: Text(
-                    kUsernameRulesHint,
-                    style: text.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
-                  ),
-                ),
-                const Spacer(),
-                FilledButton(
-                  onPressed: _canContinue ? _onContinue : null,
-                  child: _saving
-                      ? SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: scheme.onPrimary,
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: kSpaceLg),
+                      Text('Choose your username', style: text.headlineMedium),
+                      const SizedBox(height: kSpaceSm),
+                      Text(
+                        'A username lets people reach you without knowing your '
+                        'number, and is how you appear to anyone who has not '
+                        'saved you.',
+                        style: text.bodyLarge?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: kSpaceXl),
+                      TextField(
+                        controller: _controller,
+                        autofocus: true,
+                        enabled: !_saving,
+                        maxLength: 30,
+                        textCapitalization: TextCapitalization.none,
+                        autocorrect: false,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                              RegExp(r'[A-Za-z0-9._]')),
+                        ],
+                        onChanged: _onChanged,
+                        onSubmitted: (_) => _onContinue(),
+                        decoration: InputDecoration(
+                          prefixText: '@',
+                          hintText: 'username',
+                          counterText: '',
+                          suffixIcon: _suffix(scheme),
+                        ),
+                      ),
+                      if (helper != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: kSpaceSm),
+                          child: Text(
+                            helper,
+                            style: text.bodySmall
+                                ?.copyWith(color: _helperColor(scheme)),
                           ),
-                        )
-                      : const Text('Continue'),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: kSpaceXs),
+                        child: Text(
+                          kUsernameRulesHint,
+                          style: text.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: _canContinue ? _onContinue : null,
+                        child: _saving
+                            ? SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.onPrimary,
+                                ),
+                              )
+                            : const Text('Continue'),
+                      ),
+                      const SizedBox(height: kSpaceSm),
+                      Text(
+                        'Your username is how people find you. '
+                        'Your phone number stays private.',
+                        textAlign: TextAlign.center,
+                        style: text.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: kSpaceSm),
-                Text(
-                  'Your username is how people find you. '
-                  'Your phone number stays private.',
-                  textAlign: TextAlign.center,
-                  style:
-                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-                ),
-              ],
+              ),
             ),
           ),
         ),
