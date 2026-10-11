@@ -114,9 +114,10 @@ void main() {
   Future<List<Map<String, Object?>>> ops(WidgetTester tester) =>
       q(tester, () => store.db.query('outbound_ops', orderBy: 'created_at'));
 
-  /// Long-press and let the sheet's entry animation run. Every beat in
-  /// this file is pumped by hand: the chat screen holds indeterminate
-  /// progress indicators, which never settle.
+  /// Long-press (selects the message: the app bar turns into its
+  /// actions) and let it settle. Every beat in this file is pumped by
+  /// hand: the chat screen holds indeterminate progress indicators,
+  /// which never settle.
   Future<void> longPress(WidgetTester tester, String body) async {
     await tester.longPress(find.textContaining(body));
     await settle(tester);
@@ -151,29 +152,44 @@ void main() {
     expect(find.text('5:47 PM'), findsNothing);
   });
 
-  testWidgets('sheet on my own message offers Edit and Delete; a peer '
-      'message offers neither', (tester) async {
+  testWidgets('long-pressing my own message offers Edit and Delete; a '
+      'peer message offers neither', (tester) async {
     await pumpChat(tester);
 
     await longPress(tester, 'my own message');
-    expect(find.text('Reply'), findsOneWidget);
-    expect(find.text('Copy text'), findsOneWidget);
-    expect(find.text('Edit'), findsOneWidget);
-    expect(find.text('Delete for everyone'), findsOneWidget);
+    expect(find.byTooltip('Reply'), findsOneWidget);
+    expect(find.byTooltip('Copy'), findsOneWidget);
+    expect(find.byTooltip('Edit'), findsOneWidget);
+    expect(find.byTooltip('Delete for everyone'), findsOneWidget);
 
-    await tester.tapAt(const Offset(10, 10)); // dismiss the sheet
+    await tester.tap(find.byTooltip('Cancel')); // let go of it
     await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('Edit'), findsNothing);
 
     await longPress(tester, 'their message');
-    expect(find.text('Reply'), findsOneWidget);
+    expect(find.byTooltip('Reply'), findsOneWidget);
     expect(
-      find.text('Edit'),
+      find.byTooltip('Edit'),
       findsNothing,
       reason: 'SYNC_PROTOCOL §6a.3: recipients drop an UPDATE that is not '
           "from the author, so editing someone else's message would be a "
           'button that provably does nothing.',
     );
-    expect(find.text('Delete for everyone'), findsNothing);
+    expect(find.byTooltip('Delete for everyone'), findsNothing);
+  });
+
+  testWidgets('swiping a message right starts a reply to it',
+      (tester) async {
+    await pumpChat(tester);
+    // The composer's reply preview is the only plain Text with the body.
+    expect(find.text('their message'), findsNothing);
+
+    await tester.drag(find.textContaining('their message'),
+        const Offset(120, 0));
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('their message'), findsOneWidget);
   });
 
   testWidgets('React writes a local reaction row and enqueues REACTION_ADD; '
@@ -218,7 +234,7 @@ void main() {
     await pumpChat(tester);
     await longPress(tester, 'my own message');
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.byTooltip('Edit'));
     await settle(tester);
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -244,7 +260,7 @@ void main() {
     await pumpChat(tester);
     final before = (await ops(tester)).length;
     await longPress(tester, 'my own message');
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.byTooltip('Edit'));
     await settle(tester);
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -263,8 +279,8 @@ void main() {
     final opsBefore = (await ops(tester)).length;
     await longPress(tester, 'my own message');
 
-    await tester.tap(find.text('Delete for everyone'));
-    await tester.pump(const Duration(milliseconds: 400)); // sheet closes
+    await tester.tap(find.byTooltip('Delete for everyone'));
+    await tester.pump(const Duration(milliseconds: 400));
     await settle(tester);
 
     // The snackbar is only shown once the local tombstone has landed,
@@ -304,8 +320,8 @@ void main() {
     final opsBefore = (await ops(tester)).length;
     await longPress(tester, 'my own message');
 
-    await tester.tap(find.text('Delete for everyone'));
-    await tester.pump(const Duration(milliseconds: 400)); // sheet closes
+    await tester.tap(find.byTooltip('Delete for everyone'));
+    await tester.pump(const Duration(milliseconds: 400));
     await settle(tester);
     expect((await ops(tester)).length, opsBefore);
 

@@ -125,6 +125,22 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _highlightedMessageId;
   Timer? _highlightTimer;
 
+  /// Long-pressed message (WhatsApp's selection): the app bar turns
+  /// into its actions and the reaction bar floats over it, following it
+  /// through [_selectedLink]. ponytail: one at a time; multi-select
+  /// (delete/copy several) when someone asks.
+  String? _selectedId;
+  final LayerLink _selectedLink = LayerLink();
+
+  /// The page last rendered, for the selection bar's fresh copy of the
+  /// selected row (its reactions change under it).
+  List<MessageRow> _lastMessages = const [];
+
+  /// The reaction bar goes under the message when it's too close to the
+  /// top of the list to fit above.
+  bool _barBelow = false;
+  final GlobalKey _listKey = GlobalKey();
+
   /// Outbound typing-indicator state.
   ///
   /// On every keystroke we send `is_typing=true` if either we haven't
@@ -350,18 +366,34 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _jumpToMessage(String messageId) {
+  Future<void> _jumpToMessage(String messageId) async {
     setState(() => _highlightedMessageId = messageId);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _highlightTimer?.cancel();
+    // Rows off screen aren't built, so there is nothing to scroll to
+    // yet: page toward older messages (the reversed list's far end)
+    // until the target row exists, then bring it into view.
+    // ponytail: older-only and 30 pages at most; a reply or search hit
+    // is behind you, and the window loads more as it goes.
+    for (var i = 0; i < 30 && mounted; i++) {
+      await WidgetsBinding.instance.endOfFrame;
       final ctx = _messageKeys[messageId]?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
+      if (ctx != null && ctx.mounted) {
+        await Scrollable.ensureVisible(
           ctx,
           duration: const Duration(milliseconds: 300),
           alignment: 0.3,
         );
+        break;
       }
-    });
+      if (!_scroll.hasClients) break;
+      final pos = _scroll.position;
+      if (pos.pixels >= pos.maxScrollExtent) break;
+      _scroll.jumpTo(math.min(
+        pos.pixels + pos.viewportDimension * 0.8,
+        pos.maxScrollExtent,
+      ));
+    }
+    if (!mounted) return;
     _highlightTimer?.cancel();
     _highlightTimer = Timer(const Duration(milliseconds: 1800), () {
       if (!mounted) return;
@@ -424,97 +456,105 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // --- message actions (frame d3) ----------------------------------------
 
-  Future<void> _openMessageSheet(MessageRow msg) async {
-    final mine = msg.authorUserId == widget.authService.currentUserId;
-    // §6a.3: recipients drop an UPDATE/DELETE that isn't from the
-    // author, so offering either on someone else's message would be a
-    // button that does nothing.
-    // An attachment is editable (its caption) once the server has it;
-    // before that it still points at a local file (editMessage).
-    final canEdit = mine &&
-        !msg.tombstoned &&
-        (msg.body ?? '').isNotEmpty &&
-        !isRichType(msg.contentType) &&
-        (msg.attachments == null || msg.serverTimestampMs != null);
-    // Otherwise closing the sheet hands focus back to the composer and the
-    // keyboard pops up after a delete or react; Edit and Reply ask for it.
+  /// §6a.3: recipients drop an UPDATE/DELETE that isn't from the
+  /// author, so offering either on someone else's message would be a
+  /// button that does nothing. An attachment is editable (its caption)
+  /// once the server has it; before that it still points at a local
+  /// file (editMessage).
+  bool _canEdit(MessageRow msg) =>
+      _isMine(msg) &&
+      !msg.tombstoned &&
+      (msg.body ?? '').isNotEmpty &&
+      !isRichType(msg.contentType) &&
+      (msg.attachments == null || msg.serverTimestampMs != null);
+
+  bool _isMine(MessageRow msg) =>
+      msg.authorUserId == widget.authService.currentUserId;
+
+  /// Text worth copying: a body that is words, not a vCard / geo URI.
+  bool _canCopy(MessageRow msg) =>
+      !msg.tombstoned &&
+      (msg.body ?? '').isNotEmpty &&
+      !isRichType(msg.contentType);
+
+  void _select(MessageRow msg) {
+    HapticFeedback.mediumImpact();
+    // Otherwise the keyboard stays up over the actions; Edit and Reply
+    // ask for it again.
     _inputFocus.unfocus();
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => SafeArea(
-        // Scrollable so the sheet still fits when the text scale is
-        // cranked up or the window is short.
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-            if (!msg.tombstoned)
-              _ReactionBar(
-                selected: msg.reactions
-                    .where((r) => r.userId == widget.authService.currentUserId)
-                    .map((r) => r.emoji)
-                    .toSet(),
-                onPick: (emoji) {
-                  Navigator.of(sheetCtx).pop();
-                  _toggleReaction(msg, emoji);
-                },
-              ),
-            if (!msg.tombstoned)
-              ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Reply'),
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  setState(() {
-                    _replyTo = msg;
-                    _editingMessageId = null;
-                  });
-                  _inputFocus.requestFocus();
-                },
-              ),
-            if (canEdit)
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Edit'),
-                subtitle: const Text('Everyone sees it marked as edited'),
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  _startEdit(msg);
-                },
-              ),
-            if (!msg.tombstoned && (msg.body ?? '').isNotEmpty)
-              ListTile(
-                leading: const Icon(Icons.copy_outlined),
-                title: const Text('Copy text'),
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  Clipboard.setData(ClipboardData(text: msg.body ?? ''));
-                  _toast('Copied');
-                },
-              ),
-            if (mine && !msg.tombstoned)
-              ListTile(
-                leading: Icon(Icons.delete_outline,
-                    color: Theme.of(sheetCtx).colorScheme.error),
-                title: Text(
-                  'Delete for everyone',
-                  style: TextStyle(color: Theme.of(sheetCtx).colorScheme.error),
-                ),
-                subtitle: Text(
-                  'You have ${widget.undoWindow.inSeconds} seconds to undo',
-                ),
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  _deleteMessage(msg);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    final box = _messageKeys[msg.messageId]?.currentContext?.findRenderObject()
+        as RenderBox?;
+    final list = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    setState(() {
+      _selectedId = msg.messageId;
+      _barBelow = box != null &&
+          list != null &&
+          box.localToGlobal(Offset.zero).dy -
+                  list.localToGlobal(Offset.zero).dy <
+              64;
+    });
   }
+
+  void _clearSelection() {
+    if (_selectedId != null) setState(() => _selectedId = null);
+  }
+
+  void _reply(MessageRow msg) {
+    setState(() {
+      _selectedId = null;
+      _replyTo = msg;
+      _editingMessageId = null;
+    });
+    _inputFocus.requestFocus();
+  }
+
+  void _copy(MessageRow msg) {
+    _clearSelection();
+    Clipboard.setData(ClipboardData(text: msg.body ?? ''));
+    _toast('Copied');
+  }
+
+  /// The selection app bar: what you can do with the long-pressed
+  /// message (WhatsApp's contextual bar).
+  AppBar _selectionBar(MessageRow msg) => AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Cancel',
+          onPressed: _clearSelection,
+        ),
+        actions: [
+          if (!msg.tombstoned)
+            IconButton(
+              icon: const Icon(Icons.reply),
+              tooltip: 'Reply',
+              onPressed: () => _reply(msg),
+            ),
+          if (_canCopy(msg))
+            IconButton(
+              icon: const Icon(Icons.copy_outlined),
+              tooltip: 'Copy',
+              onPressed: () => _copy(msg),
+            ),
+          if (_canEdit(msg))
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit',
+              onPressed: () {
+                _clearSelection();
+                _startEdit(msg);
+              },
+            ),
+          if (_isMine(msg) && !msg.tombstoned)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'Delete for everyone',
+              onPressed: () {
+                _clearSelection();
+                _deleteMessage(msg);
+              },
+            ),
+        ],
+      );
 
   Future<void> _toggleReaction(MessageRow msg, String emoji) async {
     final userId = widget.authService.currentUserId;
@@ -1032,8 +1072,19 @@ class _ChatScreenState extends State<ChatScreen> {
     final scheme = Theme.of(context).colorScheme;
     final chatColors = VartalapTheme.chatColorsOf(context);
 
-    return Scaffold(
-      appBar: AppBar(
+    final selected = _selectedId == null
+        ? null
+        : _lastMessages.where((m) => m.messageId == _selectedId).firstOrNull;
+    // Back closes the selection first, like WhatsApp.
+    return PopScope(
+      canPop: selected == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _clearSelection();
+      },
+      child: Scaffold(
+      appBar: selected != null
+          ? _selectionBar(selected)
+          : AppBar(
         titleSpacing: 0,
         title: InkWell(
           onTap: () {
@@ -1105,6 +1156,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final messages = snapshot.data ?? const [];
+                _lastMessages = messages;
                 if (messages.isEmpty) {
                   return Center(
                     child: Text(
@@ -1144,24 +1196,36 @@ class _ChatScreenState extends State<ChatScreen> {
                           : null;
 
                   final failedOpId = _failedOps[msg.messageId];
-                  items.add(_MessageBubble(
+                  final isSelected = _selectedId == msg.messageId;
+                  final replyTo = msg.replyToMessageId;
+                  items.add(_SwipeToReply(
+                    key: ValueKey('swipe-${msg.messageId}'),
+                    onReply: msg.tombstoned ? null : () => _reply(msg),
+                    child: _MessageBubble(
                     key: _keyForMessage(msg.messageId),
                     message: msg,
                     isMine: mine,
                     showTail: showTail,
                     chatColors: chatColors,
-                    highlighted:
+                    highlighted: isSelected ||
                         _highlightedMessageId == msg.messageId,
+                    link: isSelected ? _selectedLink : null,
                     senderLabel: senderLabel,
                     localUserId: currentUserId,
-                    replyPreview: msg.replyToMessageId == null
+                    replyPreview:
+                        replyTo == null ? null : bodyById[replyTo],
+                    onReplyTap: replyTo == null || !bodyById.containsKey(replyTo)
                         ? null
-                        : bodyById[msg.replyToMessageId],
-                    onLongPress: () => _openMessageSheet(msg),
+                        : () => _jumpToMessage(replyTo),
+                    onLongPress: () => _select(msg),
+                    // While one is selected, a tap anywhere on a bubble
+                    // just lets go of it.
+                    onTap: _selectedId == null ? null : _clearSelection,
                     onReactionTap: (emoji) => _toggleReaction(msg, emoji),
                     onRetry:
                         failedOpId == null ? null : () => _retry(failedOpId),
                     onMessageContact: _messageContact,
+                  ),
                   ));
 
                   // Insert a date chip between this message and the
@@ -1184,14 +1248,54 @@ class _ChatScreenState extends State<ChatScreen> {
                   }
                 }
 
-                return ListView(
-                  controller: _scroll,
-                  reverse: true,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: kSpaceSm,
-                    vertical: kSpaceSm,
-                  ),
-                  children: items,
+                final sel = selected;
+                return Stack(
+                  key: _listKey,
+                  children: [
+                    ListView(
+                      controller: _scroll,
+                      reverse: true,
+                      padding: const EdgeInsets.symmetric(vertical: kSpaceSm),
+                      children: items,
+                    ),
+                    // WhatsApp's reaction bar, pinned to the selected
+                    // bubble's top edge (bottom edge near the list top)
+                    // on the side the bubble sits.
+                    if (sel != null && !sel.tombstoned)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        child: CompositedTransformFollower(
+                          link: _selectedLink,
+                          showWhenUnlinked: false,
+                          targetAnchor: _barBelow
+                              ? (_isMine(sel)
+                                  ? Alignment.bottomRight
+                                  : Alignment.bottomLeft)
+                              : (_isMine(sel)
+                                  ? Alignment.topRight
+                                  : Alignment.topLeft),
+                          followerAnchor: _barBelow
+                              ? (_isMine(sel)
+                                  ? Alignment.topRight
+                                  : Alignment.topLeft)
+                              : (_isMine(sel)
+                                  ? Alignment.bottomRight
+                                  : Alignment.bottomLeft),
+                          offset: Offset(0, _barBelow ? 6 : -6),
+                          child: _ReactionBar(
+                            selected: sel.reactions
+                                .where((r) => r.userId == currentUserId)
+                                .map((r) => r.emoji)
+                                .toSet(),
+                            onPick: (emoji) {
+                              _clearSelection();
+                              _toggleReaction(sel, emoji);
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
@@ -1217,6 +1321,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }
@@ -1533,34 +1638,151 @@ class _ReactionBar extends StatelessWidget {
     '\u{1F64F}',
   ];
 
+  /// A floating pill over the long-pressed message (WhatsApp). Your
+  /// own reactions are ringed; tapping one again removes it.
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: kSpaceSm,
-        vertical: kSpaceXs,
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          for (final emoji in emojis)
-            InkWell(
-              key: ValueKey('react-$emoji'),
-              customBorder: const CircleBorder(),
-              onTap: () => onPick(emoji),
-              child: Container(
-                padding: const EdgeInsets.all(kSpaceSm),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: selected.contains(emoji)
-                      ? scheme.primaryContainer
-                      : Colors.transparent,
+    return Material(
+      elevation: 6,
+      color: scheme.surface,
+      shadowColor: Colors.black38,
+      borderRadius: BorderRadius.circular(28),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final emoji in emojis)
+              InkWell(
+                key: ValueKey('react-$emoji'),
+                customBorder: const CircleBorder(),
+                onTap: () => onPick(emoji),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selected.contains(emoji)
+                        ? scheme.primaryContainer
+                        : Colors.transparent,
+                  ),
+                  child: Text(emoji, style: const TextStyle(fontSize: 26)),
                 ),
-                child: Text(emoji, style: const TextStyle(fontSize: 24)),
               ),
-            ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// [CompositedTransformTarget] when there is a [link], else just [child].
+class _LinkTarget extends StatelessWidget {
+  final LayerLink? link;
+  final Widget child;
+
+  const _LinkTarget({required this.link, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final l = link;
+    return l == null
+        ? child
+        : CompositedTransformTarget(link: l, child: child);
+  }
+}
+
+/// Drag a message right to reply (WhatsApp): the row follows the finger
+/// up to [_max], a reply icon fades in behind it, a tick of haptics
+/// marks [_trigger], and letting go past it replies.
+class _SwipeToReply extends StatefulWidget {
+  /// Null = not swipeable (a deleted message).
+  final VoidCallback? onReply;
+  final Widget child;
+
+  const _SwipeToReply({super.key, required this.onReply, required this.child});
+
+  @override
+  State<_SwipeToReply> createState() => _SwipeToReplyState();
+}
+
+class _SwipeToReplyState extends State<_SwipeToReply>
+    with SingleTickerProviderStateMixin {
+  static const double _trigger = 56;
+  static const double _max = 80;
+
+  late final AnimationController _offset = AnimationController(
+    vsync: this,
+    upperBound: _max,
+    duration: const Duration(milliseconds: 180),
+  );
+  bool _armed = false;
+
+  @override
+  void dispose() {
+    _offset.dispose();
+    super.dispose();
+  }
+
+  void _drag(DragUpdateDetails d) {
+    // Heavier the further it goes, like WhatsApp's rubber band.
+    final resistance = 1 - _offset.value / (_max * 1.5);
+    _offset.value = _offset.value + d.delta.dx * resistance;
+    final armed = _offset.value >= _trigger;
+    if (armed && !_armed) HapticFeedback.lightImpact();
+    _armed = armed;
+  }
+
+  void _release([DragEndDetails? _]) {
+    if (_armed) widget.onReply?.call();
+    _armed = false;
+    _offset.animateBack(0, curve: Curves.easeOut);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.onReply == null) return widget.child;
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onHorizontalDragUpdate: _drag,
+      onHorizontalDragEnd: _release,
+      onHorizontalDragCancel: _release,
+      child: AnimatedBuilder(
+        animation: _offset,
+        child: widget.child,
+        builder: (context, child) {
+          final progress = (_offset.value / _trigger).clamp(0.0, 1.0);
+          return Stack(
+            children: [
+              Positioned(
+                left: 4,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Opacity(
+                    opacity: progress,
+                    child: Transform.scale(
+                      scale: 0.5 + 0.5 * progress,
+                      child: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: scheme.surfaceContainerHighest,
+                        child: Icon(
+                          Icons.reply,
+                          size: 18,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Transform.translate(
+                offset: Offset(_offset.value, 0),
+                child: child,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1639,6 +1861,15 @@ class _MessageBubble extends StatelessWidget {
   /// "Message" on a shared contact card (its vCard).
   final ValueChanged<String>? onMessageContact;
 
+  /// Set on the selected bubble: the reaction bar follows it.
+  final LayerLink? link;
+
+  /// A tap on the bubble itself (letting go of a selection).
+  final VoidCallback? onTap;
+
+  /// Tapping the reply quote jumps to the message it quotes.
+  final VoidCallback? onReplyTap;
+
   const _MessageBubble({
     super.key,
     required this.message,
@@ -1653,6 +1884,9 @@ class _MessageBubble extends StatelessWidget {
     this.replyPreview,
     this.onRetry,
     this.onMessageContact,
+    this.link,
+    this.onTap,
+    this.onReplyTap,
   });
 
   /// `messages.attachments` is a ChatPayload holding only the repeated
@@ -1769,8 +2003,10 @@ class _MessageBubble extends StatelessWidget {
       padding: EdgeInsets.only(
         top: showTail ? 8 : 2,
         bottom: 2,
-        left: isMine ? 64 : 0,
-        right: isMine ? 0 : 64,
+        // The list has no side padding, so a highlight runs edge to
+        // edge; the 8 px gutter lives here instead.
+        left: isMine ? 72 : 8,
+        right: isMine ? 8 : 72,
       ),
       child: Align(
         alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -1779,8 +2015,11 @@ class _MessageBubble extends StatelessWidget {
               isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-        GestureDetector(
+        _LinkTarget(
+          link: link,
+          child: GestureDetector(
           onLongPress: onLongPress,
+          onTap: onTap,
           child: PhysicalShape(
           clipper: _BubbleClipper(isMine: isMine, showTail: showTail),
           color: bg,
@@ -1815,7 +2054,11 @@ class _MessageBubble extends StatelessWidget {
                       ),
                     )),
                   if (replyPreview != null && !tombstoned) ...[
-                    _ReplyQuote(text: replyPreview!, tint: fg),
+                    _ReplyQuote(
+                      text: replyPreview!,
+                      tint: fg,
+                      onTap: onReplyTap,
+                    ),
                     const SizedBox(height: 4),
                   ],
                   for (final (i, a) in attachments.indexed)
@@ -1895,6 +2138,7 @@ class _MessageBubble extends StatelessWidget {
               ),
             ),
           ),
+        ),
         ),
         ),
         if (message.reactions.isNotEmpty && !tombstoned)
@@ -2043,12 +2287,15 @@ class _BubbleClipper extends CustomClipper<Path> {
 class _ReplyQuote extends StatelessWidget {
   final String text;
   final Color tint;
+  final VoidCallback? onTap;
 
-  const _ReplyQuote({required this.text, required this.tint});
+  const _ReplyQuote({required this.text, required this.tint, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       padding: const EdgeInsets.symmetric(
         horizontal: kSpaceSm,
         vertical: kSpaceXs,
@@ -2064,6 +2311,7 @@ class _ReplyQuote extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(fontSize: 13, color: tint.withValues(alpha: 0.8)),
       ),
+    ),
     );
   }
 }
@@ -2286,8 +2534,11 @@ class _ReactionChips extends StatelessWidget {
       counts[r.emoji] = (counts[r.emoji] ?? 0) + 1;
       if (r.userId == localUserId) mine.add(r.emoji);
     }
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
+    // Tucked onto the bubble's bottom edge with a ring, like WhatsApp.
+    return Transform.translate(
+      offset: const Offset(0, -6),
+      child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Wrap(
         spacing: kSpaceXs,
         children: [
@@ -2306,6 +2557,7 @@ class _ReactionChips extends StatelessWidget {
                       ? scheme.primaryContainer
                       : scheme.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(kRadiusFull),
+                  border: Border.all(color: scheme.surface, width: 2),
                 ),
                 child: Text(
                   '${entry.key} ${entry.value}',
@@ -2314,6 +2566,7 @@ class _ReactionChips extends StatelessWidget {
               ),
             ),
         ],
+      ),
       ),
     );
   }
