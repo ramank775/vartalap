@@ -1180,8 +1180,8 @@ proceed independently of WS state.
 
 ## 12. Push notification path
 
-Push is **independent of the sync wire**. ntfy-direct per
-`V3_ARCHITECTURE.md` decision 6.
+Push is **independent of the sync wire**. UnifiedPush + Web Push per
+`V3_ARCHITECTURE.md` decision 6 and AUTH_CONTRACT §5.
 
 ### 12.1 Wake notification
 

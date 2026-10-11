@@ -59,8 +59,8 @@ do not improvise.
   handle — owner-only, see §2.5).
 - Session credentials: `accesskey` and `refreshToken`, their TTLs,
   rotation semantics, and revocation.
-- Push topic registration (ntfy-direct, per `V3_ARCHITECTURE.md`
-  decision 6).
+- Push registration (UnifiedPush + Web Push, per `V3_ARCHITECTURE.md`
+  decision 6 and §5).
 - WebSocket authentication (subprotocol-based, pre-upgrade
   validation).
 - Contact discovery via SHA-256 hashed phone lookup, with quotas.
@@ -780,7 +780,7 @@ it MAY omit the field; server revokes the accesskey only.
 **Server side-effects:**
 1. Delete the accesskey row.
 2. Delete the refresh-token row (if supplied).
-3. Deregister the ntfy push topic for `(user_id, deviceId)` —
+3. Deregister the push endpoint for `(user_id, deviceId)` —
    see §5.
 4. Drop any active WS connections for this `(user_id, deviceId)`
    with WS close code **4002** (session revoked, see §6.4).
@@ -883,9 +883,12 @@ timeout, and ignore the response body. Responses:
 - `429` / `5xx` — retry later with backoff, honouring `Retry-After`.
 
 **Dev escape hatch.** `--push-allow-private-endpoints` lets
-`http` and private addresses through, for a local ntfy reached at
-`http://10.0.2.2:…` from an emulator. Like `--expose-dev-otp`, it
-MUST NOT be set in any real deployment.
+`http` and private addresses through, for a local ntfy during
+development. The ntfy URL must be reachable from both the emulator
+and the server: e.g. the host's LAN IP with this flag. (`10.0.2.2`
+only means "the host" from inside an emulator, so a server can't push
+to it.) Like `--expose-dev-otp`, it MUST NOT be set in any real
+deployment.
 
 **Endpoint ownership.** The server does not verify that the client
 owns the endpoint. Registering someone else's endpoint only means
