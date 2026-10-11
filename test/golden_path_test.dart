@@ -1148,6 +1148,24 @@ void main() {
             'PUT accepted.',
       );
       assetClient.dispose();
+
+      // A caption edit is a full-replace UPDATE: it must carry the
+      // attachment it keeps, or the peer is left with text only.
+      await h.chat.editMessage(
+        channelId: attachmentChannelId,
+        messageId: attachmentMessageId,
+        newBody: 'holiday!',
+      );
+      await h.waitFor(() => h.peerSaw(
+            pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
+            messageId: attachmentMessageId,
+          ));
+      final update = h.peerInboxSeen.lastWhere((p) =>
+          p.type == pb.ChatPayloadType.TYPE_MESSAGE_UPDATE &&
+          p.messageId == attachmentMessageId);
+      expect(update.body, 'holiday!');
+      expect(update.contentType, 'image/png');
+      expect(update.attachments.single.url, stored.url);
     });
 
     // ---- 11 -------------------------------------------------------------

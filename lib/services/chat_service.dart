@@ -53,6 +53,8 @@ Uint8List _encodeChatOp({
   required pb.ChatPayloadType type,
   required String messageId,
   String? body,
+  String? contentType,
+  Iterable<pb.Attachment>? attachments,
   String? emoji,
 }) =>
     pb.ChatPayload(
@@ -60,7 +62,8 @@ Uint8List _encodeChatOp({
       type: type,
       messageId: messageId,
       body: body,
-      contentType: body == null ? null : 'text/plain',
+      contentType: contentType ?? (body == null ? null : 'text/plain'),
+      attachments: attachments,
       emoji: emoji,
     ).writeToBuffer();
 
@@ -912,11 +915,23 @@ class ChatService {
   /// MESSAGE_UPDATE. Recipients drop it unless we are the author
   /// (SYNC_PROTOCOL §6a.3), so the caller must gate the UI on
   /// authorship too; this is the second line of defence, not the first.
+  ///
+  /// An UPDATE replaces body, content type *and* attachments
+  /// (v3-chat-payload.proto), so a caption edit re-sends the
+  /// attachments it keeps. Until our CREATE is ACKed those still point
+  /// at a local file, so an attachment message is not editable yet.
   Future<void> editMessage({
     required String channelId,
     required String messageId,
     required String newBody,
   }) async {
+    final row = await _store.fetchMessage(messageId);
+    final attachments = row?.attachments == null
+        ? const <pb.Attachment>[]
+        : pb.ChatPayload.fromBuffer(row!.attachments!).attachments;
+    if (attachments.isNotEmpty && row!.serverTimestampMs == null) {
+      throw ArgumentError('Wait for the upload to finish before editing.');
+    }
     final now = _clock.nowMs();
     await _store.enqueueMessageEdit(
       messageId: messageId,
@@ -930,6 +945,8 @@ class ChatService {
           type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
           messageId: messageId,
           body: newBody,
+          contentType: attachments.isEmpty ? null : row!.contentType,
+          attachments: attachments,
         ),
         nowMs: now,
       ),
