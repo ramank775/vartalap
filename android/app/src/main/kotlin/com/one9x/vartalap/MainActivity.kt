@@ -3,6 +3,7 @@ package com.one9x.vartalap
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.ColorDrawable
 import android.location.LocationManager
 import android.os.CancellationSignal
 import android.provider.CalendarContract
@@ -92,6 +93,14 @@ class MainActivity: FlutterActivity() {
                 } catch (e: SecurityException) {
                     result.success(null)
                 }
+            }
+        // The window behind Flutter wears the app theme's surface: Android
+        // 15+ tints the 3-button nav bar from it, so a white window under
+        // the dark theme left a light bar.
+        MethodChannel(messenger, "vartalap/window")
+            .setMethodCallHandler { call, result ->
+                window.setBackgroundDrawable(ColorDrawable((call.arguments as Number).toInt()))
+                result.success(null)
             }
         // Pre-filled hand-offs to the system apps, from shared contact
         // and event cards. false = no app installed takes it.

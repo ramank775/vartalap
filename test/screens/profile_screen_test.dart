@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -14,10 +13,6 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 void main() {
-  test('QR payload is the handle, never the number (AUTH_CONTRACT §2.5)', () {
-    expect(usernameQrPayload('raman'), 'vartalap://u/raman');
-  });
-
   Future<void> pumpProfile(
     WidgetTester tester, {
     required AuthService authService,
@@ -47,15 +42,16 @@ void main() {
     expect(find.text('Profile'), findsOneWidget); // app bar
     expect(find.text('Raman Jay'), findsOneWidget);
     expect(find.text('+91 98765 43210'), findsOneWidget); // formatted
-    // The handle sits under the avatar AND in its editable row.
-    expect(find.text('@raman'), findsNWidgets(2));
+    // The handle lives in its editable row only (WhatsApp shows nothing
+    // under the photo).
+    expect(find.text('@raman'), findsOneWidget);
 
     // Row labels (read mode) — top of the list.
     expect(find.text('Name'), findsOneWidget);
     expect(find.text('Username'), findsOneWidget);
     expect(find.text('About'), findsOneWidget);
 
-    // Phone / QR / Sign out live further down — confirm by scrolling
+    // Phone lives further down — confirm by scrolling
     // them into view rather than asserting they are already visible
     // (the test surface clips below the fold).
     final listView = find.byType(ListView);
@@ -63,8 +59,9 @@ void main() {
     await tester.drag(listView, const Offset(0, -400));
     await tester.pumpAndSettle();
     expect(find.text('Phone'), findsOneWidget);
-    expect(find.text('QR code'), findsOneWidget);
-    expect(find.text('Sign out'), findsOneWidget);
+    // Decision 154: the QR code and log out moved to Settings.
+    expect(find.text('QR code'), findsNothing);
+    expect(find.text('Sign out'), findsNothing);
 
     // No more popup-driven buttons.
     expect(find.text('Edit profile'), findsNothing);
@@ -178,9 +175,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(auth.setUsernameCalls, ['raman']);
-    // Read-mode shows the value with the @ prefix — in the row, and
-    // again in the header under the avatar.
-    expect(find.text('@raman'), findsNWidgets(2));
+    // Read-mode shows the value with the @ prefix.
+    expect(find.text('@raman'), findsOneWidget);
   });
 
   testWidgets('status row edit calls setStatusText', (tester) async {
@@ -196,43 +192,6 @@ void main() {
 
     expect(auth.setStatusTextCalls, ['Available']);
     expect(find.text('Available'), findsOneWidget);
-  });
-
-  testWidgets('QR row expands to a real QR of the handle', (tester) async {
-    final auth = _FakeAuthService(
-      phone: '+919876543210',
-      name: 'Raman',
-      username: 'raman',
-    );
-    await pumpProfile(tester, authService: auth);
-
-    // The QR row lives below the fold on the test surface.
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
-    await tester.pumpAndSettle();
-
-    // No stub copy anywhere, and the row advertises the handle.
-    expect(find.textContaining('coming soon'), findsNothing);
-    expect(find.text('Shares @raman, not your number'), findsOneWidget);
-    expect(find.byType(QrImageView), findsNothing);
-
-    final qrRow = find.widgetWithText(ListTile, 'QR code');
-    await tester.tap(qrRow);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Tap to hide'), findsOneWidget);
-    expect(find.byType(QrImageView), findsOneWidget);
-
-    // Tap again to collapse.
-    await tester.tap(qrRow);
-    await tester.pumpAndSettle();
-    expect(find.byType(QrImageView), findsNothing);
-  });
-
-  testWidgets('QR row is absent until a username exists', (tester) async {
-    final auth = _FakeAuthService(phone: '+919876543210', name: 'Raman');
-    await pumpProfile(tester, authService: auth);
-    expect(find.text('QR code'), findsNothing);
-    expect(find.text('No username yet'), findsOneWidget);
   });
 
   testWidgets('phone row is marked private', (tester) async {
@@ -322,52 +281,6 @@ void main() {
     );
   });
 
-  testWidgets(
-      'Sign out is two-tap inline: first arms, second confirms and logs out',
-      (tester) async {
-    final auth = _FakeAuthService(phone: '+919876543210', name: 'Raman');
-    await pumpProfile(tester, authService: auth);
-
-    // Scroll the row into the viewport — the test surface is tall but
-    // CI defaults can clip the bottom. The button is the only TextButton
-    // on the screen so byType is the most robust selector.
-    final signOut = find.byType(TextButton);
-    await tester.scrollUntilVisible(signOut, 200);
-    await tester.pumpAndSettle();
-
-    // First tap arms — no logout yet.
-    await tester.tap(signOut);
-    await tester.pump();
-    expect(auth.logoutCalls, 0);
-    expect(find.text('Tap again to confirm'), findsOneWidget);
-
-    // Second tap fires logout.
-    await tester.tap(find.widgetWithText(TextButton, 'Tap again to confirm'));
-    await tester.pump();
-    expect(auth.logoutCalls, 1);
-  });
-
-  testWidgets('Sign out arm auto-resets after timeout', (tester) async {
-    final auth = _FakeAuthService(phone: '+919876543210', name: 'Raman');
-    await pumpProfile(tester, authService: auth);
-
-    // Scroll the row into the viewport — the test surface is tall but
-    // CI defaults can clip the bottom. The button is the only TextButton
-    // on the screen so byType is the most robust selector.
-    final signOut = find.byType(TextButton);
-    await tester.scrollUntilVisible(signOut, 200);
-    await tester.pumpAndSettle();
-
-    await tester.tap(signOut);
-    await tester.pump();
-    expect(find.text('Tap again to confirm'), findsOneWidget);
-
-    // Auto-reset is 4s in production; pump past it.
-    await tester.pump(const Duration(seconds: 5));
-    expect(find.text('Tap again to confirm'), findsNothing);
-    expect(find.text('Sign out'), findsOneWidget);
-    expect(auth.logoutCalls, 0);
-  });
 }
 
 /// Real AuthService with a no-op transport + storage, plus injected

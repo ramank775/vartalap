@@ -563,6 +563,10 @@ class ChatService {
     return _store.fetchContacts();
   }
 
+  /// Save contact (decision 153) — a name kept on this phone only.
+  Future<void> saveContactName(String userId, String name) =>
+      _store.setContactBookName(userId, name);
+
   /// `GET /v3.0/users/by-username/{username}` — AUTH_CONTRACT §7.6.
   ///
   /// The one network-bound discovery path for somebody who is not in

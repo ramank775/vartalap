@@ -25,6 +25,7 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/chat_action_sheets.dart';
+import 'package:vartalap/widgets/name_dialog.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
 /// Decision 9's succession rule, computed locally so the owner's Leave
@@ -391,7 +392,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   Future<void> _rename() async {
     final name = await showDialog<String>(
       context: context,
-      builder: (_) => _RenameDialog(initial: _name),
+      builder: (_) => NameDialog(title: 'Group name', initial: _name),
     );
     if (name == null || name.isEmpty || name == _name) return;
     await widget.chatService.renameGroup(widget.channelId, name);
@@ -548,47 +549,6 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
 
 /// Owns its controller: the dialog is still animating out when
 /// `showDialog` returns, so the caller can't dispose one it made.
-class _RenameDialog extends StatefulWidget {
-  final String initial;
-  const _RenameDialog({required this.initial});
-
-  @override
-  State<_RenameDialog> createState() => _RenameDialogState();
-}
-
-class _RenameDialogState extends State<_RenameDialog> {
-  late final _controller = TextEditingController(text: widget.initial);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Group name'),
-        content: TextField(
-          controller: _controller,
-          autofocus: true,
-          maxLength: 100,
-          textCapitalization: TextCapitalization.sentences,
-          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.of(context).pop(_controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      );
-}
-
 /// Slim banner under the header while the chat is muted.
 class _MuteBar extends StatelessWidget {
   final String label;

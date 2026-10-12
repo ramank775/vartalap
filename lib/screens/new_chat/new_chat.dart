@@ -19,6 +19,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
+import 'package:vartalap/screens/qr/qr.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -49,6 +50,22 @@ class _NewChatScreenState extends State<NewChatScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('New Chat'),
+          actions: [
+            // WhatsApp keeps a QR scanner next to "New contact".
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner),
+              tooltip: 'Scan QR code',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => QrScreen(
+                    authService: widget.authService,
+                    chatService: widget.chatService,
+                    scan: true,
+                  ),
+                ),
+              ),
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Contacts'),

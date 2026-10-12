@@ -1,6 +1,8 @@
 /// Contact info for another user — mockup frame g.
 ///
-/// Name, handle, status, Message, shared groups. **No phone row**: the
+/// Name, handle, status, Message, Save contact, shared groups. Also
+/// where a scanned profile QR or an opened `vartalap://u/` link lands
+/// ([openUsernameLink]). **No phone row**: the
 /// client never holds another user's number (AUTH_CONTRACT §2.5) and
 /// the design is explicit that a number you do not hold must not appear
 /// here.
@@ -11,8 +13,50 @@ import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/utils/username_link.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/name_dialog.dart';
 import 'package:vartalap_store/vartalap_store.dart';
+import 'package:vartalap_transport/vartalap_transport.dart';
+
+/// A scanned profile QR or an opened `vartalap://u/` link (decision
+/// 152): look the handle up and show who it is.
+Future<void> openUsernameLink(
+  BuildContext context, {
+  required String link,
+  required ChatService chatService,
+  required AuthService authService,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final navigator = Navigator.of(context);
+  void say(String text) =>
+      messenger.showSnackBar(SnackBar(content: Text(text)));
+  final target = parseUsernameLink(link);
+  if (target == null) return say('Not a Vartalap QR code');
+  if (target.username == authService.username) {
+    return say("That's your own QR code");
+  }
+  try {
+    final contact =
+        await chatService.findByUsername(target.username, key: target.key);
+    await navigator.push(MaterialPageRoute<void>(
+      builder: (_) => ContactInfoScreen(
+        contact: contact,
+        chatService: chatService,
+        authService: authService,
+      ),
+    ));
+  } on AuthClientException catch (e) {
+    say(switch (e.errorCode) {
+      'USERNAME_KEY_REQUIRED' => '@${target.username} uses a username key. '
+          'Ask them for it, then find them from New chat.',
+      'USER_NOT_FOUND' => 'No one on Vartalap has this code any more',
+      _ => "Couldn't reach Vartalap. Try again.",
+    });
+  } catch (_) {
+    say("Couldn't reach Vartalap. Try again.");
+  }
+}
 
 class ContactInfoScreen extends StatefulWidget {
   final ContactRow contact;
@@ -32,6 +76,7 @@ class ContactInfoScreen extends StatefulWidget {
 
 class _ContactInfoScreenState extends State<ContactInfoScreen> {
   late Future<List<ChannelListEntry>> _sharedGroups;
+  late ContactRow _contact = widget.contact;
   bool _opening = false;
 
   @override
@@ -53,7 +98,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     final shared = <ChannelListEntry>[];
     for (final g in mine) {
       final members = await widget.chatService.fetchChannelMembers(g.channelId);
-      if (members.any((m) => m.userId == widget.contact.userId)) {
+      if (members.any((m) => m.userId == _contact.userId)) {
         shared.add(g);
       }
     }
@@ -67,15 +112,15 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     try {
       final channelId = await widget.chatService.startDirectMessage(
         localUserId: me,
-        peerUserId: widget.contact.userId,
-        peerName: widget.contact.displayLabel,
+        peerUserId: _contact.userId,
+        peerName: _contact.displayLabel,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => ChatScreen(
             channelId: channelId,
-            channelName: widget.contact.displayLabel,
+            channelName: _contact.displayLabel,
             channelKind: 'one_to_one',
             chatService: widget.chatService,
             authService: widget.authService,
@@ -90,6 +135,25 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     } finally {
       if (mounted) setState(() => _opening = false);
     }
+  }
+
+  /// Decision 153: a name kept in Vartalap, shown in place of @username.
+  Future<void> _saveContact() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => NameDialog(
+        title: 'Save contact',
+        initial: _contact.displayName ?? '',
+        maxLength: 50,
+        hint: 'Name',
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    await widget.chatService.saveContactName(_contact.userId, name);
+    final saved = (await widget.chatService.discoverContacts())
+        .where((c) => c.userId == _contact.userId)
+        .firstOrNull;
+    if (mounted && saved != null) setState(() => _contact = saved);
   }
 
   void _openGroup(ChannelListEntry entry) {
@@ -110,7 +174,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final contact = widget.contact;
+    final contact = _contact;
     final label = contact.displayLabel;
 
     return Scaffold(
@@ -157,12 +221,23 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             ),
           ),
           const SizedBox(height: kSpaceLg),
-          Center(
-            child: FilledButton.icon(
-              onPressed: _opening ? null : _onMessage,
-              icon: const Icon(Icons.send_rounded, size: 18),
-              label: const Text('Message'),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              FilledButton.icon(
+                onPressed: _opening ? null : _onMessage,
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Message'),
+              ),
+              if (contact.contactBookName == null) ...[
+                const SizedBox(width: kSpaceSm),
+                OutlinedButton.icon(
+                  onPressed: _saveContact,
+                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
+                  label: const Text('Save contact'),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: kSpaceSm),
           Center(

@@ -65,6 +65,7 @@ dependencies:
   unifiedpush_android: 3.4.0
   record: ^7.1.2
   just_audio: ^0.10.6
+  flutter_zxing: ^3.1.0
 
 dev_dependencies:
   flutter_test:

@@ -15,6 +15,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:path_provider/path_provider.dart';
@@ -24,6 +25,8 @@ import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/config/sentry_config.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
+import 'package:vartalap/screens/contact_info/contact_info.dart';
+import 'package:vartalap/utils/username_link.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
@@ -348,7 +351,7 @@ class App extends StatefulWidget {
   State<App> createState() => _AppState();
 }
 
-class _AppState extends State<App> {
+class _AppState extends State<App> with WidgetsBindingObserver {
   late bool _isLogin;
   late bool _consentAccepted;
   late bool _pushPromptSeen;
@@ -367,9 +370,17 @@ class _AppState extends State<App> {
   // logout and the user has to back out of them manually.
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
 
+  /// A `vartalap://u/` profile link (decision 152) waiting for a signed
+  /// in user with a handle: opened from the camera, a browser or chat.
+  String? _pendingLink;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Cold start: Flutter hands the link over as the initial route.
+    final initial = WidgetsBinding.instance.platformDispatcher.defaultRouteName;
+    if (parseUsernameLink(initial) != null) _pendingLink = initial;
     _consentAccepted = widget.services.consentAccepted;
     _pushPromptSeen = widget.services.pushPromptSeen;
     // The wake is content-free, so a tap can only mean "show me the
@@ -446,6 +457,31 @@ class _AppState extends State<App> {
     });
   }
 
+  /// The app was running: the link comes as a pushed route. Ours, so
+  /// the navigator never tries it as a page name.
+  @override
+  Future<bool> didPushRouteInformation(RouteInformation info) async {
+    final link = info.uri.toString();
+    if (parseUsernameLink(link) == null) return false;
+    setState(() => _pendingLink = link);
+    return true;
+  }
+
+  void _openPendingLink() {
+    final link = _pendingLink;
+    final context = _navKey.currentContext;
+    if (link == null || context == null || !_isLogin || _username == null) {
+      return;
+    }
+    _pendingLink = null;
+    unawaited(openUsernameLink(
+      context,
+      link: link,
+      chatService: widget.services.chatService,
+      authService: widget.services.authService,
+    ));
+  }
+
   Future<void> _refreshAuthOnDemand() async {
     if (!widget.services.authService.isLoggedIn) return;
     final ok = await widget.services.authService.refreshSession();
@@ -502,6 +538,9 @@ class _AppState extends State<App> {
 
   @override
   Widget build(BuildContext context) {
+    if (_pendingLink != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingLink());
+    }
     return AppServicesProvider(
         services: widget.services,
         child: ValueListenableBuilder<ThemeMode>(
@@ -513,7 +552,16 @@ class _AppState extends State<App> {
             theme: VartalapTheme.light.data,
             darkTheme: VartalapTheme.dark.data,
             navigatorKey: _navKey,
-            home: _home(),
+            builder: (context, child) => _SystemBars(child: child!),
+            // Home, always (this is home's route, rebuilt with the app's
+            // state): a cold-start profile link is the platform's initial
+            // route, but it is opened over home, not as a page.
+            onGenerateInitialRoutes: (_) => [
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: '/'),
+                builder: (_) => _home(),
+              ),
+            ],
             onGenerateRoute: (settings) {
             // No named routes in v3.0 — screens push each other
             // through direct constructor calls so dependencies are
@@ -555,6 +603,7 @@ class _AppState extends State<App> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authSub.cancel();
     _usernameSub.cancel();
     _wsStateSub?.cancel();
@@ -566,5 +615,34 @@ class _AppState extends State<App> {
     unawaited(widget.services.authService.dispose());
     unawaited(widget.services.store.close());
     super.dispose();
+  }
+}
+
+/// The system nav bar follows the app's theme, not the phone's: the
+/// window behind Flutter takes the theme's surface (Android 15+ tints
+/// the bar from it) and the bar's icons flip with it. App bars only
+/// reach the status bar, so this region is what sits at the bottom.
+class _SystemBars extends StatelessWidget {
+  final Widget child;
+  const _SystemBars({required this.child});
+
+  static int? _window;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final surface = theme.colorScheme.surface.toARGB32();
+    if (_window != surface) {
+      _window = surface;
+      const MethodChannel('vartalap/window')
+          .invokeMethod<void>('setBackground', surface)
+          .catchError((Object _) {}); // widget tests have no platform
+    }
+    final dark = theme.brightness == Brightness.dark;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
+          .copyWith(systemNavigationBarColor: theme.colorScheme.surface),
+      child: child,
+    );
   }
 }

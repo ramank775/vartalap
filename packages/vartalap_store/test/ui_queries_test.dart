@@ -108,6 +108,20 @@ void main() {
       );
     });
 
+    test('a saved name replaces the @username (decision 153)', () async {
+      final store = await dmWith(username: 'kavya_m', displayName: 'Kavya');
+      await store.setContactBookName('u-peer', 'Kavya from work');
+      expect((await store.fetchChannelList()).single.title, 'Kavya from work');
+      // A later profile refresh keeps it.
+      await store.applyProfileEdit(
+        userId: 'u-peer',
+        displayName: (value: 'Kavya M'),
+        nowMs: 3000,
+      );
+      final c = (await store.fetchContacts()).single;
+      expect((c.contactBookName, c.tildeName), ('Kavya from work', null));
+    });
+
     test("a DM shows the peer's photo, on every channel query", () async {
       final store = await dmWith(username: 'kavya_m');
       await store.applyProfileEdit(

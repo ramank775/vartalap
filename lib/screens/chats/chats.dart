@@ -15,7 +15,7 @@ import 'package:intl/intl.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
-import 'package:vartalap/screens/profile/profile.dart';
+import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -205,70 +205,32 @@ class _ChatsScreenState extends State<ChatsScreen> {
         },
       ),
       actions: [
+        // WhatsApp's menu: plain text, New group then Settings; your
+        // profile lives inside Settings (decision 154).
         PopupMenuButton<String>(
           // M3 colours this icon onSurfaceVariant, not the app bar's
           // foreground, which left it dark on the green bar.
           iconColor: Theme.of(context).appBarTheme.foregroundColor,
-          onSelected: (value) async {
-            if (value == 'profile') {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ProfileScreen(
-                    authService: widget.authService,
-                    config: widget.config,
-                    chatService: widget.chatService,
-                  ),
-                ),
-              );
-            } else if (value == 'settings') {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => SettingsScreen(
-                    authService: widget.authService,
-                    config: widget.config,
-                  ),
-                ),
-              );
-            }
-          },
-          itemBuilder: (ctx) => [
-            _menuItem(
-              context,
-              value: 'profile',
-              icon: Icons.person_outline_rounded,
-              label: 'Profile',
+          onSelected: (value) => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => value == 'group'
+                  ? GroupCreateScreen(
+                      chatService: widget.chatService,
+                      authService: widget.authService,
+                    )
+                  : SettingsScreen(
+                      authService: widget.authService,
+                      config: widget.config,
+                      chatService: widget.chatService,
+                    ),
             ),
-            _menuItem(
-              context,
-              value: 'settings',
-              icon: Icons.settings_outlined,
-              label: 'Settings',
-            ),
+          ),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'group', child: Text('New group')),
+            PopupMenuItem(value: 'settings', child: Text('Settings')),
           ],
         ),
       ],
-    );
-  }
-
-  PopupMenuItem<String> _menuItem(
-    BuildContext context, {
-    required String value,
-    required IconData icon,
-    required String label,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
-          color: scheme.onSurface,
-        );
-    return PopupMenuItem<String>(
-      value: value,
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: scheme.onSurface),
-          const SizedBox(width: kSpaceMd),
-          Text(label, style: textStyle),
-        ],
-      ),
     );
   }
 

@@ -1356,6 +1356,20 @@ class ChatStore {
     _notify(const {'contacts'});
   }
 
+  /// Save contact (decision 153): the name you chose, in the slot the
+  /// address book fills, so the §2.4 resolver puts it first everywhere.
+  /// Discovery only rewrites rows whose phone matched, and the other
+  /// writers carry the column forward.
+  Future<void> setContactBookName(String userId, String name) async {
+    await db.update(
+      'contacts',
+      {'contact_book_name': name},
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+    _notify(const {'contacts'});
+  }
+
   /// All contacts, sorted by display name.
   Future<List<ContactRow>> fetchContacts() async {
     final rows = await db.query(

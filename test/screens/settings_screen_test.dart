@@ -1,5 +1,5 @@
-/// SettingsScreen widget tests — section rendering, theme/sentry pref
-/// persistence, and logout dialog wiring.
+/// SettingsScreen widget tests — WhatsApp layout (decision 154): the
+/// profile header and area rows, then each page's prefs and dialogs.
 library vartalap.screens.settings_screen_test;
 
 import 'package:flutter/material.dart';
@@ -18,9 +18,11 @@ void main() {
     VartalapTheme.themeMode = ThemeMode.system;
   });
 
+  /// [page] opens that area's row (Account, Privacy, Chats, Help).
   Future<void> pumpSettings(
     WidgetTester tester, {
     required AuthService authService,
+    String? page,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -30,33 +32,36 @@ void main() {
         ),
       ),
     );
-    // Let the async _load() finish.
     await tester.pumpAndSettle();
+    if (page != null) {
+      await tester.tap(find.text(page));
+      await tester.pumpAndSettle();
+    }
   }
 
-  testWidgets('renders all four section headers and tiles', (tester) async {
+  testWidgets('opens with your profile, then one row per area',
+      (tester) async {
     final auth = _FakeAuthService();
     await pumpSettings(tester, authService: auth);
 
-    expect(find.text('Appearance'), findsOneWidget);
-    expect(find.text('Privacy'), findsOneWidget);
-    expect(find.text('Account'), findsOneWidget);
-    expect(find.text('About'), findsOneWidget);
+    // No display name yet: the header falls back to the handle.
+    expect(find.text('@alice_k'), findsOneWidget);
+    expect(find.text('Hey there, I am using Vartalap'), findsOneWidget);
+    for (final row in ['Account', 'Privacy', 'Chats', 'Help']) {
+      expect(find.text(row), findsOneWidget, reason: row);
+    }
+    expect(find.text('Appearance'), findsNothing);
 
-    expect(find.text('Theme'), findsOneWidget);
-    expect(find.text('Crash reporting (Sentry)'), findsOneWidget);
-    expect(find.text('Log out'), findsOneWidget);
-    // Below the fold in the test viewport — scroll the list to build it.
-    await tester.scrollUntilVisible(find.text('Version'), 200);
+    await tester.tap(find.text('Help'));
+    await tester.pumpAndSettle();
     expect(find.text('Version'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Open source licenses'), 200);
     expect(find.text('Open source licenses'), findsOneWidget);
   });
 
   testWidgets('Sentry toggle defaults off; flipping persists true',
       (tester) async {
     final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth);
+    await pumpSettings(tester, authService: auth, page: 'Privacy');
 
     final switchFinder = find.byType(SwitchListTile);
     expect(switchFinder, findsOneWidget);
@@ -77,7 +82,7 @@ void main() {
       'Send test event tile and DSN override field appear only once opted in',
       (tester) async {
     final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth);
+    await pumpSettings(tester, authService: auth, page: 'Privacy');
 
     expect(find.text('Send test event'), findsNothing);
     expect(find.text('DSN override (advanced)'), findsNothing);
@@ -98,7 +103,7 @@ void main() {
 
   testWidgets('DSN override persists to prefs on submit', (tester) async {
     final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth);
+    await pumpSettings(tester, authService: auth, page: 'Privacy');
 
     await tester.tap(find.byType(SwitchListTile));
     await tester.pumpAndSettle();
@@ -119,7 +124,7 @@ void main() {
       'Theme tile shows current selection; selecting Dark persists + applies',
       (tester) async {
     final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth);
+    await pumpSettings(tester, authService: auth, page: 'Chats');
 
     expect(find.text('System default'), findsOneWidget);
 
@@ -146,7 +151,7 @@ void main() {
   testWidgets('Logout tile shows confirmation; confirming calls logout',
       (tester) async {
     final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth);
+    await pumpSettings(tester, authService: auth, page: 'Account');
 
     await tester.tap(find.text('Log out'));
     await tester.pumpAndSettle();
@@ -167,9 +172,8 @@ void main() {
   testWidgets('Delete account needs "DELETE <username>" typed (AUTH_CONTRACT §8.2)',
       (tester) async {
     final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth);
+    await pumpSettings(tester, authService: auth, page: 'Account');
 
-    await tester.scrollUntilVisible(find.text('Delete account'), 200);
     await tester.tap(find.text('Delete account'));
     await tester.pumpAndSettle();
 

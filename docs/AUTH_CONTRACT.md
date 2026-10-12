@@ -1198,6 +1198,11 @@ by-`user_id` lookup and §7.2's by-phone-hash lookup.
 **Query:** `?key=NNNN` — required only if the target user has a
 `usernameKey` set (§4.5); omitted otherwise.
 
+**Profile link / QR (client side, DECISIONS 152).** The profile QR
+and link are `vartalap://u/<username>`, plus `?k=<key>` when the
+owner's device knows its username key. The app resolves one with
+this endpoint, passing `k` as `key`. Never the phone number (§2.5).
+
 **Match.** Exact match, case-insensitive (`LOWER(username) =
 LOWER(:input)`), consistent with the uniqueness rule in §2.4.
 

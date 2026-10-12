@@ -1,10 +1,11 @@
-/// User profile screen — everything inline-editable, no popups.
+/// Your profile — WhatsApp's Settings → profile: the photo and the
+/// fields others see, everything inline-editable, no popups. The QR
+/// code and log out live in Settings (decision 154).
 library vartalap.screens.profile;
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -14,10 +15,6 @@ import 'package:vartalap/utils/username.dart';
 import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
-
-/// What the profile QR encodes — the handle, never the number
-/// (AUTH_CONTRACT §2.5, mockup frame h2).
-String usernameQrPayload(String username) => 'vartalap://u/$username';
 
 /// AUTH_CONTRACT §4.5 — exactly 4 digits, or empty to clear.
 String? _validateUsernameKey(String value) {
@@ -48,9 +45,6 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final List<StreamSubscription<dynamic>> _subs = [];
-  bool _qrOpen = false;
-  bool _signOutArmed = false;
-  Timer? _signOutResetTimer;
 
   /// Own photo: a local path until the upload lands, then the
   /// media-ms fileId. Both render through [AssetCache].
@@ -99,7 +93,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     for (final s in _subs) {
       s.cancel();
     }
-    _signOutResetTimer?.cancel();
     super.dispose();
   }
 
@@ -124,18 +117,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 avatarUrl: _avatarUrl,
                 busy: _settingPhoto,
                 onPickPhoto: widget.chatService == null ? null : _pickPhoto,
-              ),
-              const SizedBox(height: kSpaceSm),
-              // The handle, prominent: it is the public identity
-              // (AUTH_CONTRACT §2.4), the number below it is not.
-              Text(
-                auth.username == null ? 'No username yet' : '@${auth.username}',
-                style: textTheme.titleMedium?.copyWith(
-                  color: scheme.primary,
-                  fontStyle: auth.username == null
-                      ? FontStyle.italic
-                      : FontStyle.normal,
-                ),
               ),
               const SizedBox(height: kSpaceMd),
             ],
@@ -228,96 +209,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onSave: (v) => auth.setUsernameKey(v),
             validator: _validateUsernameKey,
           ),
-          const Divider(height: 1, indent: kSpaceMd, endIndent: kSpaceMd),
-          // QR — inline expand/collapse instead of a popup. Hidden
-          // entirely until there is a handle to encode: the QR carries
-          // the username, never the number (§2.5).
-          if (auth.username != null)
-            ListTile(
-              leading: Icon(Icons.qr_code_2_rounded,
-                  color: scheme.onSurfaceVariant),
-              title: const Text('QR code'),
-              subtitle: Text(
-                _qrOpen
-                    ? 'Tap to hide'
-                    : 'Shares @${auth.username}, not your number',
-                style: TextStyle(color: scheme.onSurfaceVariant),
-              ),
-              trailing: Icon(_qrOpen ? Icons.expand_less : Icons.expand_more),
-              onTap: () => setState(() => _qrOpen = !_qrOpen),
-            ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            child: (_qrOpen && auth.username != null)
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: kSpaceLg,
-                      vertical: kSpaceMd,
-                    ),
-                    child: AspectRatio(
-                      aspectRatio: 1,
-                      child: Container(
-                        padding: const EdgeInsets.all(kSpaceMd),
-                        decoration: BoxDecoration(
-                          // Always light behind the modules — a QR on a
-                          // dark surface does not scan.
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(kRadiusLg),
-                          border: Border.all(
-                            color: scheme.outlineVariant,
-                            width: 1,
-                          ),
-                        ),
-                        child: QrImageView(
-                          data: usernameQrPayload(auth.username!),
-                          version: QrVersions.auto,
-                          backgroundColor: Colors.white,
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          const SizedBox(height: kSpaceXl),
-          // Two-tap inline sign-out — no dialog.
-          Center(
-            child: TextButton(
-              onPressed: _onSignOutPressed,
-              style: TextButton.styleFrom(
-                foregroundColor: scheme.error,
-                minimumSize: const Size(180, 44),
-              ),
-              child: Text(
-                _signOutArmed ? 'Tap again to confirm' : 'Sign out',
-                style: TextStyle(
-                  fontWeight:
-                      _signOutArmed ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
           const SizedBox(height: kSpaceLg),
         ],
       ),
     );
-  }
-
-  void _onSignOutPressed() {
-    if (_signOutArmed) {
-      _signOutResetTimer?.cancel();
-      _signOutArmed = false;
-      // Fire-and-forget — _AppState's authStateChange listener handles
-      // the route teardown; nothing on this screen reads context after.
-      widget.authService.logout();
-      return;
-    }
-    setState(() => _signOutArmed = true);
-    _signOutResetTimer?.cancel();
-    _signOutResetTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted) setState(() => _signOutArmed = false);
-    });
   }
 }
 

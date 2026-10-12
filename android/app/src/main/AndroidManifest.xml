@@ -66,6 +66,14 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Profile QR / link (decision 152): vartalap://u/<username>.
+                 Flutter's deep linking hands the whole URI to Dart. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="vartalap" android:host="u" />
+            </intent-filter>
         </activity>
         <provider
             android:name="androidx.core.content.FileProvider"

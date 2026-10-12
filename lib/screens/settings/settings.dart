@@ -1,6 +1,9 @@
-/// Settings screen — appearance, privacy, account, about.
+/// Settings, WhatsApp's layout (decision 154): your profile on top, then
+/// one row per area — Account, Privacy, Chats, Notifications, Help —
+/// each opening its own page.
 library vartalap.screens.settings;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -13,11 +16,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/config/sentry_config.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
+import 'package:vartalap/screens/profile/profile.dart';
+import 'package:vartalap/screens/qr/qr.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 export 'package:vartalap/config/sentry_config.dart'
@@ -29,10 +36,15 @@ class SettingsScreen extends StatefulWidget {
   final AuthService authService;
   final ConfigStore config;
 
+  /// Optional: without it the header shows no photo and no QR code —
+  /// both belong to [ChatService] (widget tests run without one).
+  final ChatService? chatService;
+
   const SettingsScreen({
     super.key,
     required this.authService,
     required this.config,
+    this.chatService,
   });
 
   @override
@@ -40,61 +52,388 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  ThemeMode _themeMode = VartalapTheme.themeMode;
-  bool _sentryOptIn = false;
-  final TextEditingController _dsnController = TextEditingController();
-  PackageInfo? _packageInfo;
+  final List<StreamSubscription<dynamic>> _subs = [];
+  String? _avatarUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvatar();
+    final auth = widget.authService;
+    for (final changes in [
+      auth.displayNameChange,
+      auth.statusTextChange,
+      auth.usernameChange,
+    ]) {
+      _subs.add(changes.listen((_) {
+        if (mounted) setState(() {});
+      }));
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    super.dispose();
+  }
+
+  void _loadAvatar() {
+    widget.chatService?.ownAvatarUrl().then((url) {
+      if (mounted) setState(() => _avatarUrl = url);
+    });
+  }
+
+  void _open(Widget page) =>
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+
+  Future<void> _openProfile() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ProfileScreen(
+        authService: widget.authService,
+        config: widget.config,
+        chatService: widget.chatService,
+      ),
+    ));
+    _loadAvatar(); // a new photo is picked in there
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final auth = widget.authService;
+    final chat = widget.chatService;
+    final name = auth.displayName ??
+        (auth.username == null ? 'Your profile' : '@${auth.username}');
+    final push = AppServicesProvider.maybeOf(context)?.pushService;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: ListView(
+        children: [
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: kSpaceMd, vertical: kSpaceSm),
+            leading: Avator(
+              text: name,
+              avatarUrl: _avatarUrl,
+              width: kAvatarLg,
+              height: kAvatarLg,
+            ),
+            title: Text(name, style: text.titleLarge),
+            subtitle: Text(
+              auth.statusText ?? 'Hey there, I am using Vartalap',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: chat == null || auth.username == null
+                ? null
+                : IconButton(
+                    icon: Icon(Icons.qr_code_2, color: scheme.primary),
+                    tooltip: 'QR code',
+                    onPressed: () => _open(
+                        QrScreen(authService: auth, chatService: chat)),
+                  ),
+            onTap: _openProfile,
+          ),
+          const Divider(height: 1),
+          _Row(
+            icon: Icons.key_outlined,
+            title: 'Account',
+            subtitle: 'Log out, delete account',
+            onTap: () => _open(_AccountPage(authService: auth)),
+          ),
+          _Row(
+            icon: Icons.lock_outline,
+            title: 'Privacy',
+            subtitle: 'Crash reports',
+            onTap: () => _open(const _PrivacyPage()),
+          ),
+          _Row(
+            icon: Icons.chat_outlined,
+            title: 'Chats',
+            subtitle: 'Theme',
+            onTap: () => _open(const _ChatsPage()),
+          ),
+          if (push != null)
+            ValueListenableBuilder<PushState>(
+              valueListenable: push.state,
+              builder: (context, state, _) => _Row(
+                icon: Icons.notifications_outlined,
+                title: 'Notifications',
+                subtitle: switch (state) {
+                  PushState.registered => 'On, through ${push.choiceLabel}',
+                  PushState.choiceNeeded => 'Not set up',
+                  PushState.off => 'Off',
+                  PushState.disabled => 'Disabled',
+                  PushState.failed => 'Registration failed, tap to retry',
+                  PushState.unknown => 'Checking…',
+                },
+                onTap: () => state == PushState.failed
+                    ? push.refresh()
+                    : Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (route) => PushOnboardingScreen(
+                          push: push,
+                          onDone: () => Navigator.of(route).pop(),
+                        ),
+                      )),
+              ),
+            ),
+          _Row(
+            icon: Icons.help_outline,
+            title: 'Help',
+            subtitle: 'Version, open source licences',
+            onTap: () => _open(_HelpPage(config: widget.config)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One settings row: icon, title, a line saying what is inside.
+class _Row extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _Row({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        leading: Icon(icon,
+            color: Theme.of(context).colorScheme.onSurfaceVariant),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        onTap: onTap,
+      );
+}
+
+/// A settings sub page: a title and its rows.
+class _Page extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _Page({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(title)),
+        body: ListView(children: children),
+      );
+}
+
+// ---------------------------------------------------------------------------
+// Account — log out, delete account, the v2 archive
+// ---------------------------------------------------------------------------
+
+class _AccountPage extends StatefulWidget {
+  final AuthService authService;
+  const _AccountPage({required this.authService});
+
+  @override
+  State<_AccountPage> createState() => _AccountPageState();
+}
+
+class _AccountPageState extends State<_AccountPage> {
   bool _hasV2Data = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    hasV2Data().then((has) {
+      if (mounted) setState(() => _hasV2Data = has);
+    });
+  }
+
+  void _confirmLogout() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text(
+          'You will need to verify your phone number to sign back in.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              widget.authService.logout();
+            },
+            child: Text(
+              'Log out',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return _Page(
+      title: 'Account',
+      children: [
+        if (_hasV2Data)
+          ListTile(
+            leading:
+                Icon(Icons.download_outlined, color: scheme.onSurfaceVariant),
+            title: const Text('Download v2 chats'),
+            subtitle: const Text('Save a copy of your chats from the old app.'),
+            onTap: () => saveV2Chats(context),
+          ),
+        ListTile(
+          leading: Icon(Icons.logout, color: scheme.error),
+          title: Text('Log out', style: TextStyle(color: scheme.error)),
+          onTap: _confirmLogout,
+        ),
+        if (widget.authService.username != null)
+          ListTile(
+            leading: Icon(Icons.delete_forever_outlined, color: scheme.error),
+            title: Text(
+              'Delete account',
+              style: TextStyle(color: scheme.error),
+            ),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) =>
+                  _DeleteAccountDialog(authService: widget.authService),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// AUTH_CONTRACT §8.2: the user types "DELETE <username>" — never a
+/// one-tap button, there is no recovery. Owns its controller so the
+/// closing animation never sees it disposed.
+class _DeleteAccountDialog extends StatefulWidget {
+  final AuthService authService;
+  const _DeleteAccountDialog({required this.authService});
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final _typed = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  String get _phrase => 'DELETE ${widget.authService.username}';
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    super.dispose();
+  }
+
+  Future<void> _delete() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      // Signs out on success, which tears the routes down.
+      await widget.authService.deleteAccount(_typed.text);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e is AuthClientException && e.message != null
+            ? e.message
+            : "Couldn't reach the server. Try again.";
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final error = Theme.of(context).colorScheme.error;
+    return AlertDialog(
+      title: const Text('Delete account?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Your account and @username are deleted and this phone is '
+            'signed out. Chats on this phone are erased. This cannot be '
+            'undone.',
+          ),
+          const SizedBox(height: kSpaceMd),
+          Text('Type $_phrase to confirm.'),
+          TextField(
+            controller: _typed,
+            autocorrect: false,
+            enableSuggestions: false,
+            enabled: !_busy,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(hintText: _phrase, errorText: _error),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: !_busy && _typed.text == _phrase ? _delete : null,
+          style: TextButton.styleFrom(foregroundColor: error),
+          child: const Text('Delete'),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Privacy — crash reports
+// ---------------------------------------------------------------------------
+
+class _PrivacyPage extends StatefulWidget {
+  const _PrivacyPage();
+
+  @override
+  State<_PrivacyPage> createState() => _PrivacyPageState();
+}
+
+class _PrivacyPageState extends State<_PrivacyPage> {
+  bool _sentryOptIn = false;
+  final TextEditingController _dsnController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (!mounted) return;
+      setState(() {
+        _sentryOptIn = prefs.getBool(kSentryOptInPrefKey) ?? false;
+        _dsnController.text = prefs.getString(kSentryDsnOverridePrefKey) ?? '';
+      });
+    });
   }
 
   @override
   void dispose() {
     _dsnController.dispose();
     super.dispose();
-  }
-
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final mode = switch (prefs.getString(kThemeModePrefKey)) {
-      'light' => ThemeMode.light,
-      'dark' => ThemeMode.dark,
-      _ => ThemeMode.system,
-    };
-    final optIn = prefs.getBool(kSentryOptInPrefKey) ?? false;
-    final dsnOverride = prefs.getString(kSentryDsnOverridePrefKey) ?? '';
-    PackageInfo info;
-    if (widget.config.packageInfo.version.isNotEmpty) {
-      info = widget.config.packageInfo;
-    } else {
-      info = await PackageInfo.fromPlatform();
-    }
-    final hasV2 = await hasV2Data();
-    if (!mounted) return;
-    setState(() {
-      _themeMode = mode;
-      _sentryOptIn = optIn;
-      _dsnController.text = dsnOverride;
-      _packageInfo = info;
-      _hasV2Data = hasV2;
-    });
-  }
-
-  Future<void> _setTheme(ThemeMode mode) async {
-    final prefs = await SharedPreferences.getInstance();
-    final value = switch (mode) {
-      ThemeMode.light => 'light',
-      ThemeMode.dark => 'dark',
-      ThemeMode.system => 'system',
-    };
-    await prefs.setString(kThemeModePrefKey, value);
-    VartalapTheme.themeMode = mode;
-    if (!mounted) return;
-    setState(() => _themeMode = mode);
   }
 
   Future<void> _setSentryOptIn(bool value) async {
@@ -125,6 +464,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return _Page(
+      title: 'Privacy',
+      children: [
+        SwitchListTile(
+          secondary:
+              Icon(Icons.bug_report_outlined, color: scheme.onSurfaceVariant),
+          title: const Text('Crash reporting (Sentry)'),
+          subtitle: const Text(
+            'Send anonymous crash reports to help improve the app. '
+            'Disabled by default.',
+          ),
+          value: _sentryOptIn,
+          onChanged: _setSentryOptIn,
+        ),
+        if (_sentryOptIn) ...[
+          ListTile(
+            leading: Icon(Icons.send_outlined, color: scheme.onSurfaceVariant),
+            title: const Text('Send test event'),
+            subtitle: const Text(
+              'Confirms the configured Sentry backend is receiving events.',
+            ),
+            onTap: _sendTestEvent,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kSpaceMd, 0, kSpaceMd, kSpaceMd),
+            child: TextField(
+              controller: _dsnController,
+              decoration: const InputDecoration(
+                labelText: 'DSN override (advanced)',
+                helperText: 'Leave blank to use the built-in DSN.',
+              ),
+              onSubmitted: _setDsnOverride,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Chats — theme
+// ---------------------------------------------------------------------------
+
+class _ChatsPage extends StatefulWidget {
+  const _ChatsPage();
+
+  @override
+  State<_ChatsPage> createState() => _ChatsPageState();
+}
+
+class _ChatsPageState extends State<_ChatsPage> {
+  ThemeMode _themeMode = VartalapTheme.themeMode;
+
+  Future<void> _setTheme(ThemeMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kThemeModePrefKey, switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+    });
+    VartalapTheme.themeMode = mode;
+    if (!mounted) return;
+    setState(() => _themeMode = mode);
+  }
+
   void _openThemePicker() {
     showDialog<void>(
       context: context,
@@ -141,14 +549,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final entry in const [
-                  (ThemeMode.light, 'Light'),
-                  (ThemeMode.dark, 'Dark'),
-                  (ThemeMode.system, 'System default'),
+                for (final mode in const [
+                  ThemeMode.light,
+                  ThemeMode.dark,
+                  ThemeMode.system,
                 ])
                   RadioListTile<ThemeMode>(
-                    title: Text(entry.$2),
-                    value: entry.$1,
+                    title: Text(_themeLabel(mode)),
+                    value: mode,
                   ),
               ],
             ),
@@ -156,6 +564,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  static String _themeLabel(ThemeMode mode) => switch (mode) {
+        ThemeMode.light => 'Light',
+        ThemeMode.dark => 'Dark',
+        ThemeMode.system => 'System default',
+      };
+
+  @override
+  Widget build(BuildContext context) => _Page(
+        title: 'Chats',
+        children: [
+          ListTile(
+            leading: Icon(Icons.palette_outlined,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            title: const Text('Theme'),
+            subtitle: Text(_themeLabel(_themeMode)),
+            onTap: _openThemePicker,
+          ),
+        ],
+      );
+}
+
+// ---------------------------------------------------------------------------
+// Help — version, licences, and (debug builds) the developer tools
+// ---------------------------------------------------------------------------
+
+class _HelpPage extends StatefulWidget {
+  final ConfigStore config;
+  const _HelpPage({required this.config});
+
+  @override
+  State<_HelpPage> createState() => _HelpPageState();
+}
+
+class _HelpPageState extends State<_HelpPage> {
+  PackageInfo? _packageInfo;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.config.packageInfo.version.isNotEmpty) {
+      _packageInfo = widget.config.packageInfo;
+    } else {
+      PackageInfo.fromPlatform().then((info) {
+        if (mounted) setState(() => _packageInfo = info);
+      });
+    }
   }
 
   /// Debug-only. Two-step:
@@ -249,354 +705,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ));
   }
 
-  void _confirmLogout() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Log out?'),
-        content: const Text(
-          'You will need to verify your phone number to sign back in.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              widget.authService.logout();
-            },
-            child: Text(
-              'Log out',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     final info = _packageInfo;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        children: [
-          _SectionHeader(label: 'Appearance', scheme: scheme,
-              textTheme: textTheme),
-          ListTile(
-            leading: Icon(Icons.palette_outlined,
-                color: scheme.onSurfaceVariant),
-            title: const Text('Theme'),
-            subtitle: Text(_themeLabel(_themeMode)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _openThemePicker,
+    return _Page(
+      title: 'Help',
+      children: [
+        ListTile(
+          leading: Icon(Icons.info_outline, color: scheme.onSurfaceVariant),
+          title: const Text('Version'),
+          subtitle: Text(
+            info == null ? '—' : '${info.version} (${info.buildNumber})',
           ),
-          const Divider(height: 1),
-          _SectionHeader(label: 'Privacy', scheme: scheme,
-              textTheme: textTheme),
-          SwitchListTile(
-            secondary: Icon(Icons.bug_report_outlined,
-                color: scheme.onSurfaceVariant),
-            title: const Text('Crash reporting (Sentry)'),
+        ),
+        ListTile(
+          leading:
+              Icon(Icons.description_outlined, color: scheme.onSurfaceVariant),
+          title: const Text('Open source licenses'),
+          onTap: () => showLicensePage(
+            context: context,
+            applicationName: info?.appName ?? widget.config.packageInfo.appName,
+            applicationVersion:
+                info == null ? null : '${info.version}+${info.buildNumber}',
+          ),
+        ),
+        if (kDebugMode)
+          ListTile(
+            leading:
+                Icon(Icons.group_add_outlined, color: scheme.onSurfaceVariant),
+            title: const Text('Seed dummy contacts'),
             subtitle: const Text(
-              'Send anonymous crash reports to help improve the app. '
-              'Disabled by default.',
+              'Developer, mock server only. Pre-registers 5 synthetic '
+              'users so New Chat has a contact list to render.',
             ),
-            value: _sentryOptIn,
-            onChanged: _setSentryOptIn,
+            onTap: _seedDummyContacts,
           ),
-          if (_sentryOptIn) ...[
-            ListTile(
-              leading: Icon(Icons.send_outlined,
-                  color: scheme.onSurfaceVariant),
-              title: const Text('Send test event'),
-              subtitle: const Text(
-                'Confirms the configured Sentry backend is receiving events.',
-              ),
-              onTap: _sendTestEvent,
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                kSpaceMd,
-                0,
-                kSpaceMd,
-                kSpaceMd,
-              ),
-              child: TextField(
-                controller: _dsnController,
-                decoration: const InputDecoration(
-                  labelText: 'DSN override (advanced)',
-                  helperText: 'Leave blank to use the built-in DSN.',
-                ),
-                onSubmitted: _setDsnOverride,
-              ),
-            ),
-          ],
-          if (kDebugMode) ...[
-            const Divider(height: 1),
-            _SectionHeader(label: 'Developer', scheme: scheme,
-                textTheme: textTheme),
-            ListTile(
-              leading: Icon(Icons.group_add_outlined,
-                  color: scheme.onSurfaceVariant),
-              title: const Text('Seed dummy contacts'),
-              subtitle: const Text(
-                'Mock server only. Pre-registers 5 synthetic users so '
-                'New Chat has a contact list to render.',
-              ),
-              onTap: _seedDummyContacts,
-            ),
-          ],
-          _PushSection(scheme: scheme, textTheme: textTheme),
-          const Divider(height: 1),
-          _SectionHeader(label: 'Account', scheme: scheme,
-              textTheme: textTheme),
-          if (_hasV2Data)
-            ListTile(
-              leading: Icon(Icons.download_outlined,
-                  color: scheme.onSurfaceVariant),
-              title: const Text('Download v2 chats'),
-              subtitle: const Text(
-                'Save a copy of your chats from the old app.',
-              ),
-              onTap: () => saveV2Chats(context),
-            ),
-          ListTile(
-            leading: Icon(Icons.logout, color: scheme.error),
-            title: Text(
-              'Log out',
-              style: TextStyle(color: scheme.error),
-            ),
-            onTap: _confirmLogout,
-          ),
-          if (widget.authService.username != null)
-            ListTile(
-              leading: Icon(Icons.delete_forever_outlined, color: scheme.error),
-              title: Text(
-                'Delete account',
-                style: TextStyle(color: scheme.error),
-              ),
-              onTap: () => showDialog<void>(
-                context: context,
-                builder: (_) =>
-                    _DeleteAccountDialog(authService: widget.authService),
-              ),
-            ),
-          const Divider(height: 1),
-          _SectionHeader(label: 'About', scheme: scheme,
-              textTheme: textTheme),
-          ListTile(
-            leading: Icon(Icons.info_outline, color: scheme.onSurfaceVariant),
-            title: const Text('Version'),
-            subtitle: Text(
-              info == null
-                  ? '—'
-                  : '${info.version} (${info.buildNumber})',
-            ),
-          ),
-          ListTile(
-            leading: Icon(Icons.description_outlined,
-                color: scheme.onSurfaceVariant),
-            title: const Text('Open source licenses'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showLicensePage(
-              context: context,
-              applicationName: info?.appName ?? widget.config.packageInfo.appName,
-              applicationVersion: info == null
-                  ? null
-                  : '${info.version}+${info.buildNumber}',
-            ),
-          ),
-          const SizedBox(height: kSpaceXl),
-        ],
-      ),
-    );
-  }
-
-  static String _themeLabel(ThemeMode mode) => switch (mode) {
-        ThemeMode.light => 'Light',
-        ThemeMode.dark => 'Dark',
-        ThemeMode.system => 'System default',
-      };
-}
-
-/// AUTH_CONTRACT §8.2: the user types "DELETE <username>" — never a
-/// one-tap button, there is no recovery. Owns its controller so the
-/// closing animation never sees it disposed.
-class _DeleteAccountDialog extends StatefulWidget {
-  final AuthService authService;
-  const _DeleteAccountDialog({required this.authService});
-
-  @override
-  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
-}
-
-class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
-  final _typed = TextEditingController();
-  bool _busy = false;
-  String? _error;
-
-  String get _phrase => 'DELETE ${widget.authService.username}';
-
-  @override
-  void dispose() {
-    _typed.dispose();
-    super.dispose();
-  }
-
-  Future<void> _delete() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      // Signs out on success, which tears the routes down.
-      await widget.authService.deleteAccount(_typed.text);
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = e is AuthClientException && e.message != null
-            ? e.message
-            : "Couldn't reach the server. Try again.";
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final error = Theme.of(context).colorScheme.error;
-    return AlertDialog(
-      title: const Text('Delete account?'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Your account and @username are deleted and this phone is '
-            'signed out. Chats on this phone are erased. This cannot be '
-            'undone.',
-          ),
-          const SizedBox(height: kSpaceMd),
-          Text('Type $_phrase to confirm.'),
-          TextField(
-            controller: _typed,
-            autocorrect: false,
-            enableSuggestions: false,
-            enabled: !_busy,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(hintText: _phrase, errorText: _error),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: !_busy && _typed.text == _phrase ? _delete : null,
-          style: TextButton.styleFrom(foregroundColor: error),
-          child: const Text('Delete'),
-        ),
       ],
-    );
-  }
-}
-
-/// Push state, the method in use, and the chooser to change it. The
-/// service comes from the root provider, so the whole section disappears
-/// when the screen is rendered without the service graph (widget tests).
-class _PushSection extends StatelessWidget {
-  final ColorScheme scheme;
-  final TextTheme textTheme;
-
-  const _PushSection({required this.scheme, required this.textTheme});
-
-  @override
-  Widget build(BuildContext context) {
-    final push = AppServicesProvider.maybeOf(context)?.pushService;
-    if (push == null) return const SizedBox.shrink();
-    void openChooser() => Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (route) => PushOnboardingScreen(
-            push: push,
-            onDone: () => Navigator.of(route).pop(),
-          ),
-        ));
-    return ValueListenableBuilder<PushState>(
-      valueListenable: push.state,
-      builder: (context, state, _) {
-        final failed = state == PushState.failed;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          // Stretch, or the section header centres like no other one.
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Divider(height: 1),
-            _SectionHeader(
-                label: 'Notifications',
-                scheme: scheme,
-                textTheme: textTheme),
-            ListTile(
-              leading: Icon(Icons.notifications_outlined,
-                  color: scheme.onSurfaceVariant),
-              title: const Text('Push notifications'),
-              subtitle: Text(switch (state) {
-                PushState.registered => 'On, through ${push.choiceLabel}.',
-                PushState.choiceNeeded => 'Not set up. Messages only '
-                    'arrive while Vartalap is open.',
-                PushState.off =>
-                  'Off. Messages only arrive while Vartalap is open.',
-                PushState.disabled => 'Disabled.',
-                PushState.failed => 'Registration failed. Tap Retry.',
-                PushState.unknown => 'Checking…',
-              }),
-              onTap: openChooser,
-              trailing: TextButton(
-                onPressed: failed ? push.refresh : openChooser,
-                child: Text(failed ? 'Retry' : 'Change'),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  final ColorScheme scheme;
-  final TextTheme textTheme;
-
-  const _SectionHeader({
-    required this.label,
-    required this.scheme,
-    required this.textTheme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        kSpaceMd,
-        kSpaceMd,
-        kSpaceMd,
-        kSpaceSm,
-      ),
-      child: Text(
-        label,
-        style: textTheme.labelLarge?.copyWith(color: scheme.primary),
-      ),
     );
   }
 }
