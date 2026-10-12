@@ -46,8 +46,9 @@ void main() {
     expect(find.text('Theme'), findsOneWidget);
     expect(find.text('Crash reporting (Sentry)'), findsOneWidget);
     expect(find.text('Log out'), findsOneWidget);
-    expect(find.text('Version'), findsOneWidget);
     // Below the fold in the test viewport — scroll the list to build it.
+    await tester.scrollUntilVisible(find.text('Version'), 200);
+    expect(find.text('Version'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Open source licenses'), 200);
     expect(find.text('Open source licenses'), findsOneWidget);
   });
@@ -162,6 +163,30 @@ void main() {
 
     expect(auth.logoutCalls, 1);
   });
+
+  testWidgets('Delete account needs "DELETE <username>" typed (AUTH_CONTRACT §8.2)',
+      (tester) async {
+    final auth = _FakeAuthService();
+    await pumpSettings(tester, authService: auth);
+
+    await tester.scrollUntilVisible(find.text('Delete account'), 200);
+    await tester.tap(find.text('Delete account'));
+    await tester.pumpAndSettle();
+
+    final delete = find.widgetWithText(TextButton, 'Delete');
+    expect(tester.widget<TextButton>(delete).onPressed, isNull,
+        reason: 'never a one-tap button');
+    await tester.enterText(find.byType(TextField), 'delete alice_k');
+    await tester.pump();
+    expect(tester.widget<TextButton>(delete).onPressed, isNull,
+        reason: 'case-sensitive, like the server');
+
+    await tester.enterText(find.byType(TextField), 'DELETE alice_k');
+    await tester.pump();
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    expect(auth.deleted, ['DELETE alice_k']);
+  });
 }
 
 /// Minimal AuthService stand-in: extends the real AuthService with a
@@ -169,6 +194,14 @@ void main() {
 /// invocations without touching secure storage or the network.
 class _FakeAuthService extends AuthService {
   int logoutCalls = 0;
+  final deleted = <String>[];
+
+  @override
+  String? get username => 'alice_k';
+
+  @override
+  Future<void> deleteAccount(String confirmation) async =>
+      deleted.add(confirmation);
 
   _FakeAuthService()
       : super(

@@ -18,6 +18,7 @@ import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap_transport/vartalap_transport.dart';
 
 export 'package:vartalap/config/sentry_config.dart'
     show kSentryOptInPrefKey, kSentryDsnOverridePrefKey;
@@ -376,6 +377,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             onTap: _confirmLogout,
           ),
+          if (widget.authService.username != null)
+            ListTile(
+              leading: Icon(Icons.delete_forever_outlined, color: scheme.error),
+              title: Text(
+                'Delete account',
+                style: TextStyle(color: scheme.error),
+              ),
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (_) =>
+                    _DeleteAccountDialog(authService: widget.authService),
+              ),
+            ),
           const Divider(height: 1),
           _SectionHeader(label: 'About', scheme: scheme,
               textTheme: textTheme),
@@ -412,6 +426,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ThemeMode.dark => 'Dark',
         ThemeMode.system => 'System default',
       };
+}
+
+/// AUTH_CONTRACT §8.2: the user types "DELETE <username>" — never a
+/// one-tap button, there is no recovery. Owns its controller so the
+/// closing animation never sees it disposed.
+class _DeleteAccountDialog extends StatefulWidget {
+  final AuthService authService;
+  const _DeleteAccountDialog({required this.authService});
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final _typed = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  String get _phrase => 'DELETE ${widget.authService.username}';
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    super.dispose();
+  }
+
+  Future<void> _delete() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      // Signs out on success, which tears the routes down.
+      await widget.authService.deleteAccount(_typed.text);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e is AuthClientException && e.message != null
+            ? e.message
+            : "Couldn't reach the server. Try again.";
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final error = Theme.of(context).colorScheme.error;
+    return AlertDialog(
+      title: const Text('Delete account?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Your account and @username are deleted and this phone is '
+            'signed out. Chats on this phone are erased. This cannot be '
+            'undone.',
+          ),
+          const SizedBox(height: kSpaceMd),
+          Text('Type $_phrase to confirm.'),
+          TextField(
+            controller: _typed,
+            autocorrect: false,
+            enableSuggestions: false,
+            enabled: !_busy,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(hintText: _phrase, errorText: _error),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: !_busy && _typed.text == _phrase ? _delete : null,
+          style: TextButton.styleFrom(foregroundColor: error),
+          child: const Text('Delete'),
+        ),
+      ],
+    );
+  }
 }
 
 /// Push state, the method in use, and the chooser to change it. The

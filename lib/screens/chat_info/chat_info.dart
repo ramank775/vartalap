@@ -233,7 +233,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                     Text(
                       _isGroup
                           ? 'Group · ${_memberCount(members.length)}'
-                          : 'Direct message',
+                          : peer!.contact?.tildeName ?? 'Direct message',
                       style: textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -661,7 +661,7 @@ class _DmIdentityBlock extends StatelessWidget {
             const SizedBox(height: kSpaceMd),
           ],
           if (status != null && status.isNotEmpty) ...[
-            Text('Status',
+            Text('About',
                 style: textTheme.labelSmall
                     ?.copyWith(color: scheme.onSurfaceVariant)),
             const SizedBox(height: kSpaceXs),

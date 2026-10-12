@@ -63,6 +63,9 @@ class _ChatSearchScreenState extends State<ChatSearchScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // The bar is primary in light mode, surface in dark.
+    final onBar =
+        Theme.of(context).appBarTheme.foregroundColor ?? scheme.onSurface;
     final textTheme = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(
@@ -79,11 +82,11 @@ class _ChatSearchScreenState extends State<ChatSearchScreen> {
             contentPadding: EdgeInsets.zero,
             isDense: true,
             hintStyle: TextStyle(
-              color: scheme.onPrimary.withValues(alpha: 0.7),
+              color: onBar.withValues(alpha: 0.7),
             ),
           ),
-          style: TextStyle(color: scheme.onPrimary, fontSize: 18),
-          cursorColor: scheme.onPrimary,
+          style: TextStyle(color: onBar, fontSize: 18),
+          cursorColor: onBar,
           onChanged: _runSearch,
         ),
         actions: [

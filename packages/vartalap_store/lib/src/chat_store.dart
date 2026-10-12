@@ -1664,7 +1664,14 @@ class ChatStore {
   Future<List<ChannelListEntry>> fetchChannelList({int limit = 100}) async {
     final rows = await db.rawQuery(
       '''
-      SELECT c.channel_id, c.kind, c.name, c.avatar_url,
+      SELECT c.channel_id, c.kind, c.name,
+             -- a DM has no photo of its own: it wears the peer's
+             CASE WHEN c.kind = 'one_to_one' THEN
+               (SELECT ct.avatar_url FROM channel_members pm
+                  JOIN contacts ct ON ct.user_id = pm.user_id
+                 WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 LIMIT 1)
+             ELSE c.avatar_url END AS avatar_url,
              c.last_activity_ms, c.unread_count,
              (SELECT ct.username FROM channel_members pm
                 JOIN contacts ct ON ct.user_id = pm.user_id
@@ -2091,7 +2098,14 @@ class ChatStore {
   Future<ChannelListEntry?> fetchChannel(String channelId) async {
     final rows = await db.rawQuery(
       '''
-      SELECT c.channel_id, c.kind, c.name, c.avatar_url,
+      SELECT c.channel_id, c.kind, c.name,
+             -- a DM has no photo of its own: it wears the peer's
+             CASE WHEN c.kind = 'one_to_one' THEN
+               (SELECT ct.avatar_url FROM channel_members pm
+                  JOIN contacts ct ON ct.user_id = pm.user_id
+                 WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 LIMIT 1)
+             ELSE c.avatar_url END AS avatar_url,
              c.last_activity_ms, c.unread_count,
              (SELECT ct.username FROM channel_members pm
                 JOIN contacts ct ON ct.user_id = pm.user_id
@@ -2134,7 +2148,14 @@ class ChatStore {
   }) async {
     final rows = await db.rawQuery(
       '''
-      SELECT c.channel_id, c.kind, c.name, c.avatar_url,
+      SELECT c.channel_id, c.kind, c.name,
+             -- a DM has no photo of its own: it wears the peer's
+             CASE WHEN c.kind = 'one_to_one' THEN
+               (SELECT ct.avatar_url FROM channel_members pm
+                  JOIN contacts ct ON ct.user_id = pm.user_id
+                 WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+                 LIMIT 1)
+             ELSE c.avatar_url END AS avatar_url,
              c.last_activity_ms, c.unread_count,
              (SELECT ct.username FROM channel_members pm
                 JOIN contacts ct ON ct.user_id = pm.user_id

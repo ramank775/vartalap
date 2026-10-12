@@ -56,17 +56,22 @@ class _NewChatScreenState extends State<NewChatScreen> {
             ],
           ),
         ),
-        body: TabBarView(
-          children: [
-            _ContactsTab(
-              chatService: widget.chatService,
-              authService: widget.authService,
-            ),
-            _GroupsTab(
-              chatService: widget.chatService,
-              authService: widget.authService,
-            ),
-          ],
+        // The username finder sits at the very bottom: keep it above the
+        // system navigation bar.
+        body: SafeArea(
+          top: false,
+          child: TabBarView(
+            children: [
+              _ContactsTab(
+                chatService: widget.chatService,
+                authService: widget.authService,
+              ),
+              _GroupsTab(
+                chatService: widget.chatService,
+                authService: widget.authService,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -924,6 +929,7 @@ class _GroupTile extends StatelessWidget {
       leading: Avator(
         text: name,
         seed: entry.channelId,
+        avatarUrl: entry.avatarUrl,
         isGroup: true,
         width: kAvatarMd,
         height: kAvatarMd,

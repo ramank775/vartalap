@@ -285,6 +285,13 @@ class ContactRow {
   ///
   /// A phone number is never in this chain, in any form (§2.5) — the
   /// client does not hold another user's number at all.
+  /// WhatsApp's "~Name" under someone you haven't saved: the name they
+  /// gave themselves. Null once your contact book names them.
+  String? get tildeName =>
+      contactBookName == null && (displayName?.isNotEmpty ?? false)
+          ? '~$displayName'
+          : null;
+
   String get displayLabel {
     if (contactBookName != null && contactBookName!.isNotEmpty) {
       return contactBookName!;

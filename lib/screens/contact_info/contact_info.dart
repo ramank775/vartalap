@@ -124,6 +124,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 Avator(
                   text: label,
                   seed: personSeed(context, contact.userId),
+                  avatarUrl: contact.avatarUrl,
                   width: kAvatarXl,
                   height: kAvatarXl,
                 ),
@@ -135,6 +136,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   Text(
                     '@${contact.username}',
                     style: text.titleMedium?.copyWith(color: scheme.primary),
+                  ),
+                if (contact.tildeName != null)
+                  Text(
+                    contact.tildeName!,
+                    style: text.bodyMedium
+                        ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
                 if (contact.statusText != null &&
                     contact.statusText!.isNotEmpty)
@@ -200,6 +207,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     ListTile(
                       leading: Avator(
                         text: g.title,
+                        seed: g.channelId,
+                        avatarUrl: g.avatarUrl,
+                        isGroup: true,
                         width: kAvatarSm,
                         height: kAvatarSm,
                       ),

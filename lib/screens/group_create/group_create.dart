@@ -79,6 +79,9 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // The bar is primary in light mode, surface in dark.
+    final onBar =
+        Theme.of(context).appBarTheme.foregroundColor ?? scheme.onSurface;
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -89,7 +92,7 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
               _picked.isEmpty ? 'Add members' : '${_picked.length} selected',
               style: TextStyle(
                 fontSize: 13,
-                color: scheme.onPrimary.withValues(alpha: 0.85),
+                color: onBar.withValues(alpha: 0.85),
               ),
             ),
           ],
@@ -349,7 +352,8 @@ class _MemberBadge extends StatelessWidget {
                 width: kAvatarMd,
                 height: kAvatarMd,
               ),
-              if (badge != null) Positioned(right: -4, bottom: -2, child: badge!),
+              if (badge != null)
+                Positioned(right: -4, bottom: -2, child: badge!),
             ],
           ),
           const SizedBox(height: kSpaceXs),

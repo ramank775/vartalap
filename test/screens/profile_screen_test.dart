@@ -53,7 +53,7 @@ void main() {
     // Row labels (read mode) — top of the list.
     expect(find.text('Name'), findsOneWidget);
     expect(find.text('Username'), findsOneWidget);
-    expect(find.text('Status'), findsOneWidget);
+    expect(find.text('About'), findsOneWidget);
 
     // Phone / QR / Sign out live further down — confirm by scrolling
     // them into view rather than asserting they are already visible

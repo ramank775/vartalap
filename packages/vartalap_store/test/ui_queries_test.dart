@@ -108,6 +108,17 @@ void main() {
       );
     });
 
+    test("a DM shows the peer's photo, on every channel query", () async {
+      final store = await dmWith(username: 'kavya_m');
+      await store.applyProfileEdit(
+        userId: 'u-peer',
+        avatarUrl: (value: 'file-kavya'),
+        nowMs: 2000,
+      );
+      expect((await store.fetchChannelList()).single.avatarUrl, 'file-kavya');
+      expect((await store.fetchChannel('c-dm'))!.avatarUrl, 'file-kavya');
+    });
+
     test('a group keeps its own name and ignores the peer subqueries',
         () async {
       final store = await ChatStore.open(path: inMemoryDatabasePath);

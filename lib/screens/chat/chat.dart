@@ -188,11 +188,12 @@ class _ChatScreenState extends State<ChatScreen> {
     _input.addListener(_onInputChanged);
     _typingSub = widget.chatService.typingEvents.listen(_onPeerTyping);
     _scroll.addListener(_onScroll);
-    if (widget.channelKind == 'group') _loadMemberNames();
+    _loadMemberNames();
     // Trim 4: a DM has no server-side row, so the server cannot fan a
     // peer's profile edits to us (SYNC_PROTOCOL §10.3). Pull them when
     // the chat opens — the one moment the staleness would show.
-    unawaited(widget.chatService.refreshDmPeerProfile(widget.channelId));
+    unawaited(widget.chatService.refreshDmPeerProfile(widget.channelId).then(
+        (_) => widget.channelKind == 'group' ? null : _loadMemberNames()));
     // Any delete whose undo window elapsed while this screen was closed
     // (or the app was dead) gets enqueued now.
     unawaited(widget.chatService.sweepExpiredDeletes(widget.channelId));
@@ -364,7 +365,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// "Dev_Two, Asha, You" under a group's name (WhatsApp).
   String? get _memberLine {
     final members = _members;
-    if (members == null) return null;
+    if (members == null || widget.channelKind != 'group') return null;
     final me = widget.authService.currentUserId;
     final names = [
       for (final m in members)
@@ -375,7 +376,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// A group's name follows renames; a DM's is whatever we were given.
-  String get _title => _channel?.name ?? widget.channelName;
+  String get _title => _channel?.title ?? widget.channelName;
 
   /// False once someone removed us: the chat stays, read only.
   bool get _canSend =>
@@ -1160,6 +1161,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final currentUserId = widget.authService.currentUserId ?? '';
     final scheme = Theme.of(context).colorScheme;
+    // The bar is primary in light mode, surface in dark.
+    final onBar =
+        Theme.of(context).appBarTheme.foregroundColor ?? scheme.onSurface;
     final chatColors = VartalapTheme.chatColorsOf(context);
 
     // Rows that left the page (cleared history) drop out of it.
@@ -1225,7 +1229,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             : 'several people are typing…',
                         style: TextStyle(
                           fontSize: 12,
-                          color: scheme.onPrimary.withValues(alpha: 0.85),
+                          color: onBar.withValues(alpha: 0.85),
                           fontStyle: FontStyle.italic,
                         ),
                       )
@@ -1236,7 +1240,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12,
-                          color: scheme.onPrimary.withValues(alpha: 0.85),
+                          color: onBar.withValues(alpha: 0.85),
                         ),
                       ),
                   ],

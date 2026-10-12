@@ -361,6 +361,15 @@ class AuthService {
   /// Also wipes the on-device [ChatStore] (AUTH_CONTRACT §8). The
   /// store isn't a constructor arg — it is opened after this service
   /// in `main.dart` — so we reach it through [ChatStore.current].
+  /// `POST /v3.0/users/me/delete` — AUTH_CONTRACT §8.2. [confirmation]
+  /// is what the user typed ("DELETE <username>"); the server checks it.
+  /// Then this device signs out like [logout], whose server calls are
+  /// best effort, so the now-dead session doesn't stop the teardown.
+  Future<void> deleteAccount(String confirmation) async {
+    await _client.deleteAccount(confirmation: confirmation);
+    await logout();
+  }
+
   Future<void> logout() async {
     try {
       await onBeforeLogout?.call();

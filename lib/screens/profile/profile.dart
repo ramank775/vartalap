@@ -13,6 +13,7 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/username.dart';
 import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap_transport/vartalap_transport.dart';
 
 /// What the profile QR encodes — the handle, never the number
 /// (AUTH_CONTRACT §2.5, mockup frame h2).
@@ -113,7 +114,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
       body: ListView(
-        padding: EdgeInsets.zero,
         children: [
           const SizedBox(height: kSpaceXl),
           Column(
@@ -158,6 +158,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             maxLength: 30,
             textCapitalization: TextCapitalization.none,
             valuePrefix: '@',
+            caption: 'You can change it once every 90 days.',
             onSave: (v) => auth.setUsername(v),
             validator: validateUsername,
             // §2.4: clearing re-arms the USERNAME_REQUIRED gate, so the
@@ -181,7 +182,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const Divider(height: 1, indent: kSpaceMd, endIndent: kSpaceMd),
           _InlineEditableRow(
             icon: Icons.access_time_rounded,
-            label: 'Status',
+            label: 'About',
             value: auth.statusText,
             placeholder: 'Hey there, I am using Vartalap',
             maxLength: 140,
@@ -223,6 +224,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             caption: 'People who message you by username must enter this.',
             maxLength: 4,
             textCapitalization: TextCapitalization.none,
+            keyboardType: TextInputType.number,
             onSave: (v) => auth.setUsernameKey(v),
             validator: _validateUsernameKey,
           ),
@@ -346,6 +348,7 @@ class _InlineEditableRow extends StatefulWidget {
   final String placeholder;
   final int maxLength;
   final TextCapitalization textCapitalization;
+  final TextInputType? keyboardType;
   final String? valuePrefix;
   final Future<void> Function(String? value) onSave;
   final _RowValidator? validator;
@@ -367,6 +370,7 @@ class _InlineEditableRow extends StatefulWidget {
     required this.maxLength,
     required this.textCapitalization,
     required this.onSave,
+    this.keyboardType,
     this.valuePrefix,
     this.validator,
     this.availabilityCheck,
@@ -500,15 +504,24 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
     setState(() => _saving = true);
     try {
       await widget.onSave(next.isEmpty ? null : next);
-    } finally {
       if (mounted) {
         setState(() {
-          _saving = false;
           _editing = false;
           _availability = _RowAvailability.idle;
           _validationError = null;
         });
       }
+    } catch (e) {
+      // Stay in edit mode and say why: "username can only be changed
+      // once every 90 days" must not look like a save.
+      if (mounted) {
+        setState(() => _validationError =
+            e is AuthClientException && e.message != null
+                ? e.message
+                : "Couldn't save. Check your connection and try again.");
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -602,6 +615,7 @@ class _InlineEditableRowState extends State<_InlineEditableRow> {
                     autofocus: true,
                     maxLength: widget.maxLength,
                     textCapitalization: widget.textCapitalization,
+                    keyboardType: widget.keyboardType,
                     enabled: !_saving,
                     onChanged: _onChanged,
                     onSubmitted: (_) => _commit(),
