@@ -71,10 +71,6 @@ void main() {
     // can: B looks A up by handle in step 8.
     late String appUserId;
 
-    // Each peer stack opens its own ChatStore, and `ChatStore.open`
-    // overwrites the `ChatStore.current` global that AuthService.logout
-    // wipes — so BOTH boot BEFORE the app, leaving the app's store as
-    // `current`. A third stack introduced mid-test would steal it.
     await tester.runAsync(() async {
       peer = await _Peer.boot('B');
       peerC = await _Peer.boot('C');

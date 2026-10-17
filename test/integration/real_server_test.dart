@@ -85,9 +85,6 @@ void main() {
 
       setUpAll(() async {
         a = await _Client.boot(baseUrl, label: 'A');
-        // C boots BETWEEN A and B on purpose: `ChatStore.open` sets the
-        // process-wide `ChatStore.current`, step 9 leans on that being
-        // B's store, and booting last is what decides it.
         c = await _Client.boot(baseUrl, label: 'C');
         b = await _Client.boot(baseUrl, label: 'B');
       });
@@ -555,7 +552,7 @@ void main() {
       });
 
       // ---- 9 ------------------------------------------------------------
-      test('9. both log out → session revoked, local store wiped', () async {
+      test('9. both log out → session revoked, local store kept', () async {
         await a.authService.logout();
         await b.authService.logout();
         await b.pump();
@@ -567,23 +564,10 @@ void main() {
               'the local teardown leaves no accesskey behind.',
         );
         expect(
-          await b.counts(),
-          {'channels': 0, 'messages': 0, 'contacts': 0},
-          reason: 'AUTH_CONTRACT §8: logout destroys the on-device account '
-              'state — no channels, messages or contacts survive.',
-        );
-        // ponytail: only B's store is checked. AuthService.logout reaches
-        // the store through the `ChatStore.current` GLOBAL, which
-        // `ChatStore.open` overwrites — so in this two-stack process both
-        // logouts wipe B's store (the last one opened) and A's is
-        // untouched. Harmless in the app (one store per process); if
-        // AuthService ever takes the store as a constructor arg, assert
-        // both here.
-        expect(
-          ChatStore.current,
-          same(b.store),
-          reason: 'If this stops holding, the note above is stale and both '
-              'stores can be asserted.',
+          (await b.counts())['messages'],
+          greaterThan(0),
+          reason: "AUTH_CONTRACT §8.4: logout keeps the account's local "
+              'store for its next sign-in.',
         );
       });
     },

@@ -31,6 +31,7 @@ import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
+import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/v2_archive.dart';
@@ -80,11 +81,8 @@ void main(List<String> args) async {
 /// root widget through an InheritedWidget ([AppServicesProvider]) so
 /// screens can pull out just the pieces they need.
 class AppServices {
-  final ChatStore store;
   final AuthClient authClient;
   final AuthService authService;
-  final ChatService chatService;
-  final SyncScheduler scheduler;
   final WsTransport wsTransport;
   final RestTransport restTransport;
   final PushService pushService;
@@ -94,8 +92,33 @@ class AppServices {
   /// 6 first-run onboarding). Only ever gates the prompt.
   final bool pushPromptSeen;
 
+  /// Where each account's database lives ([accountDbPath]).
+  final String dbDir;
+
+  /// [ChatStore.open]; tests hand back in-memory stores.
+  final Future<ChatStore> Function(String path) openDb;
+
+  // The signed-in account's half of the graph: its own database
+  // (AUTH_CONTRACT §8.4), the scheduler draining its outbound queue, the
+  // service over both, and [inboundReceiver]. Built by [openAccount] at
+  // login (or boot, for a restored session), torn down by [closeAccount]
+  // at logout. Null while no one is signed in.
+  String? _userId;
+  ChatStore? store;
+  SyncScheduler? scheduler;
+
+  /// Unset until the first [openAccount]. [closeAccount] leaves the last
+  /// one in place, over its closed store, so a widget built while the
+  /// logout is still landing reads nothing rather than throwing.
+  late ChatService chatService;
+
+  /// Every account's scheduler AUTH_FAILUREs, in one stream that outlives
+  /// them (see [SyncScheduler.authFailures]).
+  final _authFailures = StreamController<void>.broadcast();
+  Stream<void> get authFailures => _authFailures.stream;
+
   /// Inbound WS_PUSH fanout applier. Null pre-login: it's constructed
-  /// by [rebuildInboundReceiverForUser] on [AuthService.authStateChange]
+  /// by [rebuildInboundReceiverForUser] from [openAccount]
   /// because it needs the authenticated `user_id` for the §5.4 "don't
   /// bump unread on own message" rule. Pre-login push frames would
   /// have no session to target anyway (WS can't connect without a
@@ -103,18 +126,73 @@ class AppServices {
   InboundReceiver? inboundReceiver;
 
   AppServices({
-    required this.store,
     required this.authClient,
     required this.authService,
-    required this.chatService,
-    required this.scheduler,
     required this.wsTransport,
     required this.restTransport,
     required this.pushService,
     required this.consentAccepted,
     required this.pushPromptSeen,
-    this.inboundReceiver,
+    required this.dbDir,
+    this.openDb = _openDb,
   });
+
+  static Future<ChatStore> _openDb(String path) => ChatStore.open(path: path);
+
+  /// Open [userId]'s own database and start what reads and writes it.
+  /// [AuthService.onLogin] at login, `initializeApp` for a restored session.
+  Future<void> openAccount(String userId, {bool adoptGroups = true}) async {
+    await closeAccount();
+    final store = await openDb(accountDbPath(dbDir, userId));
+    // Trim 4: derived DM ops name their peer on the wire, which is
+    // relative to the signed-in user.
+    final scheduler = SyncScheduler(
+      store: store,
+      wsTransport: wsTransport,
+      restTransport: restTransport,
+      backoff: ExponentialJitterBackoff(),
+      clock: Clock.system,
+    )..selfUserId = userId;
+    scheduler.authFailures.listen(_authFailures.add);
+    await scheduler.start();
+    _userId = userId;
+    this.store = store;
+    this.scheduler = scheduler;
+    // The op_id generator carries the user_id bits (SPIKE_B_SYNC §4).
+    chatService = ChatService(
+      store: store,
+      scheduler: scheduler,
+      authClient: authClient,
+      wsTransport: wsTransport,
+      uuidGen: Uuid7Gen(userIdBits: _parseUserIdOrZero(userId)),
+      clock: Clock.system,
+    );
+    await rebuildInboundReceiverForUser(userId, adoptGroups: adoptGroups);
+  }
+
+  /// [AuthService.onLogout]: stop everything that writes to the account's
+  /// database (the socket's frames, inbound applies, the scheduler,
+  /// delivery receipts), then close it. The file stays for the next
+  /// sign-in unless [erase] (account deleted).
+  Future<void> closeAccount({bool erase = false}) async {
+    final store = this.store;
+    if (store == null) return;
+    final userId = _userId!;
+    this.store = null;
+    _userId = null;
+    // Frames still arriving on this session's socket are this account's;
+    // the next login starts it again.
+    await wsTransport.stop();
+    final receiver = inboundReceiver;
+    inboundReceiver = null;
+    chatService.bindTypingSource(null);
+    chatService.bindDeliverySource(null);
+    await receiver?.stop();
+    await scheduler?.stop();
+    scheduler = null;
+    await store.close();
+    if (erase) await deleteAccountDb(dbDir, userId);
+  }
 
   /// Pull whatever the server has queued for us, feed each frame into
   /// the same fanout stream as live WS_PUSHes, wait for the inbound
@@ -150,7 +228,7 @@ class AppServices {
       await prev.stop();
     }
     final next = InboundReceiver(
-      store: store,
+      store: store!,
       pushes: wsTransport.pushes,
       localUserId: userIdHex,
       resolveProfile: (userId) => _resolveContactProfile(authClient, userId),
@@ -183,10 +261,8 @@ Future<AppServices> initializeApp({bool background = false}) async {
     _ => ThemeMode.system,
   };
 
-  // --- local store ----------------------------------------------------------
+  // --- local store: one file per account, opened once we know who ---------
   final docsDir = await getApplicationDocumentsDirectory();
-  final dbPath = '${docsDir.path}/vartalap_v3.db';
-  final store = await ChatStore.open(path: dbPath);
 
   // --- transport + auth -----------------------------------------------------
   final apiUrl = Uri.parse(ConfigStore.apiUrl);
@@ -209,55 +285,27 @@ Future<AppServices> initializeApp({bool background = false}) async {
         .map((results) => !results.contains(ConnectivityResult.none)),
   );
 
-  // --- sync scheduler -------------------------------------------------------
-  //
-  // UUIDv7 generator needs the 36-bit user_id (SPIKE_B_SYNC §4). If no
-  // one is logged in yet we seed zero; once login finishes,
-  // reseedForUser() in the authStateChange listener swaps in the real
-  // user_id bits.
-  final userIdBits = _parseUserIdOrZero(authClient.currentUserId);
-  final uuidGen = Uuid7Gen(userIdBits: userIdBits);
-
-  final scheduler = SyncScheduler(
-    store: store,
-    wsTransport: wsTransport,
-    restTransport: restTransport,
-    backoff: ExponentialJitterBackoff(),
-    clock: Clock.system,
-  );
-  // Trim 4: derived DM ops name their peer on the wire, which is
-  // relative to the signed-in user. `ChatService.reseedForUser` keeps
-  // this current on every later login.
-  scheduler.selfUserId = authClient.currentUserId;
-  await scheduler.start();
   // Start the WS transport. If no accesskey yet (pre-login), it stays
   // disconnected and auto-connects once auth lands. Reconnect with
   // backoff on disconnect.
   await wsTransport.start();
 
-  final chatService = ChatService(
-    store: store,
-    scheduler: scheduler,
-    authClient: authClient,
-    wsTransport: wsTransport,
-    uuidGen: uuidGen,
-    clock: Clock.system,
-  );
-
   final pushService = PushService(authClient: authClient);
 
   final services = AppServices(
-    store: store,
     authClient: authClient,
     authService: authService,
-    chatService: chatService,
-    scheduler: scheduler,
     wsTransport: wsTransport,
     restTransport: restTransport,
     pushService: pushService,
     consentAccepted: consentAccepted,
     pushPromptSeen: prefs.getBool(kPushPromptSeenKey) ?? false,
+    dbDir: docsDir.path,
   );
+  // The store, scheduler and chat service are the account's: built at
+  // login, closed (file kept) at logout.
+  authService.onLogin = services.openAccount;
+  authService.onLogout = services.closeAccount;
 
   // SYNC_PROTOCOL §12.3 — the wake says nothing, so the client owns
   // the follow-up: WS back up, then drain whatever was queued.
@@ -275,14 +323,15 @@ Future<AppServices> initializeApp({bool background = false}) async {
   }
 
   // If we already have a signed-in session (restoreSession populated
-  // currentUserId), stand up the inbound receiver now so push frames
-  // apply from first WS connection. Otherwise it lands on authStateChange.
+  // currentUserId), open its store and stand up the inbound receiver now
+  // so push frames apply from first WS connection. Otherwise it lands on
+  // login. A wake with no one signed in leaves the disk alone.
   final restoredUserId = authClient.currentUserId;
+  if (restoredUserId != null || !background) {
+    await migrateLegacyDb(docsDir.path, restoredUserId);
+  }
   if (restoredUserId != null) {
-    await services.rebuildInboundReceiverForUser(
-      restoredUserId,
-      adoptGroups: !background,
-    );
+    await services.openAccount(restoredUserId, adoptGroups: !background);
     // Best-effort initial pull — picks up anything the server queued
     // between the last connection and now (e.g. seed-peer DM created
     // at OTP-verify on a fresh install). Server never auto-pushes.
@@ -293,16 +342,14 @@ Future<AppServices> initializeApp({bool background = false}) async {
 }
 
 /// The 9-hex user_id lives in `AuthClient.currentUserId` after
-/// restoreSession. Before first login, we pass 0; the scheduler won't
-/// dispatch anyway because the pre-login UI never enqueues ops.
-int _parseUserIdOrZero(String? userId) {
-  if (userId == null) return 0;
+/// restoreSession or OTP verify.
+int _parseUserIdOrZero(String userId) {
   try {
     return Uuid7Gen.parseUserIdHex(userId);
   } catch (_) {
     // Corrupt stored user_id — log and proceed with 0. On the next
-    // OTP verify the fresh user_id replaces this and the scheduler is
-    // rebuilt on auth state change (see App._onAuthChange).
+    // OTP verify the fresh user_id replaces this and the account is
+    // reopened with it.
     return 0;
   }
 }
@@ -404,22 +451,12 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         _navKey.currentState?.popUntil((route) => route.isFirst);
       }
       if (loggedIn) {
-        // Reseed the op_id generator with the just-authenticated
-        // user's user_id. Before this point main.dart constructed the
-        // gen with zero bits; the first sendMessage after login would
-        // otherwise embed those zeros and be rejected server-side as
-        // prefix_mismatch (SYNC_PROTOCOL.md §3).
         final userId = widget.services.authService.currentUserId;
         if (userId != null) {
-          widget.services.chatService.reseedForUser(userId);
-          // Rebuild the inbound receiver so localUserId reflects the
-          // new session, then pull whatever the server has queued.
-          // Order matters: receiver must be live before frames arrive.
-          unawaited(
-            widget.services
-                .rebuildInboundReceiverForUser(userId)
-                .then((_) => widget.services.pullPendingSync()),
-          );
+          // AuthService.onLogin already opened the account (store,
+          // scheduler, receiver bound to this user_id), so pull
+          // whatever the server has queued.
+          unawaited(widget.services.pullPendingSync());
           // Kick the WS transport so it connects now that we have an
           // accesskey. If already connected this is a no-op.
           unawaited(widget.services.wsTransport.start());
@@ -448,7 +485,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     // concurrent attempts so two near-simultaneous signals only hit
     // the server once. On success, unpause the scheduler; on failure
     // AuthService logs out, which fires authStateChange=false above.
-    _authFailureSub = widget.services.scheduler.authFailures.listen((_) {
+    _authFailureSub = widget.services.authFailures.listen((_) {
       _refreshAuthOnDemand();
     });
     _reauthRequiredSub =
@@ -486,7 +523,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     if (!widget.services.authService.isLoggedIn) return;
     final ok = await widget.services.authService.refreshSession();
     if (ok && mounted) {
-      widget.services.scheduler.resumeAfterAuthRefresh();
+      widget.services.scheduler?.resumeAfterAuthRefresh();
     }
   }
 
@@ -610,10 +647,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     _authFailureSub?.cancel();
     _reauthRequiredSub?.cancel();
     widget.services.pushService.dispose();
-    unawaited(widget.services.inboundReceiver?.stop());
-    unawaited(widget.services.scheduler.stop());
+    unawaited(widget.services.closeAccount());
     unawaited(widget.services.authService.dispose());
-    unawaited(widget.services.store.close());
     super.dispose();
   }
 }

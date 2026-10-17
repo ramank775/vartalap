@@ -258,12 +258,12 @@ class _AccountPageState extends State<_AccountPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Log out?'),
-        // AUTH_CONTRACT §8: logout wipes the local store, and the
-        // server keeps no history, so say so before it happens.
+        // AUTH_CONTRACT §8.4: logout keeps this account's local store
+        // (the server keeps no history) for its next sign-in.
         content: const Text(
-          'Your chats, messages and saved names will be erased from this '
-          "phone and can't be recovered. You stay in your groups. To sign "
-          'back in, you will verify your phone number again.',
+          'Your chats stay on this phone and come back when you sign in '
+          'again with this number. You stay in your groups. To sign back '
+          'in, you will verify your phone number again.',
         ),
         actions: [
           TextButton(
