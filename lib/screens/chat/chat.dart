@@ -16,7 +16,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
-import 'package:vartalap/screens/chat/chat_search.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat/voice_note.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
@@ -125,6 +124,18 @@ class _ChatScreenState extends State<ChatScreen> {
   /// the user can see which message matched.
   String? _highlightedMessageId;
   Timer? _highlightTimer;
+
+  /// WhatsApp's in-chat search: the app bar turns into a field with
+  /// up / down arrows, over the chat. [_searchQuery] is what the last
+  /// search ran for (marked in every bubble), [_matches] its hits'
+  /// message ids, newest first, and [_matchIndex] the one shown.
+  bool _searchOpen = false;
+  final TextEditingController _search = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  Timer? _searchDebounce;
+  String _searchQuery = '';
+  List<String> _matches = const [];
+  int _matchIndex = 0;
 
   /// Selected messages (WhatsApp's selection, in the order picked):
   /// long-press starts it, taps add and remove. The app bar shows what
@@ -267,6 +278,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _scroll.dispose();
     _readMarkerSub?.cancel();
     _highlightTimer?.cancel();
+    _searchDebounce?.cancel();
+    _search.dispose();
+    _searchFocus.dispose();
     _typingQuietTimer?.cancel();
     for (final t in _peerTypingTimers.values) {
       t.cancel();
@@ -384,21 +398,114 @@ class _ChatScreenState extends State<ChatScreen> {
       _members == null ||
       _members!.any((m) => m.userId == widget.authService.currentUserId);
 
-  Future<void> _openSearch() async {
-    final picked = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ChatSearchScreen(
-          channelId: widget.channelId,
-          channelName: _title,
-          chatService: widget.chatService,
-          localUserId: widget.authService.currentUserId,
-        ),
-      ),
-    );
-    if (picked != null && mounted) {
-      _jumpToMessage(picked);
+  /// Runs [text] through the store's search (case-insensitive, newest
+  /// first) and jumps to the newest hit.
+  Future<void> _runSearch(String text) async {
+    _searchDebounce?.cancel();
+    final query = text.trim();
+    final rows = query.isEmpty
+        ? const <MessageRow>[]
+        : await widget.chatService
+            .searchInChannel(channelId: widget.channelId, query: query);
+    // Closed, or typed past, while the store looked.
+    if (!mounted || !_searchOpen || _search.text.trim() != query) return;
+    setState(() {
+      _searchQuery = query;
+      // A card's body is a vCard / geo URI / iCalendar, not its words.
+      _matches = [
+        for (final m in rows)
+          if (!isRichType(m.contentType)) m.messageId,
+      ];
+      _matchIndex = 0;
+    });
+    if (_matches.isNotEmpty) {
+      _jumpToMessage(_matches.first);
+    } else if (query.isNotEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('No results found')));
     }
   }
+
+  /// Up is the older hit, down the newer one.
+  void _goToMatch(int i) {
+    final newer = i < _matchIndex;
+    setState(() => _matchIndex = i);
+    _jumpToMessage(_matches[i], newer: newer);
+  }
+
+  /// Opening search takes the keyboard, even from the composer
+  /// (`autofocus` won't take it from a focused field).
+  void _openSearch() {
+    setState(() => _searchOpen = true);
+    _searchFocus.requestFocus();
+  }
+
+  /// Back leaves search. Focus is let go of first: the field leaving the
+  /// tree while focused hands focus back to the composer, and up comes
+  /// the keyboard.
+  void _closeSearch() {
+    _searchFocus.unfocus();
+    _searchDebounce?.cancel();
+    _highlightTimer?.cancel();
+    _search.clear();
+    setState(() {
+      _searchOpen = false;
+      _searchQuery = '';
+      _matches = const [];
+      _highlightedMessageId = null;
+    });
+  }
+
+  /// The search bar: back, the field, then older / newer.
+  AppBar _searchBar(Color onBar) => AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: _closeSearch,
+        ),
+        titleSpacing: 0,
+        title: TextField(
+          controller: _search,
+          focusNode: _searchFocus,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            hintText: 'Search…',
+            filled: false,
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            contentPadding: EdgeInsets.zero,
+            isDense: true,
+            hintStyle: TextStyle(color: onBar.withValues(alpha: 0.7)),
+          ),
+          style: TextStyle(color: onBar, fontSize: 18),
+          cursorColor: onBar,
+          onChanged: (text) {
+            _searchDebounce?.cancel();
+            _searchDebounce = Timer(
+                const Duration(milliseconds: 400), () => _runSearch(text));
+          },
+          onSubmitted: _runSearch,
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.keyboard_arrow_up),
+            tooltip: 'Previous match',
+            disabledColor: onBar.withValues(alpha: 0.38),
+            onPressed: _matchIndex + 1 < _matches.length
+                ? () => _goToMatch(_matchIndex + 1)
+                : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.keyboard_arrow_down),
+            tooltip: 'Next match',
+            disabledColor: onBar.withValues(alpha: 0.38),
+            onPressed:
+                _matchIndex > 0 ? () => _goToMatch(_matchIndex - 1) : null,
+          ),
+        ],
+      );
 
   /// After a send, show it: the list is reversed, so the newest
   /// message is at offset 0.
@@ -411,16 +518,20 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _jumpToMessage(String messageId) async {
+  Future<void> _jumpToMessage(String messageId, {bool newer = false}) async {
     setState(() => _highlightedMessageId = messageId);
     _highlightTimer?.cancel();
     // Rows off screen aren't built, so there is nothing to scroll to
-    // yet: page toward older messages (the reversed list's far end)
-    // until the target row exists, then bring it into view.
-    // ponytail: older-only and 30 pages at most; a reply or search hit
-    // is behind you, and the window loads more as it goes.
-    for (var i = 0; i < 30 && mounted; i++) {
+    // yet: page toward the target until its row exists, then bring it
+    // into view. Older is the reversed list's far end; paging into it
+    // grows the window (_onScroll), so wait out each page as it loads.
+    // ponytail: one direction and 200 frames at most; a reply is behind
+    // you, a search hit is the way its arrow points. A hit thousands of
+    // messages back may stop short: grow the window to it first then.
+    for (var i = 0; i < 200 && mounted; i++) {
       await WidgetsBinding.instance.endOfFrame;
+      // A later jump (the next search hit) took over.
+      if (_highlightedMessageId != messageId) return;
       final ctx = _messageKeys[messageId]?.currentContext;
       if (ctx != null && ctx.mounted) {
         await Scrollable.ensureVisible(
@@ -432,13 +543,17 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       if (!_scroll.hasClients) break;
       final pos = _scroll.position;
-      if (pos.pixels >= pos.maxScrollExtent) break;
-      _scroll.jumpTo(math.min(
-        pos.pixels + pos.viewportDimension * 0.8,
-        pos.maxScrollExtent,
-      ));
+      final step = pos.viewportDimension * 0.8;
+      if (newer) {
+        if (pos.pixels <= pos.minScrollExtent) break;
+        _scroll.jumpTo(math.max(pos.pixels - step, pos.minScrollExtent));
+      } else if (pos.pixels < pos.maxScrollExtent) {
+        _scroll.jumpTo(math.min(pos.pixels + step, pos.maxScrollExtent));
+      } else if (!_loadingOlder) {
+        break; // the start of the chat
+      }
     }
-    if (!mounted) return;
+    if (!mounted || _highlightedMessageId != messageId) return;
     _highlightTimer?.cancel();
     _highlightTimer = Timer(const Duration(milliseconds: 1800), () {
       if (!mounted) return;
@@ -526,8 +641,8 @@ class _ChatScreenState extends State<ChatScreen> {
   void _select(MessageRow msg) {
     HapticFeedback.mediumImpact();
     // Otherwise the keyboard stays up over the actions; Edit and Reply
-    // ask for it again.
-    _inputFocus.unfocus();
+    // ask for it again. The search field may hold it too.
+    FocusManager.instance.primaryFocus?.unfocus();
     _toggleSelected(msg);
   }
 
@@ -1173,16 +1288,21 @@ class _ChatScreenState extends State<ChatScreen> {
             for (final id in _selectedIds)
               ..._lastMessages.where((m) => m.messageId == id),
           ];
-    // Back closes the selection first, like WhatsApp.
+    // Back closes the selection, then search, first, like WhatsApp.
     return PopScope(
-      canPop: selected.isEmpty,
+      canPop: selected.isEmpty && !_searchOpen,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _clearSelection();
+        if (didPop) return;
+        if (selected.isNotEmpty) {
+          _clearSelection();
+        } else {
+          _closeSearch();
+        }
       },
       child: Scaffold(
       appBar: selected.isNotEmpty
           ? _selectionBar(selected)
-          : AppBar(
+          : _searchOpen ? _searchBar(onBar) : AppBar(
         titleSpacing: 0,
         title: InkWell(
           onTap: () {
@@ -1344,6 +1464,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         ? _selectedLink
                         : null,
                     senderLabel: senderLabel,
+                    searchQuery: _searchQuery,
                     localUserId: currentUserId,
                     replyPreview:
                         replyTo == null ? null : bodyById[replyTo],
@@ -1992,6 +2113,27 @@ class _UndoCountdownState extends State<_UndoCountdown> {
   }
 }
 
+/// [text] with every case-insensitive [query] in it marked, as
+/// WhatsApp's in-chat search marks its hits.
+InlineSpan _marked(String text, String query) {
+  if (query.isEmpty) return TextSpan(text: text);
+  final spans = <InlineSpan>[];
+  var at = 0;
+  for (final m in RegExp(RegExp.escape(query), caseSensitive: false)
+      .allMatches(text)) {
+    spans
+      ..add(TextSpan(text: text.substring(at, m.start)))
+      ..add(TextSpan(text: m[0], style: _matchStyle));
+    at = m.end;
+  }
+  spans.add(TextSpan(text: text.substring(at)));
+  return TextSpan(children: spans);
+}
+
+/// Dark text on amber reads the same on either theme's bubbles.
+const _matchStyle =
+    TextStyle(color: Colors.black87, backgroundColor: Color(0xFFFFE082));
+
 class _MessageBubble extends StatelessWidget {
   final MessageRow message;
   final bool isMine;
@@ -2000,6 +2142,9 @@ class _MessageBubble extends StatelessWidget {
   final bool highlighted;
   final String? senderLabel;
   final String localUserId;
+
+  /// The in-chat search's query, marked wherever the body has it.
+  final String searchQuery;
 
   /// Body of the message this one replies to, when it is inside the
   /// loaded page. Null means "no reply, or too far back".
@@ -2034,6 +2179,7 @@ class _MessageBubble extends StatelessWidget {
     required this.onReactionTap,
     this.highlighted = false,
     this.senderLabel,
+    this.searchQuery = '',
     this.replyPreview,
     this.onRetry,
     this.onMessageContact,
@@ -2256,7 +2402,7 @@ class _MessageBubble extends StatelessWidget {
                                     text: ' This message was deleted'),
                               ],
                             )
-                          : TextSpan(text: body),
+                          : _marked(body, searchQuery),
                       tombstoned ? 'This message was deleted' : body,
                     )),
                   if (failed)

@@ -935,8 +935,8 @@ class ChatService {
   }) =>
       _store.fetchMemberChannels(userId: userId, kind: kind);
 
-  /// Substring search restricted to [channelId]. Powers chat-info's
-  /// "Search in conversation" sheet.
+  /// Substring search restricted to [channelId]. Powers the chat
+  /// screen's inline search.
   Future<List<MessageRow>> searchInChannel({
     required String channelId,
     required String query,
