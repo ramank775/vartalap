@@ -90,16 +90,6 @@ class ChatStore {
 
   ChatStore._(this.db);
 
-  /// The store the process last opened, so code that can't be handed a
-  /// [ChatStore] can still reach it — currently only `AuthService.logout`,
-  /// which must [wipe] the account's data (AUTH_CONTRACT §8) and is
-  /// constructed before the store exists.
-  ///
-  /// ponytail: a process-wide handle because the app (and each test
-  /// harness) opens exactly one store. Thread the store through
-  /// explicitly if a second concurrent store ever appears.
-  static ChatStore? current;
-
   /// Emits the set of table names touched by the most recent write.
   /// Callers typically `stream.where((tables) => tables.contains('x'))`.
   Stream<Set<String>> get tableChanges => _changes.stream;
@@ -117,8 +107,8 @@ class ChatStore {
   /// into the next store and the first `close()` shuts the other one
   /// down. Off, every in-memory open is its own private database, which
   /// is what a test asking for an in-memory store means. File paths keep
-  /// the caching: the app opens its one database once and re-opening it
-  /// should return the same handle.
+  /// the caching: the app opens each account's database once and re-opening
+  /// it should return the same handle.
   static Future<ChatStore> open({required String path}) async {
     sqfliteFfiInit();
     final factory = databaseFactoryFfi;
@@ -161,42 +151,12 @@ class ChatStore {
       'channels',
       where: "kind = 'one_to_one' AND channel_id NOT LIKE 'd%'",
     );
-    return current = ChatStore._(db);
+    return ChatStore._(db);
   }
 
   Future<void> close() async {
-    if (identical(current, this)) current = null;
     await _changes.close();
     await db.close();
-  }
-
-  /// AUTH_CONTRACT §8 — destroy every trace of the signed-out account.
-  /// One transaction, every table: projections, the outbound queue and
-  /// the inbound dedup set.
-  Future<void> wipe() async {
-    await db.transaction((txn) async {
-      for (final table in const [
-        'messages',
-        'reactions',
-        'channel_members',
-        'op_id_seen',
-        'channels',
-        'contacts',
-        'outbound_ops',
-        'pending_ops',
-      ]) {
-        await txn.delete(table);
-      }
-    });
-    _notify(const {
-      'messages',
-      'reactions',
-      'channel_members',
-      'op_id_seen',
-      'channels',
-      'contacts',
-      'outbound_ops',
-    });
   }
 
   /// §5.3 — optimistic send. Inserts the message row in `pending`,

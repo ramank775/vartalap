@@ -140,6 +140,36 @@ void main() {
 
       await auth.dispose();
     });
+
+    test('login opens the account store, logout keeps it, delete erases it',
+        () async {
+      final client = _FakeAuthClient()
+        ..verifyResult = const OtpVerifyResult(
+          accesskey: 'sk_fresh_xyz',
+          refreshToken: 'rt_xyz',
+          userId: 'b7c1d2e3f',
+          accesskeyTtl: Duration(days: 30),
+          refreshTokenTtl: Duration(days: 90),
+          isNewUser: false,
+        );
+      final auth = AuthService(
+        client: client,
+        storage: _InMemoryStorage(initial: {'v3.otpSessionId': 'otp'}),
+      );
+      await auth.init();
+      final calls = <String>[];
+      auth.onLogin = (userId) async => calls.add('open $userId');
+      auth.onLogout = ({bool erase = false}) async =>
+          calls.add(erase ? 'close+erase' : 'close');
+
+      await auth.verifyOtp('+911234567890', '123456');
+      await auth.logout();
+      client.restoreSession(accesskey: 'sk_live', userId: 'b7c1d2e3f');
+      await auth.deleteAccount('DELETE alice_k');
+
+      expect(calls, ['open b7c1d2e3f', 'close', 'close+erase']);
+      await auth.dispose();
+    });
   });
 }
 
@@ -247,4 +277,7 @@ class _FakeAuthClient extends AuthClient {
       throw StateError('simulated revoke network error');
     }
   }
+
+  @override
+  Future<void> deleteAccount({required String confirmation}) async {}
 }

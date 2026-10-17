@@ -10,7 +10,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 /// Secure-storage keys per AUTH_CONTRACT §14.1.
@@ -62,6 +61,17 @@ class AuthService {
   /// that revoke is about to invalidate. Set by `main.dart`; failures
   /// are swallowed so a dead hook can never trap a user in a session.
   Future<void> Function()? onBeforeLogout;
+
+  /// Ran by [verifyOtp] once the session is stored, before
+  /// [authStateChange] emits true. `main.dart` opens the account's own
+  /// store here, so whatever reacts to the login finds it.
+  Future<void> Function(String userId)? onLogin;
+
+  /// Ran by [logout] once the session is gone, before [authStateChange]
+  /// emits false. `main.dart` closes the account's store and keeps its
+  /// file for the next sign-in (AUTH_CONTRACT §8.4); [erase], from
+  /// [deleteAccount], deletes the file too.
+  Future<void> Function({bool erase})? onLogout;
 
   /// Set after a successful [verifyOtp] if the server returned a
   /// default channel (mock-server seed-peer feature). Consumed once
@@ -305,6 +315,7 @@ class AuthService {
     lastDefaultChannelId = result.defaultChannelId;
     await _storage.delete(key: _keyOtpSessionId);
     await _storage.delete(key: _keyOtpPhone);
+    await onLogin?.call(result.userId);
     _authState.add(true);
     return result;
   }
@@ -349,6 +360,16 @@ class AuthService {
     return true;
   }
 
+  /// `POST /v3.0/users/me/delete` — AUTH_CONTRACT §8.2. [confirmation]
+  /// is what the user typed ("DELETE <username>"); the server checks it.
+  /// Then this device signs out like [logout], whose server calls are
+  /// best effort, so the now-dead session doesn't stop the teardown,
+  /// and the account's local store is erased.
+  Future<void> deleteAccount(String confirmation) async {
+    await _client.deleteAccount(confirmation: confirmation);
+    await _logout(erase: true);
+  }
+
   /// `POST /v3.0/auth/session/revoke` — AUTH_CONTRACT §4.6.
   ///
   /// Order matters: we attempt the server revoke first so the server
@@ -358,19 +379,10 @@ class AuthService {
   /// session. The stale accesskey on the server will expire via its
   /// 30-day TTL.
   ///
-  /// Also wipes the on-device [ChatStore] (AUTH_CONTRACT §8). The
-  /// store isn't a constructor arg — it is opened after this service
-  /// in `main.dart` — so we reach it through [ChatStore.current].
-  /// `POST /v3.0/users/me/delete` — AUTH_CONTRACT §8.2. [confirmation]
-  /// is what the user typed ("DELETE <username>"); the server checks it.
-  /// Then this device signs out like [logout], whose server calls are
-  /// best effort, so the now-dead session doesn't stop the teardown.
-  Future<void> deleteAccount(String confirmation) async {
-    await _client.deleteAccount(confirmation: confirmation);
-    await logout();
-  }
+  /// The account's local store is closed, not wiped ([onLogout]).
+  Future<void> logout() => _logout();
 
-  Future<void> logout() async {
+  Future<void> _logout({bool erase = false}) async {
     try {
       await onBeforeLogout?.call();
     } catch (_) {
@@ -390,10 +402,7 @@ class AuthService {
     await _storage.delete(key: _keyUsernameKey);
     await _storage.delete(key: _keyStatusText);
     _client.clearSession();
-    // AUTH_CONTRACT §8 — the local store is account state too. Without
-    // this the next account signing in on this device inherits the
-    // previous one's channels, messages and contacts.
-    await ChatStore.current?.wipe();
+    await onLogout?.call(erase: erase);
     _phoneNumber = null;
     _displayName = null;
     _username = null;

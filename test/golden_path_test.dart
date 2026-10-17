@@ -68,6 +68,7 @@ final Matcher isAcked = isIn(const [
 
 late _Harness h;
 late String userIdA;
+late ChatStore storeA;
 late String peerUserId;
 String dmChannel = '';
 String groupChannelId = '';
@@ -1024,24 +1025,22 @@ void main() {
     });
 
     // ---- 8 --------------------------------------------------------------
-    test('8. logout wipes the local store', () async {
+    test('8. logout closes the account store without wiping it', () async {
+      storeA = h.store;
+      expect((await h.counts())['messages'], greaterThan(0));
       await h.authService.logout();
       await _pump();
 
-      final counts = await h.counts();
       expect(
-        counts,
-        {'channels': 0, 'messages': 0, 'contacts': 0},
-        reason: 'AUTH_CONTRACT §8: logout destroys the local account state — '
-            'the on-device store must hold no channels, messages or contacts '
-            'for the signed-out account. AuthService.logout only clears '
-            'secure storage (lib/services/auth_service.dart), the ChatStore '
-            'is left intact. Got $counts.',
+        storeA.db.isOpen,
+        isFalse,
+        reason: 'AUTH_CONTRACT §8.4: logout stops everything writing to the '
+            "account's store and closes it; its file is kept.",
       );
     });
 
     // ---- 9 --------------------------------------------------------------
-    test('9. login as a different phone → store still empty, new user_id',
+    test('9. login as a different phone → its own empty store, new user_id',
         () async {
       await h.login(phoneB);
       final userIdB = h.authService.currentUserId ?? '';
@@ -1052,12 +1051,13 @@ void main() {
         reason: 'AUTH_CONTRACT §2: a different phone maps to a different '
             'user_id.',
       );
+      expect(h.store, isNot(same(storeA)));
       final counts = await h.counts();
       expect(
         counts,
         {'channels': 0, 'messages': 0, 'contacts': 0},
-        reason: 'AUTH_CONTRACT §8: a second account must never see the first '
-            "account's data. The store still holds $counts from $userIdA.",
+        reason: 'AUTH_CONTRACT §8.4: a second account must never see the '
+            "first account's data. The store holds $counts from $userIdA.",
       );
     });
 
@@ -1629,37 +1629,34 @@ const _ntfy = 'io.heckel.ntfy';
 class _Harness {
   final MockServer mock;
   final Directory tmpDir;
-  final ChatStore store;
   final AuthClient authClient;
   final AuthService authService;
   final WsTransport ws;
   final RestTransport rest;
-  final SyncScheduler scheduler;
-  final ChatService chat;
+  // The signed-in account's, like AppServices: built by [openAccount].
+  late ChatStore store;
+  late SyncScheduler scheduler;
+  late ChatService chat;
   InboundReceiver? inbound;
   late final StreamSubscription<TransportState> _wsStateSub;
 
   _Harness._({
     required this.mock,
     required this.tmpDir,
-    required this.store,
     required this.authClient,
     required this.authService,
     required this.ws,
     required this.rest,
-    required this.scheduler,
-    required this.chat,
   });
 
   static Future<_Harness> boot() async {
     final mock = await MockServer.start(); // strict: true, seed peer on
     // tmpDir is still the scratch space for picked attachments and the
-    // asset cache; the store itself is in-memory so nothing survives the
-    // file and no two test files can ever meet on a path. The WAL pragma
-    // has its own file-backed check in
+    // asset cache; the stores themselves are in-memory so nothing
+    // survives the file and no two test files can ever meet on a path.
+    // The WAL pragma has its own file-backed check in
     // packages/vartalap_store/test/schema_boot_test.dart.
     final tmpDir = await Directory.systemTemp.createTemp('vartalap_golden');
-    final store = await ChatStore.open(path: inMemoryDatabasePath);
 
     final authClient = AuthClient(baseUrl: mock.apiUrl);
     final authService =
@@ -1668,37 +1665,20 @@ class _Harness {
 
     final ws = WsTransport(endpoint: mock.wsUrl, auth: authClient);
     final rest = RestTransport(baseUrl: mock.apiUrl, auth: authClient);
-
-    final scheduler = SyncScheduler(
-      store: store,
-      wsTransport: ws,
-      restTransport: rest,
-      backoff: const FixedBackoff(Duration(milliseconds: 50)),
-      clock: Clock.system,
-    );
-    await scheduler.start();
     await ws.start(); // no accesskey yet → stays disconnected
-
-    final chat = ChatService(
-      store: store,
-      scheduler: scheduler,
-      authClient: authClient,
-      wsTransport: ws,
-      uuidGen: Uuid7Gen(userIdBits: 0),
-      clock: Clock.system,
-    );
 
     final h = _Harness._(
       mock: mock,
       tmpDir: tmpDir,
-      store: store,
       authClient: authClient,
       authService: authService,
       ws: ws,
       rest: rest,
-      scheduler: scheduler,
-      chat: chat,
     );
+    // main.dart initializeApp: the account's half opens at login and
+    // closes at logout.
+    authService.onLogin = h.openAccount;
+    authService.onLogout = h.closeAccount;
     // main.dart App.initState: re-pull on every WS reconnect.
     h._wsStateSub = ws.state.listen((s) {
       if (s == TransportState.connected) unawaited(h.pullPendingSync());
@@ -1706,14 +1686,48 @@ class _Harness {
     return h;
   }
 
+  /// AppServices.openAccount, with a fresh in-memory store standing in
+  /// for the account's file.
+  Future<void> openAccount(String userId) async {
+    store = await ChatStore.open(path: inMemoryDatabasePath);
+    scheduler = SyncScheduler(
+      store: store,
+      wsTransport: ws,
+      restTransport: rest,
+      backoff: const FixedBackoff(Duration(milliseconds: 50)),
+      clock: Clock.system,
+    )..selfUserId = userId;
+    await scheduler.start();
+    chat = ChatService(
+      store: store,
+      scheduler: scheduler,
+      authClient: authClient,
+      wsTransport: ws,
+      uuidGen: Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(userId)),
+      clock: Clock.system,
+    );
+    await rebuildInboundReceiverForUser(userId);
+  }
+
+  /// AppServices.closeAccount.
+  Future<void> closeAccount({bool erase = false}) async {
+    if (!store.db.isOpen) return;
+    await ws.stop();
+    final prev = inbound;
+    inbound = null;
+    chat.bindTypingSource(null);
+    chat.bindDeliverySource(null);
+    await prev?.stop();
+    await scheduler.stop();
+    await store.close();
+  }
+
   Future<void> shutdown() async {
     await _wsStateSub.cancel();
-    await inbound?.stop();
-    await scheduler.stop();
+    await closeAccount();
     await ws.dispose();
     await rest.dispose();
     await authService.dispose();
-    await store.close();
     await mock.stop();
     try {
       tmpDir.deleteSync(recursive: true);
@@ -1764,15 +1778,12 @@ class _Harness {
     chat.bindDeliverySource(next.peerMessagesStored);
   }
 
-  /// AUTH_CONTRACT §3.1/§3.2 plus the post-login wiring `App.initState`
-  /// runs off authStateChange (reseed op_id bits, rebuild the receiver,
-  /// connect the WS, pull the queue).
+  /// AUTH_CONTRACT §3.1/§3.2 (verify opens the account through
+  /// [openAccount]) plus the post-login wiring `App.initState` runs off
+  /// authStateChange (connect the WS, pull the queue).
   Future<void> login(String phone) async {
     await authService.sendOtp(phone);
     await authService.verifyOtp(phone, mock.sendOtpCodeFor(phone));
-    final userId = authService.currentUserId!;
-    chat.reseedForUser(userId);
-    await rebuildInboundReceiverForUser(userId);
     await ws.start();
     await waitFor(() => ws.currentState == TransportState.connected);
     await pullPendingSync();

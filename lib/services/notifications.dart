@@ -58,7 +58,8 @@ class MessageNotifications {
   /// ([_mark]), so posting a chat again only alerts for lines past it.
   static const String keyNotified = 'v3.notifications.notified';
 
-  final ChatStore _store;
+  /// The signed-in account's store; null while no one is signed in.
+  final ChatStore? Function() _store;
   final String? Function() _selfUserId;
   final FlutterLocalNotificationsPlugin _plugin;
   final bool Function() _onScreen;
@@ -68,7 +69,7 @@ class MessageNotifications {
   void Function(String? channelId)? onTap;
 
   MessageNotifications({
-    required ChatStore store,
+    required ChatStore? Function() store,
     required String? Function() selfUserId,
     FlutterLocalNotificationsPlugin? plugin,
     bool Function()? onScreen,
@@ -136,7 +137,8 @@ class MessageNotifications {
 
   Future<int> _showUnread() async {
     final self = _selfUserId();
-    if (self == null) return 0;
+    final store = _store();
+    if (self == null || store == null) return 0;
     try {
       final prefs = await SharedPreferences.getInstance();
       // A wake's background isolate writes this too.
@@ -148,12 +150,12 @@ class MessageNotifications {
       final quiet = _onScreen();
       final now = DateTime.now().millisecondsSinceEpoch;
       final names = {
-        for (final c in await _store.fetchContacts()) c.userId: c.displayLabel,
+        for (final c in await store.fetchContacts()) c.userId: c.displayLabel,
       };
       var chats = 0, messages = 0, posted = false;
-      for (final chat in await _store.fetchChannelList()) {
+      for (final chat in await store.fetchChannelList()) {
         if (chat.unreadCount == 0) continue;
-        final lines = await _unreadLines(chat, self);
+        final lines = await _unreadLines(store, chat, self);
         final newest =
             lines.where((m) => m.contentType != kGroupEventType).lastOrNull;
         if (newest == null) continue;
@@ -194,12 +196,13 @@ class MessageNotifications {
   /// ponytail: scans the newest 50 rows; older unread lines are left
   /// out, the summary's count still has them.
   Future<List<MessageRow>> _unreadLines(
+    ChatStore store,
     ChannelListEntry chat,
     String self,
   ) async {
     final lines = <MessageRow>[];
     var unread = chat.unreadCount;
-    for (final m in await _store.fetchChannelMessages(chat.channelId,
+    for (final m in await store.fetchChannelMessages(chat.channelId,
         limit: 50)) {
       final event = m.contentType == kGroupEventType;
       if (unread == 0 && !event) break;

@@ -1324,7 +1324,8 @@ Example:
 - The `(user_id, username)` tombstone, forever.
 
 **What is permanently gone:**
-- The user's own local data (cleared by the client on confirm).
+- The user's own local data (the client deletes the account's
+  database file on confirm, §8.4).
 - The undelivered queue (best-effort cleanup, may briefly persist
   but is bounded by the 30-day TTL anyway, see `SYNC_PROTOCOL.md`
   §10.6).
@@ -1355,6 +1356,28 @@ gone, no one new takes it). The `user_id` tombstone is a
 defense-in-depth: even if `users.user_id` is ever rebuilt or
 restored from backup with a hole, the tombstone prevents
 re-assignment.
+
+### 8.4 The on-device store across logout and delete
+
+The server keeps no message history, so a device's chats, messages
+and contacts exist only in its local store. The client keeps one
+database file per account, named by `user_id`
+(`vartalap_v3_<user_id>.db`), and opens it only once the `user_id`
+is known: from the restored session at boot, after OTP verify, or in
+the background engine a push wake starts (which touches no store when
+no one is signed in).
+
+- **Logout** closes the account's store and keeps the file. A
+  different account signing in on the device opens its own file and
+  never sees the first one's data; signing back in with the same
+  number (same `user_id`) reopens the file with its history intact.
+- **Account delete** (§8.2) closes the store and deletes the file.
+- Builds before this kept a single `vartalap_v3.db`, wiped at logout.
+  At boot it is renamed to the restored session's file or, with no one
+  signed in, deleted.
+
+The session and profile fields in secure storage are still cleared at
+logout; the server is the profile's source on the next login.
 
 ---
 
@@ -2116,7 +2139,8 @@ PRE-CONDITION: alice_k is logged in (has set username "alice_k").
    { confirmation: "DELETE alice_k" }
    ← 200 { status: true }
 
-2. CLIENT clears flutter_secure_storage and local store.
+2. CLIENT clears flutter_secure_storage and deletes the account's
+   local store file (§8.4).
 3. CLIENT returns user to OTP signup screen.
 
 4. SERVER side-effects (in transaction):

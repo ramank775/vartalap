@@ -1526,7 +1526,15 @@ class ChatService {
   /// own-profile persistence (`AuthService`) writes secure storage and
   /// an avatar pointer is not a secret. Move it there if own-profile
   /// fields ever need to be read atomically together.
-  static const String _ownAvatarKey = 'v3.avatarUrl';
+  ///
+  /// Per account, as the database is (AUTH_CONTRACT §8.4): the next
+  /// account signing in on this phone must not wear this one's photo.
+  String get _ownAvatarKey => 'v3.avatarUrl.${_authClient.currentUserId}';
+
+  /// Before per-account databases there was one key; it was whoever
+  /// was signed in, which is who still is on the first read after the
+  /// upgrade.
+  static const String _legacyOwnAvatarKey = 'v3.avatarUrl';
 
   Future<void> _writeOwnAvatar(String value) async {
     try {
@@ -1542,7 +1550,13 @@ class ChatService {
   /// then the media-ms fileId. Null when they have never set one.
   Future<String?> ownAvatarUrl() async {
     try {
-      return (await SharedPreferences.getInstance()).getString(_ownAvatarKey);
+      final prefs = await SharedPreferences.getInstance();
+      final legacy = prefs.getString(_legacyOwnAvatarKey);
+      if (legacy != null) {
+        await prefs.setString(_ownAvatarKey, legacy);
+        await prefs.remove(_legacyOwnAvatarKey);
+      }
+      return prefs.getString(_ownAvatarKey);
     } catch (_) {
       return null;
     }

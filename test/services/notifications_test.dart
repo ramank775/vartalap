@@ -66,7 +66,7 @@ void main() {
     store = await ChatStore.open(path: inMemoryDatabasePath);
     plugin = _FakePlugin();
     notifications = MessageNotifications(
-      store: store,
+      store: () => store,
       selfUserId: () => _self,
       plugin: plugin,
       onScreen: () => onScreen,
