@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:test/test.dart';
 import 'package:vartalap_store/vartalap_store.dart';
@@ -362,6 +364,84 @@ void main() {
       expect(await store.fetchChannelMedia('c-1'), isEmpty);
     });
   });
+
+  // "Media, links and docs": one fixture, every kind of message the
+  // three tabs have to sort between.
+  group('media, docs and links tabs', () {
+    late ChatStore store;
+
+    setUp(() async {
+      store = await ChatStore.open(path: inMemoryDatabasePath);
+      await store.insertChannel(
+        channelId: 'c-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Iyer Family',
+      );
+      Future<void> seed(
+        String id,
+        String type, {
+        String body = '',
+        bool attachment = true,
+        required int sent,
+        bool tombstoned = false,
+      }) =>
+          _seedMessage(store,
+              channelId: 'c-1',
+              messageId: id,
+              body: body,
+              contentType: type,
+              attachment: attachment,
+              // Client clocks disagree with the server on purpose: the
+              // tabs must follow channel order, not the sender's clock.
+              clientTimestampMs: 1000 - sent,
+              serverTimestampMs: sent,
+              tombstoned: tombstoned);
+      await seed('m-img', 'image/jpeg', body: 'see http://x.dev/a', sent: 100);
+      await seed('m-vid', 'video/mp4', sent: 200);
+      await seed('m-pdf', 'application/pdf', sent: 300);
+      await seed('m-zip', 'application/zip', sent: 400);
+      await seed('m-voice', 'audio/mp4', sent: 500);
+      await seed('m-link', 'text/plain',
+          body: 'Tickets: https://example.com/t?id=1.', attachment: false,
+          sent: 600);
+      await seed('m-http', 'text/plain',
+          body: 'http is just a protocol', attachment: false, sent: 700);
+      await seed('m-card', 'text/vcard',
+          body: 'BEGIN:VCARD\nURL:https://asha.dev\nEND:VCARD',
+          attachment: false, sent: 800);
+      await seed('m-gone', 'text/plain',
+          body: 'https://deleted.dev', attachment: false, sent: 900,
+          tombstoned: true);
+    });
+    tearDown(() => store.close());
+
+    test('media holds photos and videos, newest by server time', () async {
+      final media = await store.fetchChannelMedia('c-1');
+      expect(media.map((m) => m.messageId), ['m-vid', 'm-img']);
+    });
+
+    test('docs leave out media and voice notes', () async {
+      final docs = await store.fetchChannelFiles('c-1');
+      expect(docs.map((m) => m.messageId), ['m-zip', 'm-pdf']);
+    });
+
+    test('links are messages and captions with an http(s) URL', () async {
+      final links = await store.fetchChannelLinks('c-1');
+      expect(
+        links.map((m) => m.messageId),
+        ['m-link', 'm-img'],
+        reason: '"http" alone is no link, a contact card is not chat, and '
+            'a deleted message is gone.',
+      );
+      expect(
+        ChatStore.linkPattern.firstMatch(links.first.body!)!.group(0),
+        'https://example.com/t?id=1',
+        reason: 'Sentence punctuation is not part of the URL.',
+      );
+    });
+  });
 }
 
 /// Insert a server-acked message directly, bypassing the optimistic
@@ -373,6 +453,8 @@ Future<void> _seedMessage(
   String? body = 'hello',
   String contentType = 'text/plain',
   int clientTimestampMs = 150,
+  int? serverTimestampMs,
+  bool attachment = false,
   bool tombstoned = false,
 }) async {
   await store.db.insert('messages', {
@@ -382,10 +464,11 @@ Future<void> _seedMessage(
     'body': body,
     'content_type': contentType,
     'reply_to_message_id': null,
-    'attachments': null,
+    // The store never decodes the blob; any bytes mark an attachment.
+    'attachments': attachment ? Uint8List(1) : null,
     'forward_source': null,
     'client_timestamp_ms': clientTimestampMs,
-    'server_timestamp_ms': clientTimestampMs + 10,
+    'server_timestamp_ms': serverTimestampMs ?? clientTimestampMs + 10,
     'message_state': MessageState.sent.wire,
     'state_updated_at': clientTimestampMs,
     'is_edited': 0,

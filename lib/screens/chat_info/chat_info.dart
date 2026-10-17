@@ -115,10 +115,12 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   void initState() {
     super.initState();
     _membersFuture = widget.chatService.fetchChannelMembers(widget.channelId);
+    // What the three tabs list, as WhatsApp counts it.
     _mediaCount = Future.wait([
       widget.chatService.fetchMedia(widget.channelId),
       widget.chatService.fetchFiles(widget.channelId),
-    ]).then((lists) => lists[0].length + lists[1].length);
+      widget.chatService.fetchLinks(widget.channelId),
+    ]).then((lists) => lists.fold<int>(0, (n, l) => n + l.length));
     _reloadChannel();
     // A rejected role change is rolled back in the store
     // (`_rollbackMemberRole`); the screen's job is to say so and show

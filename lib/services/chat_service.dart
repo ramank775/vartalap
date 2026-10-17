@@ -1179,15 +1179,20 @@ class ChatService {
   Future<ChannelListEntry?> fetchChannel(String channelId) =>
       _store.fetchChannel(channelId);
 
-  /// Image messages in [channelId], newest first. Powers "Media, links
-  /// and docs".
+  /// Photos and videos in [channelId], newest first — the "Media" tab
+  /// of "Media, links and docs".
   Future<List<MessageRow>> fetchMedia(String channelId) =>
       _store.fetchChannelMedia(channelId);
 
-  /// Non-image attachments in [channelId], newest first — the file list
-  /// under the media grid.
+  /// Documents in [channelId] (no media, no voice notes), newest first
+  /// — the "Docs" tab.
   Future<List<MessageRow>> fetchFiles(String channelId) =>
       _store.fetchChannelFiles(channelId);
+
+  /// Messages and captions in [channelId] carrying an http(s) URL,
+  /// newest first — the "Links" tab.
+  Future<List<MessageRow>> fetchLinks(String channelId) =>
+      _store.fetchChannelLinks(channelId);
 
   // --- attachments and photos — V3_RELEASE_PLAN §4.2 ---------------------
   //
