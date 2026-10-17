@@ -710,14 +710,11 @@ class ChatService {
   }
 
   /// Wipe every message in [channelId] without removing the channel
-  /// itself. The chat drops off the chat list (which filters channels
-  /// with no `last_message_id`); the channel stays reachable via the
-  /// Groups tab or contact picker, and a future inbound or outbound
-  /// message brings the chat back.
+  /// itself. The chat stays in the chat list with an empty preview
+  /// (WhatsApp's Clear chat) until the next message fills it again.
   ///
-  /// Safe for both DM and group channels. Used by:
-  ///   - `chat_info` "Clear messages" on a DM
-  ///   - chat-list multi-select "Clear messages" (any kind)
+  /// Safe for both DM and group channels. Used by "Clear history" in
+  /// chat info and in the chat-list selection bar.
   Future<void> clearMessages(String channelId) =>
       _store.clearChannelMessages(channelId);
 

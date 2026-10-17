@@ -1669,12 +1669,16 @@ class ChatStore {
 
   /// §13.1 — Chat list hot path.
   ///
-  /// Newest-first by `last_activity_ms`. JOIN (not LEFT JOIN) on
-  /// `last_message_id` so channels with no messages drop off the chat
-  /// list — they're still reachable via the Groups tab in the new-chat
-  /// picker. The chat list is "active conversations," not "all
-  /// channels." When messages arrive (or are sent), `last_message_id`
-  /// is set and the channel reappears.
+  /// Newest-first by `last_activity_ms`. A channel that has never had a
+  /// message (NULL `last_message_id`) stays off the chat list — it's
+  /// still reachable via the Groups tab in the new-chat picker. The
+  /// chat list is "active conversations," not "all channels."
+  ///
+  /// LEFT JOIN, so a chat whose history was cleared stays listed with
+  /// an empty preview (WhatsApp's Clear chat): [clearChannelMessages]
+  /// leaves its `last_message_id` dangling and the next message
+  /// re-points it. "Delete chat" hides the row through
+  /// `deleted_locally` instead.
   Future<List<ChannelListEntry>> fetchChannelList({int limit = 100}) async {
     final rows = await db.rawQuery(
       '''
@@ -1713,8 +1717,9 @@ class ChatStore {
                      WHERE o.target_channel_id = c.channel_id
                        AND o.status = 'dead_letter') AS has_failed_op
       FROM channels c
-      JOIN messages m ON m.message_id = c.last_message_id
-      WHERE c.tombstoned = 0 AND c.deleted_locally = 0
+      LEFT JOIN messages m ON m.message_id = c.last_message_id
+      WHERE c.last_message_id IS NOT NULL
+        AND c.tombstoned = 0 AND c.deleted_locally = 0
       ORDER BY c.pinned DESC, c.last_activity_ms DESC
       LIMIT ?
       ''',
@@ -1911,11 +1916,11 @@ class ChatStore {
   }
 
   /// Wipe every message row in [channelId] without touching the channel
-  /// itself or its membership. Resets `last_message_id`, `unread_count`,
-  /// and `last_read_message_id` so the chat-list query (which filters
-  /// out channels with no `last_message_id`) drops the row from the
-  /// list. The channel remains reachable via the Groups tab / contact
-  /// picker; the next inbound or outbound message reattaches it.
+  /// itself or its membership. Resets `unread_count` and
+  /// `last_read_message_id` but leaves `last_message_id` pointing at
+  /// the erased row: that keeps the chat in [fetchChannelList] with an
+  /// empty preview, instead of dropping it like a channel that never
+  /// had a message. The next message re-points it.
   Future<void> clearChannelMessages(String channelId) async {
     await db.transaction((txn) async {
       await txn.delete(
@@ -1926,7 +1931,6 @@ class ChatStore {
       await txn.update(
         'channels',
         {
-          'last_message_id': null,
           'last_read_message_id': null,
           'unread_count': 0,
         },
@@ -2024,18 +2028,19 @@ class ChatStore {
 
   /// "Delete chat" — local-only, and deliberately *not*
   /// [leaveGroupLocal]. Erases history and hides the row from the chat
-  /// list; the channel row, its membership and its place in the Groups
-  /// listing all survive, and the next message in either direction
-  /// clears `deleted_locally` and brings the chat back.
+  /// list (`deleted_locally`; a cleared chat alone stays listed); the
+  /// channel row, its membership and its place in the Groups listing
+  /// all survive, and the next message in either direction clears
+  /// `deleted_locally` and brings the chat back.
   Future<void> deleteChatLocal(String channelId) async {
-    await clearChannelMessages(channelId);
+    // Hidden first, so the clear's notify never lists it emptied.
     await db.update(
       'channels',
       {'deleted_locally': 1},
       where: 'channel_id = ?',
       whereArgs: [channelId],
     );
-    _notify(const {'channels'});
+    await clearChannelMessages(channelId);
   }
 
   /// Photos and videos in [channelId], in channel order

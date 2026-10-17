@@ -711,8 +711,7 @@ void main() {
   });
 
   group('clearChannelMessages', () {
-    test('wipes messages, drops channel from chat list, leaves channel row',
-        () async {
+    Future<ChatStore> clearedTeam() async {
       final store = await ChatStore.open(path: inMemoryDatabasePath);
       addTearDown(store.close);
 
@@ -738,36 +737,77 @@ void main() {
         where: 'channel_id = ?',
         whereArgs: ['c-1'],
       );
-
-      // Sanity: channel is on the list before clearing.
-      expect(
-        (await store.fetchChannelList()).map((e) => e.channelId),
-        ['c-1'],
-      );
-
       await store.clearChannelMessages('c-1');
+      return store;
+    }
 
-      // Chat list now empty.
-      expect(await store.fetchChannelList(), isEmpty);
+    test('wipes messages, keeps the chat listed with an empty preview',
+        () async {
+      final store = await clearedTeam();
 
-      // Messages gone.
+      // WhatsApp's Clear chat: the row stays, with nothing to preview.
+      final entry = (await store.fetchChannelList()).single;
+      expect(entry.channelId, 'c-1');
+      expect(entry.lastMessagePreview, isNull);
+      expect(entry.lastMessageAuthor, isNull);
+      expect(entry.lastMessageTombstoned, isFalse);
+      expect(entry.lastMessageHasAttachment, isFalse);
+      expect(entry.unreadCount, 0);
+
       final msgs = await store.db.query(
         'messages',
         where: 'channel_id = ?',
         whereArgs: ['c-1'],
       );
       expect(msgs, isEmpty);
-
-      // Channel row still present, last_message_id and unread cleared.
       final ch = (await store.db.query(
         'channels',
         where: 'channel_id = ?',
         whereArgs: ['c-1'],
       ))
           .single;
-      expect(ch['last_message_id'], isNull);
       expect(ch['last_read_message_id'], isNull);
       expect(ch['unread_count'], 0);
+    });
+
+    test('the next message restores the preview', () async {
+      final store = await clearedTeam();
+
+      await store.applyInboundMessage(
+        localUserId: 'u-self',
+        channelId: 'c-1',
+        opId: 'op-in-2',
+        messageId: 'm-2',
+        senderUserId: 'u-other',
+        body: 'back again',
+        contentType: 'text/plain',
+        attachments: null,
+        forwardSource: null,
+        replyToMessageId: null,
+        clientTimestampMs: 300,
+        serverTimestampMs: 310,
+        nowMs: 320,
+      );
+
+      final entry = (await store.fetchChannelList()).single;
+      expect(entry.lastMessagePreview, 'back again');
+      expect(entry.lastMessageAuthor, 'u-other');
+    });
+
+    test('a channel that never had a message stays off the list', () async {
+      final store = await clearedTeam();
+      await store.insertChannel(
+        channelId: 'c-new',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 400,
+        name: 'Fresh group',
+      );
+
+      expect(
+        (await store.fetchChannelList()).map((e) => e.channelId),
+        ['c-1'],
+      );
     });
   });
 
