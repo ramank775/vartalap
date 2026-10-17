@@ -525,11 +525,16 @@ void main() {
     /// A jump pages through frames and, past the loaded page, the store.
     /// Bare frames first: on a phone the jump reaches the end of the page
     /// before the store has the next one.
-    Future<void> jumped(WidgetTester tester) async {
+    Future<void> jumped(WidgetTester tester, String to) async {
       for (var i = 0; i < 10; i++) {
         await tester.pump();
       }
-      for (var i = 0; i < 6; i++) {
+      // Real store reads in between: wait for the landing, not a fixed
+      // count, or a loaded machine runs out of frames first.
+      bool landed() =>
+          find.textContaining(to).hitTestable().evaluate().isNotEmpty &&
+          flashed(tester, to);
+      for (var i = 0; i < 6 || (i < 40 && !landed()); i++) {
         await settle(tester);
       }
       await tester.pump(const Duration(milliseconds: 400));
@@ -601,7 +606,7 @@ void main() {
       await openSearch(tester);
       await tester.enterText(searchField, 'apple');
       await tester.testTextInput.receiveAction(TextInputAction.search);
-      await jumped(tester);
+      await jumped(tester, 'apple tart');
 
       expect(flashed(tester, 'apple tart'), isTrue);
       expect(marked(tester, 'apple tart'), ['apple']);
@@ -611,12 +616,12 @@ void main() {
       expect(enabled(tester, up), isTrue);
 
       await tester.tap(up);
-      await jumped(tester);
+      await jumped(tester, 'APPLE pie');
       expect(flashed(tester, 'APPLE pie'), isTrue);
       expect(enabled(tester, down), isTrue);
 
       await tester.tap(up);
-      await jumped(tester);
+      await jumped(tester, 'an apple a day');
       expect(find.textContaining('an apple a day').hitTestable(),
           findsOneWidget,
           reason: 'Jumping grows the window to a hit outside it.');
@@ -625,10 +630,10 @@ void main() {
           reason: 'Three hits: the card does not count.');
 
       await tester.tap(down);
-      await jumped(tester);
+      await jumped(tester, 'APPLE pie');
       expect(find.textContaining('APPLE pie').hitTestable(), findsOneWidget);
       await tester.tap(down);
-      await jumped(tester);
+      await jumped(tester, 'apple tart');
       expect(flashed(tester, 'apple tart'), isTrue);
       expect(enabled(tester, down), isFalse);
 

@@ -696,7 +696,6 @@ void main() {
         'elapse sends MESSAGE_DELETE', () async {
       h.peerInbox();
       final undone = await h.sendAndSettle(dmChannel, 'deleted then undone');
-      final opsBefore = await h.opCount();
 
       await h.chat.deleteMessage(messageId: undone!.messageId);
       expect(
@@ -709,9 +708,12 @@ void main() {
       final restored = await h.store.fetchMessage(undone.messageId);
       expect(restored?.tombstoned, isFalse);
       expect(restored?.body, 'deleted then undone');
+      // Not a total count: an unrelated op (a receipt) may drain meanwhile.
       expect(
-        await h.opCount(),
-        opsBefore,
+        await h.store.db.rawQuery(
+            'SELECT 1 FROM outbound_ops WHERE kind = ?',
+            [OpKind.messageDelete]),
+        isEmpty,
         reason: 'Decision 11: an Undo inside the 5s window must enqueue no '
             'outbound op at all.',
       );
@@ -735,6 +737,13 @@ void main() {
         isTrue,
         reason: 'Decision 11: once the window elapses the tombstone is '
             'queued for sync and the peer tombstones its copy too.',
+      );
+      expect(
+        h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+            messageId: undone.messageId),
+        isFalse,
+        reason: 'delivery is in order, so an undone delete would have '
+            'reached the peer before this one.',
       );
       // The ACK clears the body — the deleted content does not linger.
       await h.waitForAsync(() async =>
@@ -1510,7 +1519,10 @@ void main() {
       h.mock.state.channels[channelId]!.admins.add(extraMemberId);
       h.mock.addChannelMember(channelId, selfId, actorUserId: extraMemberId);
 
-      await h.waitForAsync(() async => (await h.channelRow(channelId)) != null);
+      // The channel row lands before its members (separate writes), so
+      // wait on the roster, not the row.
+      await h.waitForAsync(() async =>
+          (await h.store.fetchChannelMembers(channelId)).length == 3);
       expect(
         h.mock.requests
             .any((r) => r.method == 'GET' && r.path == '/v3.0/channels/$channelId'),
@@ -1852,11 +1864,6 @@ class _Harness {
     return rows
         .map((r) => '${r['user_id']}:${r['emoji']}')
         .toList();
-  }
-
-  Future<int> opCount() async {
-    final r = await store.db.rawQuery('SELECT COUNT(*) c FROM outbound_ops');
-    return (r.single['c'] as int?) ?? 0;
   }
 
   List<RecordedRequest> channelPosts(String channelId) => mock.requests
