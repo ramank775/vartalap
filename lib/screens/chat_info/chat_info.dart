@@ -387,7 +387,8 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   }
 
   /// The group's name now — a rename here or from someone else.
-  String get _name => _channel?.name ?? widget.channelName;
+  /// A DM's resolved name (§2.4), the same one the chat list shows.
+  String get _name => _channel?.title ?? widget.channelName;
 
   Future<void> _rename() async {
     final name = await showDialog<String>(

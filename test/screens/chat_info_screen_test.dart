@@ -299,6 +299,31 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('a DM is titled by the resolved name, not the stored one',
+      (tester) async {
+    final dm = ChannelListEntry(
+      channelId: _channelId,
+      kind: 'one_to_one',
+      name: '@dev_test_2',
+      avatarUrl: null,
+      lastActivityMs: 1000,
+      unreadCount: 0,
+      lastMessagePreview: null,
+      lastMessageAuthor: null,
+      lastMessageTombstoned: false,
+      peerContact: const ContactRow(
+        userId: 'u-peer',
+        username: 'dev_test_2',
+        contactBookName: 'Dev_Two',
+        lastRefreshedMs: 1,
+      ),
+    );
+    await _pumpInfo(tester, _FakeChatService(channel: dm),
+        kind: 'one_to_one', name: '@dev_test_2');
+
+    expect(find.text('Dev_Two'), findsOneWidget);
+  });
 }
 
 const String _channelId = 'c-1';
@@ -391,8 +416,10 @@ class _FakeChatService implements ChatService {
   final List<MessageRow> files;
   final List<ChannelMemberRow> members;
   int? mutedUntilMs;
+  final ChannelListEntry? channel;
 
   _FakeChatService({
+    this.channel,
     this.media = const [],
     this.files = const [],
     this.members = const [],
@@ -429,6 +456,7 @@ class _FakeChatService implements ChatService {
 
   @override
   Future<ChannelListEntry?> fetchChannel(String channelId) async =>
+      channel ??
       ChannelListEntry(
         channelId: channelId,
         kind: 'group',
