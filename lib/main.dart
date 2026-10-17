@@ -33,6 +33,7 @@ import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -51,8 +52,8 @@ void main(List<String> args) async {
   if (picker is ImagePickerAndroid) picker.useAndroidPhotoPicker = true;
   // A distributor starts this entrypoint in a background engine to
   // deliver a wake (`unifiedpush` README). Everything the wake needs —
-  // pull `/sync/pending`, reconnect the WS, post the local notification
-  // — is wired by initializeApp; there is no UI to run, so we stop short
+  // pull `/sync/pending`, reconnect the WS, post the notifications — is
+  // wired by initializeApp; there is no UI to run, so we stop short
   // of runApp and let the callback fire.
   final background = args.contains('--unifiedpush-bg');
   final services = await initializeApp(background: background);
@@ -88,6 +89,7 @@ class AppServices {
   final WsTransport wsTransport;
   final RestTransport restTransport;
   final PushService pushService;
+  final MessageNotifications notifications;
   final bool consentAccepted;
 
   /// False until the user has answered the push chooser once (decision
@@ -111,6 +113,7 @@ class AppServices {
     required this.wsTransport,
     required this.restTransport,
     required this.pushService,
+    required this.notifications,
     required this.consentAccepted,
     required this.pushPromptSeen,
     this.inboundReceiver,
@@ -121,14 +124,16 @@ class AppServices {
   /// receiver to apply them, and then release the WS post-connect
   /// buffer (live frames captured during the window flush in arrival
   /// order). Safe to call many times — `InboundReceiver` dedups by
-  /// op_id; [WsTransport.endSyncBuffer] is idempotent.
-  Future<void> pullPendingSync() async {
+  /// op_id; [WsTransport.endSyncBuffer] is idempotent. Returns how many
+  /// frames the server handed over.
+  Future<int> pullPendingSync() async {
     try {
       final envelopes = await restTransport.pullPendingSync();
       for (final env in envelopes) {
         wsTransport.injectPush(env);
       }
       await inboundReceiver?.drainPending();
+      return envelopes.length;
     } finally {
       wsTransport.endSyncBuffer();
     }
@@ -146,6 +151,7 @@ class AppServices {
     inboundReceiver = null;
     chatService.bindTypingSource(null);
     chatService.bindDeliverySource(null);
+    notifications.bindSource(null);
     if (prev != null) {
       await prev.stop();
     }
@@ -165,6 +171,9 @@ class AppServices {
     if (adoptGroups) unawaited(_adoptServerGroups(authClient, next));
     chatService.bindTypingSource(next.typingEvents);
     chatService.bindDeliverySource(next.peerMessagesStored);
+    // Every inbound message, WS or pull, lands here: off screen it
+    // notifies (the WS stays up while the app is in the background).
+    notifications.bindSource(next.peerMessagesStored);
   }
 }
 
@@ -244,7 +253,17 @@ Future<AppServices> initializeApp({bool background = false}) async {
     clock: Clock.system,
   );
 
-  final pushService = PushService(authClient: authClient);
+  final notifications = MessageNotifications(
+    store: store,
+    selfUserId: () => authClient.currentUserId,
+  );
+  await notifications.init();
+  chatService.onRead = notifications.cancelChat;
+
+  final pushService = PushService(
+    authClient: authClient,
+    notifyWake: notifications.afterWake,
+  );
 
   final services = AppServices(
     store: store,
@@ -255,6 +274,7 @@ Future<AppServices> initializeApp({bool background = false}) async {
     wsTransport: wsTransport,
     restTransport: restTransport,
     pushService: pushService,
+    notifications: notifications,
     consentAccepted: consentAccepted,
     pushPromptSeen: prefs.getBool(kPushPromptSeenKey) ?? false,
   );
@@ -263,10 +283,13 @@ Future<AppServices> initializeApp({bool background = false}) async {
   // the follow-up: WS back up, then drain whatever was queued.
   pushService.onWake = () async {
     await wsTransport.start();
-    await services.pullPendingSync();
+    return services.pullPendingSync();
   };
   // AUTH_CONTRACT §5.1 — deregister while the accesskey still works.
-  authService.onBeforeLogout = pushService.deregister;
+  authService.onBeforeLogout = () async {
+    await notifications.cancelAll();
+    await pushService.deregister();
+  };
   try {
     await pushService.start(reconcile: !background);
   } catch (e) {
@@ -374,6 +397,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// in user with a handle: opened from the camera, a browser or chat.
   String? _pendingLink;
 
+  /// The chat a tapped notification asked for, waiting like
+  /// [_pendingLink] for a signed in user with a handle.
+  String? _pendingChat;
+
   @override
   void initState() {
     super.initState();
@@ -383,10 +410,23 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     if (parseUsernameLink(initial) != null) _pendingLink = initial;
     _consentAccepted = widget.services.consentAccepted;
     _pushPromptSeen = widget.services.pushPromptSeen;
-    // The wake is content-free, so a tap can only mean "show me the
-    // app" — the chat list is the root route.
-    widget.services.pushService.onNotificationTap =
-        () => _navKey.currentState?.popUntil((route) => route.isFirst);
+    // A chat's notification opens that chat; "New activity" and the
+    // summary name none, so they surface the chat list (the root route).
+    final notifications = widget.services.notifications;
+    notifications.onTap = (channelId) {
+      if (channelId == null) {
+        _navKey.currentState?.popUntil((route) => route.isFirst);
+      } else {
+        setState(() => _pendingChat = channelId);
+      }
+    };
+    // Cold start: the plugin keeps the tap that launched us.
+    unawaited(notifications.launchChannel().then((channelId) {
+      if (channelId != null && mounted) {
+        setState(() => _pendingChat = channelId);
+      }
+    }));
+    unawaited(notifications.cancelWake());
     _isLogin = widget.services.authService.isLoggedIn;
     _username = widget.services.authService.username;
     _usernameSub = widget.services.authService.usernameChange.listen((u) {
@@ -482,6 +522,34 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     ));
   }
 
+  Future<void> _openPendingChat() async {
+    final channelId = _pendingChat;
+    if (channelId == null || !_isLogin || _username == null) return;
+    _pendingChat = null;
+    final chat = await widget.services.chatService.fetchChannel(channelId);
+    final navigator = _navKey.currentState;
+    if (chat == null || navigator == null) return;
+    navigator.popUntil((route) => route.isFirst);
+    unawaited(navigator.push(MaterialPageRoute<void>(
+      builder: (_) => ChatScreen(
+        channelId: chat.channelId,
+        channelName: chat.title,
+        channelKind: chat.kind,
+        chatService: widget.services.chatService,
+        authService: widget.services.authService,
+      ),
+    )));
+  }
+
+  /// Back on screen: the generic "New activity" has said its piece.
+  /// Chat notifications stay until their chat is read.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(widget.services.notifications.cancelWake());
+    }
+  }
+
   Future<void> _refreshAuthOnDemand() async {
     if (!widget.services.authService.isLoggedIn) return;
     final ok = await widget.services.authService.refreshSession();
@@ -540,6 +608,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     if (_pendingLink != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingLink());
+    }
+    if (_pendingChat != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingChat());
     }
     return AppServicesProvider(
         services: widget.services,

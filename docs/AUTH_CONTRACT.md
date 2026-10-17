@@ -815,7 +815,10 @@ The plaintext is wake-only, never message content:
 { "t": "wake" }
 ```
 The client treats any decrypted message as "pull now"
-(`SYNC_PROTOCOL.md` §12); it ignores the body beyond that.
+(`SYNC_PROTOCOL.md` §12); it ignores the body beyond that. What the
+user sees is rendered on the phone from the local store once the pull
+has landed (§12.1 there), per-chat mute included, so the server never
+needs to know which chats are muted.
 
 ### 5.0 `GET /v3.0/push/vapid`
 

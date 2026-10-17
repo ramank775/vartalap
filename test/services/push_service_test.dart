@@ -294,39 +294,44 @@ void main() {
           isNull);
     });
 
-    test('a wake pulls and then notifies — in that order', () async {
+    test('a wake pulls, then hands the notifications what it pulled',
+        () async {
       final f = _Fixture(distributors: const [_ntfy]);
       final order = <String>[];
-      f.service.onWake = () async => order.add('wake');
+      f.service.onWake = () async {
+        order.add('wake');
+        return 3;
+      };
       f.notified = () async => order.add('notify');
       await f.service.start();
 
       await f.push.emitMessage();
 
       expect(order, ['wake', 'notify']);
+      expect(f.wakes, [3]);
     });
 
-    test('a pull that hangs still notifies once the budget runs out',
-        () async {
+    test('a pull that hangs still notifies once the budget runs out, '
+        'as a failed pull', () async {
       final f = _Fixture(distributors: const [_ntfy]);
-      f.service.onWake = () => Completer<void>().future; // never completes
+      f.service.onWake = () => Completer<int>().future; // never completes
       f.service.wakeBudget = const Duration(milliseconds: 50);
       await f.service.start();
 
       await f.push.emitMessage();
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      expect(f.notifyCount, 1);
+      expect(f.wakes, [null]);
     });
 
-    test('a failing pull still notifies', () async {
+    test('a failing pull still notifies, as a failed pull', () async {
       final f = _Fixture(distributors: const [_ntfy]);
       f.service.onWake = () async => throw StateError('offline');
       await f.service.start();
 
       await f.push.emitMessage();
 
-      expect(f.notifyCount, 1);
+      expect(f.wakes, [null]);
     });
   });
 }
@@ -337,7 +342,8 @@ class _Fixture {
   final InMemorySecureStorage storage = InMemorySecureStorage();
   late PushService service;
 
-  int notifyCount = 0;
+  /// What each wake handed the notifications: frames pulled, or null.
+  final List<int?> wakes = [];
   int permissionRequests = 0;
   Future<void> Function()? notified;
 
@@ -354,8 +360,8 @@ class _Fixture {
         authClient: client,
         unifiedPush: push,
         storage: storage,
-        notifyWake: () async {
-          notifyCount++;
+        notifyWake: (pulled) async {
+          wakes.add(pulled);
           await notified?.call();
         },
         requestPermission: () async => permissionRequests++,

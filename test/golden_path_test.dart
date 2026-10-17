@@ -1273,7 +1273,6 @@ void main() {
         authClient: h.authClient,
         unifiedPush: distributor,
         storage: storage,
-        notifyWake: () async {},
         requestPermission: () async {},
       );
       await push.start();
@@ -1312,7 +1311,6 @@ void main() {
         authClient: h.authClient,
         unifiedPush: FakeUnifiedPush(distributors: const [_ntfy]),
         storage: storage,
-        notifyWake: () async {},
         requestPermission: () async {},
       );
       await restarted.start();
