@@ -158,6 +158,7 @@ void main() {
 
     // Dialog visible.
     expect(find.text('Log out?'), findsOneWidget);
+    expect(find.textContaining("can't be recovered"), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
 
     // Confirm.
