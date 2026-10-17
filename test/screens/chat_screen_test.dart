@@ -489,6 +489,167 @@ void main() {
       reason: 'Whitespace sends nothing, so it is still a mic.',
     );
   });
+
+  group('in-chat search', () {
+    final searchField = find.descendant(
+        of: find.byType(AppBar), matching: find.byType(EditableText));
+    final up = find.widgetWithIcon(IconButton, Icons.keyboard_arrow_up);
+    final down = find.widgetWithIcon(IconButton, Icons.keyboard_arrow_down);
+    bool enabled(WidgetTester tester, Finder button) =>
+        tester.widget<IconButton>(button).onPressed != null;
+
+    /// The marked runs inside [body]'s bubble.
+    List<String> marked(WidgetTester tester, String body) {
+      final out = <String>[];
+      tester.widget<Text>(find.textContaining(body)).textSpan!.visitChildren(
+        (s) {
+          if (s is TextSpan && s.style?.backgroundColor != null) {
+            out.add(s.text!);
+          }
+          return true;
+        },
+      );
+      return out;
+    }
+
+    /// The current hit flashes its row.
+    bool flashed(WidgetTester tester, String body) {
+      final row = tester.widget<AnimatedContainer>(find
+          .ancestor(
+              of: find.textContaining(body),
+              matching: find.byType(AnimatedContainer))
+          .first);
+      return (row.decoration as BoxDecoration?)?.color != Colors.transparent;
+    }
+
+    /// A jump pages through frames and, past the loaded page, the store.
+    /// Bare frames first: on a phone the jump reaches the end of the page
+    /// before the store has the next one.
+    Future<void> jumped(WidgetTester tester) async {
+      for (var i = 0; i < 10; i++) {
+        await tester.pump();
+      }
+      for (var i = 0; i < 6; i++) {
+        await settle(tester);
+      }
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    Future<void> openSearch(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Search in conversation'));
+      await tester.pump();
+    }
+
+    testWidgets('the search icon turns the app bar into a search field; '
+        'back brings the bar back and leaves the composer alone',
+        (tester) async {
+      await pumpChat(tester);
+      await tester.tap(find.byType(TextField)); // the composer
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+
+      await openSearch(tester);
+      expect(find.text('Search…'), findsOneWidget);
+      expect(find.byTooltip('Search in conversation'), findsNothing);
+      expect(up, findsOneWidget);
+      expect(down, findsOneWidget);
+      expect(tester.widget<EditableText>(searchField).focusNode.hasFocus,
+          isTrue);
+      expect(find.textContaining('their message'), findsOneWidget,
+          reason: 'The chat stays underneath.');
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pump();
+      expect(find.byTooltip('Search in conversation'), findsOneWidget);
+      expect(find.text('Search…'), findsNothing);
+      expect(
+        tester.widget<EditableText>(find.byType(EditableText)).focusNode
+            .hasFocus,
+        isFalse,
+        reason: 'Focus must not fall back to the composer: that pops the '
+            'keyboard on the way out of search.',
+      );
+      expect(tester.testTextInput.isVisible, isFalse);
+
+      // System back leaves search too, not the chat.
+      await openSearch(tester);
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.byTooltip('Search in conversation'), findsOneWidget);
+      expect(find.text('Search…'), findsNothing);
+    });
+
+    testWidgets('a search jumps to the newest hit and marks every hit; the '
+        'arrows walk older and newer, past the loaded page, and stop at '
+        'the ends', (tester) async {
+      await pumpChat(tester);
+      await tester.runAsync(() async {
+        await _insert(store, 'm-a1', peerUserId, 'an apple a day', 3);
+        // More than a page between the oldest hit and the rest.
+        for (var i = 4; i < 64; i++) {
+          await _insert(store, 'm-f$i', peerUserId, 'filler $i', i);
+        }
+        // A card's body is not its words.
+        await _insert(store, 'm-card', peerUserId,
+            'BEGIN:VCARD\nVERSION:3.0\nFN:Apple Seed\nEND:VCARD', 64,
+            contentType: 'text/vcard');
+        await _insert(store, 'm-a2', localUserId, 'APPLE pie', 65);
+        await _insert(store, 'm-a3', peerUserId, 'apple tart', 66);
+      });
+      await settle(tester);
+
+      await openSearch(tester);
+      await tester.enterText(searchField, 'apple');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await jumped(tester);
+
+      expect(flashed(tester, 'apple tart'), isTrue);
+      expect(marked(tester, 'apple tart'), ['apple']);
+      expect(marked(tester, 'APPLE pie'), ['APPLE']);
+      expect(marked(tester, 'filler 63'), isEmpty);
+      expect(enabled(tester, down), isFalse);
+      expect(enabled(tester, up), isTrue);
+
+      await tester.tap(up);
+      await jumped(tester);
+      expect(flashed(tester, 'APPLE pie'), isTrue);
+      expect(enabled(tester, down), isTrue);
+
+      await tester.tap(up);
+      await jumped(tester);
+      expect(find.textContaining('an apple a day').hitTestable(),
+          findsOneWidget,
+          reason: 'Jumping grows the window to a hit outside it.');
+      expect(flashed(tester, 'an apple a day'), isTrue);
+      expect(enabled(tester, up), isFalse,
+          reason: 'Three hits: the card does not count.');
+
+      await tester.tap(down);
+      await jumped(tester);
+      expect(find.textContaining('APPLE pie').hitTestable(), findsOneWidget);
+      await tester.tap(down);
+      await jumped(tester);
+      expect(flashed(tester, 'apple tart'), isTrue);
+      expect(enabled(tester, down), isFalse);
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pump();
+      expect(marked(tester, 'apple tart'), isEmpty);
+      expect(flashed(tester, 'apple tart'), isFalse);
+    });
+
+    testWidgets('typing a query with no hit says so', (tester) async {
+      await pumpChat(tester);
+      await openSearch(tester);
+      await tester.enterText(searchField, 'zebra');
+      await tester.pump(const Duration(milliseconds: 400)); // the debounce
+      await settle(tester);
+
+      expect(find.text('No results found'), findsOneWidget);
+      expect(enabled(tester, up), isFalse);
+      expect(enabled(tester, down), isFalse);
+    });
+  });
 }
 
 Future<void> _insertWithAttachment(
@@ -535,8 +696,9 @@ Future<void> _insert(
   String messageId,
   String authorUserId,
   String body,
-  int seq,
-) =>
+  int seq, {
+  String contentType = 'text/plain',
+}) =>
     store.applyInboundMessage(
       localUserId: localUserId,
       channelId: channelId,
@@ -544,7 +706,7 @@ Future<void> _insert(
       messageId: messageId,
       senderUserId: authorUserId,
       body: body,
-      contentType: 'text/plain',
+      contentType: contentType,
       attachments: null,
       forwardSource: null,
       replyToMessageId: null,
