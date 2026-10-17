@@ -195,12 +195,13 @@ void main() {
     expect(messagePreview('for you', 'audio/ogg', attachment: true), '🎤 for you');
   });
 
-  testWidgets('the media screen grids images and lists documents below',
+  testWidgets('the media screen grids images and lists documents under Docs',
       (tester) async {
     await boot(tester);
     await tester.runAsync(() async {
       await _inbound(store, 'm-img', 'image/png', 'shot.png', 1);
       await _inbound(store, 'm-doc', 'application/pdf', 'accounts.pdf', 2);
+      await _inbound(store, 'm-voice', 'audio/mp4', 'voice-1.m4a', 3);
     });
     AssetCache.instance = FakeAssetCache({'shot.png': onePixelPng});
 
@@ -219,14 +220,22 @@ void main() {
       reason: 'One image attachment → one thumbnail tile.',
     );
     expect(find.byType(Image), findsOneWidget);
+    expect(find.text('accounts.pdf'), findsNothing);
+
+    await tester.tap(find.text('Docs'));
+    await tester.pumpAndSettle();
+    await settle(tester);
     expect(
       find.text('accounts.pdf'),
       findsOneWidget,
-      reason: 'Non-image attachments are listed under Documents, not in '
-          'the grid.',
+      reason: 'Non-image attachments are listed under Docs, not in the '
+          'grid.',
     );
-    expect(find.text('Documents'), findsOneWidget);
-    expect(find.text('Nothing shared yet'), findsNothing);
+    expect(
+      find.text('voice-1.m4a'),
+      findsNothing,
+      reason: 'A voice note is not a document.',
+    );
   });
 }
 

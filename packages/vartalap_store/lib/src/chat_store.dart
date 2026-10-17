@@ -2038,10 +2038,8 @@ class ChatStore {
     _notify(const {'channels'});
   }
 
-  /// Image-bearing messages in [channelId], newest first. Powers the
-  /// "Media, links and docs" screen. Attachment blobs land with the
-  /// attachment work; the query is real now, so the screen fills
-  /// itself the moment image messages exist.
+  /// Photos and videos in [channelId], in channel order
+  /// ([_newestFirst]) — the "Media" tab of "Media, links and docs".
   Future<List<MessageRow>> fetchChannelMedia(
     String channelId, {
     int limit = 200,
@@ -2049,17 +2047,17 @@ class ChatStore {
     final rows = await db.query(
       'messages',
       where: "channel_id = ? AND tombstoned = 0 "
-          "AND content_type LIKE 'image/%'",
+          "AND (content_type LIKE 'image/%' OR content_type LIKE 'video/%')",
       whereArgs: [channelId],
-      orderBy: 'client_timestamp_ms DESC',
+      orderBy: _newestFirst,
       limit: limit,
     );
     return rows.map(_rowToMessage).toList();
   }
 
-  /// Non-image attachments in [channelId], newest first — the file
-  /// list under the media grid. Mirror image of [fetchChannelMedia];
-  /// a message with no attachment blob is neither.
+  /// Documents in [channelId], in channel order — the "Docs" tab: any
+  /// attachment that is neither media nor a voice note. The app sends
+  /// and renders every `audio/*` as a voice note, so audio is left out.
   Future<List<MessageRow>> fetchChannelFiles(
     String channelId, {
     int limit = 200,
@@ -2067,12 +2065,48 @@ class ChatStore {
     final rows = await db.query(
       'messages',
       where: "channel_id = ? AND tombstoned = 0 AND attachments IS NOT NULL "
-          "AND (content_type IS NULL OR content_type NOT LIKE 'image/%')",
+          "AND (content_type IS NULL OR (content_type NOT LIKE 'image/%' "
+          "AND content_type NOT LIKE 'video/%' "
+          "AND content_type NOT LIKE 'audio/%'))",
       whereArgs: [channelId],
-      orderBy: 'client_timestamp_ms DESC',
+      orderBy: _newestFirst,
       limit: limit,
     );
     return rows.map(_rowToMessage).toList();
+  }
+
+  /// An http(s) URL in message text, less trailing punctuation: `see
+  /// https://x.dev.` links `https://x.dev`.
+  static final RegExp linkPattern = RegExp(
+    r'''https?://[^\s<>"']*[^\s<>"'.,;:!?)\]]''',
+    caseSensitive: false,
+  );
+
+  /// Text messages and captions in [channelId] that carry an http(s)
+  /// URL, in channel order — the "Links" tab. SQL only prefilters on
+  /// `http`; [linkPattern] decides. Contact, location and event bodies
+  /// are structured text rather than chat, so only plain text counts.
+  ///
+  /// ponytail: [limit] caps the candidates, so a chat full of "http"
+  /// bodies with no real link can return fewer; filter in SQL (a
+  /// REGEXP function) if that ever shows.
+  Future<List<MessageRow>> fetchChannelLinks(
+    String channelId, {
+    int limit = 200,
+  }) async {
+    final rows = await db.query(
+      'messages',
+      where: "channel_id = ? AND tombstoned = 0 AND body LIKE '%http%' "
+          "AND (attachments IS NOT NULL "
+          "OR COALESCE(content_type, 'text/plain') = 'text/plain')",
+      whereArgs: [channelId],
+      orderBy: _newestFirst,
+      limit: limit,
+    );
+    return rows
+        .map(_rowToMessage)
+        .where((m) => linkPattern.hasMatch(m.body ?? ''))
+        .toList();
   }
 
   /// Replace a message's `attachments` BLOB in place — used once an
