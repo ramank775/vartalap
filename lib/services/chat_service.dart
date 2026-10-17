@@ -416,8 +416,12 @@ class ChatService {
   /// the op enqueue fails the local read marker still moves.
   Future<void> markRead(String channelId) async {
     await _store.markChannelRead(channelId, _clock.nowMs());
+    onRead?.call(channelId);
     await _enqueueReceipt(channelId, pb.ChatPayloadType.TYPE_READ_RECEIPT);
   }
+
+  /// Set by `main.dart`: a chat was read, so its notification goes.
+  void Function(String channelId)? onRead;
 
   /// Enqueues a read or delivery receipt naming the newest peer message
   /// in [channelId]; no-op when logged out or there is none.
@@ -1158,9 +1162,10 @@ class ChatService {
   /// Mute [channelId] until [untilMs] (epoch ms). `null` unmutes;
   /// [kMuteAlways] is the sheet's "Always" option.
   ///
-  /// Gating the ntfy wake on this value is server-side work
-  /// (V3_RELEASE_PLAN open item 13); today the flag only drives the
-  /// outline unread badge and the group-info mute bar.
+  /// The wake stays content-free and ungated; the phone skips muted
+  /// chats when it builds notifications from the store
+  /// (`MessageNotifications`). Also drives the outline unread badge and
+  /// the group-info mute bar.
   Future<void> setMuted(String channelId, int? untilMs) =>
       _store.setChannelMuted(channelId, untilMs);
 

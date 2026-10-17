@@ -1266,8 +1266,14 @@ registered Web Push endpoint (AUTH_CONTRACT §5):
 - Plaintext `{"t":"wake"}`, encrypted to the device (RFC 8291) and
   signed with the server's VAPID key (RFC 8292). MUST NOT contain
   message content.
-- The client shows its own generic notification ("New activity");
-  the push itself carries no title or text.
+- The push itself carries no title or text. The client pulls, then
+  renders its notifications on the phone from the local store: one per
+  chat with unread messages from others, worded like the chat list,
+  skipping chats the user muted (mute is device-local, so only the
+  client can apply it). A generic "New activity" is kept only for a
+  wake whose pull failed or brought nothing the client can show; a
+  wake that brought only receipts, the user's own echoes or muted
+  chats shows nothing. Nothing is shown while the app is on screen.
 
 Rationale: the push service (ntfy, FCM, …) only relays; even
 encrypted, a wake-only payload means a compromised or curious push

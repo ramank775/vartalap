@@ -7,8 +7,9 @@
 /// device's keys and signs with its VAPID key (AUTH_CONTRACT §5); the
 /// connector decrypts. The plaintext is a content-free wake
 /// (SYNC_PROTOCOL.md §12.1), so everything this service can do on a
-/// message is: pull `/sync/pending`, nudge the WS back up, and — if the
-/// app is not on screen — post a local "New activity" notification.
+/// message is: pull `/sync/pending`, nudge the WS back up, and hand the
+/// result to `MessageNotifications.afterWake`, which renders whatever
+/// landed from the local store.
 ///
 /// Endpoint lifecycle:
 ///   `GET /v3.0/push/vapid` → register with the chosen distributor →
@@ -21,9 +22,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -41,8 +40,6 @@ const String kPushChoiceGoogle = 'google';
 
 /// "Not now": messages arrive only while the app is open.
 const String kPushChoiceNone = 'none';
-
-const int _wakeNotificationId = 1;
 
 /// Which push method to use, or null when the user has to be asked.
 ///
@@ -208,20 +205,16 @@ class PushService {
   final AuthClient _authClient;
   final UnifiedPushApi _push;
   final FlutterSecureStorage _storage;
-  final Future<void> Function()? _notifyOverride;
+
+  /// What to post once a wake's pull is done ([pulled] is null when it
+  /// failed or ran out of time): `MessageNotifications.afterWake`.
+  final Future<void> Function(int? pulled)? _notifyWake;
   final Future<void> Function()? _requestPermission;
-  final FlutterLocalNotificationsPlugin _notifications =
-      FlutterLocalNotificationsPlugin();
 
-  /// Set by `main.dart`: pull `/sync/pending` and nudge the WS. Not a
-  /// constructor arg because the service graph it needs is built after
-  /// this service.
-  Future<void> Function()? onWake;
-
-  /// Set by `main.dart`: what tapping the local notification does. The
-  /// wake carries no content, so there is nothing to deep-link to — the
-  /// best we can do is surface the chat list.
-  VoidCallback? onNotificationTap;
+  /// Set by `main.dart`: pull `/sync/pending` and nudge the WS; returns
+  /// how many frames the pull handed over. Not a constructor arg
+  /// because the service graph it needs is built after this service.
+  Future<int> Function()? onWake;
 
   final ValueNotifier<PushState> state =
       ValueNotifier<PushState>(PushState.unknown);
@@ -242,12 +235,12 @@ class PushService {
     required AuthClient authClient,
     UnifiedPushApi? unifiedPush,
     FlutterSecureStorage? storage,
-    Future<void> Function()? notifyWake,
+    Future<void> Function(int? pulled)? notifyWake,
     Future<void> Function()? requestPermission,
   })  : _authClient = authClient,
         _push = unifiedPush ?? const PluginUnifiedPush(),
         _storage = storage ?? const FlutterSecureStorage(),
-        _notifyOverride = notifyWake,
+        _notifyWake = notifyWake,
         _requestPermission = requestPermission;
 
   /// Wire the distributor callbacks and, unless [reconcile] is false,
@@ -264,10 +257,6 @@ class PushService {
       onMessage: _onMessage,
       onRegistrationFailed: _onRegistrationFailed,
     );
-    if (_notifyOverride == null) {
-      // Registers the tap handler; harmless if it is never shown.
-      await _initNotifications();
-    }
     if (reconcile) await refresh();
   }
 
@@ -410,23 +399,23 @@ class PushService {
     state.value = PushState.failed;
   }
 
-  /// A wake is content-free: pull whatever the server queued, get the
-  /// WS back up, and tell the user something happened if they are not
-  /// already looking at the app.
-  /// How long a wake may spend pulling before the notification goes up.
+  /// How long a wake may spend pulling before the notifications go up.
   @visibleForTesting
   Duration wakeBudget = const Duration(seconds: 5);
 
+  /// A wake is content-free: pull whatever the server queued, get the
+  /// WS back up, and let the notifications say what landed.
   Future<void> _onMessage() async {
     // Android freezes a background app a few seconds after the push wakes
-    // it, so the pull gets a short budget and the notification always
-    // follows: an unreachable server must not swallow the "you have mail".
+    // it, so the pull gets a short budget and the notifications always
+    // follow: an unreachable server must not swallow the "you have mail".
+    int? pulled;
     try {
-      await onWake?.call().timeout(wakeBudget);
+      pulled = await onWake?.call().timeout(wakeBudget);
     } catch (e) {
       debugPrint('Push wake pull failed: $e');
     }
-    await (_notifyOverride ?? _showWakeNotification)();
+    await _notifyWake?.call(pulled);
   }
 
   // ---- server registration ---------------------------------------------
@@ -491,55 +480,6 @@ class PushService {
       // A pre-Web-Push install stored the bare URL: no keys, so it is
       // useless — the next registration brings a full one.
       return null;
-    }
-  }
-
-  // ---- local notification ----------------------------------------------
-
-  Future<void> _initNotifications() async {
-    try {
-      await _notifications.initialize(
-        settings: const InitializationSettings(
-          // A white silhouette: Android draws the small icon as a mask, so
-          // the full-colour launcher icon came out as a white square.
-          android: AndroidInitializationSettings('@drawable/ic_stat_vartalap'),
-        ),
-        onDidReceiveNotificationResponse: (_) => onNotificationTap?.call(),
-      );
-    } catch (e) {
-      debugPrint('Local notifications init failed: $e');
-    }
-  }
-
-  Future<void> _showWakeNotification() async {
-    // On screen → the chat list already repainted off the pull.
-    // `lifecycleState` is null in the background isolate a distributor
-    // starts, which is exactly when we do want the notification.
-    if (SchedulerBinding.instance.lifecycleState ==
-        AppLifecycleState.resumed) {
-      return;
-    }
-    await _initNotifications();
-    try {
-      await _notifications.show(
-        id: _wakeNotificationId,
-        // SYNC_PROTOCOL §12.1 — the wake carries no content, so neither
-        // can this. Per-channel mute cannot be honoured for the same
-        // reason: we do not know which channel woke us until the pull
-        // has already landed, and the pull is not per-channel.
-        title: 'Vartalap',
-        body: 'New activity',
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'wake',
-            'New activity',
-            channelDescription:
-                'Tells you something arrived while Vartalap was closed.',
-          ),
-        ),
-      );
-    } catch (e) {
-      debugPrint('Wake notification failed: $e');
     }
   }
 

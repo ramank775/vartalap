@@ -802,7 +802,11 @@ open questions remain.
 12. ~~**Undelivered-queue TTL on chat-server.**~~ **Resolved: 30
     days rolling per user, 10,000 frames cap, drop-oldest on
     overflow. See `docs/SYNC_PROTOCOL.md` §11.2.**
-13. **Per-channel mute / notification preferences.** Chat-info exposes
+13. ~~**Per-channel mute / notification preferences.**~~ **Resolved:
+    mute is device-local (`channels.muted_until_ms`, 8h / 1w /
+    Always); the wake stays content-free and ungated, and the client
+    skips muted chats when it builds notifications from the store
+    (`SYNC_PROTOCOL.md` §12.1).** Original note: Chat-info exposes
     a "Notifications" tile but it's currently a disabled "Coming soon"
     stub. Needs: a `channel_settings` (or column on `channels`) for
     `muted_until_ms` / `notify_mentions_only`, ntfy push-topic gating

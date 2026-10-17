@@ -46,7 +46,6 @@ void main() {
       authClient: client,
       unifiedPush: distributor,
       storage: InMemorySecureStorage(),
-      notifyWake: () async {},
       requestPermission: () async => permissionRequests++,
     );
     await tester.pumpWidget(MaterialApp(
