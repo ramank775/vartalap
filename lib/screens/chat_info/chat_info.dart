@@ -282,7 +282,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   await showMuteSheet(
                     context: context,
                     chatService: widget.chatService,
-                    channelId: widget.channelId,
+                    channelIds: [widget.channelId],
                     mutedUntilMs: _channel?.mutedUntilMs,
                   );
                   await _reloadChannel();
@@ -359,12 +359,17 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
 
   static String _memberCount(int n) => '$n ${n == 1 ? "member" : "members"}';
 
-  /// Local-only, so there is nothing to confirm and nothing that can
-  /// fail — the consequence is written under the tile and the next
-  /// message brings the chat back. Pops straight out to the chat list.
+  /// Local-only, so nothing can fail, but it erases history for good —
+  /// so it confirms first, with the chat list's dialog. Pops straight
+  /// out to the chat list.
   Future<void> _deleteChat(BuildContext context) async {
-    await widget.chatService.deleteChat(widget.channelId);
-    if (!context.mounted) return;
+    final deleted = await confirmDeleteChat(
+      context: context,
+      chatService: widget.chatService,
+      channelIds: [widget.channelId],
+      isGroup: _isGroup,
+    );
+    if (!deleted || !context.mounted) return;
     // Pop chat info and the chat screen underneath it.
     Navigator.of(context).popUntil((route) => route.isFirst);
   }

@@ -1,9 +1,9 @@
 /// Chat list — reactive over `chatService.watchChannels()`.
 ///
-/// One merged inbox (frame a1). Per-chat actions live in the long-press
-/// sheet (frame a2), not in a selection app bar: every one of them is
-/// local-only, so there is nothing to batch and nothing to confirm at
-/// the top of the screen.
+/// One merged inbox (frame a1). Long-press starts WhatsApp's selection
+/// mode: the app bar becomes a contextual bar whose Pin, Delete and
+/// Mute act on every selected chat, with Clear history and Select all
+/// in its overflow. All of them are local-only.
 ///
 /// Frame b (3.1) splits this list into Personal and Other with a
 /// segmented row between the app bar and the list. That is a filter
@@ -61,65 +61,193 @@ class _ChatsScreenState extends State<ChatsScreen> {
   /// against the local contacts cache — same resolver, different key.
   Map<String, String> _senderLabels = const {};
 
+  /// Chats picked by long-press, in WhatsApp's selection mode. Empty
+  /// means not selecting.
+  final Set<String> _selectedIds = {};
+
   @override
   Widget build(BuildContext context) {
-    final wsTransport = AppServicesProvider.of(context).services.wsTransport;
+    // No provider: a standalone widget test.
+    final wsTransport = AppServicesProvider.maybeOf(context)?.wsTransport;
     final chatColors = VartalapTheme.chatColorsOf(context);
     final localUserId = widget.authService.currentUserId;
 
-    return Scaffold(
-      appBar: _buildDefaultAppBar(context, wsTransport, chatColors),
-      body: Column(
-        children: [
-          // 3.1 slot: the Personal | Other segmented row drops in here
-          // (frame b). In 3.0 it renders nothing and the list below is
-          // merged — same rows, same sorting, same sheet.
-          ..._filterSlot,
-          Expanded(
-            child: StreamBuilder<List<ChannelListEntry>>(
-              stream: _channelsStream,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-                final channels = snapshot.data ?? const [];
-                if (channels.isEmpty) {
-                  return const _EmptyChats();
-                }
-                return ListView.separated(
-                  itemCount: channels.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (ctx, i) {
-                    final entry = channels[i];
-                    return ChannelTile(
-                      entry: entry,
-                      chatColors: chatColors,
-                      displayName: entry.title,
-                      senderPrefix: _senderPrefix(entry, localUserId),
-                      eventText: _eventText(entry, localUserId),
-                      onTap: () => _openChat(context, entry),
-                      onLongPress: () => showChatActionsSheet(
-                        context: context,
-                        chatService: widget.chatService,
-                        entry: entry,
-                        displayName: entry.title,
-                      ),
+    // Above the Scaffold, because the selection bar needs the rows too.
+    return StreamBuilder<List<ChannelListEntry>>(
+      stream: _channelsStream,
+      builder: (context, snapshot) {
+        final channels = snapshot.data ?? const <ChannelListEntry>[];
+        // Chats that left the list drop out of the selection.
+        final selected = [
+          for (final e in channels)
+            if (_selectedIds.contains(e.channelId)) e,
+        ];
+        // Back closes the selection first, like WhatsApp.
+        return PopScope(
+          canPop: selected.isEmpty,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _clearSelection();
+          },
+          child: Scaffold(
+            appBar: selected.isEmpty
+                ? _buildDefaultAppBar(context, wsTransport, chatColors)
+                : _selectionBar(selected, channels),
+            body: Column(
+              children: [
+                // 3.1 slot: the Personal | Other segmented row drops in
+                // here (frame b). In 3.0 it renders nothing and the list
+                // below is merged — same rows, same sorting, same
+                // selection.
+                ..._filterSlot,
+                Expanded(
+                  child: Builder(builder: (context) {
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        !snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('Error: ${snapshot.error}'));
+                    }
+                    if (channels.isEmpty) {
+                      return const _EmptyChats();
+                    }
+                    return ListView.separated(
+                      itemCount: channels.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (ctx, i) {
+                        final entry = channels[i];
+                        return ChannelTile(
+                          entry: entry,
+                          chatColors: chatColors,
+                          displayName: entry.title,
+                          senderPrefix: _senderPrefix(entry, localUserId),
+                          eventText: _eventText(entry, localUserId),
+                          selected: _selectedIds.contains(entry.channelId),
+                          // While selecting, a tap adds or removes a chat.
+                          onTap: selected.isEmpty
+                              ? () => _openChat(context, entry)
+                              : () => _toggleSelected(entry),
+                          onLongPress: () => _toggleSelected(entry),
+                        );
+                      },
                     );
-                  },
-                );
-              },
+                  }),
+                ),
+              ],
+            ),
+            floatingActionButton: FloatingActionButton(
+              onPressed: () => _newChat(context),
+              child: const Icon(Icons.chat),
             ),
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  void _toggleSelected(ChannelListEntry entry) {
+    setState(() {
+      if (!_selectedIds.remove(entry.channelId)) {
+        _selectedIds.add(entry.channelId);
+      }
+    });
+  }
+
+  void _clearSelection() {
+    if (mounted && _selectedIds.isNotEmpty) setState(_selectedIds.clear);
+  }
+
+  /// WhatsApp's contextual bar: back and the count on the left; Pin,
+  /// Delete and Mute in its order on the right, each acting on every
+  /// selected chat. Pin and Mute flip to Unpin and Unmute only when
+  /// every selected chat already is.
+  AppBar _selectionBar(
+    List<ChannelListEntry> sel,
+    List<ChannelListEntry> all,
+  ) {
+    final allPinned = sel.every((e) => e.pinned);
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final allMuted = sel.every((e) => e.isMutedAt(nowMs));
+    final one = sel.length == 1 ? sel.single : null;
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        tooltip: 'Back',
+        onPressed: _clearSelection,
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _newChat(context),
-        child: const Icon(Icons.chat),
-      ),
+      title: Text('${sel.length}'),
+      actions: [
+        IconButton(
+          // ponytail: Material has no crossed-out pin; the filled one
+          // reads as "pinned", and the tooltip says Unpin.
+          icon: Icon(allPinned ? Icons.push_pin : Icons.push_pin_outlined),
+          tooltip: allPinned ? 'Unpin chat' : 'Pin chat',
+          onPressed: () async {
+            _clearSelection();
+            for (final e in sel) {
+              await widget.chatService.setPinned(e.channelId, !allPinned);
+            }
+          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Delete chat',
+          onPressed: () async {
+            final deleted = await confirmDeleteChat(
+              context: context,
+              chatService: widget.chatService,
+              channelIds: [for (final e in sel) e.channelId],
+              isGroup: one?.kind == 'group',
+            );
+            if (deleted) _clearSelection();
+          },
+        ),
+        IconButton(
+          icon: Icon(
+            allMuted
+                ? Icons.notifications_outlined
+                : Icons.notifications_off_outlined,
+          ),
+          tooltip: allMuted ? 'Unmute notifications' : 'Mute notifications',
+          onPressed: () async {
+            if (allMuted) {
+              _clearSelection();
+              for (final e in sel) {
+                await widget.chatService.setMuted(e.channelId, null);
+              }
+              return;
+            }
+            final saved = await showMuteSheet(
+              context: context,
+              chatService: widget.chatService,
+              channelIds: [for (final e in sel) e.channelId],
+              mutedUntilMs: one?.mutedUntilMs,
+            );
+            if (saved) _clearSelection();
+          },
+        ),
+        PopupMenuButton<String>(
+          iconColor: Theme.of(context).appBarTheme.foregroundColor,
+          onSelected: (value) async {
+            if (value == 'all') {
+              setState(() => _selectedIds.addAll(all.map((e) => e.channelId)));
+              return;
+            }
+            final cleared = await confirmClearHistory(
+              context: context,
+              chatService: widget.chatService,
+              channelId: one!.channelId,
+              isGroup: one.kind == 'group',
+            );
+            if (cleared) _clearSelection();
+          },
+          itemBuilder: (_) => [
+            if (one != null)
+              const PopupMenuItem(value: 'clear', child: Text('Clear history')),
+            const PopupMenuItem(value: 'all', child: Text('Select all')),
+          ],
+        ),
+      ],
     );
   }
 
@@ -154,14 +282,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   AppBar _buildDefaultAppBar(
     BuildContext context,
-    WsTransport wsTransport,
+    WsTransport? wsTransport,
     ChatColors chatColors,
   ) {
     final scheme = Theme.of(context).colorScheme;
     return AppBar(
       title: StreamBuilder<TransportState>(
-        stream: wsTransport.state,
-        initialData: wsTransport.currentState,
+        stream: wsTransport?.state,
+        initialData: wsTransport?.currentState ?? TransportState.connected,
         builder: (context, snapshot) {
           final state = snapshot.data ?? TransportState.disconnected;
           return Row(
@@ -340,6 +468,10 @@ class ChannelTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
+  /// Picked in the chat list's selection mode: tinted, with a check on
+  /// the avatar (WhatsApp).
+  final bool selected;
+
   const ChannelTile({
     super.key,
     required this.entry,
@@ -349,6 +481,7 @@ class ChannelTile extends StatelessWidget {
     this.eventText,
     required this.onTap,
     this.onLongPress,
+    this.selected = false,
   });
 
   @override
@@ -356,49 +489,76 @@ class ChannelTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final muted = entry.isMutedAt(DateTime.now().millisecondsSinceEpoch);
     final hasUnread = entry.unreadCount > 0;
+    final avatar = Avator(
+      text: displayName,
+      // Seeded on the id, not the name: renaming a group must not
+      // repaint its avatar.
+      seed: entry.channelId,
+      avatarUrl: entry.avatarUrl,
+      isGroup: entry.kind == 'group',
+      width: kAvatarMd,
+      height: kAvatarMd,
+    );
+    // WhatsApp's second line, right-aligned under the time: muted, then
+    // pinned, then the unread count.
+    final indicators = [
+      if (muted)
+        Icon(
+          Icons.notifications_off_outlined,
+          size: 18,
+          color: scheme.onSurfaceVariant,
+          semanticLabel: 'Muted',
+        ),
+      if (entry.pinned)
+        Icon(
+          Icons.push_pin,
+          size: 18,
+          color: scheme.onSurfaceVariant,
+          semanticLabel: 'Pinned',
+        ),
+      if (hasUnread)
+        _UnreadBadge(
+          count: entry.unreadCount,
+          chatColors: chatColors,
+          muted: muted,
+        ),
+    ];
 
     return ListTile(
-      leading: Avator(
-        text: displayName,
-        // Seeded on the id, not the name: renaming a group must not
-        // repaint its avatar.
-        seed: entry.channelId,
-        avatarUrl: entry.avatarUrl,
-        isGroup: entry.kind == 'group',
-        width: kAvatarMd,
-        height: kAvatarMd,
-      ),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              displayName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
-              ),
+      // The same tint as a selected message in the chat screen.
+      tileColor: selected ? scheme.primary.withValues(alpha: 0.12) : null,
+      leading: !selected
+          ? avatar
+          : Stack(
+              clipBehavior: Clip.none,
+              children: [
+                avatar,
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: scheme.primary,
+                      border: Border.all(color: scheme.surface, width: 2),
+                    ),
+                    child: Icon(
+                      Icons.check,
+                      size: 14,
+                      color: scheme.onPrimary,
+                      semanticLabel: 'Selected',
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-          if (muted) ...[
-            const SizedBox(width: kSpaceXs),
-            Icon(
-              Icons.notifications_off_outlined,
-              size: 14,
-              color: scheme.onSurfaceVariant,
-              semanticLabel: 'Muted',
-            ),
-          ],
-          if (entry.pinned) ...[
-            const SizedBox(width: kSpaceXs),
-            Icon(
-              Icons.push_pin,
-              size: 14,
-              color: scheme.onSurfaceVariant,
-              semanticLabel: 'Pinned',
-            ),
-          ],
-        ],
+      title: Text(
+        displayName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
+        ),
       ),
       subtitle: _subtitle(context, scheme, hasUnread),
       trailing: Column(
@@ -415,14 +575,21 @@ class ChannelTile extends StatelessWidget {
                   : scheme.onSurfaceVariant,
             ),
           ),
-          if (hasUnread) ...[
-            const SizedBox(height: kSpaceXs),
-            _UnreadBadge(
-              count: entry.unreadCount,
-              chatColors: chatColors,
-              muted: muted,
+          const SizedBox(height: kSpaceXs),
+          // Fixed height, even when empty, so the time sits on the same
+          // line in every row whatever the second line holds.
+          SizedBox(
+            height: 24,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (i, w) in indicators.indexed) ...[
+                  if (i > 0) const SizedBox(width: kSpaceXs),
+                  w,
+                ],
+              ],
             ),
-          ],
+          ),
         ],
       ),
       onTap: onTap,

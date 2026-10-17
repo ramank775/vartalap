@@ -90,7 +90,7 @@ void main() {
     expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
   });
 
-  testWidgets('Delete chat is local-only — it never calls leaveGroup',
+  testWidgets('Delete chat confirms, then deletes locally — never leaves',
       (tester) async {
     final svc = _FakeChatService();
     await _pumpInfo(tester, svc, kind: 'group');
@@ -98,7 +98,21 @@ void main() {
 
     await tester.tap(find.text('Delete chat'));
     await tester.pumpAndSettle();
+    expect(find.text('Delete this chat?'), findsOneWidget);
+    expect(find.textContaining('You stay in the group'), findsOneWidget);
 
+    // Backing out erases nothing.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(svc.calls, isEmpty);
+
+    await tester.tap(find.text('Delete chat'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.text('Delete chat'),
+    ));
+    await tester.pumpAndSettle();
     expect(svc.calls, ['deleteChat(c-1)']);
   });
 
