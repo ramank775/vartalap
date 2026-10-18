@@ -952,6 +952,10 @@ class ChatService {
         limit: limit,
       );
 
+  /// Substring search over every chat. Powers the home screen's search.
+  Future<List<MessageRow>> searchMessages(String query) =>
+      _store.searchMessages(query: query);
+
   /// Channels the current user is an active member of, filtered by
   /// `kind`. Powers the Groups tab in the new-chat picker.
   Stream<List<ChannelListEntry>> watchMemberChannels({

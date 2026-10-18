@@ -429,6 +429,105 @@ void main() {
     });
   });
 
+  group('home: chips, Read all, search', () {
+    final chats = [
+      _entry(channelId: 'c-a', name: 'Ananya', unreadCount: 2),
+      _entry(channelId: 'c-f', name: 'Farhan'),
+      _entry(channelId: 'c-k', name: 'Kothrud Flat 3B', kind: 'group'),
+    ];
+
+    testWidgets('Unread and Groups keep only their rows; an empty chip '
+        'offers the way back', (tester) async {
+      await _pumpChats(tester, _FakeChatService(channels: chats));
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Unread'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ananya'), findsOneWidget);
+      expect(find.text('Farhan'), findsNothing);
+      expect(find.text('Kothrud Flat 3B'), findsNothing);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Groups'));
+      await tester.pumpAndSettle();
+      expect(find.text('Kothrud Flat 3B'), findsOneWidget);
+      expect(find.text('Ananya'), findsNothing);
+
+      // A fresh screen: the chip is the screen's own state.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _pumpChats(tester, _FakeChatService(channels: [chats[1]]));
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Unread'));
+      await tester.pumpAndSettle();
+      expect(find.text('No unread chats'), findsOneWidget);
+      await tester.tap(find.text('View all chats'));
+      await tester.pumpAndSettle();
+      expect(find.text('Farhan'), findsOneWidget);
+    });
+
+    testWidgets('Read all marks only the unread chats read', (tester) async {
+      final svc = _FakeChatService(channels: chats);
+      await _pumpChats(tester, svc);
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      expect(
+        [
+          for (final t in tester.widgetList<PopupMenuItem<String>>(
+              find.byType(PopupMenuItem<String>)))
+            (t.child! as Text).data,
+        ],
+        ['New group', 'Read all', 'Settings'],
+      );
+      await tester.tap(find.text('Read all'));
+      await tester.pumpAndSettle();
+      expect(svc.calls, ['markRead(c-a)']);
+    });
+
+    testWidgets('search finds chats by name, then messages with the words '
+        'picked out; back leaves search', (tester) async {
+      final svc = _FakeChatService(channels: chats, hits: [
+        _message('m-1', 'c-k', 'u-peer', 'see you at the flat tonight'),
+        _message('m-2', 'c-a', 'u-self', 'Flat white?'),
+        // A chat that is not on the list, and a card: neither shows.
+        _message('m-3', 'c-gone', 'u-peer', 'flat'),
+        _message('m-4', 'c-f', 'u-peer', 'BEGIN:VCARD\nFN:Flat\nEND:VCARD',
+            contentType: 'text/vcard'),
+      ]);
+      await _pumpChats(tester, svc);
+
+      await tester.tap(find.text('Search'));
+      await tester.pumpAndSettle();
+      expect(find.byType(FloatingActionButton), findsNothing);
+      await tester.enterText(find.byType(TextField), 'flat');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chats'), findsOneWidget);
+      expect(find.text('Messages'), findsOneWidget);
+      // The group by name, then its message, then Ananya's.
+      expect(find.text('Kothrud Flat 3B'), findsNWidgets(2));
+      expect(find.text('Ananya'), findsOneWidget);
+      expect(find.text('Farhan'), findsNothing);
+      final mine = tester.widget<Text>(find.textContaining('Flat white?'));
+      expect(mine.textSpan!.toPlainText(), 'You: Flat white?');
+      final marked = <String>[];
+      mine.textSpan!.visitChildren((s) {
+        if (s is TextSpan && s.style?.fontWeight == FontWeight.w600) {
+          marked.add(s.text!);
+        }
+        return true;
+      });
+      expect(marked, ['Flat']);
+
+      await tester.enterText(find.byType(TextField), 'zzz');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.text("No results found for 'zzz'"), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Search'), findsOneWidget);
+      expect(find.text('Farhan'), findsOneWidget);
+    });
+  });
+
   group('mute sheet', () {
     testWidgets('8 hours writes a muted_until_ms eight hours out',
         (tester) async {
@@ -585,6 +684,30 @@ ChannelListEntry _entry({
       lastMessageTombstoned: false,
     );
 
+MessageRow _message(
+  String id,
+  String channelId,
+  String author,
+  String body, {
+  String contentType = 'text/plain',
+}) =>
+    MessageRow(
+      messageId: id,
+      channelId: channelId,
+      authorUserId: author,
+      body: body,
+      contentType: contentType,
+      replyToMessageId: null,
+      clientTimestampMs: 1000,
+      serverTimestampMs: 1000,
+      state: MessageState.sent,
+      stateUpdatedAt: 1000,
+      isEdited: false,
+      lastEditMs: null,
+      tombstoned: false,
+      tombstonePendingUntil: null,
+    );
+
 Future<void> _pumpTile(
   WidgetTester tester,
   ChannelListEntry entry, {
@@ -699,9 +822,18 @@ Future<void> _pumpOpener(
 class _FakeChatService implements ChatService {
   final List<String> calls = [];
   final List<ChannelListEntry> channels;
+  final List<MessageRow> hits;
   int? mutedUntilMs;
 
-  _FakeChatService({this.channels = const []});
+  _FakeChatService({this.channels = const [], this.hits = const []});
+
+  @override
+  Future<List<MessageRow>> searchMessages(String query) async => hits;
+
+  @override
+  Future<void> markRead(String channelId) async {
+    calls.add('markRead($channelId)');
+  }
 
   @override
   Stream<List<ChannelListEntry>> watchChannels({int limit = 100}) =>

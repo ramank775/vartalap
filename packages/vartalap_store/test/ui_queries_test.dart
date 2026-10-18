@@ -1265,6 +1265,43 @@ void main() {
     });
   });
 
+  group('searchMessages', () {
+    test('finds a word in every chat, newest first, case-insensitive, '
+        'skipping deleted messages', () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      addTearDown(store.close);
+      for (final c in ['c-1', 'c-2']) {
+        await store.insertChannel(
+          channelId: c,
+          kind: 'one_to_one',
+          ownerUserId: 'u-self',
+          createdAt: 1000,
+        );
+      }
+      Future<void> msg(String id, String channel, String body, int ts,
+              {bool tombstoned = false}) =>
+          _insertSentMessage(
+            store: store,
+            channelId: channel,
+            messageId: id,
+            body: body,
+            authorUserId: 'u-peer',
+            clientTimestampMs: ts,
+            serverTimestampMs: ts,
+            tombstoned: tombstoned,
+          );
+      await msg('m-1', 'c-1', 'Apple pie', 1);
+      await msg('m-2', 'c-2', 'an apple a day', 2);
+      await msg('m-3', 'c-2', 'banana', 3);
+      await msg('m-4', 'c-1', 'apple, gone', 4, tombstoned: true);
+
+      final hits = await store.searchMessages(query: 'APPLE');
+      expect(hits.map((m) => m.messageId), ['m-2', 'm-1']);
+      expect(await store.searchMessages(query: '%'), isEmpty,
+          reason: 'A wildcard alone matches nothing.');
+    });
+  });
+
   group('fetchMemberChannels', () {
     test('returns groups the user is a member of, sorted by name',
         () async {

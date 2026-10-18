@@ -5,15 +5,19 @@
 /// Mute act on every selected chat, with Clear history and Select all
 /// in its overflow. All of them are local-only.
 ///
-/// Frame b (3.1) splits this list into Personal and Other with a
-/// segmented row between the app bar and the list. That is a filter
-/// over the same rows, not a redesign — see `_filterSlot` below.
+/// Above the rows, as in WhatsApp: a search bar (chat names, then
+/// messages across every chat) and the All / Unread / Groups chips.
+/// Frame b's (3.1) Personal and Other are two more chips over the same
+/// rows, not a redesign — see [_ChatFilter].
 library vartalap.screens.chats.chats;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/settings/settings.dart';
@@ -65,6 +69,25 @@ class _ChatsScreenState extends State<ChatsScreen> {
   /// means not selecting.
   final Set<String> _selectedIds = {};
 
+  _ChatFilter _filter = _ChatFilter.all;
+
+  bool _searchOpen = false;
+  final TextEditingController _search = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  Timer? _searchDebounce;
+
+  /// Names match as you type; [_hits] (messages) a beat later.
+  String _query = '';
+  List<MessageRow> _hits = const [];
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _search.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     // No provider: a standalone widget test.
@@ -82,40 +105,57 @@ class _ChatsScreenState extends State<ChatsScreen> {
           for (final e in channels)
             if (_selectedIds.contains(e.channelId)) e,
         ];
-        // Back closes the selection first, like WhatsApp.
+        final rows = [
+          for (final e in channels)
+            if (_filter.keeps(e)) e,
+        ];
+        // Back closes the selection or the search first, like WhatsApp.
         return PopScope(
-          canPop: selected.isEmpty,
+          canPop: selected.isEmpty && !_searchOpen,
           onPopInvokedWithResult: (didPop, _) {
-            if (!didPop) _clearSelection();
+            if (didPop) return;
+            if (selected.isNotEmpty) {
+              _clearSelection();
+            } else {
+              _closeSearch();
+            }
           },
           child: Scaffold(
-            appBar: selected.isEmpty
-                ? _buildDefaultAppBar(context, wsTransport, chatColors)
-                : _selectionBar(selected, channels),
-            body: Column(
-              children: [
-                // 3.1 slot: the Personal | Other segmented row drops in
-                // here (frame b). In 3.0 it renders nothing and the list
-                // below is merged — same rows, same sorting, same
-                // selection.
-                ..._filterSlot,
-                Expanded(
-                  child: Builder(builder: (context) {
-                    if (snapshot.connectionState == ConnectionState.waiting &&
-                        !snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return Center(child: Text('Error: ${snapshot.error}'));
-                    }
-                    if (channels.isEmpty) {
-                      return const _EmptyChats();
-                    }
-                    return ListView.separated(
-                      itemCount: channels.length,
+            appBar: selected.isNotEmpty
+                ? _selectionBar(selected, channels)
+                : _searchOpen
+                    ? _searchBar()
+                    : _buildDefaultAppBar(
+                        context, wsTransport, chatColors, channels),
+            body: Builder(builder: (context) {
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: ${snapshot.error}'));
+              }
+              if (_searchOpen) {
+                return _searchResults(channels, chatColors, localUserId);
+              }
+              if (channels.isEmpty) {
+                return const _EmptyChats();
+              }
+              // The search bar and chips scroll away with the rows.
+              return CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(child: _header()),
+                  if (rows.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _noneInFilter(),
+                    )
+                  else
+                    SliverList.separated(
+                      itemCount: rows.length,
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (ctx, i) {
-                        final entry = channels[i];
+                        final entry = rows[i];
                         return ChannelTile(
                           entry: entry,
                           chatColors: chatColors,
@@ -130,15 +170,16 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           onLongPress: () => _toggleSelected(entry),
                         );
                       },
-                    );
-                  }),
-                ),
-              ],
-            ),
-            floatingActionButton: FloatingActionButton(
-              onPressed: () => _newChat(context),
-              child: const Icon(Icons.chat),
-            ),
+                    ),
+                ],
+              );
+            }),
+            floatingActionButton: _searchOpen
+                ? null
+                : FloatingActionButton(
+                    onPressed: () => _newChat(context),
+                    child: const Icon(Icons.chat),
+                  ),
           ),
         );
       },
@@ -251,8 +292,229 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  /// Empty in 3.0. See the class doc.
-  List<Widget> get _filterSlot => const [];
+  /// WhatsApp's search bar, then the filter chips.
+  Widget _header() {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: kSpaceMd,
+        vertical: kSpaceSm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Material(
+            color: scheme.surfaceContainerHighest,
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: _openSearch,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: kSpaceMd,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.search, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: kSpaceMd),
+                    Text(
+                      'Search',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: kSpaceSm),
+          Wrap(
+            spacing: kSpaceSm,
+            children: [
+              for (final f in _ChatFilter.values)
+                ChoiceChip(
+                  label: Text(f.label),
+                  selected: _filter == f,
+                  showCheckmark: false,
+                  shape: const StadiumBorder(),
+                  side: BorderSide.none,
+                  backgroundColor: scheme.surfaceContainerHighest,
+                  selectedColor: scheme.primaryContainer,
+                  labelStyle: TextStyle(
+                    color: _filter == f
+                        ? scheme.onPrimaryContainer
+                        : scheme.onSurfaceVariant,
+                  ),
+                  onSelected: (_) => setState(() => _filter = f),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A chip that keeps no rows: say so, with the way back.
+  Widget _noneInFilter() {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          _filter == _ChatFilter.unread ? 'No unread chats' : 'No groups',
+          style: TextStyle(color: scheme.onSurfaceVariant),
+        ),
+        TextButton(
+          onPressed: () => setState(() => _filter = _ChatFilter.all),
+          child: const Text('View all chats'),
+        ),
+      ],
+    );
+  }
+
+  void _openSearch() {
+    setState(() => _searchOpen = true);
+    _searchFocus.requestFocus();
+  }
+
+  void _closeSearch() {
+    _searchFocus.unfocus();
+    _searchDebounce?.cancel();
+    _search.clear();
+    setState(() {
+      _searchOpen = false;
+      _query = '';
+      _hits = const [];
+    });
+  }
+
+  void _onQuery(String text) {
+    setState(() => _query = text.trim());
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final query = text.trim();
+      final hits = query.isEmpty
+          ? const <MessageRow>[]
+          : await widget.chatService.searchMessages(query);
+      // Closed, or typed past, while the store looked.
+      if (!mounted || !_searchOpen || _query != query) return;
+      setState(() => _hits = hits);
+    });
+  }
+
+  AppBar _searchBar() {
+    final onBar = Theme.of(context).appBarTheme.foregroundColor ??
+        Theme.of(context).colorScheme.onSurface;
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        tooltip: 'Back',
+        onPressed: _closeSearch,
+      ),
+      titleSpacing: 0,
+      title: TextField(
+        controller: _search,
+        focusNode: _searchFocus,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Search…',
+          filled: false,
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: EdgeInsets.zero,
+          isDense: true,
+          hintStyle: TextStyle(color: onBar.withValues(alpha: 0.7)),
+        ),
+        style: TextStyle(color: onBar, fontSize: 18),
+        cursorColor: onBar,
+        onChanged: _onQuery,
+      ),
+    );
+  }
+
+  /// Chats whose name matches, then messages that do, newest first.
+  Widget _searchResults(
+    List<ChannelListEntry> channels,
+    ChatColors chatColors,
+    String? localUserId,
+  ) {
+    final q = _query.toLowerCase();
+    if (q.isEmpty) return const SizedBox.shrink();
+    final byId = {for (final c in channels) c.channelId: c};
+    final named = [
+      for (final c in channels)
+        if (c.title.toLowerCase().contains(q)) c,
+    ];
+    // A card's body is a vCard / geo URI / iCalendar, not its words; and
+    // hits from the query before last wait for this one's.
+    final hits = [
+      for (final m in _hits)
+        if (byId.containsKey(m.channelId) &&
+            !isRichType(m.contentType) &&
+            (m.body ?? '').toLowerCase().contains(q))
+          m,
+    ];
+    final scheme = Theme.of(context).colorScheme;
+    if (named.isEmpty && hits.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(kSpaceXl),
+        child: Text(
+          "No results found for '$_query'",
+          textAlign: TextAlign.center,
+          style: TextStyle(color: scheme.onSurfaceVariant),
+        ),
+      );
+    }
+    Widget section(String label) => Padding(
+          padding: const EdgeInsets.fromLTRB(
+              kSpaceMd, kSpaceMd, kSpaceMd, kSpaceXs),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+    return ListView(
+      children: [
+        if (named.isNotEmpty) section('Chats'),
+        for (final entry in named)
+          ChannelTile(
+            entry: entry,
+            chatColors: chatColors,
+            displayName: entry.title,
+            senderPrefix: _senderPrefix(entry, localUserId),
+            eventText: _eventText(entry, localUserId),
+            onTap: () => _openChat(context, entry),
+          ),
+        if (hits.isNotEmpty) section('Messages'),
+        for (final m in hits)
+          _MessageHit(
+            message: m,
+            chat: byId[m.channelId]!,
+            query: _query,
+            prefix: m.authorUserId == localUserId
+                ? 'You: '
+                : byId[m.channelId]!.kind == 'group'
+                    ? '${_senderLabels[m.authorUserId] ?? 'Unknown'}: '
+                    : null,
+            onTap: () =>
+                _openChat(context, byId[m.channelId]!, at: m.messageId),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _readAll(List<ChannelListEntry> channels) async {
+    for (final e in channels) {
+      if (e.unreadCount > 0) await widget.chatService.markRead(e.channelId);
+    }
+  }
 
   /// "Vikram: " / "You: " in front of a group preview, so a group row
   /// is legible without reading the name (frame a1). DMs get no prefix
@@ -284,6 +546,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
     BuildContext context,
     WsTransport? wsTransport,
     ChatColors chatColors,
+    List<ChannelListEntry> channels,
   ) {
     final scheme = Theme.of(context).colorScheme;
     return AppBar(
@@ -333,28 +596,36 @@ class _ChatsScreenState extends State<ChatsScreen> {
         },
       ),
       actions: [
-        // WhatsApp's menu: plain text, New group then Settings; your
-        // profile lives inside Settings (decision 154).
+        // WhatsApp's menu, plain text, less what we don't have
+        // (communities, broadcasts, linked devices); your profile lives
+        // inside Settings (decision 154).
         PopupMenuButton<String>(
           // M3 colours this icon onSurfaceVariant, not the app bar's
           // foreground, which left it dark on the green bar.
           iconColor: Theme.of(context).appBarTheme.foregroundColor,
-          onSelected: (value) => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => value == 'group'
-                  ? GroupCreateScreen(
-                      chatService: widget.chatService,
-                      authService: widget.authService,
-                    )
-                  : SettingsScreen(
-                      authService: widget.authService,
-                      config: widget.config,
-                      chatService: widget.chatService,
-                    ),
-            ),
-          ),
+          onSelected: (value) {
+            if (value == 'read') {
+              _readAll(channels);
+              return;
+            }
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => value == 'group'
+                    ? GroupCreateScreen(
+                        chatService: widget.chatService,
+                        authService: widget.authService,
+                      )
+                    : SettingsScreen(
+                        authService: widget.authService,
+                        config: widget.config,
+                        chatService: widget.chatService,
+                      ),
+              ),
+            );
+          },
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'group', child: Text('New group')),
+            PopupMenuItem(value: 'read', child: Text('Read all')),
             PopupMenuItem(value: 'settings', child: Text('Settings')),
           ],
         ),
@@ -395,7 +666,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  void _openChat(BuildContext context, ChannelListEntry entry) {
+  /// [at]: open scrolled to that message (a search hit).
+  void _openChat(BuildContext context, ChannelListEntry entry, {String? at}) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ChatScreen(
@@ -404,8 +676,93 @@ class _ChatsScreenState extends State<ChatsScreen> {
           channelKind: entry.kind,
           chatService: widget.chatService,
           authService: widget.authService,
+          initialMessageId: at,
         ),
       ),
+    );
+  }
+}
+
+/// The chips over the chat list.
+enum _ChatFilter {
+  all('All'),
+  unread('Unread'),
+  groups('Groups');
+
+  final String label;
+  const _ChatFilter(this.label);
+
+  bool keeps(ChannelListEntry e) => switch (this) {
+        _ChatFilter.all => true,
+        _ChatFilter.unread => e.unreadCount > 0,
+        _ChatFilter.groups => e.kind == 'group',
+      };
+}
+
+/// A message found by the home search: its chat and date, then the
+/// words with the query picked out (WhatsApp).
+class _MessageHit extends StatelessWidget {
+  final MessageRow message;
+  final ChannelListEntry chat;
+  final String query;
+  final String? prefix;
+  final VoidCallback onTap;
+
+  const _MessageHit({
+    required this.message,
+    required this.chat,
+    required this.query,
+    required this.prefix,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    var text = (message.body ?? '').replaceAll('\n', ' ');
+    // Start near the hit so the ellipsis can't swallow it.
+    // ponytail: by characters, not width; a phone fits ~40 per line.
+    final at = text.toLowerCase().indexOf(query.toLowerCase());
+    if (at > 24) text = '…${text.substring(at - 12)}';
+    final mark = TextStyle(color: scheme.primary, fontWeight: FontWeight.w600);
+    final lower = text.toLowerCase();
+    final q = query.toLowerCase();
+    final spans = <TextSpan>[];
+    var from = 0;
+    for (var i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, from)) {
+      spans
+        ..add(TextSpan(text: text.substring(from, i)))
+        ..add(TextSpan(text: text.substring(i, i + q.length), style: mark));
+      from = i + q.length;
+    }
+    spans.add(TextSpan(text: text.substring(from)));
+    return ListTile(
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              chat.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: kSpaceSm),
+          Text(
+            ChannelTile._formatTime(context, message.displayTimestampMs),
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+      subtitle: Text.rich(
+        TextSpan(children: [
+          if (prefix != null) TextSpan(text: prefix),
+          ...spans,
+        ]),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: scheme.onSurfaceVariant),
+      ),
+      onTap: onTap,
     );
   }
 }

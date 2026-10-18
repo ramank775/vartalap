@@ -1645,6 +1645,29 @@ class ChatStore {
     return rows.map(_rowToMessage).toList();
   }
 
+  /// [searchChannelMessages] across every chat: the home screen's search.
+  /// Newest first, the same exclusions.
+  Future<List<MessageRow>> searchMessages({
+    required String query,
+    int limit = 100,
+  }) async {
+    final cleaned = query.replaceAll(RegExp(r'[%_]'), '').trim();
+    if (cleaned.isEmpty) return const [];
+    final rows = await db.rawQuery(
+      '''
+      SELECT * FROM messages
+      WHERE tombstoned = 0
+        AND body IS NOT NULL
+        AND content_type IS NOT '$kGroupEventType'
+        AND body LIKE ? COLLATE NOCASE
+      ORDER BY $_newestFirst
+      LIMIT ?
+      ''',
+      ['%$cleaned%', limit],
+    );
+    return rows.map(_rowToMessage).toList();
+  }
+
   // --- UI reactive queries ----------------------------------------------
   //
   // These power the chat-list and chat-screen reactive streams
