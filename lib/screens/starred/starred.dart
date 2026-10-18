@@ -3,8 +3,8 @@
 library vartalap.screens.starred.starred;
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -72,8 +72,7 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
             ? channel.title
             : _senderLabels[message.authorUserId] ?? 'Unknown';
     final chat = dm && !mine ? 'You' : channel.title;
-    final date = DateFormat.yMd().format(
-        DateTime.fromMillisecondsSinceEpoch(message.displayTimestampMs));
+    final date = ChannelTile.formatTime(context, message.displayTimestampMs);
     return ListTile(
       title: Row(
         children: [

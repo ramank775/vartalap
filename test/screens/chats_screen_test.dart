@@ -473,7 +473,7 @@ void main() {
               find.byType(PopupMenuItem<String>)))
             (t.child! as Text).data,
         ],
-        ['New group', 'Read all', 'Settings'],
+        ['New group', 'Starred messages', 'Read all', 'Settings'],
       );
       await tester.tap(find.text('Read all'));
       await tester.pumpAndSettle();

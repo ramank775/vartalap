@@ -21,6 +21,7 @@ import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/settings/settings.dart';
+import 'package:vartalap/screens/starred/starred.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -610,21 +611,27 @@ class _ChatsScreenState extends State<ChatsScreen> {
             }
             Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => value == 'group'
-                    ? GroupCreateScreen(
-                        chatService: widget.chatService,
-                        authService: widget.authService,
-                      )
-                    : SettingsScreen(
-                        authService: widget.authService,
-                        config: widget.config,
-                        chatService: widget.chatService,
-                      ),
+                builder: (_) => switch (value) {
+                  'group' => GroupCreateScreen(
+                      chatService: widget.chatService,
+                      authService: widget.authService,
+                    ),
+                  'starred' => StarredMessagesScreen(
+                      chatService: widget.chatService,
+                      authService: widget.authService,
+                    ),
+                  _ => SettingsScreen(
+                      authService: widget.authService,
+                      config: widget.config,
+                      chatService: widget.chatService,
+                    ),
+                },
               ),
             );
           },
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'group', child: Text('New group')),
+            PopupMenuItem(value: 'starred', child: Text('Starred messages')),
             PopupMenuItem(value: 'read', child: Text('Read all')),
             PopupMenuItem(value: 'settings', child: Text('Settings')),
           ],
@@ -748,7 +755,7 @@ class _MessageHit extends StatelessWidget {
           ),
           const SizedBox(width: kSpaceSm),
           Text(
-            ChannelTile._formatTime(context, message.displayTimestampMs),
+            ChannelTile.formatTime(context, message.displayTimestampMs),
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
         ],
@@ -924,7 +931,7 @@ class ChannelTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            _formatTime(context, entry.lastActivityMs),
+            formatTime(context, entry.lastActivityMs),
             style: TextStyle(
               fontSize: 12,
               color: hasUnread && !muted
@@ -1007,7 +1014,9 @@ class ChannelTile extends StatelessWidget {
     );
   }
 
-  static String _formatTime(BuildContext context, int ms) {
+  /// Today's time, Yesterday, the weekday, then the date: the list's
+  /// clock, shared with the search hits and the starred list.
+  static String formatTime(BuildContext context, int ms) {
     final d = DateTime.fromMillisecondsSinceEpoch(ms);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
