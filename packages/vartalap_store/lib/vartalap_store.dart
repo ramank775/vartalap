@@ -25,4 +25,5 @@ export 'src/types.dart'
         OpKind,
         OpStatus,
         OpTransport,
-        OutboundOpRow;
+        OutboundOpRow,
+        StarredMessage;

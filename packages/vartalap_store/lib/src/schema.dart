@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 3;
+const int schemaVersion = 4;
 
 const List<String> pragmas = [
   'PRAGMA journal_mode = WAL',
@@ -101,7 +101,11 @@ const List<String> ddl = [
     -- Pre-edit body, snapshotted while a MESSAGE_UPDATE op is in
     -- flight so a permanent reject can restore it (V3_ARCHITECTURE
     -- decision 11). Cleared on ACK.
-    rollback_body           TEXT
+    rollback_body           TEXT,
+
+    -- Starred messages: when the user starred it, NULL when not.
+    -- Local-only, like pin and mute; never leaves the device.
+    starred_at              INTEGER
   )
   ''',
   '''
@@ -118,6 +122,11 @@ const List<String> ddl = [
   CREATE INDEX IF NOT EXISTS idx_messages_tombstone_pending
     ON messages(tombstone_pending_until)
     WHERE tombstone_pending_until IS NOT NULL
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_messages_starred
+    ON messages(starred_at DESC)
+    WHERE starred_at IS NOT NULL
   ''',
 
   // §6 reactions
@@ -262,4 +271,10 @@ const List<String> migrateV1ToV2 = [
   'DROP INDEX IF EXISTS idx_messages_channel_order',
   'DROP INDEX IF EXISTS idx_messages_channel_latest',
   'ALTER TABLE messages DROP COLUMN delivery_sequence',
+];
+
+/// v3 → v4: `messages.starred_at` (Starred messages). Run before [ddl],
+/// which then creates its index.
+const List<String> migrateV3ToV4 = [
+  'ALTER TABLE messages ADD COLUMN starred_at INTEGER',
 ];

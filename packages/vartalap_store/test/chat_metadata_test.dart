@@ -443,6 +443,93 @@ void main() {
       );
     });
   });
+
+  group('starred messages', () {
+    late ChatStore store;
+    Future<List<String>> starredIds() async => [
+          for (final s in await store.fetchStarredMessages())
+            s.message.messageId,
+        ];
+
+    setUp(() async {
+      store = await ChatStore.open(path: inMemoryDatabasePath);
+      await store.insertChannel(
+        channelId: 'g-1',
+        kind: 'group',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'Trip',
+      );
+      await store.insertChannel(
+        channelId: 'd-1',
+        kind: 'one_to_one',
+        ownerUserId: 'u-self',
+        createdAt: 100,
+        name: 'stale snapshot',
+      );
+      await store.insertChannelMember(
+        channelId: 'd-1',
+        userId: 'u-peer',
+        role: 'member',
+        joinedAt: 100,
+      );
+      await store.upsertContact(
+        userId: 'u-peer',
+        username: 'asha',
+        contactBookName: 'Asha',
+        nowMs: 100,
+      );
+      await _seedMessage(store, channelId: 'g-1', messageId: 'm-1',
+          clientTimestampMs: 150);
+      await _seedMessage(store, channelId: 'g-1', messageId: 'm-2',
+          clientTimestampMs: 160);
+      await _seedMessage(store, channelId: 'd-1', messageId: 'm-3',
+          clientTimestampMs: 170);
+    });
+    tearDown(() => store.close());
+
+    test('newest star first; a batch ties in channel order; the chat '
+        'title goes through the chat-list resolver', () async {
+      await store.setStarred(['m-1'], true, 1000);
+      await store.setStarred(['m-2', 'm-3'], true, 2000);
+      expect(await starredIds(), ['m-3', 'm-2', 'm-1']);
+
+      final starred = await store.fetchStarredMessages();
+      expect(starred.first.channel.kind, 'one_to_one');
+      expect(starred.first.channel.title, 'Asha');
+      expect(starred.last.channel.title, 'Trip');
+      expect(starred.last.message.starredAtMs, 1000);
+
+      // Re-starring keeps the first star time, so the order holds.
+      await store.setStarred(['m-1', 'm-2'], true, 3000);
+      expect(await starredIds(), ['m-3', 'm-2', 'm-1']);
+    });
+
+    test('unstar takes it off; nothing else is touched', () async {
+      await store.setStarred(['m-1', 'm-2'], true, 1000);
+      await store.setStarred(['m-1'], false, 2000);
+      expect(await starredIds(), ['m-2']);
+      expect((await store.fetchMessage('m-1'))!.starredAtMs, isNull);
+      expect(await store.db.query('outbound_ops'), isEmpty,
+          reason: 'starring is local-only');
+    });
+
+    test('a deleted message drops off the list; Undo brings it back',
+        () async {
+      await store.setStarred(['m-1', 'm-3'], true, 1000);
+      await store.beginTombstone(
+          messageId: 'm-3', pendingUntilMs: 5000, nowMs: 1000);
+      expect(await starredIds(), ['m-1']);
+      await store.undoTombstone(messageId: 'm-3', nowMs: 1100);
+      expect(await starredIds(), ['m-3', 'm-1']);
+    });
+
+    test('the watch re-emits on a star', () async {
+      final next = store.watchStarredMessages().skip(1).first;
+      await store.setStarred(['m-2'], true, 1000);
+      expect([for (final s in await next) s.message.messageId], ['m-2']);
+    });
+  });
 }
 
 /// Insert a server-acked message directly, bypassing the optimistic

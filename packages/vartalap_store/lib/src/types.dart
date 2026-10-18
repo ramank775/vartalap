@@ -194,6 +194,9 @@ class MessageRow {
   /// enqueued yet, so an Undo inside the window costs no network op.
   final int? tombstonePendingUntil;
 
+  /// When the user starred it; null when not starred. Local-only.
+  final int? starredAtMs;
+
   /// Raw `messages.attachments` BLOB — a `ChatPayload` protobuf whose
   /// only populated field is `attachments`, exactly as InboundReceiver
   /// stored it. The store does not depend on the proto package, so
@@ -219,10 +222,16 @@ class MessageRow {
     required this.lastEditMs,
     required this.tombstoned,
     required this.tombstonePendingUntil,
+    this.starredAtMs,
     this.attachments,
     this.reactions = const [],
   });
 }
+
+/// A starred message and the chat it is in, for the Starred messages
+/// list. [channel] carries only the chat's id, kind and title inputs;
+/// its `lastMessage*` fields are unset.
+typedef StarredMessage = ({MessageRow message, ChannelListEntry channel});
 
 /// One member of a channel, joined with the contact row when known.
 ///
