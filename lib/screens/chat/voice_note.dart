@@ -1,6 +1,5 @@
 /// A voice note in a bubble: play/pause, progress and the time. An
-/// audio file someone sent plays the same way, behind a headphones
-/// badge (WhatsApp).
+/// audio file someone sent plays the same way, its name above the bar.
 ///
 /// One note plays at a time app-wide — starting another stops the
 /// first — so the player, and which note it holds, are process-wide
@@ -155,6 +154,25 @@ class VoiceNoteView extends StatelessWidget {
     );
   }
 
+  /// An audio file's line: a headphones glyph and its name.
+  Widget _fileName(String name) {
+    final color = tint.withValues(alpha: 0.75);
+    return Row(
+      children: [
+        Icon(Icons.headphones, size: 14, color: color),
+        const SizedBox(width: kSpaceXs),
+        Expanded(
+          child: Text(
+            name.isEmpty ? 'Audio' : name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: color, fontSize: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _row(
     BuildContext context, {
     required bool playing,
@@ -172,14 +190,6 @@ class VoiceNoteView extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (audioFile) ...[
-              const CircleAvatar(
-                radius: 22,
-                backgroundColor: Color(0xFFF39C12),
-                child: Icon(Icons.headphones, color: Colors.white),
-              ),
-              const SizedBox(width: kSpaceXs),
-            ],
             Material(
               color: tint.withValues(alpha: 0.1),
               shape: const CircleBorder(),
@@ -207,8 +217,12 @@ class VoiceNoteView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Puts the bar on the button's centre line.
-                  const SizedBox(height: 20),
+                  // Puts the bar on the button's centre line; an audio
+                  // file names itself in that space.
+                  SizedBox(
+                    height: 20,
+                    child: audioFile ? _fileName(attachment.filename) : null,
+                  ),
                   // ponytail: a bar, no seek; a Slider here when someone
                   // asks to scrub.
                   ClipRRect(

@@ -474,7 +474,7 @@ void main() {
     expect(find.byIcon(Icons.headphones), findsNothing);
   });
 
-  testWidgets('an audio file plays inline behind a headphones badge',
+  testWidgets('an audio file plays inline under its name',
       (tester) async {
     await pumpChat(tester);
     await tester.runAsync(() => _insertWithAttachment(
@@ -483,6 +483,7 @@ void main() {
     await settle(tester);
 
     expect(find.byIcon(Icons.headphones), findsOneWidget);
+    expect(find.text('song.mp3'), findsOneWidget);
     expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
     expect(find.text('03:05'), findsOneWidget);
   });
