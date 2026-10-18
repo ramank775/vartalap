@@ -402,7 +402,8 @@ void main() {
       await seed('m-vid', 'video/mp4', sent: 200);
       await seed('m-pdf', 'application/pdf', sent: 300);
       await seed('m-zip', 'application/zip', sent: 400);
-      await seed('m-voice', 'audio/mp4', sent: 500);
+      await seed('m-voice', kVoiceNoteType, sent: 500);
+      await seed('m-mp3', 'audio/mpeg', sent: 550);
       await seed('m-link', 'text/plain',
           body: 'Tickets: https://example.com/t?id=1.', attachment: false,
           sent: 600);
@@ -422,9 +423,9 @@ void main() {
       expect(media.map((m) => m.messageId), ['m-vid', 'm-img']);
     });
 
-    test('docs leave out media and voice notes', () async {
+    test('docs leave out media and voice notes, not audio files', () async {
       final docs = await store.fetchChannelFiles('c-1');
-      expect(docs.map((m) => m.messageId), ['m-zip', 'm-pdf']);
+      expect(docs.map((m) => m.messageId), ['m-mp3', 'm-zip', 'm-pdf']);
     });
 
     test('links are messages and captions with an http(s) URL', () async {

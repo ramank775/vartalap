@@ -2021,8 +2021,8 @@ class ChatStore {
   }
 
   /// Documents in [channelId], in channel order — the "Docs" tab: any
-  /// attachment that is neither media nor a voice note. The app sends
-  /// and renders every `audio/*` as a voice note, so audio is left out.
+  /// attachment that is neither media nor a voice note ([kVoiceNoteType]),
+  /// so audio files are in it, as on WhatsApp.
   Future<List<MessageRow>> fetchChannelFiles(
     String channelId, {
     int limit = 200,
@@ -2031,9 +2031,8 @@ class ChatStore {
       'messages',
       where: "channel_id = ? AND tombstoned = 0 AND attachments IS NOT NULL "
           "AND (content_type IS NULL OR (content_type NOT LIKE 'image/%' "
-          "AND content_type NOT LIKE 'video/%' "
-          "AND content_type NOT LIKE 'audio/%'))",
-      whereArgs: [channelId],
+          "AND content_type NOT LIKE 'video/%' AND content_type != ?))",
+      whereArgs: [channelId, kVoiceNoteType],
       orderBy: _newestFirst,
       limit: limit,
     );

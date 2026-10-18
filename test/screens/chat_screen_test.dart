@@ -8,6 +8,8 @@
 /// not what the wire does with them.
 library vartalap.screens.chat_screen_test;
 
+import 'dart:async';
+
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -94,6 +96,7 @@ void main() {
     });
 
     await tester.pumpWidget(MaterialApp(
+      navigatorObservers: [chatRouteObserver],
       home: ChatScreen(
         channelId: channelId,
         channelName: 'Peer',
@@ -458,7 +461,7 @@ void main() {
     await pumpChat(tester);
     await tester.runAsync(() => _insertWithAttachment(
         store, 'm-voice', 'audio/mp4', 'voice.m4a', 3,
-        durationMs: 7000));
+        durationMs: 7000, contentType: kVoiceNoteType));
     await settle(tester);
 
     expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
@@ -468,6 +471,76 @@ void main() {
       reason: 'Idle, the bubble shows the length the sender recorded.',
     );
     expect(find.text('voice.m4a'), findsNothing);
+    expect(find.byIcon(Icons.headphones), findsNothing);
+  });
+
+  testWidgets('an audio file plays inline behind a headphones badge',
+      (tester) async {
+    await pumpChat(tester);
+    await tester.runAsync(() => _insertWithAttachment(
+        store, 'm-song', 'audio/mpeg', 'song.mp3', 3,
+        durationMs: 185000, contentType: 'audio/mpeg'));
+    await settle(tester);
+
+    expect(find.byIcon(Icons.headphones), findsOneWidget);
+    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+    expect(find.text('03:05'), findsOneWidget);
+  });
+
+  group('read only once the user can see it', () {
+    Future<int> unread(WidgetTester tester) => q(tester,
+        () async => (await store.fetchChannel(channelId))!.unreadCount);
+
+    void lifecycle(WidgetTester tester, List<AppLifecycleState> states) {
+      for (final s in states) {
+        tester.binding.handleAppLifecycleStateChanged(s);
+      }
+    }
+
+    testWidgets('a message that lands in the background waits for the '
+        'app to come back', (tester) async {
+      await pumpChat(tester);
+      expect(await unread(tester), 0, reason: 'Opening the chat read it.');
+
+      lifecycle(tester, const [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]);
+      await tester.runAsync(
+          () => _insert(store, 'm-away', peerUserId, 'while away', 3));
+      await settle(tester);
+      expect(await unread(tester), 1);
+
+      lifecycle(tester, const [
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]);
+      await settle(tester);
+      expect(await unread(tester), 0);
+    });
+
+    testWidgets('a message that lands under another screen waits for it '
+        'to close', (tester) async {
+      await pumpChat(tester);
+      final nav = Navigator.of(tester.element(find.byType(ChatScreen)));
+      unawaited(nav.push(MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('Chat info')))));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await tester.runAsync(
+          () => _insert(store, 'm-under', peerUserId, 'under it', 3));
+      await settle(tester);
+      expect(await unread(tester), 1);
+
+      nav.pop();
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+      expect(await unread(tester), 0);
+    });
   });
 
   testWidgets('the send button is a mic until there is something to send',
@@ -664,6 +737,7 @@ Future<void> _insertWithAttachment(
   String filename,
   int seq, {
   int durationMs = 0,
+  String contentType = 'text/plain',
 }) =>
     store.applyInboundMessage(
       localUserId: localUserId,
@@ -672,7 +746,7 @@ Future<void> _insertWithAttachment(
       messageId: messageId,
       senderUserId: peerUserId,
       body: 'see attached',
-      contentType: 'text/plain',
+      contentType: contentType,
       // Exactly the shape InboundReceiver stores: a ChatPayload whose
       // only populated field is the repeated Attachment.
       attachments: pb.ChatPayload(

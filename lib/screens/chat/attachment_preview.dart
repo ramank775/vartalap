@@ -36,7 +36,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final mime = mimeForPath(widget.path);
-    final card = _FileCard(path: widget.path, isVideo: mime.startsWith('video/'));
+    final card = _FileCard(path: widget.path, mime: mime);
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -122,13 +122,13 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
   }
 }
 
-/// What a document or video looks like before sending: its glyph,
-/// name and size.
+/// What a document, video or audio file looks like before sending:
+/// its glyph, name and size.
 class _FileCard extends StatelessWidget {
   final String path;
-  final bool isVideo;
+  final String mime;
 
-  const _FileCard({required this.path, required this.isVideo});
+  const _FileCard({required this.path, required this.mime});
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +139,11 @@ class _FileCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isVideo ? Icons.play_circle_outline : Icons.insert_drive_file_outlined,
+            switch (mime.split('/').first) {
+              'video' => Icons.play_circle_outline,
+              'audio' => Icons.headphones,
+              _ => Icons.insert_drive_file_outlined,
+            },
             size: 96,
             color: Colors.white70,
           ),

@@ -170,14 +170,17 @@ void main() {
         authorUserId: localUserId,
         path: file.path,
         durationMs: 7300,
+        voiceNote: true,
       );
     });
 
     final row = await tester.runAsync(() => store.fetchMessage(messageId));
-    expect(row!.contentType, 'audio/mp4');
+    expect(row!.contentType, kVoiceNoteType);
     final attachment =
         pb.ChatPayload.fromBuffer(row.attachments!).attachments.single;
     expect(attachment.durationMs, 7300);
+    expect(attachment.mimeType, 'audio/mp4',
+        reason: 'The file keeps its own type; only the message is marked.');
 
     final ops = await tester.runAsync(() => store.db.query('outbound_ops'));
     final spec = jsonDecode(utf8.decode(ops!.single['payload'] as List<int>))
@@ -188,11 +191,15 @@ void main() {
       reason: 'The upload op re-encodes the attachment with the fileId; '
           'the length has to ride along in its spec or the peer gets 0.',
     );
+    expect(spec['contentType'], kVoiceNoteType,
+        reason: 'So does the voice-note mark, or the peer sees a file.');
   });
 
   test('a voice note reads as one in the chat list and reply quotes', () {
-    expect(messagePreview('', 'audio/mp4', attachment: true), '🎤 Voice message');
-    expect(messagePreview('for you', 'audio/ogg', attachment: true), '🎤 for you');
+    expect(messagePreview('', kVoiceNoteType, attachment: true),
+        '🎤 Voice message');
+    expect(messagePreview('', 'audio/mp4', attachment: true), '🎵 Audio');
+    expect(messagePreview('for you', 'audio/ogg', attachment: true), '🎵 for you');
   });
 
   testWidgets('the media screen grids images and lists documents under Docs',
@@ -201,7 +208,8 @@ void main() {
     await tester.runAsync(() async {
       await _inbound(store, 'm-img', 'image/png', 'shot.png', 1);
       await _inbound(store, 'm-doc', 'application/pdf', 'accounts.pdf', 2);
-      await _inbound(store, 'm-voice', 'audio/mp4', 'voice-1.m4a', 3);
+      await _inbound(store, 'm-voice', kVoiceNoteType, 'voice-1.m4a', 3);
+      await _inbound(store, 'm-song', 'audio/mpeg', 'song.mp3', 4);
     });
     AssetCache.instance = FakeAssetCache({'shot.png': onePixelPng});
 
@@ -236,6 +244,8 @@ void main() {
       findsNothing,
       reason: 'A voice note is not a document.',
     );
+    expect(find.text('song.mp3'), findsOneWidget,
+        reason: 'An audio file is, as on WhatsApp.');
   });
 }
 

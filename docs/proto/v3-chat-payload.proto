@@ -71,6 +71,11 @@ message ChatPayload {
   // For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_UPDATE, TYPE_MESSAGE_FORWARD.
   string body = 10;
   string content_type = 11;        // MIME-style; defaults to "text/plain"
+  // With attachments: the first one's type, except
+  // "audio/x-vartalap-voice" for a voice note recorded in the app (the
+  // attachment keeps its own audio type); any other audio/* is an audio
+  // file. Without: "text/vcard", "text/x-geo" and "text/calendar" mark
+  // contact, location and event messages, standard text in `body`.
   repeated Attachment attachments = 12;
 
   // For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_FORWARD.

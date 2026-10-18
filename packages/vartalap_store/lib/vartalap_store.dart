@@ -18,6 +18,7 @@ export 'src/types.dart'
         ChannelListEntry,
         ChannelMemberRow,
         ContactRow,
+        kVoiceNoteType,
         MessageReaction,
         MessageRow,
         MessageState,

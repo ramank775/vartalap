@@ -1187,6 +1187,7 @@ void main() {
         authorUserId: h.authService.currentUserId!,
         path: note.path,
         durationMs: 3000,
+        voiceNote: true,
       );
       await h.waitForAsync(() async {
         final m = await h.store.fetchMessage(id);
@@ -1201,6 +1202,13 @@ void main() {
             '(octet-stream for m4a) and 403s any other content-type; the '
             "client must use the presign response's contentType, not its "
             'own audio/mp4. ${await h.opDebug(attachmentChannelId)}',
+      );
+      await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: id));
+      expect(
+        h.peerInboxSeen.lastWhere((p) => p.messageId == id).contentType,
+        kVoiceNoteType,
+        reason: 'The peer tells a voice note from an audio file by it.',
       );
     });
 

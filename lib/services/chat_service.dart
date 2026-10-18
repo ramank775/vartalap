@@ -1238,6 +1238,11 @@ class ChatService {
         ],
       ).writeToBuffer();
 
+  /// The message's `content_type`: the file's type, or [kVoiceNoteType]
+  /// for a recording. Ops queued before the key existed have only `mime`.
+  static String _messageType(Map<String, dynamic> spec) =>
+      spec['contentType'] as String? ?? spec['mime'] as String;
+
   /// MESSAGE_CREATE carrying an attachment. Separate from
   /// [_encodeChatPayload] only because `content_type` is the file's
   /// type here, not `text/plain`.
@@ -1251,7 +1256,7 @@ class ChatService {
         type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
         messageId: messageId,
         body: spec['body'] as String? ?? '',
-        contentType: spec['mime'] as String,
+        contentType: _messageType(spec),
         attachments: pb.ChatPayload.fromBuffer(_encodeAttachments(spec, url))
             .attachments,
         replyToMessageId: spec['replyTo'] as String?,
@@ -1289,7 +1294,8 @@ class ChatService {
   /// Send [path] as an attachment. The file must already live somewhere
   /// durable — use [AssetCache.importPicked] on whatever the picker
   /// returns, because the picker's temp copy can be swept before the
-  /// upload runs.
+  /// upload runs. [voiceNote] marks a recording made in the app
+  /// ([kVoiceNoteType]); any other audio goes as an audio file.
   ///
   /// Returns the new message_id.
   Future<String> sendAttachment({
@@ -1301,6 +1307,7 @@ class ChatService {
     int width = 0,
     int height = 0,
     int durationMs = 0,
+    bool voiceNote = false,
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -1317,6 +1324,7 @@ class ChatService {
       'path': path,
       'ext': extForPath(path),
       'mime': mimeForPath(path),
+      if (voiceNote) 'contentType': kVoiceNoteType,
       'size': size,
       'name': path.split('/').last,
       'category': 'message',
@@ -1334,7 +1342,7 @@ class ChatService {
       channelId: channelId,
       authorUserId: authorUserId,
       body: caption,
-      contentType: spec['mime'] as String,
+      contentType: _messageType(spec),
       replyToMessageId: replyToMessageId,
       clientTimestampMs: now,
       serverTimestampMs: null,

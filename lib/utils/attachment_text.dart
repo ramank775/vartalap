@@ -12,12 +12,14 @@ String messagePreview(
   required bool attachment,
 }) {
   if (attachment) {
-    final (glyph, kind) = switch ((contentType ?? '').split('/').first) {
-      'image' => ('📷', 'Photo'),
-      'video' => ('🎥', 'Video'),
-      'audio' => ('🎤', 'Voice message'),
-      _ => ('📄', 'File'),
-    };
+    final (glyph, kind) = contentType == kVoiceNoteType
+        ? ('🎤', 'Voice message')
+        : switch ((contentType ?? '').split('/').first) {
+            'image' => ('📷', 'Photo'),
+            'video' => ('🎥', 'Video'),
+            'audio' => ('🎵', 'Audio'),
+            _ => ('📄', 'File'),
+          };
     return '$glyph ${body.isEmpty ? kind : body}';
   }
   return switch (contentType) {

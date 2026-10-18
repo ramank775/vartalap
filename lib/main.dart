@@ -661,6 +661,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
             theme: VartalapTheme.light.data,
             darkTheme: VartalapTheme.dark.data,
             navigatorKey: _navKey,
+            navigatorObservers: [chatRouteObserver],
             builder: (context, child) => _SystemBars(child: child!),
             // Home, always (this is home's route, rebuilt with the app's
             // state): a cold-start profile link is the platform's initial

@@ -31,6 +31,10 @@ import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 
+/// In `MaterialApp.navigatorObservers`, so a chat hears when the screen
+/// over it closes and the user is looking at it again.
+final RouteObserver<ModalRoute<void>> chatRouteObserver = RouteObserver();
+
 class ChatScreen extends StatefulWidget {
   final String channelId;
   final String channelName;
@@ -57,7 +61,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with RouteAware {
   final TextEditingController _input = TextEditingController();
   final FocusNode _inputFocus = FocusNode();
 
@@ -67,6 +71,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _sending = false;
   StreamSubscription<List<MessageRow>>? _readMarkerSub;
   String? _lastMarkedReadMessageId;
+
+  /// The newest peer message in the chat; read once the user can see it
+  /// ([_markSeen]).
+  String? _latestPeerMessageId;
+  late final AppLifecycleListener _lifecycle;
+  ModalRoute<void>? _route;
 
   /// Page window for the one live query. "Load older" grows it in
   /// place (see [MessageWindow]) rather than opening a second stream.
@@ -209,15 +219,15 @@ class _ChatScreenState extends State<ChatScreen> {
     // (or the app was dead) gets enqueued now.
     unawaited(widget.chatService.sweepExpiredDeletes(widget.channelId));
     _failureSub = widget.chatService.watchFailures().listen(_onFailures);
-    // While the chat is open, every new peer message that lands also
-    // counts as read. Subscribe once (to the same stream the StreamBuilder
-    // below renders, so opening a chat runs one live query, not two) and
-    // re-mark whenever the latest message_id from a peer changes —
-    // `markRead` is idempotent on the local marker, and the read-receipt
-    // op is dedup'd by op_id on the server, so re-firing on every stream
-    // tick is safe. This also covers "mark read on open": the first
-    // emission is the initial query result, so there's no separate eager
-    // markRead call here (that used to double-enqueue the read-receipt op).
+    // While the chat is on screen, every new peer message that lands
+    // also counts as read ([_markSeen]). Subscribe once (to the same
+    // stream the StreamBuilder below renders, so opening a chat runs one
+    // live query, not two) and re-mark whenever the latest message_id
+    // from a peer changes. This also covers "mark read on open": the
+    // first emission is the initial query result, so there's no separate
+    // eager markRead call here (that used to double-enqueue the
+    // read-receipt op).
+    _lifecycle = AppLifecycleListener(onResume: _markSeen);
     final localUserId = widget.authService.currentUserId;
     _readMarkerSub = _messagesStream.listen((rows) {
       // Every emission answers the paging question too: a short page
@@ -241,9 +251,9 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       }
       if (latestPeer == null) return;
-      if (latestPeer.messageId == _lastMarkedReadMessageId) return;
-      _lastMarkedReadMessageId = latestPeer.messageId;
-      widget.chatService.markRead(widget.channelId);
+      if (latestPeer.messageId == _latestPeerMessageId) return;
+      _latestPeerMessageId = latestPeer.messageId;
+      _markSeen();
       // Group chats render the sender's name above peer bubbles. If
       // we just observed an author we haven't seen before (e.g. a
       // ChannelMemberAdded push that materialized after this screen
@@ -257,7 +267,42 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _route) {
+      chatRouteObserver.unsubscribe(this);
+      _route = route;
+      if (route != null) chatRouteObserver.subscribe(this, route);
+    }
+  }
+
+  /// A screen opened over the chat (Chat info, a photo) closed.
+  @override
+  void didPopNext() => _markSeen();
+
+  /// Messages are read when the user could have seen them: the app in
+  /// front (not in the background or behind the shade) and this chat
+  /// the top screen. Otherwise they stay unread, and notify, until the
+  /// user comes back ([AppLifecycleListener.onResume], [didPopNext]).
+  void _markSeen() {
+    final latest = _latestPeerMessageId;
+    if (!mounted || latest == null || latest == _lastMarkedReadMessageId) {
+      return;
+    }
+    // Null before the platform first reports one (a cold start from a
+    // notification), and the chat is on screen then.
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (state != null && state != AppLifecycleState.resumed) return;
+    if (_route?.isCurrent == false) return;
+    _lastMarkedReadMessageId = latest;
+    widget.chatService.markRead(widget.channelId);
+  }
+
+  @override
   void dispose() {
+    chatRouteObserver.unsubscribe(this);
+    _lifecycle.dispose();
     // Leaving the screen ends the undo window: commit rather than
     // leaving a tombstone that nobody will ever enqueue.
     _deleteTimer?.cancel();
@@ -850,13 +895,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Composer attach button (frame d1). One sheet: the camera, the
   /// gallery for photos and videos (photos we can size for the bubble),
-  /// the system file picker for everything else, and the text-format
-  /// kinds — contact, location, event (decision 133).
+  /// the system file picker for everything else (Audio is the same
+  /// picker showing only audio), and the text-format kinds — contact,
+  /// location, event (decision 133).
   Future<void> _onAttach({String? preset}) async {
     const options = [
       (Icons.photo_camera_outlined, 'Camera', 'camera'),
       (Icons.image_outlined, 'Gallery', 'gallery'),
       (Icons.insert_drive_file_outlined, 'Document', 'file'),
+      (Icons.headphones_outlined, 'Audio', 'audio'),
       (Icons.person_outline, 'Contact', 'contact'),
       (Icons.location_on_outlined, 'Location', 'location'),
       (Icons.event_outlined, 'Event', 'event'),
@@ -903,7 +950,7 @@ class _ChatScreenState extends State<ChatScreen> {
     var width = 0;
     var height = 0;
     try {
-      if (choice != 'file') {
+      if (choice != 'file' && choice != 'audio') {
         // ponytail: one fixed "standard quality" (WhatsApp sends ~1600px);
         // an HD toggle is a preview-screen option when that screen exists.
         // Videos go as picked.
@@ -930,7 +977,9 @@ class _ChatScreenState extends State<ChatScreen> {
           height = size?.$2 ?? 0;
         }
       } else {
-        final result = await FilePicker.platform.pickFiles();
+        final result = await FilePicker.platform.pickFiles(
+          type: choice == 'audio' ? FileType.audio : FileType.any,
+        );
         sourcePath = result?.files.single.path;
         if (sourcePath == null) return;
       }
@@ -963,6 +1012,10 @@ class _ChatScreenState extends State<ChatScreen> {
         replyToMessageId: _replyTo?.messageId,
         width: width,
         height: height,
+        // The bubble shows an audio file's length before it is played.
+        durationMs: mimeForPath(path).startsWith('audio/')
+            ? await audioLengthMs(path)
+            : 0,
       );
       _toBottom();
       if (mounted) setState(() => _replyTo = null);
@@ -1211,6 +1264,7 @@ class _ChatScreenState extends State<ChatScreen> {
         path: path,
         replyToMessageId: _replyTo?.messageId,
         durationMs: duration.inMilliseconds,
+        voiceNote: true,
       );
       _toBottom();
       if (mounted) setState(() => _replyTo = null);
@@ -2369,6 +2423,7 @@ class _MessageBubble extends StatelessWidget {
                     _AttachmentView(
                       attachment: a,
                       tint: fg,
+                      voiceNote: message.contentType == kVoiceNoteType,
                       footer: selfTimed && i == attachments.length - 1
                           ? (onPhoto) =>
                               metaIn(onPhoto ? Colors.white : timestampColor)
@@ -2622,13 +2677,16 @@ class _ReplyQuote extends StatelessWidget {
 }
 
 /// One attachment on a bubble. An image renders inline and opens
-/// full-screen on tap; audio is a voice note; anything else is a
-/// document box that opens on tap. `attachment.url` is a local path
+/// full-screen on tap; audio plays inline, as a voice note or an audio
+/// file; anything else is a document box that opens on tap. `attachment.url` is a local path
 /// while our own upload is still in flight and a media-ms fileId
 /// afterwards — [AssetCache] resolves both.
 class _AttachmentView extends StatelessWidget {
   final pb.Attachment attachment;
   final Color tint;
+
+  /// Recorded in the app ([kVoiceNoteType]) rather than a sent file.
+  final bool voiceNote;
 
   /// The bubble's time + tick when there is no caption to carry it;
   /// `onPhoto` asks for the white version that sits on an image.
@@ -2637,6 +2695,7 @@ class _AttachmentView extends StatelessWidget {
   const _AttachmentView({
     required this.attachment,
     required this.tint,
+    this.voiceNote = false,
     this.footer,
   });
 
@@ -2671,6 +2730,7 @@ class _AttachmentView extends StatelessWidget {
       return VoiceNoteView(
         attachment: attachment,
         tint: tint,
+        audioFile: !voiceNote,
         footer: footer?.call(false),
       );
     }

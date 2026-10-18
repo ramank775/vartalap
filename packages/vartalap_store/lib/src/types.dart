@@ -5,6 +5,12 @@
 /// the repositories in [src/repositories/].
 library vartalap_store.types;
 
+/// `content_type` of a voice note recorded in the app; its attachment
+/// keeps the file's own type. Any other `audio/*` message is an audio
+/// file someone sent. The `audio/` prefix keeps older builds, which
+/// play every `audio/*` as a voice note, doing so.
+const String kVoiceNoteType = 'audio/x-vartalap-voice';
+
 /// `messages.message_state` — SPIKE_A_SCHEMA.md §5.1.
 enum MessageState {
   /// Local author tapped send; sitting in undo window or queued but

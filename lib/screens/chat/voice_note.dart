@@ -1,4 +1,6 @@
-/// A voice note in a bubble: play/pause, progress and the time.
+/// A voice note in a bubble: play/pause, progress and the time. An
+/// audio file someone sent plays the same way, behind a headphones
+/// badge (WhatsApp).
 ///
 /// One note plays at a time app-wide — starting another stops the
 /// first — so the player, and which note it holds, are process-wide
@@ -18,6 +20,18 @@ import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 /// `00:07`, `14:59` — the recording timer and the bubble's time.
 String mmss(Duration d) => '${d.inMinutes.toString().padLeft(2, '0')}:'
     '${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+
+/// An audio file's length in ms; 0 when the player can't read it.
+Future<int> audioLengthMs(String path) async {
+  final player = AudioPlayer();
+  try {
+    return (await player.setFilePath(path))?.inMilliseconds ?? 0;
+  } catch (_) {
+    return 0;
+  } finally {
+    await player.dispose();
+  }
+}
 
 /// Created on first play, so a chat that never plays anything (and a
 /// widget test) never touches the audio plugin.
@@ -65,6 +79,9 @@ class VoiceNoteView extends StatelessWidget {
   final pb.Attachment attachment;
   final Color tint;
 
+  /// A sent audio file rather than a voice note.
+  final bool audioFile;
+
   /// The bubble's time + tick, on the length's line (WhatsApp).
   final Widget? footer;
 
@@ -72,6 +89,7 @@ class VoiceNoteView extends StatelessWidget {
     super.key,
     required this.attachment,
     required this.tint,
+    this.audioFile = false,
     this.footer,
   });
 
@@ -101,7 +119,11 @@ class VoiceNoteView extends StatelessWidget {
       if (_loaded.value != attachment.url) return;
       _loaded.value = null;
       messenger.showSnackBar(
-        const SnackBar(content: Text("Couldn't play this voice message")),
+        SnackBar(
+          content: Text(audioFile
+              ? "Couldn't play this audio"
+              : "Couldn't play this voice message"),
+        ),
       );
     }
   }
@@ -150,6 +172,14 @@ class VoiceNoteView extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (audioFile) ...[
+              const CircleAvatar(
+                radius: 22,
+                backgroundColor: Color(0xFFF39C12),
+                child: Icon(Icons.headphones, color: Colors.white),
+              ),
+              const SizedBox(width: kSpaceXs),
+            ],
             Material(
               color: tint.withValues(alpha: 0.1),
               shape: const CircleBorder(),
@@ -163,7 +193,11 @@ class VoiceNoteView extends StatelessWidget {
                     playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                     size: 30,
                     color: tint,
-                    semanticLabel: playing ? 'Pause' : 'Play voice message',
+                    semanticLabel: playing
+                        ? 'Pause'
+                        : audioFile
+                            ? 'Play audio'
+                            : 'Play voice message',
                   ),
                 ),
               ),
