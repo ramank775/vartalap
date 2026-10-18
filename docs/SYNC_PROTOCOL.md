@@ -239,6 +239,7 @@ WsEnvelope {
     Envelope push              // type=WS_PUSH, server→client
     bool reauth_required       // type=WS_REAUTH_REQUIRED, server→client
     WsError error              // type=WS_ERROR, server→client
+    PushAck push_ack           // type=WS_PUSH_ACK, client→server
   }
 }
 ```
@@ -329,6 +330,30 @@ WsError {
 On protocol-level error the server MUST emit `WS_ERROR`, then MAY
 close the connection with code 1002 (protocol error) or 1008 (policy
 violation). Client reconnects per §13.
+
+### 5.9 Push-ack frames (client → server)
+
+A `WsEnvelope` with `type=WS_PUSH_ACK` carries the `op_id`s of pushed
+envelopes the client has handled (§10.5):
+
+```
+PushAck { repeated string op_ids }   // 1-500
+```
+
+The server removes those envelopes from this device's undelivered
+queue (§10.6) and sends nothing back. More than 500 `op_ids` is a
+protocol error (`WS_ERROR` `VALIDATION_FAILED`, then close 1002). An
+`op_id` not in the queue is ignored, so acks are idempotent.
+
+### 5.10 Keepalive
+
+The server sends a WS ping control frame on every socket every 30 s
+and terminates a socket that has not answered the previous one, so a
+socket that died without a close (the phone changed networks or lost
+coverage) is noticed within a minute rather than at the TCP timeout.
+Client WS stacks answer pings on their own. Terminating the socket is
+an ordinary close: its device goes offline, and §12.1 wakes it if
+anything is waiting.
 
 ---
 
@@ -886,11 +911,15 @@ authoritative).
      editor. Scope: v3.0 only.
    - REST `PATCH /v3.0/users/me` with `username`: same scope as
      above. The new username may be null.
-2. For each online recipient (active WS connection in connection-
-   gateway), emit the push frame immediately.
-3. For each offline recipient, enqueue the push frame in the
-   undelivered queue (§10.6).
-4. Recipients are **devices**, not users: the recipient set expands
+2. Enqueue the push frame in every recipient device's undelivered
+   queue (§10.6), online or not, before any delivery attempt.
+   Ephemeral envelopes (typing) are the exception: never queued.
+3. For each online recipient (active WS connection in connection-
+   gateway), also emit the push frame immediately. It stays queued
+   until that device acks it (§10.5); a push into a socket that died
+   is not lost, it comes back on the device's next pull.
+4. For each offline recipient, send the §12.1 wake.
+5. Recipients are **devices**, not users: the recipient set expands
    to every `(user_id, device_id)` session of every user in it, minus
    the **sending device**. A sender's own other devices are ordinary
    recipients; only the device that sent the op is skipped. v3.0 caps
@@ -922,18 +951,28 @@ On receipt of a `WS_PUSH` envelope, the recipient client MUST:
      side authorization gate. If the gate passes, apply to local
      event log and projections; if not, drop. Either way, record
      `op_id` in `op_id_seen`.
-4. Server does not ACK its own push frames. No client-to-server
-   acknowledgment is required at the protocol level — the
-   undelivered queue is drained purely on WS connection
-   establishment (§10.6).
+4. **Ack** the envelope once it is handled: stored, already seen
+   (step 2), or dropped on purpose (malformed, failed the §6a.4 gate,
+   a type this client does not know). An envelope that arrived on
+   the WS is acked with `WS_PUSH_ACK` on the WS (§5.9; batching a
+   burst into one frame is fine); one that came from a pull is acked
+   with `POST /v3.0/sync/ack` (§10.6). The client MUST NOT ack an
+   envelope it failed to store (a database error, a group it could
+   not fetch): the server keeps it and the next pull hands it back.
+   Ephemeral envelopes are never queued and never acked.
+
+   Acks are best effort. A lost ack (the socket dropped first) costs
+   one re-delivery, which step 2 absorbs and acks again.
 
 ### 10.6 Undelivered queue and sync pull
 
-The undelivered queue (§10.3 item 3) is the server-side holding
-area for push frames a recipient's WS wasn't open to receive. It is
-durable (MongoDB): a server restart or deploy does not lose it. v3.0
-drains it exclusively via client pull — the server never pushes
-proactively when a connection opens.
+The undelivered queue (§10.3 item 2) is the server-side holding
+area for every push frame a device has not acked yet: ones its WS was
+not open to receive, and ones pushed live but not yet acked. It is
+durable (MongoDB, or PostgreSQL): a server restart or deploy does not
+lose it. A frame leaves the queue only when the device acks it
+(§10.5), or by the 30-day TTL or the 10,000-frame cap. The server
+never re-pushes a queued frame on its own; the client pulls.
 
 #### `GET /v3.0/sync/pending`
 
@@ -941,26 +980,34 @@ proactively when a connection opens.
 
 **Success 200:**
 ```json
-{ "frames": ["<base64 WsEnvelope bytes>", "..."] }
+{ "frames": ["<base64 WsEnvelope bytes>", "..."], "more": false }
 ```
 
 Each entry is a base64-encoded `WsEnvelope` (`proto/v3-envelope.proto`)
-with `type = WS_PUSH`, in `server_timestamp_ms` order as far as the
-server knows it; recipients sort by the §6 key anyway, same as §10.4.
+with `type = WS_PUSH`, oldest first, at most 500 per response;
+recipients sort by the §6 key anyway, same as §10.4. `more` is true
+when the queue holds frames past this page.
 
-**Drain semantics:** the server drains the calling user's queue in
-the same request that returns it — at-most-once delivery from the
-queue. A frame handed back here is removed server-side whether or
-not the client successfully applies it; there is no ACK for this
-endpoint and no re-fetch of a frame already returned. This is safe
-in practice because push frames are idempotent envelopes carrying
-their own `op_id`, and because §7.2 client-side dedup means a frame
-that also arrives via live fanout (e.g. a drain racing a reconnect)
-is harmless either way.
+**Read only:** a pull removes nothing. It returns the oldest frames
+this device has not acked, including ones pushed live a moment ago
+whose ack is still on its way (§7.2 dedup absorbs the repeat). A
+frame comes back on every pull until it is acked.
 
-**Size:** bounded by the undelivered queue's own cap — at most
-10,000 frames per user (§19 decision 2). v3.0 has no pagination;
-a full-queue response is the pathological case, not the common one.
+#### `POST /v3.0/sync/ack`
+
+**Headers:** `Authorization: Bearer <accesskey>`
+
+**Body:** `{ "op_ids": ["<op_id>", "..."] }`, 1-500 entries.
+
+**Success 204.** Removes those frames from the calling device's
+queue; an `op_id` not in it is ignored. `400 VALIDATION_FAILED` for an
+empty or oversized list.
+
+**The pull loop:** pull a page, apply it, ack what was handled
+(§10.5 step 4), and pull again while `more` was true. Ack before the
+next pull, or the next page is the same one. A frame that failed to
+apply is left un-acked: the loop stops at that page and the frame
+waits for the next trigger.
 
 **When the client calls it** (client-driven, not server-driven):
 1. App start, when a session restores with a signed-in user
@@ -971,9 +1018,9 @@ a full-queue response is the pathological case, not the common one.
    ntfy-wake-triggered reconnect (§12.3).
 
 **Failure handling:** non-2xx or transport failure returns an empty
-frame list to the caller — fail open. There is no op_id to retry
-against, so the client relies on the next natural trigger (next
-reconnect, next app start) rather than an explicit retry loop.
+frame list to the caller — fail open. Nothing is lost: un-acked
+frames stay queued, and the next natural trigger (next reconnect,
+next app start, next wake) pulls them again.
 
 **Overflow:** if the queue already dropped frames to the 30-day TTL
 or 10,000-frame cap (§15.8, §19 decisions 1–2) before this call, the
@@ -1258,10 +1305,11 @@ Push is **independent of the sync wire**. UnifiedPush + Web Push per
 
 ### 12.1 Wake notification
 
-When the server enqueues an envelope into the undelivered queue for
-a recipient AND the recipient has no active WS connection, the
-server MUST publish a minimal wake notification to the recipient's
-registered Web Push endpoint (AUTH_CONTRACT §5):
+When the server enqueues an envelope for a device that has no active
+WS connection, or when a device's WS closes (§5.10 included) with
+frames it has not acked still in its queue, the server MUST publish a
+minimal wake notification to the device's registered Web Push
+endpoint (AUTH_CONTRACT §5):
 
 - Plaintext `{"t":"wake"}`, encrypted to the device (RFC 8291) and
   signed with the server's VAPID key (RFC 8292). MUST NOT contain
@@ -1441,6 +1489,17 @@ others.
   ops, pauses scheduler, refreshes accesskey, resumes, retries.
   Dedup handles any ops the server may have processed after
   emitting `auth_failure`.
+
+### 15.4a Client dies between receiving and storing
+
+Scenario: a push arrives (live or pulled) and the app is killed, or
+its database write fails, before the envelope is stored.
+- Client: never acked it (§10.5 step 4).
+- Server: the frame is still in the device's queue. If the socket
+  closed with it un-acked, the device gets a wake (§12.1).
+- On the next pull (app start, reconnect, wake) the frame comes back
+  and is stored; dedup (§7.2) covers the case where it was stored
+  after all and only the ack was lost.
 
 ### 15.5 User logs in on a different device (v3.1)
 
