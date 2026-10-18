@@ -1351,8 +1351,11 @@ the server MAY debounce the publish (no more than one wake per
 
 The distributor (ntfy app, FCM via the embedded distributor, …)
 receives the wake → delivers it to Vartalap → the UnifiedPush
-connector decrypts it → Vartalap reopens WS → the pull runs
-(§10.6, from the device's pointer). No client-initiated request to the push
+connector decrypts it → Vartalap pulls (§10.6, from the device's
+pointer) and, if the app itself is running, reopens its WS. A
+background engine started only to handle the wake never opens a WS:
+it would outlive the wake and fight the app's socket, since the server
+keeps one per device. No client-initiated request to the push
 service other than registration.
 
 ---

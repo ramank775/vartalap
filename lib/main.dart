@@ -53,8 +53,8 @@ void main(List<String> args) async {
   if (picker is ImagePickerAndroid) picker.useAndroidPhotoPicker = true;
   // A distributor starts this entrypoint in a background engine to
   // deliver a wake (`unifiedpush` README). Everything the wake needs —
-  // pull `/sync/pending`, reconnect the WS, post the notifications — is
-  // wired by initializeApp; there is no UI to run, so we stop short
+  // pull `/sync/pending`, post the notifications — is wired by
+  // initializeApp (no WS there: the app's own engine has it); there is no UI to run, so we stop short
   // of runApp and let the callback fire.
   final background = args.contains('--unifiedpush-bg');
   final services = await initializeApp(background: background);
@@ -346,8 +346,11 @@ Future<AppServices> initializeApp({bool background = false}) async {
 
   // Start the WS transport. If no accesskey yet (pre-login), it stays
   // disconnected and auto-connects once auth lands. Reconnect with
-  // backoff on disconnect.
-  await wsTransport.start();
+  // backoff on disconnect. Never in a wake's background engine: it only
+  // pulls and notifies, and its socket would outlive the wake and fight
+  // the app's own for this device (the server keeps one per device),
+  // each replacing the other about once a second.
+  if (!background) await wsTransport.start();
 
   // The account's store comes and goes with sign-in ([AppServices.store]).
   late final AppServices services;
@@ -379,9 +382,9 @@ Future<AppServices> initializeApp({bool background = false}) async {
   authService.onLogout = services.closeAccount;
 
   // SYNC_PROTOCOL §12.3 — the wake says nothing, so the client owns
-  // the follow-up: WS back up, then drain whatever was queued.
+  // the follow-up: the app's WS back up, then pull from the pointer.
   pushService.onWake = () async {
-    await wsTransport.start();
+    if (!background) await wsTransport.start();
     return services.pullPendingSync();
   };
   // AUTH_CONTRACT §5.1 — deregister while the accesskey still works.
