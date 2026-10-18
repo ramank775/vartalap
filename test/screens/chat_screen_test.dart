@@ -723,6 +723,21 @@ void main() {
       expect(flashed(tester, 'apple tart'), isFalse);
     });
 
+    testWidgets('Search in Chat info comes back with the search open',
+        (tester) async {
+      await pumpChat(tester);
+      // The title row (avatar and name) opens Chat info.
+      await tester.tap(find
+          .descendant(of: find.byType(AppBar), matching: find.byType(InkWell))
+          .first);
+      await settle(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Search'));
+      await settle(tester);
+      expect(find.text('Search…'), findsOneWidget);
+      expect(tester.widget<EditableText>(searchField).focusNode.hasFocus,
+          isTrue);
+    });
+
     testWidgets('opened at a message from outside, the chat pages back to '
         'it and flashes it', (tester) async {
       await pumpChat(

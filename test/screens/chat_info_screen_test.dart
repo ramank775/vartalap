@@ -305,6 +305,7 @@ void main() {
 
   testWidgets('a DM has no Leave group at all', (tester) async {
     await _pumpInfo(tester, _FakeChatService(), kind: 'one_to_one');
+    await _scrollTo(tester, 'Delete chat');
 
     expect(find.text('Chat info'), findsOneWidget);
     expect(find.text('Leave group'), findsNothing);
@@ -371,8 +372,13 @@ Finder _rowMenu(String name) => find.descendant(
     );
 
 /// The destructive block sits below the fold in the test viewport.
-Future<void> _scrollTo(WidgetTester tester, String text) =>
-    tester.scrollUntilVisible(find.text(text), 200);
+/// scrollUntilVisible stops once the row is built, which can be under the
+/// bottom edge; ensureVisible brings all of it on screen.
+Future<void> _scrollTo(WidgetTester tester, String text) async {
+  await tester.scrollUntilVisible(find.text(text), 200);
+  await tester.ensureVisible(find.text(text));
+  await tester.pumpAndSettle();
+}
 
 Color? _titleColor(WidgetTester tester, String title) {
   final text = tester.widget<Text>(find.text(title));

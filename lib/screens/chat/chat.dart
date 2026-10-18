@@ -1386,7 +1386,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
         title: InkWell(
           onTap: () {
             Navigator.of(context).push(
-              MaterialPageRoute(
+              MaterialPageRoute<String>(
                 builder: (_) => ChatInfoScreen(
                   channelId: widget.channelId,
                   channelName: _title,
@@ -1395,9 +1395,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                   authService: widget.authService,
                 ),
               ),
-            ).then((_) {
+            ).then((result) {
               // A rename or member change made in there.
               if (widget.channelKind == 'group') _loadMemberNames();
+              if (result == 'search' && mounted) _openSearch();
             });
           },
           child: Row(

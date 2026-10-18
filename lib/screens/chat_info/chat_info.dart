@@ -241,6 +241,26 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    const SizedBox(height: kSpaceMd),
+                    // WhatsApp's shortcut under the name: back to the
+                    // chat with its search open ([ChatScreen] reads it).
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(96, 64),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(kRadiusMd),
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(context).pop('search'),
+                      child: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.search),
+                          SizedBox(height: kSpaceXs),
+                          Text('Search'),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
