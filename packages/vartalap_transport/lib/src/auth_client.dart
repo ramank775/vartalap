@@ -118,13 +118,18 @@ class AuthClient implements AuthTokenProvider {
       'deviceId': did,
     });
     _assertOk(resp, 'sendOtp');
-    final json = _decodeJson(resp);
-    return OtpSendResult(
-      sessionId: json['sessionId'] as String,
-      retryAfter: Duration(seconds: json['resendAfterSec'] as int),
-      expiresIn: Duration(seconds: json['expiresInSec'] as int),
-      isExistingAccount: json['isExistingAccount'] as bool? ?? false,
-    );
+    return OtpSendResult._fromJson(_decodeJson(resp));
+  }
+
+  /// `POST /v3.0/auth/otp/resend` — AUTH_CONTRACT §3.3: the same session,
+  /// its wrong-code count carried forward. 404/410/423 when the session
+  /// is gone, expired or locked; start over with [sendOtp] then.
+  Future<OtpSendResult> resendOtp({required String sessionId}) async {
+    final resp = await _post('/v3.0/auth/otp/resend', body: {
+      'sessionId': sessionId,
+    });
+    _assertOk(resp, 'resendOtp');
+    return OtpSendResult._fromJson(_decodeJson(resp));
   }
 
   /// `POST /v3.0/auth/otp/verify` — AUTH_CONTRACT §3.2.
@@ -525,6 +530,13 @@ class OtpSendResult {
     required this.expiresIn,
     this.isExistingAccount = false,
   });
+
+  factory OtpSendResult._fromJson(Map<String, dynamic> json) => OtpSendResult(
+        sessionId: json['sessionId'] as String,
+        retryAfter: Duration(seconds: json['resendAfterSec'] as int),
+        expiresIn: Duration(seconds: json['expiresInSec'] as int),
+        isExistingAccount: json['isExistingAccount'] as bool? ?? false,
+      );
 }
 
 class OtpVerifyResult {

@@ -145,7 +145,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('resendButton')));
     await tester.pump();
-    expect(auth.sentPhones, ['+919999999999', '+919999999999']);
+    expect(auth.sentPhones, ['+919999999999']);
+    expect(auth.resentPhones, ['+919999999999'],
+        reason: 'Resend keeps the session, so wrong codes still count.');
     expect(find.text('Resend code in 0:30'), findsOneWidget);
   });
 
@@ -160,6 +162,7 @@ void main() {
 
 class _FakeAuthService extends AuthService {
   final List<String> sentPhones = [];
+  final List<String> resentPhones = [];
 
   _FakeAuthService()
       : super(
@@ -174,6 +177,16 @@ class _FakeAuthService extends AuthService {
       sessionId: 'sess-1',
       retryAfter: Duration(seconds: 30),
       expiresIn: Duration(minutes: 5),
+    );
+  }
+
+  @override
+  Future<OtpSendResult> resendOtp(String phone) async {
+    resentPhones.add(phone);
+    return const OtpSendResult(
+      sessionId: 'sess-1',
+      retryAfter: Duration(seconds: 30),
+      expiresIn: Duration(minutes: 4),
     );
   }
 }

@@ -276,6 +276,20 @@ class AuthService {
     return result;
   }
 
+  /// Resend on the OTP screen: the same session (§3.3), so the wrong-code
+  /// count carries forward instead of resetting with a new session. One
+  /// that is gone, expired or locked starts over with [sendOtp].
+  Future<OtpSendResult> resendOtp(String phone) async {
+    final sessionId = _otpSessionId;
+    if (sessionId == null) return sendOtp(phone);
+    try {
+      return await _client.resendOtp(sessionId: sessionId);
+    } on AuthClientException catch (e) {
+      if (const {404, 410, 423}.contains(e.statusCode)) return sendOtp(phone);
+      rethrow;
+    }
+  }
+
   /// `POST /v3.0/auth/otp/verify` — AUTH_CONTRACT §3.2.
   ///
   /// On success:

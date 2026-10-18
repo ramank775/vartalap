@@ -65,12 +65,12 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
   Future<void> _onResend() async {
     setState(() => _resending = true);
     try {
-      final sent = await widget.authService.sendOtp(widget.phone);
+      final sent = await widget.authService.resendOtp(widget.phone);
       if (!mounted) return;
       _otpController.clear();
       setState(() => _startResendCountdown(sent.retryAfter));
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('New code sent to ${widget.phone}')),
+        SnackBar(content: Text('Code sent to ${widget.phone}')),
       );
     } catch (e) {
       _showError(['Unable to resend the code.', e.toString()]);

@@ -66,6 +66,26 @@ void main() {
     });
   });
 
+  group('resendOtp', () {
+    test('posts the session id and returns the same session', () async {
+      server.handler = (req) async {
+        expect(req.uri.path, '/v3.0/auth/otp/resend');
+        final body =
+            jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
+        expect(body, {'sessionId': 'sess-123'});
+        _respond(req, 200, {
+          'sessionId': 'sess-123',
+          'resendAfterSec': 30,
+          'expiresInSec': 540,
+          'isExistingAccount': false,
+        });
+      };
+      final result = await client.resendOtp(sessionId: 'sess-123');
+      expect(result.sessionId, 'sess-123');
+      expect(result.expiresIn, const Duration(seconds: 540));
+    });
+  });
+
   group('verifyOtp', () {
     test('200 stores tokens in memory and returns OtpVerifyResult', () async {
       final now = DateTime.now().millisecondsSinceEpoch;

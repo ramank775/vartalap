@@ -1230,6 +1230,8 @@ class MockServer {
     // REST routes
     if (method == 'POST' && path == '/v3.0/auth/otp/send') {
       await _handleOtpSend(req);
+    } else if (method == 'POST' && path == '/v3.0/auth/otp/resend') {
+      await _handleOtpResend(req);
     } else if (method == 'POST' && path == '/v3.0/auth/otp/verify') {
       await _handleOtpVerify(req);
     } else if (method == 'POST' && path == '/v3.0/auth/session/refresh') {
@@ -1314,6 +1316,24 @@ class MockServer {
       'resendAfterSec': 30,
       'expiresInSec': 600,
       'isExistingAccount': existing,
+    });
+  }
+
+  /// §3.3: the same session again; the code stays 000000.
+  Future<void> _handleOtpResend(HttpRequest req) async {
+    final body = await _readJsonBody(req);
+    final session = state.otpSessions[body['sessionId']];
+    if (session == null) {
+      _respondJson(req, 404, {
+        'error': {'code': 'SESSION_NOT_FOUND', 'message': 'Unknown session'}
+      });
+      return;
+    }
+    _respondJson(req, 200, {
+      'sessionId': session.sessionId,
+      'resendAfterSec': 30,
+      'expiresInSec': 600,
+      'isExistingAccount': state.usersByPhone.containsKey(session.phone),
     });
   }
 

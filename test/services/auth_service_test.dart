@@ -89,6 +89,23 @@ void main() {
       await auth.dispose();
     });
 
+    test('resendOtp keeps the session; a gone one starts over', () async {
+      final client = _FakeAuthClient();
+      final auth = AuthService(client: client, storage: _InMemoryStorage());
+      await auth.init();
+      await auth.sendOtp('+911234567890');
+      expect(client.calls, ['send']);
+
+      await auth.resendOtp('+911234567890');
+      expect(client.calls, ['send', 'resend otp-1']);
+
+      client.resendStatus = 410;
+      final again = await auth.resendOtp('+911234567890');
+      expect(client.calls, ['send', 'resend otp-1', 'resend otp-1', 'send']);
+      expect(again.sessionId, 'otp-2');
+      await auth.dispose();
+    });
+
     test('logout clears secure storage, AuthClient, and emits false',
         () async {
       final storage = _InMemoryStorage(
@@ -246,6 +263,9 @@ class _FakeAuthClient extends AuthClient {
   OtpVerifyResult? verifyResult;
   bool revokeThrows = false;
   int revokeCallCount = 0;
+  final List<String> calls = [];
+  int? resendStatus;
+  int _sessions = 0;
 
   _FakeAuthClient()
       : super(baseUrl: Uri.parse('https://example.invalid'));
@@ -268,6 +288,31 @@ class _FakeAuthClient extends AuthClient {
       refreshToken: r.refreshToken,
     );
     return r;
+  }
+
+  @override
+  Future<OtpSendResult> sendOtp({required String phone}) async {
+    calls.add('send');
+    _sessions += 1;
+    return OtpSendResult(
+      sessionId: 'otp-$_sessions',
+      retryAfter: const Duration(seconds: 30),
+      expiresIn: const Duration(minutes: 10),
+    );
+  }
+
+  @override
+  Future<OtpSendResult> resendOtp({required String sessionId}) async {
+    calls.add('resend $sessionId');
+    final status = resendStatus;
+    if (status != null) {
+      throw AuthClientException('resendOtp', status, 'SESSION_EXPIRED', null);
+    }
+    return OtpSendResult(
+      sessionId: sessionId,
+      retryAfter: const Duration(seconds: 30),
+      expiresIn: const Duration(minutes: 9),
+    );
   }
 
   @override
