@@ -590,16 +590,7 @@ class _Peer {
     await pullPendingSync();
   }
 
-  Future<void> pullPendingSync() async {
-    try {
-      for (final env in await rest.pullPendingSync()) {
-        ws.injectPush(env);
-      }
-      await inbound?.drainPending();
-    } finally {
-      ws.endSyncBuffer();
-    }
-  }
+  Future<void> pullPendingSync() => app.pullPendingPages(rest, ws, inbound);
 
   /// Wait for the outbound queue to drain. Trim 4 left a DM with no
   /// create op to wait on, but a group create is still a REST op and

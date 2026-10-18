@@ -201,7 +201,7 @@ enum AckOutcome {
 // `type` field discriminates which `body` variant is present.
 //
 // Frame direction:
-//   client→server: WS_OP, WS_PUSH_ACK
+//   client→server: WS_OP only
 //   server→client: WS_ACK, WS_PUSH, WS_REAUTH_REQUIRED, WS_ERROR
 //
 message WsEnvelope {
@@ -213,7 +213,6 @@ message WsEnvelope {
     Envelope push = 12;              // type=WS_PUSH, server→client (fanout)
     bool reauth_required = 13;       // type=WS_REAUTH_REQUIRED, server→client
     WsError error = 14;              // type=WS_ERROR, server→client
-    PushAck push_ack = 15;           // type=WS_PUSH_ACK, client→server
   }
 }
 
@@ -224,7 +223,6 @@ enum WsType {
   WS_PUSH = 3;
   WS_REAUTH_REQUIRED = 4;
   WS_ERROR = 5;
-  WS_PUSH_ACK = 6;
 }
 
 // One WsEnvelope MAY carry up to 20 envelopes per the WS batching cap
@@ -236,15 +234,6 @@ message EnvelopeBatch {
 
 message AckBatch {
   repeated Ack acks = 1;
-}
-
-// The client has handled these pushed envelopes (stored them, already
-// had them, or dropped them on purpose), so the server removes them
-// from this device's undelivered queue. Until then every WS_PUSH stays
-// queued and comes back on the next pull (SYNC_PROTOCOL.md §10.6). At
-// most 500 op_ids per frame; no reply.
-message PushAck {
-  repeated string op_ids = 1;
 }
 
 // Protocol-level error not tied to a specific op. Server emits this

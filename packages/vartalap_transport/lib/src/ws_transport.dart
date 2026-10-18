@@ -154,9 +154,13 @@ class WsTransport implements Transport {
     _setState(TransportState.connecting);
 
     try {
+      // §5.10: the server pings every 30 s, which only tells the
+      // server. Our own ping closes a socket that died without a close
+      // (network change, lost coverage), so we reconnect and pull.
       final socket = await IOWebSocketChannel.connect(
         endpoint,
         protocols: ['accesskey.$token'],
+        pingInterval: const Duration(seconds: 30),
       );
       // web_socket_channel v3: `ready` completes once the upgrade succeeds.
       await socket.ready;

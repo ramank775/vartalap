@@ -139,6 +139,34 @@ class InboundReceiver {
   /// turns bursts of these into one TYPE_DELIVERY_RECEIPT per channel.
   Stream<String> get peerMessagesStored => _peerMessageCtrl.stream;
 
+  /// Synchronous so a listener has every op_id before [drainPending]
+  /// returns: the sync pull checks its page right after it.
+  final StreamController<String> _handledCtrl =
+      StreamController<String>.broadcast(sync: true);
+
+  /// §10.6 — op_ids of the non-ephemeral envelopes this receiver has
+  /// handled: stored, already seen, or dropped on purpose. Nothing is
+  /// emitted for an apply that threw. The sync pull reads it to tell
+  /// whether its whole page went in.
+  Stream<String> get handled => _handledCtrl.stream;
+
+  /// §10.6 — the pull pointer: the newest `server_timestamp_ms` among
+  /// the envelopes handled, kept in the account's store, the next
+  /// pull's `since`. Loaded by [start].
+  int get syncPointer => _syncPointer;
+  int _syncPointer = 0;
+
+  /// While held, a handled frame does not move [syncPointer] on its own:
+  /// something before it may be missing — a frame that failed, or what
+  /// a pull still running has yet to bring. Only a pull that got
+  /// through every page releases it ([advanceSyncPointer]); until the
+  /// first one, nothing is known, so it starts held.
+  bool _pointerHeld = true;
+
+  /// Bumped by every hold, so a pull can tell whether one landed while
+  /// it ran.
+  int _holds = 0;
+
   InboundReceiver({
     required this.store,
     required this.pushes,
@@ -153,11 +181,26 @@ class InboundReceiver {
   Future<void> start() async {
     if (_running) return;
     _running = true;
+    _syncPointer = await store.syncPointer();
     _sub = pushes.listen(
-      (env) => _track(_chain = _chain.then((_) => _apply(env)).catchError(
+      (env) => _track(_chain = _chain.then((_) async {
+            await _apply(env);
+            // Not running: [stop] landed mid-apply, which returns early
+            // without storing. Ephemeral envelopes are never stored
+            // server-side, so no pull would bring them.
+            if (!_running || env.ephemeral) return;
+            if (env.opId.isNotEmpty && !_handledCtrl.isClosed) {
+              _handledCtrl.add(env.opId);
+            }
+            if (!_pointerHeld) {
+              await _moveSyncPointer(env.serverTimestampMs.toInt());
+            }
+          }).catchError(
             (Object e) {
               // Keep the chain alive: one bad frame must not stop every
-              // later one from applying.
+              // later one from applying. It does stop the pointer, so
+              // the next pull from there brings this frame back.
+              holdSyncPointer();
               // ignore: avoid_print
               print('InboundReceiver: apply failed '
                   'channel=${env.channelId} op_id=${env.opId}: $e');
@@ -179,6 +222,7 @@ class InboundReceiver {
     }
     if (!_typingCtrl.isClosed) await _typingCtrl.close();
     if (!_peerMessageCtrl.isClosed) await _peerMessageCtrl.close();
+    if (!_handledCtrl.isClosed) await _handledCtrl.close();
   }
 
   Future<void> _track(Future<void> future) {
@@ -194,9 +238,47 @@ class InboundReceiver {
   /// live message that depends on a pulled `ChannelCreated` never
   /// races ahead of it.
   Future<void> drainPending() async {
+    // A frame just added to [pushes] reaches the listener in a later
+    // microtask, so it is not tracked yet: let those deliveries run
+    // first, or a pull that has just injected its page finds nothing
+    // to wait for.
+    await Future<void>(() {});
     while (_inFlight.isNotEmpty) {
       await Future.wait(_inFlight.toList());
     }
+  }
+
+  /// Stop single frames moving [syncPointer] until a pull has caught up
+  /// ([advanceSyncPointer] with the returned token).
+  int holdSyncPointer() {
+    _pointerHeld = true;
+    return ++_holds;
+  }
+
+  /// A pull handled every frame of a page, up to [ms]: move
+  /// [syncPointer] there. With [release], the [holdSyncPointer] token
+  /// the pull took when it began — passed on its last page — single
+  /// frames move it again, unless something held it since. Queued
+  /// behind the frames already arriving, like every apply.
+  Future<void> advanceSyncPointer(int ms, {int? release}) => _track(
+        _chain = _chain.then((_) async {
+          if (!_running) return;
+          await _moveSyncPointer(ms);
+          if (release == _holds) _pointerHeld = false;
+        }).catchError((Object e) {
+          // ignore: avoid_print
+          print('InboundReceiver: advanceSyncPointer failed: $e');
+        }),
+      );
+
+  /// Never backwards: an envelope stamped earlier than one already
+  /// handled leaves it alone.
+  /// ponytail: one small write per live frame on top of its apply; fold
+  /// it into the apply's transaction if that ever shows.
+  Future<void> _moveSyncPointer(int ms) async {
+    if (ms <= _syncPointer) return;
+    _syncPointer = ms;
+    await store.setSyncPointer(ms);
   }
 
   /// §15.6 — the groups the server lists that this device has no row
@@ -267,9 +349,15 @@ class InboundReceiver {
         return;
       }
       await _ensureDmChannel(channelId, sender, env);
-    } else if (!await store.channelExists(channelId)) {
-      // A group we were added to whose event never reached us.
-      await _fetchGroup(channelId);
+    } else if (!await store.channelExists(channelId) &&
+        !await _fetchGroup(channelId)) {
+      // A group we were added to whose event never reached us, and the
+      // server says we cannot see it (or there is no resolver). There is
+      // no row to store this in: dropped on purpose, which is handled.
+      // ignore: avoid_print
+      print('InboundReceiver: dropping frame for unknown group '
+          'channel=$channelId op_id=$opId');
+      return;
     }
 
     pb.ChatPayload chat;
@@ -818,19 +906,15 @@ class InboundReceiver {
         atMs: at,
       );
 
-  /// [resolveGroup] then [_materializeGroup]; false when the group could
-  /// not be fetched (offline, gone, or no resolver).
+  /// [resolveGroup] then [_materializeGroup]; false when the group is
+  /// gone or not ours (the resolver says null), or there is no
+  /// resolver. A resolver that throws (offline, 5xx) throws through:
+  /// the frame is not stored, so it is not handled, the pointer stays
+  /// before it and the next pull brings it back (§10.6).
   Future<bool> _fetchGroup(String channelId) async {
     final resolve = resolveGroup;
     if (resolve == null) return false;
-    final GroupRoster? roster;
-    try {
-      roster = await resolve(channelId);
-    } catch (e) {
-      // ignore: avoid_print
-      print('InboundReceiver: resolveGroup($channelId) failed: $e');
-      return false;
-    }
+    final roster = await resolve(channelId);
     if (roster == null) return false;
     await _materializeGroup(channelId, roster);
     return true;

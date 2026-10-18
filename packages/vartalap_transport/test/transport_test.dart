@@ -425,6 +425,53 @@ void main() {
       expect(transport.currentState, TransportState.connected);
     });
 
+    test('pullPendingSync asks from `since` and returns the page with '
+        '`more`; null when it could not ask (§10.6)', () async {
+      String? query;
+      String frame(pb.WsEnvelope env) => base64Encode(env.writeToBuffer());
+      server.handler = (req) async {
+        query = req.uri.query;
+        req.response.statusCode = 200;
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(jsonEncode({
+          'frames': [
+            frame(pb.WsEnvelope(
+              type: pb.WsType.WS_PUSH,
+              push: pb.Envelope(
+                  opId: 'p-11', serverTimestampMs: fixnum.Int64(11)),
+            )),
+            frame(pb.WsEnvelope(type: pb.WsType.WS_ACK)), // not a push
+            frame(pb.WsEnvelope(
+              type: pb.WsType.WS_PUSH,
+              push: pb.Envelope(
+                  opId: 'p-12', serverTimestampMs: fixnum.Int64(12)),
+            )),
+          ],
+          'more': true,
+        }));
+        await req.response.close();
+      };
+      final transport = RestTransport(
+        baseUrl: server.uri,
+        auth: _FakeAuth('acc-pull'),
+      );
+      addTearDown(transport.dispose);
+
+      final page = await transport.pullPendingSync(since: 10);
+      expect(query, 'since=10');
+      expect(server.lastAuthHeader, 'Bearer acc-pull');
+      expect(page!.envelopes.map((e) => e.opId), ['p-11', 'p-12']);
+      expect(page.envelopes.last.serverTimestampMs.toInt(), 12);
+      expect(page.more, isTrue);
+
+      server.handler = (req) async {
+        req.response.statusCode = 503;
+        await req.response.close();
+      };
+      expect(await transport.pullPendingSync(since: 12), isNull,
+          reason: 'could not ask is not the same as nothing new');
+    });
+
     test('classifyHttpStatus maps across the §8.1 table', () {
       expect(classifyHttpStatus(200), isA<AckSuccess>());
       expect(classifyHttpStatus(201), isA<AckSuccess>());

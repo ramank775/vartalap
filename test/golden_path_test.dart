@@ -25,6 +25,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:vartalap/main.dart' show freshSyncPointer, pullPendingPages;
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -1061,6 +1062,20 @@ void main() {
       );
     });
 
+    // ---- 9b -------------------------------------------------------------
+    test('9b. a fresh account database starts its pull pointer at sign-in, '
+        'in server time less a minute', () async {
+      final signedInAt = h.authClient.signedInAt;
+      expect(signedInAt, isNotNull,
+          reason: 'the otp/verify response carries a Date header');
+      expect(
+        await h.store.syncPointer(),
+        signedInAt!.millisecondsSinceEpoch - 60000,
+        reason: 'not 0 — a new install does not replay the 30 days the '
+            'server keeps — and nothing for this account was stamped since',
+      );
+    });
+
     // ---- 10 -------------------------------------------------------------
     test('10. send an image attachment → upload op ACKs → MESSAGE_CREATE '
         'carries the fileId → peer receives it and can resolve a download',
@@ -1569,6 +1584,162 @@ void main() {
       expect((await h.channelRow(channelId))?['name'], 'Adopted');
       expect(await h.memberRole(channelId, selfId), 'owner');
     });
+
+    // ---- 19 -------------------------------------------------------------
+    test('19. frames received live move the pointer, so the next pull brings '
+        'only the pointer\'s own millisecond (§10.6)', () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = dmChannelId(selfId, peerUserId);
+      // Caught up: from here on the socket's frames are all there is.
+      await h.pullPendingSync();
+      final sent = h.mock
+          .injectPeerMessage(channelId: channelId, body: 'live and stored');
+      final stamp = h.mock.messageStamps[sent.messageId]!;
+
+      await h.waitFor(() => h.inbound!.syncPointer == stamp);
+      expect(h.inbound!.syncPointer, stamp);
+      expect(await h.store.syncPointer(), stamp);
+      expect(await h.pullPendingSync(), 1,
+          reason: '`since` is inclusive: the frame at the pointer comes '
+              'back, nothing before it');
+      expect(
+        (await h.bodiesIn(channelId)).where((b) => b == 'live and stored'),
+        hasLength(1),
+        reason: 'and dedup absorbs it',
+      );
+    });
+
+    // ---- 20 -------------------------------------------------------------
+    test('20. the app dies between the socket and the database → the pointer '
+        'never passed the push, so the next pull stores it once (§15.4a)',
+        () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = dmChannelId(selfId, peerUserId);
+      final before = await h.store.syncPointer();
+      // The receiver is gone (the process died) while the socket still
+      // takes the push.
+      final receiver = h.inbound!;
+      h.inbound = null;
+      await receiver.stop();
+      final arrived = <String>[];
+      final sub = h.ws.pushes.listen((env) => arrived.add(env.opId));
+      final sent = h.mock
+          .injectPeerMessage(channelId: channelId, body: 'lost in transit');
+      await h.waitFor(() => arrived.contains(sent.opId));
+      await sub.cancel();
+      expect(await h.bodiesIn(channelId), isNot(contains('lost in transit')));
+      expect(await h.store.syncPointer(), before);
+
+      // Next start: a fresh receiver, then the pull.
+      await h.rebuildInboundReceiverForUser(selfId);
+      await h.pullPendingSync();
+      expect(
+        (await h.bodiesIn(channelId)).where((b) => b == 'lost in transit'),
+        hasLength(1),
+      );
+      expect(
+          await h.store.syncPointer(), h.mock.messageStamps[sent.messageId]);
+    });
+
+    // ---- 21 -------------------------------------------------------------
+    test('21. a pulled frame that fails to apply keeps the pointer before it '
+        'and comes back on the next pull (§10.6)', () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = 'unfetched-${DateTime.now().millisecondsSinceEpoch}';
+      h.mock.ensureChannel(
+        channelId: channelId,
+        kind: 'group',
+        ownerUserId: peerUserId,
+        members: [peerUserId, selfId],
+        name: 'Unfetched',
+      );
+      // Offline, so only a pull can bring it.
+      await h.ws.stop();
+      final before = await h.store.syncPointer();
+      final sent = h.mock
+          .injectPeerMessage(channelId: channelId, body: 'needs its group');
+
+      h.failGroupFetch = true;
+      await h.pullPendingSync();
+      expect(await h.channelRow(channelId), isNull);
+      expect(h.inbound!.syncPointer, before,
+          reason: 'its group could not be fetched, so it was not handled');
+      expect(await h.store.syncPointer(), before);
+
+      h.failGroupFetch = false;
+      await h.pullPendingSync();
+      expect(await h.bodiesIn(channelId), ['needs its group']);
+      expect(
+          await h.store.syncPointer(), h.mock.messageStamps[sent.messageId]);
+    });
+
+    // ---- 22 -------------------------------------------------------------
+    test('22. a frame stamped in the pointer\'s own millisecond, written '
+        'after the pull that set it, is not missed (§10.6)', () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = dmChannelId(selfId, peerUserId);
+      final first =
+          h.mock.injectPeerMessage(channelId: channelId, body: 'same ms one');
+      final stamp = h.mock.messageStamps[first.messageId]!;
+      await h.pullPendingSync();
+      expect(await h.store.syncPointer(), stamp);
+
+      h.mock.injectPeerMessage(
+        channelId: channelId,
+        body: 'same ms two',
+        serverTimestampMs: stamp,
+      );
+      await h.pullPendingSync();
+      final bodies = await h.bodiesIn(channelId);
+      expect(bodies.where((b) => b == 'same ms one'), hasLength(1));
+      expect(bodies.where((b) => b == 'same ms two'), hasLength(1),
+          reason: '`since` is inclusive, so the pointer\'s millisecond is '
+              'asked for again');
+    });
+
+    // ---- 23 -------------------------------------------------------------
+    test('23. more than a page stored → the pull loop takes every page and '
+        'the pointer ends at the newest stamp (§10.6)', () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = dmChannelId(selfId, peerUserId);
+      late ({String messageId, String opId}) last;
+      for (var i = 0; i < 520; i++) {
+        last = h.mock.injectPeerMessage(channelId: channelId, body: 'bulk $i');
+      }
+
+      expect(await h.pullPendingSync(), greaterThan(500),
+          reason: 'one page is at most 500 frames: the loop pulled again');
+      final rows = await h.store.db.rawQuery(
+        "SELECT COUNT(*) c FROM messages WHERE channel_id = ? "
+        "AND body LIKE 'bulk %'",
+        [channelId],
+      );
+      expect(rows.single['c'], 520);
+      expect(
+          await h.store.syncPointer(), h.mock.messageStamps[last.messageId]);
+    });
+
+    // ---- 24 -------------------------------------------------------------
+    test('24. the pointer lives with the account database: after logout and '
+        'login it is kept, and a pull brings nothing new (§10.6)', () async {
+      final selfId = h.authService.currentUserId!;
+      final pointer = await h.store.syncPointer();
+      final messages = (await h.counts())['messages'];
+      await h.authService.logout();
+      await _pump();
+
+      await h.authService.sendOtp(phoneB);
+      await h.authService.verifyOtp(phoneB, h.mock.sendOtpCodeFor(phoneB));
+      expect(h.authService.currentUserId, selfId);
+      expect(h.inbound!.syncPointer, pointer,
+          reason: 'read back from the reopened account database, not '
+              'restarted at this sign-in');
+      await h.ws.start();
+      await h.waitFor(() => h.ws.currentState == TransportState.connected);
+      expect(await h.pullPendingSync(), 1,
+          reason: 'only the frame at the pointer\'s own millisecond');
+      expect((await h.counts())['messages'], messages);
+    });
   });
 }
 
@@ -1587,10 +1758,10 @@ Future<List<GroupEventKind>> _groupEventKinds(
         GroupEvent.parse(r['body'] as String?)!.kind,
     ];
 
-/// Channel ids in the §10.2 `ChannelDeleted` events queued for [userId].
+/// Channel ids in the §10.2 `ChannelDeleted` events fanned to [userId].
 List<String> _peerChannelDeletes(_Harness h, String userId) {
   final out = <String>[];
-  for (final frame in h.mock.state.drainUndelivered(userId)) {
+  for (final frame in h.mock.state.newFramesFor(userId)) {
     try {
       final env = pb.WsEnvelope.fromBuffer(frame);
       if (env.type != pb.WsType.WS_PUSH) continue;
@@ -1607,11 +1778,11 @@ List<String> _peerChannelDeletes(_Harness h, String userId) {
   return out;
 }
 
-/// Server-authored §10.2 events queued for the seed peer. Drains, like
-/// [_Harness.peerInbox], and keeps only the profile edits.
+/// Server-authored §10.2 events fanned to the seed peer. Reads what is
+/// new, like [_Harness.peerInbox], and keeps only the profile edits.
 List<pb.ProfileEdited> _peerProfileEdits(_Harness h) {
   final out = <pb.ProfileEdited>[];
-  for (final frame in h.mock.state.drainUndelivered(peerUserId)) {
+  for (final frame in h.mock.state.newFramesFor(peerUserId)) {
     try {
       final env = pb.WsEnvelope.fromBuffer(frame);
       if (env.type != pb.WsType.WS_PUSH) continue;
@@ -1660,8 +1831,9 @@ class _Harness {
   static Future<_Harness> boot() async {
     final mock = await MockServer.start(); // strict: true, seed peer on
     // tmpDir is still the scratch space for picked attachments and the
-    // asset cache; the stores themselves are in-memory so nothing
-    // survives the file and no two test files can ever meet on a path.
+    // asset cache; the stores themselves are in-memory (see
+    // [openAccount]) so nothing survives the file and no two test files
+    // can ever meet on a path.
     // The WAL pragma has its own file-backed check in
     // packages/vartalap_store/test/schema_boot_test.dart.
     final tmpDir = await Directory.systemTemp.createTemp('vartalap_golden');
@@ -1694,10 +1866,20 @@ class _Harness {
     return h;
   }
 
-  /// AppServices.openAccount, with a fresh in-memory store standing in
-  /// for the account's file.
+  /// AppServices.openAccount, with an in-memory store standing in for
+  /// the account's file.
   Future<void> openAccount(String userId) async {
-    store = await ChatStore.open(path: inMemoryDatabasePath);
+    // A `memdb` database named by the account's path, which lives as
+    // long as any connection does: the keeper holds it across a logout
+    // and the next login, as the file would (account_db_test's trick;
+    // the empty file spares sqflite making a parent dir for the URI).
+    final path = '${tmpDir.path}/vartalap_v3_$userId.db';
+    File(path).createSync();
+    final uri = 'file:$path?vfs=memdb';
+    _keepers[uri] ??= await databaseFactoryFfi.openDatabase(uri,
+        options: OpenDatabaseOptions(singleInstance: false));
+    store = await ChatStore.open(path: uri);
+    await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
     scheduler = SyncScheduler(
       store: store,
       wsTransport: ws,
@@ -1730,9 +1912,14 @@ class _Harness {
     await store.close();
   }
 
+  final Map<String, Database> _keepers = {};
+
   Future<void> shutdown() async {
     await _wsStateSub.cancel();
     await closeAccount();
+    for (final k in _keepers.values) {
+      await k.close();
+    }
     await ws.dispose();
     await rest.dispose();
     await authService.dispose();
@@ -1743,17 +1930,11 @@ class _Harness {
   }
 
   /// AppServices.pullPendingSync.
-  Future<void> pullPendingSync() async {
-    try {
-      final envelopes = await rest.pullPendingSync();
-      for (final env in envelopes) {
-        ws.injectPush(env);
-      }
-      await inbound?.drainPending();
-    } finally {
-      ws.endSyncBuffer();
-    }
-  }
+  Future<int> pullPendingSync() => pullPendingPages(rest, ws, inbound);
+
+  /// While set, [InboundReceiver.resolveGroup] fails the way it does
+  /// offline: the frame that needed the group is not stored.
+  bool failGroupFetch = false;
 
   /// AppServices.rebuildInboundReceiverForUser.
   Future<void> rebuildInboundReceiverForUser(String userIdHex) async {
@@ -1768,6 +1949,7 @@ class _Harness {
       localUserId: userIdHex,
       resolveProfile: (userId) => _resolveContactProfile(authClient, userId),
       resolveGroup: (channelId) async {
+        if (failGroupFetch) throw const SocketException('offline');
         final json = await authClient.getChannel(channelId);
         return json == null ? null : groupRosterFromJson(json);
       },
@@ -1810,6 +1992,18 @@ class _Harness {
     return rows.isEmpty ? null : rows.single;
   }
 
+  /// Bodies of [channelId]'s messages, oldest first.
+  Future<List<String?>> bodiesIn(String channelId) async => [
+        for (final r in await store.db.query(
+          'messages',
+          columns: const ['body'],
+          where: 'channel_id = ?',
+          whereArgs: [channelId],
+          orderBy: 'server_timestamp_ms, message_id',
+        ))
+          r['body'] as String?,
+      ];
+
   Future<Map<String, int>> counts() async {
     Future<int> count(String table) async {
       final r = await store.db.rawQuery('SELECT COUNT(*) c FROM $table');
@@ -1823,14 +2017,14 @@ class _Harness {
     };
   }
 
-  /// Everything the mock has queued for the seed peer since the last
+  /// Everything the mock has fanned to the seed peer since the last
   /// call, decoded to ChatPayloads. The peer has no client in this
-  /// harness, so its fanout lands on the undelivered queue — which is
-  /// exactly the "did the other side get it" question.
+  /// harness, so the stored fanout is exactly the "did the other side
+  /// get it" question.
   final List<pb.ChatPayload> peerInboxSeen = [];
 
-  /// Drain first, then look: the undelivered queue only fills as the
-  /// server processes ops, so a poll that doesn't drain never sees them.
+  /// Read first, then look: the store only fills as the server
+  /// processes ops, so a poll that doesn't read never sees them.
   bool peerSaw(
     pb.ChatPayloadType type, {
     String? messageId,
@@ -1845,7 +2039,7 @@ class _Harness {
 
   List<pb.ChatPayload> peerInbox() {
     final out = <pb.ChatPayload>[];
-    for (final frame in mock.state.drainUndelivered(peerUserId)) {
+    for (final frame in mock.state.newFramesFor(peerUserId)) {
       try {
         final env = pb.WsEnvelope.fromBuffer(frame);
         if (env.type != pb.WsType.WS_PUSH) continue;

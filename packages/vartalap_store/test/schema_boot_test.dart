@@ -108,14 +108,35 @@ void main() {
         .map((r) => r['name']);
     expect(tables, isNot(contains('resource_seq')));
     expect(tables, isNot(contains('snapshots')));
-    expect(tables, containsAll(['reactions', 'pending_ops']),
-        reason: 'the v2 DDL runs after the migration');
+    expect(tables, containsAll(['reactions', 'pending_ops', 'sync_state']),
+        reason: 'the current DDL runs after the migration');
 
     final msgs = await store.fetchChannelMessages('g-1');
     expect(msgs.single.body, 'kept');
     expect(msgs.single.serverTimestampMs, 500);
     expect((await store.selectDispatchable(now: 1)).single.opId, 'op-1',
         reason: 'a queued op survives the migration and still dispatches');
+  });
+
+  test('the sync pointer starts where it is first put, never moves back, '
+      'and lives with the database file', () async {
+    final dir = await Directory.systemTemp.createTemp('vartalap_pointer');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/account.db';
+    var store = await ChatStore.open(path: path);
+    expect(await store.syncPointer(), 0);
+    await store.initSyncPointer(30);
+    expect(await store.syncPointer(), 30);
+    await store.setSyncPointer(42);
+    await store.setSyncPointer(7);
+    expect(await store.syncPointer(), 42, reason: 'a late, smaller write');
+    await store.close();
+
+    store = await ChatStore.open(path: path);
+    await store.initSyncPointer(99);
+    expect(await store.syncPointer(), 42,
+        reason: 'logout, then login: the stored pointer is kept');
+    await store.close();
   });
 
   test('two in-memory stores do not share a database', () async {

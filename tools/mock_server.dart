@@ -107,6 +107,10 @@ class SessionRecord {
     required this.refreshTokenExpiresAt,
   });
 
+  /// `<user_id>/<device_id>`: which device a socket or a fanout belongs
+  /// to (SYNC_PROTOCOL §10.3 item 5 — the sending device is skipped).
+  String get deviceKey => '$userId/$deviceId';
+
   Map<String, dynamic> toPersistJson() => {
         'accesskey': accesskey,
         'refreshToken': refreshToken,
@@ -124,6 +128,44 @@ class SessionRecord {
         deviceId: j['deviceId'] as String,
         accesskeyExpiresAt: j['accesskeyExpiresAt'] as int,
         refreshTokenExpiresAt: j['refreshTokenExpiresAt'] as int,
+      );
+}
+
+/// One fanout, stored once (SYNC_PROTOCOL §10.6): the WS_PUSH frame,
+/// the users it went to, and the device that sent it, whose own pull
+/// leaves it out. Each user's pull is built from these at read time.
+class FanoutRecord {
+  final String opId;
+  final int serverTimestampMs;
+  final Uint8List frame;
+  final Set<String> recipients;
+
+  /// [SessionRecord.deviceKey] of the socket the op came in on; null
+  /// for a fanout no socket sent (a REST side effect, a test peer).
+  final String? senderDevice;
+
+  FanoutRecord({
+    required this.opId,
+    required this.serverTimestampMs,
+    required this.frame,
+    required this.recipients,
+    this.senderDevice,
+  });
+
+  Map<String, dynamic> toPersistJson() => {
+        'opId': opId,
+        'serverTimestampMs': serverTimestampMs,
+        'frame': base64Encode(frame),
+        'recipients': recipients.toList(),
+        'senderDevice': senderDevice,
+      };
+
+  static FanoutRecord fromPersistJson(Map<String, dynamic> j) => FanoutRecord(
+        opId: j['opId'] as String,
+        serverTimestampMs: j['serverTimestampMs'] as int,
+        frame: base64Decode(j['frame'] as String),
+        recipients: (j['recipients'] as List<dynamic>).cast<String>().toSet(),
+        senderDevice: j['senderDevice'] as String?,
       );
 }
 
@@ -220,9 +262,13 @@ class MockState {
   // wants 10k/user, 7 days) — a mock never runs long enough to care.
   final Map<String, StoredOutcome> outcomes = {};
   final Map<String, List<WebSocket>> wsConnections = {};
-  // Per-user undelivered queue (SYNC_PROTOCOL.md §11). Holds raw
-  // serialized WS_PUSH WsEnvelope frames. Drained on WS connect.
-  final Map<String, List<Uint8List>> undelivered = {};
+  /// The [SessionRecord.deviceKey] of every open socket.
+  final Map<WebSocket, String> socketDevice = {};
+  // Every fanout (SYNC_PROTOCOL.md §10.6), stored once, by op_id in
+  // write order, pushed live or not. A pull reads it; nothing is ever
+  // removed. ponytail: no 30-day retention; a mock never lives that
+  // long.
+  final Map<String, FanoutRecord> fanouts = {};
   /// Demo mode (`--seed-peer`): users who have already been sent the
   /// seed peer's welcome message. Trim 4 left no DM channel row to
   /// check for, and the welcome is what introduces the derived
@@ -239,7 +285,7 @@ class MockState {
 
   /// Schedule a debounced save. Every mutation site calls this; the
   /// 200ms window coalesces bursts (an OTP-verify touches users +
-  /// sessions + channel + undelivered in quick succession — one write
+  /// sessions + channel + fanouts in quick succession — one write
   /// covers them all).
   void markDirty() {
     final path = persistencePath;
@@ -267,9 +313,7 @@ class MockState {
         'sessions': sessions.values.map((s) => s.toPersistJson()).toList(),
         'channels':
             channels.values.map((c) => c.toPersistJson()).toList(),
-        'undelivered': undelivered.map(
-          (k, v) => MapEntry(k, v.map(base64Encode).toList()),
-        ),
+        'fanouts': fanouts.values.map((r) => r.toPersistJson()).toList(),
         'welcomedUsers': welcomedUsers.toList(),
       };
 
@@ -296,10 +340,10 @@ class MockState {
         final c = ChannelRecord.fromPersistJson(entry as Map<String, dynamic>);
         channels[c.channelId] = c;
       }
-      final queues = j['undelivered'] as Map<String, dynamic>? ?? {};
-      queues.forEach((k, v) => undelivered[k] = (v as List<dynamic>)
-          .map((e) => base64Decode(e as String))
-          .toList());
+      for (final entry in (j['fanouts'] as List? ?? [])) {
+        final r = FanoutRecord.fromPersistJson(entry as Map<String, dynamic>);
+        fanouts[r.opId] = r;
+      }
       welcomedUsers.addAll(
           (j['welcomedUsers'] as List? ?? []).cast<String>());
     } catch (e) {
@@ -378,23 +422,64 @@ class MockState {
     outcomes['$userId:$opId'] = outcome;
   }
 
-  void addWsConnection(String userId, WebSocket ws) {
-    wsConnections.putIfAbsent(userId, () => []).add(ws);
+  void addWsConnection(SessionRecord session, WebSocket ws) {
+    wsConnections.putIfAbsent(session.userId, () => []).add(ws);
+    socketDevice[ws] = session.deviceKey;
   }
 
   void removeWsConnection(String userId, WebSocket ws) {
     wsConnections[userId]?.remove(ws);
+    socketDevice.remove(ws);
   }
 
-  void enqueueUndelivered(String userId, Uint8List frame) {
-    undelivered.putIfAbsent(userId, () => []).add(frame);
+  /// Store the WS_PUSH [frame] for [userId]: once per op_id, a
+  /// fanout's later recipients joining its record.
+  void recordFanout(String userId, Uint8List frame, {String? senderDevice}) {
+    final push = pb.WsEnvelope.fromBuffer(frame).push;
+    fanouts
+        .putIfAbsent(
+          push.opId,
+          () => FanoutRecord(
+            opId: push.opId,
+            serverTimestampMs: push.serverTimestampMs.toInt(),
+            frame: frame,
+            recipients: {},
+            senderDevice: senderDevice,
+          ),
+        )
+        .recipients
+        .add(userId);
     markDirty();
   }
 
-  List<Uint8List> drainUndelivered(String userId) {
-    final queued = undelivered.remove(userId);
-    if (queued != null && queued.isNotEmpty) markDirty();
-    return queued ?? const [];
+  /// §10.6 — what [session]'s pull sees: every fanout naming its user,
+  /// stamped at or after [since], but the ones its own device sent;
+  /// ordered by (server_timestamp_ms, op_id).
+  List<FanoutRecord> timeline(SessionRecord session, int since) => fanouts
+      .values
+      .where((r) =>
+          r.recipients.contains(session.userId) &&
+          r.senderDevice != session.deviceKey &&
+          r.serverTimestampMs >= since)
+      .toList()
+    ..sort((a, b) {
+      final byStamp = a.serverTimestampMs.compareTo(b.serverTimestampMs);
+      return byStamp != 0 ? byStamp : a.opId.compareTo(b.opId);
+    });
+
+  final Map<String, int> _readUpTo = {};
+
+  /// Test hook: the frames fanned to [userId] since the last call, in
+  /// write order. For a user with no client (the seed peer): "what
+  /// arrived since I last looked". Removes nothing.
+  List<Uint8List> newFramesFor(String userId) {
+    final records = fanouts.values.toList();
+    final from = _readUpTo[userId] ?? 0;
+    _readUpTo[userId] = records.length;
+    return [
+      for (final r in records.skip(from))
+        if (r.recipients.contains(userId)) r.frame,
+    ];
   }
 
   /// Create the seed peer user with a well-known userId.
@@ -686,16 +771,20 @@ class MockServer {
       }
     }
     state.wsConnections.clear();
+    state.socketDevice.clear();
     await _http.close(force: true);
   }
 
   /// Demo timers, cancelled by [stop] so a test never leaks one.
   final Set<Timer> _timers = {};
 
-  /// The server clock for accepted chat ops. ponytail: strictly
-  /// increasing so tests never tie two ops on one millisecond and lean
-  /// on the id tie-break by accident; the real server makes no such
-  /// promise. Tests that want a tie pass `serverTimestampMs`.
+  /// The server clock for every stored fanout. Never backwards: a pull
+  /// asks for what is stamped at or after the client's pointer
+  /// (§10.6), so a later write stamped earlier would never be pulled.
+  /// ponytail: strictly increasing so tests never tie two ops on one
+  /// millisecond and lean on the id tie-break by accident; the real
+  /// server makes no such promise. Tests that want a tie pass
+  /// `serverTimestampMs`.
   int _lastStamp = 0;
   int _stamp() => _lastStamp =
       max(DateTime.now().millisecondsSinceEpoch, _lastStamp + 1);
@@ -734,8 +823,8 @@ class MockServer {
 
   /// Inject an inbound chat message from [senderUserId] (defaults to
   /// the seed peer) into [channelId]. Fans a real `WS_PUSH` carrying a
-  /// `ChatPayload{TYPE_MESSAGE_CREATE}` to every other member — live if
-  /// they have a socket, otherwise onto their undelivered queue.
+  /// `ChatPayload{TYPE_MESSAGE_CREATE}` to every other member — stored
+  /// for their pulls, and live to the ones with a socket.
   ///
   /// [messageId] and [serverTimestampMs] let a test deliver the create
   /// AFTER ops that target it (SYNC_PROTOCOL §6b: the client copes).
@@ -912,12 +1001,24 @@ class MockServer {
     }
   }
 
-  /// Throw away everything queued for [userId] and report how many
-  /// frames were lost. Stands in for an undelivered queue that did not
+  /// Throw away everything stored for [userId] and report how many
+  /// frames were lost. Stands in for a fanout store that did not
   /// survive — the one server-side failure a client cannot detect and
   /// has no way to ask about.
-  int dropUndelivered(String userId) =>
-      state.undelivered.remove(userId)?.length ?? 0;
+  int dropUndelivered(String userId) {
+    var dropped = 0;
+    for (final r in state.fanouts.values) {
+      if (r.recipients.remove(userId)) dropped++;
+    }
+    return dropped;
+  }
+
+  /// The op_ids of every stored fanout naming [userId] (§10.6), in
+  /// write order. Read only.
+  List<String> storedOpIds(String userId) => [
+        for (final r in state.fanouts.values)
+          if (r.recipients.contains(userId)) r.opId,
+      ];
 
   /// Materialize a server-side channel record without going through
   /// `POST /v3.0/channels`. Lets a test line the server's roster up
@@ -959,12 +1060,6 @@ class MockServer {
         creatorUserId: ownerUserId,
         createdAtMs: createdAt,
       );
-      // _enqueueChannelCreated only queues; flush it now if the
-      // recipient is online so the test doesn't have to pull.
-      final queued = state.drainUndelivered(memberId);
-      for (final frame in queued) {
-        _sendToUser(memberId, frame);
-      }
     }
   }
 
@@ -1088,6 +1183,9 @@ class MockServer {
   // ---------------------------------------------------------------------------
 
   Future<void> _handleRequest(HttpRequest req) async {
+    // Like any origin server with a clock (RFC 9110 §6.6.1); a fresh
+    // account's pull pointer starts from the otp/verify one.
+    req.response.headers.date = DateTime.now();
     // CORS for local dev
     req.response.headers.add('Access-Control-Allow-Origin', '*');
     req.response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
@@ -1673,17 +1771,32 @@ class MockServer {
     }
   }
 
-  // Client-triggered pull. Returns base64 of raw WS_PUSH WsEnvelope frames
-  // queued for this user; the queue is drained in the same call.
-  // Client invokes this on startup / WS connect — server never pushes
-  // spontaneously and never auto-drains on connect.
+  // §10.6 client-triggered pull. Returns base64 of the raw WS_PUSH
+  // WsEnvelope frames for this user stamped at or after `since`
+  // (inclusive — several can share a millisecond; omitted = 0), but the
+  // ones this device sent, ordered by (server_timestamp_ms, op_id), at
+  // most 500, and `more` when there are frames past them. Read only;
+  // the client keeps its own pointer. Client invokes this on startup /
+  // WS connect / wake — server never pushes stored frames.
   Future<void> _handleSyncPending(HttpRequest req) async {
     final session = _authenticate(req);
     if (session == null) return;
-    final queued = state.drainUndelivered(session.userId);
-    final frames = queued.map(base64Encode).toList();
-    _log('Sync pull: userId=${session.userId} delivered=${frames.length} frame(s)');
-    _respondJson(req, 200, {'frames': frames});
+    final sinceArg = req.uri.queryParameters['since'];
+    final since = sinceArg == null ? 0 : int.tryParse(sinceArg);
+    if (since == null || since < 0) {
+      _respondJson(req, 400, {
+        'error': {
+          'code': 'VALIDATION_FAILED',
+          'message': 'since must be a non-negative integer'
+        }
+      });
+      return;
+    }
+    final records = state.timeline(session, since);
+    final frames = records.take(500).map((r) => base64Encode(r.frame)).toList();
+    _log('Sync pull: device=${session.deviceKey} since=$since '
+        'returned=${frames.length} of ${records.length} frame(s)');
+    _respondJson(req, 200, {'frames': frames, 'more': records.length > 500});
   }
 
   // ---------------------------------------------------------------------------
@@ -1789,12 +1902,6 @@ class MockServer {
           creatorUserId: session.userId,
           createdAtMs: createdAt,
         );
-        // _enqueueChannelCreated only queues; flush it now if the
-        // recipient is connected, so a live peer sees it without
-        // having to pull.
-        for (final frame in state.drainUndelivered(memberId)) {
-          _sendToUser(memberId, frame);
-        }
       }
     }
 
@@ -2096,7 +2203,7 @@ class MockServer {
       protocolSelector: (protocols) => protocols.isNotEmpty ? protocols.first : '',
     );
 
-    state.addWsConnection(userId, ws);
+    state.addWsConnection(session, ws);
     _log('WS connected: userId=$userId (${state.wsConnections[userId]?.length ?? 0} sockets)');
 
     ws.listen(
@@ -2144,10 +2251,9 @@ class MockServer {
             reason: 'validation_failed',
           )
       ];
-      _sendToUser(
-        senderUserId,
-        pb.WsEnvelope(type: pb.WsType.WS_ACK, acks: pb.AckBatch(acks: rejects))
-            .writeToBuffer(),
+      _reply(
+        senderSocket,
+        pb.WsEnvelope(type: pb.WsType.WS_ACK, acks: pb.AckBatch(acks: rejects)),
       );
       return;
     }
@@ -2165,7 +2271,18 @@ class MockServer {
       type: pb.WsType.WS_ACK,
       acks: pb.AckBatch(acks: acks),
     );
-    _sendToUser(senderUserId, ackFrame.writeToBuffer());
+    _reply(senderSocket, ackFrame);
+  }
+
+  /// A reply to a frame [ws] sent (WS_ACK, WS_ERROR) goes back on that
+  /// socket, like the real gateway's, and is never stored: only fanout
+  /// is (§10.6).
+  void _reply(WebSocket ws, pb.WsEnvelope frame) {
+    try {
+      ws.add(frame.writeToBuffer());
+    } catch (e) {
+      _log('WS reply error: $e');
+    }
   }
 
   pb.Ack? _processEnvelope(
@@ -2257,7 +2374,7 @@ class MockServer {
       return reject('validation_failed');
     }
 
-    // Ephemeral envelopes bypass dedup, the undelivered queue, ACK
+    // Ephemeral envelopes bypass dedup, the fanout store, ACK
     // emission, and any of the post-fanout receipts. Fan to currently-
     // connected members live and drop the rest. See v3-envelope.proto.
     if (env.ephemeral) {
@@ -2382,9 +2499,6 @@ class MockServer {
     );
   }
 
-  // Live-fanout to a user. If the user has no open WS, the frame is
-  // enqueued in the per-user undelivered queue; the client picks it up
-  // on its next call to GET /v3.0/sync/pending.
   /// Who a frame from [senderUserId] on [channelId] goes to, sender
   /// excluded.
   ///
@@ -2409,25 +2523,22 @@ class MockServer {
     return channel.members.difference({senderUserId});
   }
 
-  /// Deliver [bytes] to every device of [userId] except
-  /// [exceptSocket] — trim 12's "every device of every member except
-  /// the sending device".
+  /// Deliver the WS_PUSH [bytes] to every device of [userId] except
+  /// the one [exceptSocket] belongs to — trim 12's "every device of
+  /// every member except the sending device".
   ///
-  /// When the only device is the excluded one there is nothing to
-  /// deliver and nothing to queue: the real server subtracts the
-  /// sending device from the recipient's device set before it decides
-  /// whether anything is undelivered, so an author must never find its
-  /// own message waiting in its pull.
+  /// §10.6: the fanout is stored once, [userId] joining its recipients,
+  /// and each pull is built from the stored records — so a push into a
+  /// socket that died comes back on the next pull from the device's
+  /// pointer. Then it goes live to every socket [userId] has open but
+  /// the sending device's: neither its pull nor its socket hands an
+  /// author its own message.
   void _sendToUser(String userId, Uint8List bytes, {WebSocket? exceptSocket}) {
-    final all = state.wsConnections[userId];
-    final sockets =
-        all?.where((ws) => !identical(ws, exceptSocket)).toList() ?? const [];
-    if (all != null && all.isNotEmpty && sockets.isEmpty) return;
-    if (sockets.isEmpty) {
-      state.enqueueUndelivered(userId, bytes);
-      return;
-    }
-    for (final ws in sockets) {
+    final except =
+        exceptSocket == null ? null : state.socketDevice[exceptSocket];
+    state.recordFanout(userId, bytes, senderDevice: except);
+    for (final ws in state.wsConnections[userId] ?? const <WebSocket>[]) {
+      if (except != null && state.socketDevice[ws] == except) continue;
       try {
         ws.add(bytes);
       } catch (e) {
@@ -2437,7 +2548,7 @@ class MockServer {
   }
 
   // Build a WS_PUSH WsEnvelope carrying a ChannelCreated ServerEventPayload
-  // for [recipientUserId] and enqueue it in the user's undelivered queue.
+  // for [recipientUserId] and fan it to the user's devices.
   // Wire format: payload bytes are the serialized ServerEventPayload
   // PREPENDED with 0x53 per SYNC_PROTOCOL.md §10.2.
   void _enqueueChannelCreated({
@@ -2463,7 +2574,7 @@ class MockServer {
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final pushEnv = pb.Envelope(
       opId: state.generateUuid(),
       channelId: channelId,
@@ -2476,7 +2587,7 @@ class MockServer {
       type: pb.WsType.WS_PUSH,
       push: pushEnv,
     );
-    state.enqueueUndelivered(recipientUserId, pushFrame.writeToBuffer());
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
     _log('Enqueued ChannelCreated for $recipientUserId channel=$channelId');
   }
 
@@ -2498,7 +2609,7 @@ class MockServer {
     String role = '',
     String actorUserId = '',
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final sep = pb.ServerEventPayload(
       version: 1,
       type: pb.ServerEventType.CHANNEL_MEMBER_ADDED,
@@ -2555,7 +2666,7 @@ class MockServer {
       clientTimestampMs: fixnum.Int64(removedAtMs),
       payload: payload,
       senderUserId: actorUserId, // the real server names the actor
-      serverTimestampMs: fixnum.Int64(removedAtMs),
+      serverTimestampMs: fixnum.Int64(_stamp()),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2587,7 +2698,7 @@ class MockServer {
     required bool statusTextPresent,
     String? statusText,
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final body = pb.ProfileEdited(
       userId: editorUserId,
       editedAtMs: fixnum.Int64(now),
@@ -2634,7 +2745,7 @@ class MockServer {
     required String editorUserId,
     required String newUsername,
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final sep = pb.ServerEventPayload(
       version: 1,
       type: pb.ServerEventType.USERNAME_CHANGED,
@@ -2686,7 +2797,7 @@ class MockServer {
     String? avatarUrl,
     String actorUserId = '',
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final body = pb.ChannelEdited(
       channelId: channelId,
       editedAtMs: fixnum.Int64(now),
@@ -2722,7 +2833,7 @@ class MockServer {
     required String recipientUserId,
     required String channelId,
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final sep = pb.ServerEventPayload(
       version: 1,
       type: pb.ServerEventType.CHANNEL_DELETED,
@@ -2780,22 +2891,22 @@ class MockServer {
       type: pb.WsType.WS_PUSH,
       push: pushEnv,
     );
-    state.enqueueUndelivered(recipientUserId, pushFrame.writeToBuffer());
+    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
     _log('Enqueued welcome message for $recipientUserId channel=$channelId '
         'body="$body"');
   }
 
   // Build a WS_PUSH WsEnvelope carrying a MessageStateChanged
-  // ServerEventPayload and either send it live (if the recipient — i.e.
-  // the original message author — has an open WS) or enqueue it. Used to
-  // flip the author's tick from sent → delivered (and later read).
+  // ServerEventPayload and fan it to the recipient — i.e. the original
+  // message author. Used to flip the author's tick from sent →
+  // delivered (and later read).
   void _enqueueMessageStateChanged({
     required String recipientUserId,
     required String channelId,
     required String messageId,
     required pb.MessageStateValue newState,
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _stamp();
     final sep = pb.ServerEventPayload(
       version: 1,
       type: pb.ServerEventType.MESSAGE_STATE_CHANGED,
@@ -2819,14 +2930,13 @@ class MockServer {
       type: pb.WsType.WS_PUSH,
       push: pushEnv,
     );
-    // _sendToUser falls back to undelivered queue when offline.
     _sendToUser(recipientUserId, pushFrame.writeToBuffer());
     _log('Sent MessageStateChanged{${newState.name}} '
         'to=$recipientUserId channel=$channelId message=$messageId');
   }
 
   // Fan an `ephemeral=true` envelope to currently-connected channel
-  // members. Skips the undelivered queue, never produces an ACK, never
+  // members. Never stored, never produces an ACK, never
   // records op_id_seen — pure best-effort signal.
   void _fanoutEphemeral(
     pb.Envelope env,

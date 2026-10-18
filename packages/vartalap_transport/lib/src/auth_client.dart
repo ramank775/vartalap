@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HttpDate;
 
 import 'package:http/http.dart' as http;
 
@@ -25,6 +26,12 @@ class AuthClient implements AuthTokenProvider {
   String? _userId;
   String? _refreshToken;
   String? _deviceId;
+
+  /// Server time of this process's last sign-in: the otp/verify
+  /// response's `Date` header, null without a usable one. Seeds a fresh
+  /// account's pull pointer (`freshSyncPointer` in main.dart).
+  DateTime? get signedInAt => _signedInAt;
+  DateTime? _signedInAt;
 
   AuthClient({
     required this.baseUrl,
@@ -60,6 +67,7 @@ class AuthClient implements AuthTokenProvider {
     _accesskey = null;
     _userId = null;
     _refreshToken = null;
+    _signedInAt = null;
   }
 
   /// Close the underlying HTTP client if we own it.
@@ -146,6 +154,12 @@ class AuthClient implements AuthTokenProvider {
     _accesskey = accesskey;
     _userId = userId;
     _refreshToken = refreshToken;
+    final date = resp.headers['date'];
+    try {
+      _signedInAt = date == null ? null : HttpDate.parse(date);
+    } catch (_) {
+      _signedInAt = null;
+    }
 
     return OtpVerifyResult(
       accesskey: accesskey,
