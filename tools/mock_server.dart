@@ -131,6 +131,10 @@ class SessionRecord {
       );
 }
 
+/// §19 decision 1 — the longest a stored envelope is kept, and how long
+/// when its sender set no `ttl_sec`.
+const int kMaxTtlSec = 30 * 24 * 60 * 60;
+
 /// One fanout, stored once (SYNC_PROTOCOL §10.6): the WS_PUSH frame,
 /// the users it went to, and the device that sent it, whose own pull
 /// leaves it out. Each user's pull is built from these at read time.
@@ -139,6 +143,10 @@ class FanoutRecord {
   final int serverTimestampMs;
   final Uint8List frame;
   final Set<String> recipients;
+
+  /// The sender's `ttl_sec` from the stamp, capped at [kMaxTtlSec]; 0
+  /// (unset) means [kMaxTtlSec]. Past it, no pull returns the frame.
+  final int expiresAtMs;
 
   /// [SessionRecord.deviceKey] of the socket the op came in on; null
   /// for a fanout no socket sent (a REST side effect, a test peer).
@@ -149,12 +157,14 @@ class FanoutRecord {
     required this.serverTimestampMs,
     required this.frame,
     required this.recipients,
+    required this.expiresAtMs,
     this.senderDevice,
   });
 
   Map<String, dynamic> toPersistJson() => {
         'opId': opId,
         'serverTimestampMs': serverTimestampMs,
+        'expiresAtMs': expiresAtMs,
         'frame': base64Encode(frame),
         'recipients': recipients.toList(),
         'senderDevice': senderDevice,
@@ -163,6 +173,8 @@ class FanoutRecord {
   static FanoutRecord fromPersistJson(Map<String, dynamic> j) => FanoutRecord(
         opId: j['opId'] as String,
         serverTimestampMs: j['serverTimestampMs'] as int,
+        expiresAtMs: j['expiresAtMs'] as int? ??
+            (j['serverTimestampMs'] as int) + kMaxTtlSec * 1000,
         frame: base64Decode(j['frame'] as String),
         recipients: (j['recipients'] as List<dynamic>).cast<String>().toSet(),
         senderDevice: j['senderDevice'] as String?,
@@ -442,6 +454,9 @@ class MockState {
           () => FanoutRecord(
             opId: push.opId,
             serverTimestampMs: push.serverTimestampMs.toInt(),
+            expiresAtMs: push.serverTimestampMs.toInt() +
+                min(push.ttlSec == 0 ? kMaxTtlSec : push.ttlSec, kMaxTtlSec) *
+                    1000,
             frame: frame,
             recipients: {},
             senderDevice: senderDevice,
@@ -452,20 +467,23 @@ class MockState {
     markDirty();
   }
 
-  /// §10.6 — what [session]'s pull sees: every fanout naming its user,
-  /// stamped at or after [since], but the ones its own device sent;
-  /// ordered by (server_timestamp_ms, op_id).
-  List<FanoutRecord> timeline(SessionRecord session, int since) => fanouts
-      .values
-      .where((r) =>
-          r.recipients.contains(session.userId) &&
-          r.senderDevice != session.deviceKey &&
-          r.serverTimestampMs >= since)
-      .toList()
+  /// §10.6 — what [session]'s pull sees: every unexpired fanout naming
+  /// its user, stamped at or after [since], but the ones its own device
+  /// sent; ordered by (server_timestamp_ms, op_id).
+  List<FanoutRecord> timeline(SessionRecord session, int since) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return fanouts.values
+        .where((r) =>
+            r.recipients.contains(session.userId) &&
+            r.senderDevice != session.deviceKey &&
+            r.serverTimestampMs >= since &&
+            r.expiresAtMs > now)
+        .toList()
     ..sort((a, b) {
       final byStamp = a.serverTimestampMs.compareTo(b.serverTimestampMs);
       return byStamp != 0 ? byStamp : a.opId.compareTo(b.opId);
     });
+  }
 
   final Map<String, int> _readUpTo = {};
 
@@ -828,15 +846,19 @@ class MockServer {
   ///
   /// [messageId] and [serverTimestampMs] let a test deliver the create
   /// AFTER ops that target it (SYNC_PROTOCOL §6b: the client copes).
+  /// [ttlSec] is the sender's `ttl_sec` (0: the 30-day maximum).
   ({String messageId, String opId}) injectPeerMessage({
     required String channelId,
     required String body,
     String senderUserId = seedPeerUserId,
     String? messageId,
     int? serverTimestampMs,
+    int ttlSec = 0,
   }) =>
       _sendPeerMessage(channelId, senderUserId, body,
-          messageId: messageId, serverTimestampMs: serverTimestampMs);
+          messageId: messageId,
+          serverTimestampMs: serverTimestampMs,
+          ttlSec: ttlSec);
 
   /// Inject a peer-authored edit of [messageId] (SYNC_PROTOCOL §6a:
   /// the recipient applies it only because [senderUserId] is the
@@ -3098,7 +3120,7 @@ class MockServer {
   /// every other member of [channelId].
   ({String messageId, String opId}) _sendPeerMessage(
           String channelId, String senderUserId, String body,
-          {String? messageId, int? serverTimestampMs}) =>
+          {String? messageId, int? serverTimestampMs, int ttlSec = 0}) =>
       _fanoutPeerChatPayload(
         channelId,
         senderUserId,
@@ -3110,6 +3132,7 @@ class MockServer {
           contentType: 'text/plain',
         ),
         serverTimestampMs: serverTimestampMs,
+        ttlSec: ttlSec,
       );
 
   /// Fan an arbitrary peer-authored [payload] to every other member of
@@ -3122,7 +3145,7 @@ class MockServer {
   /// edit stamped before its create, two messages on one millisecond).
   ({String messageId, String opId}) _fanoutPeerChatPayload(
       String channelId, String senderUserId, pb.ChatPayload payload,
-      {int? serverTimestampMs}) {
+      {int? serverTimestampMs, int ttlSec = 0}) {
     final recipients = _recipientsFor(channelId, senderUserId);
     final now = serverTimestampMs ?? _stamp();
     final messageId = payload.messageId;
@@ -3136,6 +3159,7 @@ class MockServer {
       payload: payload.writeToBuffer(),
       senderUserId: senderUserId,
       serverTimestampMs: fixnum.Int64(now),
+      ttlSec: ttlSec == 0 ? null : ttlSec,
     );
     final pushBytes =
         pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv).writeToBuffer();

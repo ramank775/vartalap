@@ -40,6 +40,7 @@ class Envelope extends $pb.GeneratedMessage {
     $core.List<$core.int>? payload,
     $core.bool? ephemeral,
     $core.String? peer,
+    $core.int? ttlSec,
     $core.String? senderUserId,
     $fixnum.Int64? serverTimestampMs,
   }) {
@@ -50,6 +51,7 @@ class Envelope extends $pb.GeneratedMessage {
     if (payload != null) result.payload = payload;
     if (ephemeral != null) result.ephemeral = ephemeral;
     if (peer != null) result.peer = peer;
+    if (ttlSec != null) result.ttlSec = ttlSec;
     if (senderUserId != null) result.senderUserId = senderUserId;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
     return result;
@@ -77,6 +79,7 @@ class Envelope extends $pb.GeneratedMessage {
         5, _omitFieldNames ? '' : 'payload', $pb.PbFieldType.OY)
     ..aOB(6, _omitFieldNames ? '' : 'ephemeral')
     ..aOS(7, _omitFieldNames ? '' : 'peer')
+    ..aI(8, _omitFieldNames ? '' : 'ttlSec', fieldType: $pb.PbFieldType.OU3)
     ..aOS(20, _omitFieldNames ? '' : 'senderUserId')
     ..a<$fixnum.Int64>(
         21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
@@ -211,16 +214,31 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   void clearPeer() => $_clearField(7);
 
+  /// How long the server keeps this envelope on its recipients'
+  /// timeline for a later pull, in seconds (SYNC_PROTOCOL.md §10.6).
+  /// 0 or absent means the maximum, 30 days (§19 decision 1); more is
+  /// capped to it. Once expired it is left out of every pull and
+  /// deleted; a live push is unaffected. Ignored on an ephemeral
+  /// envelope, which is never kept. Echoed unchanged on fanout.
+  @$pb.TagNumber(8)
+  $core.int get ttlSec => $_getIZ(6);
+  @$pb.TagNumber(8)
+  set ttlSec($core.int value) => $_setUnsignedInt32(6, value);
+  @$pb.TagNumber(8)
+  $core.bool hasTtlSec() => $_has(6);
+  @$pb.TagNumber(8)
+  void clearTtlSec() => $_clearField(8);
+
   /// The authenticated sender's user_id (9 lowercase hex chars). Server
   /// derives from session, not from any client-supplied field. Recipients
   /// use this for sender attribution; see SYNC_PROTOCOL.md §10.1 for the
   /// display-name resolution rule (contact-book → username → phone).
   @$pb.TagNumber(20)
-  $core.String get senderUserId => $_getSZ(6);
+  $core.String get senderUserId => $_getSZ(7);
   @$pb.TagNumber(20)
-  set senderUserId($core.String value) => $_setString(6, value);
+  set senderUserId($core.String value) => $_setString(7, value);
   @$pb.TagNumber(20)
-  $core.bool hasSenderUserId() => $_has(6);
+  $core.bool hasSenderUserId() => $_has(7);
   @$pb.TagNumber(20)
   void clearSenderUserId() => $_clearField(20);
 
@@ -229,11 +247,11 @@ class Envelope extends $pb.GeneratedMessage {
   /// (server_timestamp_ms, op_id) — op_id is a UUIDv7, so ties break
   /// the same way on every device (SYNC_PROTOCOL.md §6).
   @$pb.TagNumber(21)
-  $fixnum.Int64 get serverTimestampMs => $_getI64(7);
+  $fixnum.Int64 get serverTimestampMs => $_getI64(8);
   @$pb.TagNumber(21)
-  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(7, value);
+  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(8, value);
   @$pb.TagNumber(21)
-  $core.bool hasServerTimestampMs() => $_has(7);
+  $core.bool hasServerTimestampMs() => $_has(8);
   @$pb.TagNumber(21)
   void clearServerTimestampMs() => $_clearField(21);
 }

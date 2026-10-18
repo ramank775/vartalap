@@ -1641,6 +1641,30 @@ void main() {
           await h.store.syncPointer(), h.mock.messageStamps[sent.messageId]);
     });
 
+    // ---- 20b ------------------------------------------------------------
+    test('20b. an envelope past its sender\'s ttl_sec is gone from the '
+        'timeline: a pull after it expires does not bring it (§10.6)',
+        () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = dmChannelId(selfId, peerUserId);
+      // The app is away (no receiver), so only a pull could bring them.
+      final receiver = h.inbound!;
+      h.inbound = null;
+      await receiver.stop();
+      h.mock.injectPeerMessage(
+          channelId: channelId, body: 'gone in a second', ttlSec: 1);
+      h.mock.injectPeerMessage(channelId: channelId, body: 'kept a month');
+      // Real time on purpose: the mock reads its own clock, as the
+      // server does.
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+      await h.rebuildInboundReceiverForUser(selfId);
+      await h.pullPendingSync();
+      final bodies = await h.bodiesIn(channelId);
+      expect(bodies, contains('kept a month'));
+      expect(bodies, isNot(contains('gone in a second')));
+    });
+
     // ---- 21 -------------------------------------------------------------
     test('21. a pulled frame that fails to apply keeps the pointer before it '
         'and comes back on the next pull (§10.6)', () async {
