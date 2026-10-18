@@ -55,7 +55,11 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> pumpChat(WidgetTester tester) async {
+  Future<void> pumpChat(
+    WidgetTester tester, {
+    Future<void> Function()? seed,
+    String? initialMessageId,
+  }) async {
     await tester.runAsync(() async {
       store = await ChatStore.open(path: inMemoryDatabasePath);
       final ws = _StubTransport();
@@ -85,6 +89,7 @@ void main() {
       );
       await _insert(store, 'm-mine', localUserId, 'my own message', 1);
       await _insert(store, 'm-peer', peerUserId, 'their message', 2);
+      await seed?.call();
     });
     addTearDown(() async {
       // Unmount before closing: ChatScreen.dispose flushes a pending
@@ -104,6 +109,7 @@ void main() {
         chatService: chat,
         authService: _FakeAuthService(),
         undoWindow: undoWindow,
+        initialMessageId: initialMessageId,
       ),
     ));
     await settle(tester);
@@ -715,6 +721,23 @@ void main() {
       await tester.pump();
       expect(marked(tester, 'apple tart'), isEmpty);
       expect(flashed(tester, 'apple tart'), isFalse);
+    });
+
+    testWidgets('opened at a message from outside, the chat pages back to '
+        'it and flashes it', (tester) async {
+      await pumpChat(
+        tester,
+        initialMessageId: 'm-old',
+        seed: () async {
+          await _insert(store, 'm-old', peerUserId, 'way back', 3);
+          for (var i = 4; i < 64; i++) {
+            await _insert(store, 'm-f$i', peerUserId, 'filler $i', i);
+          }
+        },
+      );
+      await jumped(tester, 'way back');
+      expect(find.textContaining('way back').hitTestable(), findsOneWidget);
+      expect(flashed(tester, 'way back'), isTrue);
     });
 
     testWidgets('typing a query with no hit says so', (tester) async {

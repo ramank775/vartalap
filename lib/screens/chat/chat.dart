@@ -47,6 +47,10 @@ class ChatScreen extends StatefulWidget {
   /// burn five seconds of wall clock proving the timer works.
   final Duration undoWindow;
 
+  /// Opens scrolled to, and flashing, this message: a search hit or a
+  /// starred message picked from outside the chat.
+  final String? initialMessageId;
+
   const ChatScreen({
     super.key,
     required this.channelId,
@@ -55,6 +59,7 @@ class ChatScreen extends StatefulWidget {
     required this.chatService,
     required this.authService,
     this.undoWindow = const Duration(seconds: 5),
+    this.initialMessageId,
   });
 
   @override
@@ -229,11 +234,19 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     // read-receipt op).
     _lifecycle = AppLifecycleListener(onResume: _markSeen);
     final localUserId = widget.authService.currentUserId;
+    var jumpTo = widget.initialMessageId;
     _readMarkerSub = _messagesStream.listen((rows) {
       // Every emission answers the paging question too: a short page
       // means we've reached the start of the conversation.
       _loadingOlder = false;
       _hasMoreOlder = rows.length >= _window.limit;
+      if (jumpTo != null) {
+        final id = jumpTo!;
+        jumpTo = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _jumpToMessage(id);
+        });
+      }
       if (localUserId == null) return;
       final latestEvent =
           rows.where((r) => r.contentType == kGroupEventType).firstOrNull;
