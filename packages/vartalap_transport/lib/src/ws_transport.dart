@@ -143,6 +143,10 @@ class WsTransport implements Transport {
 
   Future<void> _connect() async {
     if (_disposed) return;
+    // Up or on its way: a second socket for this device would make the
+    // server replace one with the other (one socket per device), and
+    // the replaced one's reconnect would replace the new one back.
+    if (_state != TransportState.disconnected) return;
     final token = auth.currentAccesskey;
     if (token == null) {
       // No session yet — don't even try. Stay disconnected; the UI will

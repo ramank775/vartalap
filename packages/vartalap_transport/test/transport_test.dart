@@ -142,6 +142,27 @@ void main() {
       expect(ack.outcome, isA<AckAuthFailure>());
     });
 
+    test('start while connecting or connected opens no second socket',
+        () async {
+      // A push wake calls start() on a transport that may already be up.
+      // A second socket for the same device makes the server replace one
+      // with the other, and the orphan's reconnect replaced the new one
+      // back, once a second, for good.
+      final transport = WsTransport(
+        endpoint: server.uri,
+        auth: _FakeAuth('acc-1'),
+      );
+      addTearDown(transport.dispose);
+
+      await Future.wait([transport.start(), transport.start()]);
+      await _waitForState(transport, TransportState.connected);
+      await transport.start();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(server.upgrades, 1);
+      expect(transport.currentState, TransportState.connected);
+    });
+
     test('send before connect throws', () async {
       final transport = WsTransport(
         endpoint: server.uri,
@@ -504,6 +525,9 @@ class _WsEchoServer {
   String? lastSubprotocol;
   pb.Envelope? lastEnvelope;
 
+  /// WS upgrades accepted so far.
+  int upgrades = 0;
+
   Uri get uri => Uri.parse('ws://127.0.0.1:${_http!.port}/wss');
 
   Future<void> start() async {
@@ -544,6 +568,7 @@ class _WsEchoServer {
       protocolSelector: (protocols) =>
           protocols.isNotEmpty ? protocols.first : '',
     );
+    upgrades++;
     _activeSocket = sock;
     sock.listen((dynamic data) {
       if (data is! List<int>) return;
