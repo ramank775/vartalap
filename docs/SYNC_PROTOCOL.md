@@ -270,6 +270,9 @@ Envelope {
                             // matches ^d[0-9a-f]{31}$ (§11.3);
                             // absent for groups. Echoed unchanged on
                             // fanout.
+  uint32 ttl_sec            // how long the server keeps it on the
+                            // timeline (§10.6); 0 = the 30-day max.
+                            // Echoed unchanged on fanout.
   // sender_user_id, server_timestamp_ms absent on client→server
 }
 ```
@@ -955,8 +958,13 @@ On receipt of a `WS_PUSH` envelope, the recipient client MUST:
 ### 10.6 Undelivered queue and sync pull
 
 The **timeline** (§10.3 step 2) is every non-ephemeral push frame,
-stored once with the user_ids it is for and kept 30 days (§19
-decision 1), whether anyone read it or not. It is durable (MongoDB,
+stored once with the user_ids it is for and kept until it expires,
+whether anyone read it or not. An envelope expires at its sender's
+`ttl_sec` after its `server_timestamp_ms`, capped at and defaulting to
+the 30-day maximum (§19 decision 1): one cleanup rule for everything
+the server keeps. An expired envelope is left out of every pull and
+deleted; a live push is unaffected, and the field travels with the
+envelope so the receiving client can apply the sender's TTL too. It is durable (MongoDB,
 or PostgreSQL): a server restart or deploy does not lose it. Nothing
 is removed when a device reads it, and the server keeps no record of
 what any device has read: each device keeps its own **pointer**
@@ -980,8 +988,8 @@ absent or 0 reads everything kept.
 { "frames": ["<base64 WsEnvelope bytes>", "..."], "more": false }
 ```
 
-The caller's timeline from `since` on: every frame naming the
-calling user with `server_timestamp_ms >= since`, ordered by
+The caller's timeline from `since` on: every unexpired frame naming
+the calling user with `server_timestamp_ms >= since`, ordered by
 (`server_timestamp_ms`, `op_id`), at most 500, leaving out what the
 calling device sent itself (the user's other devices do get it).
 Each entry is a base64-encoded `WsEnvelope` (`proto/v3-envelope.proto`)
@@ -1681,7 +1689,7 @@ the point.
 
 | # | Decision | Value | Rationale |
 |---|---|---|---|
-| 1 | Timeline retention | 30 days | Vacation/device-replacement coverage; bounded storage. Nothing is removed on read. |
+| 1 | Timeline retention | 30 days, or the envelope's shorter `ttl_sec` | Vacation/device-replacement coverage; bounded storage. Nothing is removed on read. |
 | 2 | Max timeline per user | none (was 10,000 frames) | Stored once per envelope, read through an index; retention bounds it. Pages of 500. |
 | 3 | Server dedup window | 10,000 op_ids per user, 7 days rolling | A week of heavy use; idempotency handles overflow. |
 | 4 | WS sync rate limit | 30 env/sec sustained, 100 env/sec burst per user | Drain bursts; abuse cap. |
