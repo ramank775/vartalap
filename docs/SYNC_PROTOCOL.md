@@ -59,9 +59,10 @@ behavior is mandated.
 - **outbound queue** — Client-side `outbound_ops` table (see
   `SPIKE_B_SYNC.md` §3). Persistent. Authoritative for "what still
   needs to be sent." Holds both WS envelopes AND mutating REST calls.
-- **undelivered queue** — Server-side queue per recipient device,
-  durable in MongoDB. Envelopes the server could not deliver because
-  the recipient's WS connection is not currently open.
+- **timeline** — Every non-ephemeral push frame, stored once on the
+  server with the user_ids it is for and kept 30 days, durable in
+  MongoDB (or PostgreSQL). A device reads its user's timeline from its
+  own pointer (§10.6).
 - **projection** — Client-side current-state view materialized from
   the event log (see `SPIKE_A_LOCAL_STORE.md`). Updated in the same
   transaction as event append.
@@ -239,7 +240,6 @@ WsEnvelope {
     Envelope push              // type=WS_PUSH, server→client
     bool reauth_required       // type=WS_REAUTH_REQUIRED, server→client
     WsError error              // type=WS_ERROR, server→client
-    PushAck push_ack           // type=WS_PUSH_ACK, client→server
   }
 }
 ```
@@ -331,29 +331,15 @@ On protocol-level error the server MUST emit `WS_ERROR`, then MAY
 close the connection with code 1002 (protocol error) or 1008 (policy
 violation). Client reconnects per §13.
 
-### 5.9 Push-ack frames (client → server)
+### 5.9 Keepalive
 
-A `WsEnvelope` with `type=WS_PUSH_ACK` carries the `op_id`s of pushed
-envelopes the client has handled (§10.5):
-
-```
-PushAck { repeated string op_ids }   // 1-500
-```
-
-The server removes those envelopes from this device's undelivered
-queue (§10.6) and sends nothing back. More than 500 `op_ids` is a
-protocol error (`WS_ERROR` `VALIDATION_FAILED`, then close 1002). An
-`op_id` not in the queue is ignored, so acks are idempotent.
-
-### 5.10 Keepalive
-
-The server sends a WS ping control frame on every socket every 30 s
-and terminates a socket that has not answered the previous one, so a
-socket that died without a close (the phone changed networks or lost
-coverage) is noticed within a minute rather than at the TCP timeout.
-Client WS stacks answer pings on their own. Terminating the socket is
-an ordinary close: its device goes offline, and §12.1 wakes it if
-anything is waiting.
+Both sides send a WS ping control frame every 30 s; WS stacks answer
+pings on their own. The server terminates a socket that has not
+answered its previous ping, and the client reconnects (then pulls,
+§10.6) when its own pings go unanswered, so a socket that died
+without a close (the phone changed networks or lost coverage) is
+noticed within a minute rather than at the TCP timeout. A pong also
+tells the server that every push sent before its ping arrived (§12.1).
 
 ---
 
@@ -391,7 +377,7 @@ and unlike the op_id it survives a manual re-send.
 **Client MAY** keep at most one op per `resource_id` in flight, as the
 reference scheduler does (`SPIKE_B_SYNC.md` §5), so a sender's own
 ops usually arrive in the order they were made. Nothing depends on
-it: different resources, retries and the undelivered queue reorder
+it: different resources, retries and pulls from the timeline reorder
 freely, and a permanently rejected op does not doom the ops queued
 behind it.
 
@@ -558,7 +544,7 @@ malicious user could achieve by patching their local client.
 ## 6b. Out-of-order arrival
 
 Without server sequencing, arrival order is whatever the network,
-retries and the undelivered queue produce. Recipients cope.
+retries and pulls from the timeline produce. Recipients cope.
 
 ### 6b.1 Ops that arrive before their message
 
@@ -646,7 +632,8 @@ dedup before applying:
   re-evaluate).
 
 This handles cases where the server fans out multiple times (e.g.,
-undelivered-queue drain overlaps with new fanout during reconnect).
+a pull from the timeline overlaps with new fanout during reconnect,
+or brings back the frames at the pointer's own millisecond).
 
 ---
 
@@ -879,13 +866,13 @@ Each variant carries the changed fields:
   the whole channel) — `channel_id`, `message_id`, `new_state`
   (`DELIVERED` / `READ` / `REJECTED`), `changed_at_ms`.
 - `Typing`: ephemeral typing indicator — lossy (dropped if the
-  sender's WS isn't connected), NOT persisted or queued (bypasses
-  the undelivered queue entirely, unlike every other variant here),
+  sender's WS isn't connected), NOT persisted (never on the
+  timeline, unlike every other variant here),
   and carries a client-side display TTL of ~6s.
 
 The server treats these envelopes the same as chat-content envelopes
 on the wire: same `Envelope` proto, same fanout rules. Most variants
-also share the same undelivered-queue behavior as chat content;
+also share the same timeline behavior as chat content;
 `Typing` is the one exception (see above — never queued). The client
 distinguishes by inspecting the first byte of `payload` and routing
 to the right decoder. Server-event payloads bypass the §6a.4
@@ -911,14 +898,18 @@ authoritative).
      editor. Scope: v3.0 only.
    - REST `PATCH /v3.0/users/me` with `username`: same scope as
      above. The new username may be null.
-2. Enqueue the push frame in every recipient device's undelivered
-   queue (§10.6), online or not, before any delivery attempt.
-   Ephemeral envelopes (typing) are the exception: never queued.
-3. For each online recipient (active WS connection in connection-
-   gateway), also emit the push frame immediately. It stays queued
-   until that device acks it (§10.5); a push into a socket that died
-   is not lost, it comes back on the device's next pull.
-4. For each offline recipient, send the §12.1 wake.
+2. Store the push frame on the timeline (§10.6) **once**, with the
+   user_ids it is for, before any delivery attempt. A server event's
+   actor is not one of them. Ephemeral envelopes (typing) are never
+   stored. The server answers the sender's op (`SUCCESS` ack or 2xx)
+   only after this: from then on the envelope is the server's
+   responsibility, and a failure here is a `TRANSIENT` the sender
+   retries.
+3. For each online recipient device (active WS connection in
+   connection-gateway), also emit the push frame immediately. Nothing
+   comes back: if the socket died, the frame is still on the timeline
+   for the device's next pull.
+4. For each offline recipient device, send the §12.1 wake.
 5. Recipients are **devices**, not users: the recipient set expands
    to every `(user_id, device_id)` session of every user in it, minus
    the **sending device**. A sender's own other devices are ordinary
@@ -932,8 +923,8 @@ authoritative).
 
 Server SHOULD emit push frames to a given recipient in
 `server_timestamp_ms` order. That is all: no per-channel sequence, and
-no guarantee across reconnects, server instances or the undelivered
-queue interleaving with live fanout.
+no guarantee across reconnects, server instances or the
+timeline pull interleaving with live fanout.
 
 Recipients sort by the §6 key anyway and handle ops that arrive before
 their target (§6b); `op_id` dedup (§7.2) absorbs duplicates.
@@ -951,63 +942,73 @@ On receipt of a `WS_PUSH` envelope, the recipient client MUST:
      side authorization gate. If the gate passes, apply to local
      event log and projections; if not, drop. Either way, record
      `op_id` in `op_id_seen`.
-4. **Ack** the envelope once it is handled: stored, already seen
-   (step 2), or dropped on purpose (malformed, failed the §6a.4 gate,
-   a type this client does not know). An envelope that arrived on
-   the WS is acked with `WS_PUSH_ACK` on the WS (§5.9; batching a
-   burst into one frame is fine); one that came from a pull is acked
-   with `POST /v3.0/sync/ack` (§10.6). The client MUST NOT ack an
-   envelope it failed to store (a database error, a group it could
-   not fetch): the server keeps it and the next pull hands it back.
-   Ephemeral envelopes are never queued and never acked.
-
-   Acks are best effort. A lost ack (the socket dropped first) costs
-   one re-delivery, which step 2 absorbs and acks again.
+4. Move its **pointer** (§10.6) once the envelope is handled: stored,
+   already seen (step 2), or dropped on purpose (malformed, failed
+   the §6a.4 gate, a type this client does not know). The pointer is
+   the newest `server_timestamp_ms` among handled envelopes, never
+   moves backwards, and stops moving at the first envelope the client
+   failed to store (a database error, a group it could not fetch)
+   until a pull from before it has brought it back. Nothing is sent to
+   the server: there are no push acks. Ephemeral envelopes never move
+   the pointer.
 
 ### 10.6 Undelivered queue and sync pull
 
-The undelivered queue (§10.3 item 2) is the server-side holding
-area for every push frame a device has not acked yet: ones its WS was
-not open to receive, and ones pushed live but not yet acked. It is
-durable (MongoDB, or PostgreSQL): a server restart or deploy does not
-lose it. A frame leaves the queue only when the device acks it
-(§10.5), or by the 30-day TTL or the 10,000-frame cap. The server
-never re-pushes a queued frame on its own; the client pulls.
+The **timeline** (§10.3 step 2) is every non-ephemeral push frame,
+stored once with the user_ids it is for and kept 30 days (§19
+decision 1), whether anyone read it or not. It is durable (MongoDB,
+or PostgreSQL): a server restart or deploy does not lose it. Nothing
+is removed when a device reads it, and the server keeps no record of
+what any device has read: each device keeps its own **pointer**
+(§10.5 step 4) and asks for its user's timeline from there. The
+server never pushes the timeline on its own; the client pulls.
+
+The pointer is safe because the server stamps `server_timestamp_ms`
+non-decreasing and stores envelopes in stamp order, so a device whose
+pointer is at `t` has been offered everything for its user stamped
+before `t`.
 
 #### `GET /v3.0/sync/pending`
 
 **Headers:** `Authorization: Bearer <accesskey>`
+
+**Query:** `since=<server_timestamp_ms>`, the device's pointer;
+absent or 0 reads everything kept.
 
 **Success 200:**
 ```json
 { "frames": ["<base64 WsEnvelope bytes>", "..."], "more": false }
 ```
 
+The caller's timeline from `since` on: every frame naming the
+calling user with `server_timestamp_ms >= since`, ordered by
+(`server_timestamp_ms`, `op_id`), at most 500, leaving out what the
+calling device sent itself (the user's other devices do get it).
 Each entry is a base64-encoded `WsEnvelope` (`proto/v3-envelope.proto`)
-with `type = WS_PUSH`, oldest first, at most 500 per response;
-recipients sort by the §6 key anyway, same as §10.4. `more` is true
-when the queue holds frames past this page.
+with `type = WS_PUSH`. `more` is true when frames wait past this page.
+`since` is **inclusive**: several envelopes can share a millisecond,
+so the frames at the pointer's own millisecond come back on every
+pull and §7.2 dedup absorbs them. `400` if `since` is not a
+non-negative integer.
 
-**Read only:** a pull removes nothing. It returns the oldest frames
-this device has not acked, including ones pushed live a moment ago
-whose ack is still on its way (§7.2 dedup absorbs the repeat). A
-frame comes back on every pull until it is acked.
+**Read only:** a pull removes nothing and records nothing.
 
-#### `POST /v3.0/sync/ack`
+**The pull loop:** pull from the pointer, apply the page, and if
+every frame of it was handled move the pointer to the page's newest
+`server_timestamp_ms`; pull again while `more` was true and the
+pointer moved. A page with a frame that failed ends the loop with the
+pointer before that frame, so the next pull brings it back. Live
+pushes that land while a pull runs do not move the pointer (they may
+be newer than frames the pull has yet to bring); the pull's last page
+does.
 
-**Headers:** `Authorization: Bearer <accesskey>`
-
-**Body:** `{ "op_ids": ["<op_id>", "..."] }`, 1-500 entries.
-
-**Success 204.** Removes those frames from the calling device's
-queue; an `op_id` not in it is ignored. `400 VALIDATION_FAILED` for an
-empty or oversized list.
-
-**The pull loop:** pull a page, apply it, ack what was handled
-(§10.5 step 4), and pull again while `more` was true. Ack before the
-next pull, or the next page is the same one. A frame that failed to
-apply is left un-acked: the loop stops at that page and the frame
-waits for the next trigger.
+**A fresh account database** (a new install, or this account's first
+sign-in on this phone) has no pointer yet. It starts at the sign-in
+time in server time: the `Date` header of the `otp/verify` response,
+less 60 s for the header's 1-second precision. A new phone therefore
+does not replay the 30 days kept for its user; signing back in on the
+same phone keeps the stored pointer, so what arrived while it was
+logged out still comes. To be revisited with end-to-end encryption.
 
 **When the client calls it** (client-driven, not server-driven):
 1. App start, when a session restores with a signed-in user
@@ -1017,15 +1018,14 @@ waits for the next trigger.
 3. On every WS reconnect (`main.dart` ~L273, ~L287), including the
    ntfy-wake-triggered reconnect (§12.3).
 
-**Failure handling:** non-2xx or transport failure returns an empty
-frame list to the caller — fail open. Nothing is lost: un-acked
-frames stay queued, and the next natural trigger (next reconnect,
-next app start, next wake) pulls them again.
+**Failure handling:** a non-2xx or transport failure ends the loop
+with the pointer where it was. Nothing is lost: the timeline keeps
+every frame, and the next natural trigger (next reconnect, next app
+start, next wake) pulls from the same pointer.
 
-**Overflow:** if the queue already dropped frames to the 30-day TTL
-or 10,000-frame cap (§15.8, §19 decisions 1–2) before this call, the
-drain returns whatever remains. The client cannot detect the gap
-from this response alone.
+**Overflow:** a device away longer than the 30-day retention (§19
+decision 1) gets what remains; the client cannot detect the gap from
+this response alone.
 
 ---
 
@@ -1305,11 +1305,13 @@ Push is **independent of the sync wire**. UnifiedPush + Web Push per
 
 ### 12.1 Wake notification
 
-When the server enqueues an envelope for a device that has no active
-WS connection, or when a device's WS closes (§5.10 included) with
-frames it has not acked still in its queue, the server MUST publish a
-minimal wake notification to the device's registered Web Push
-endpoint (AUTH_CONTRACT §5):
+When the server stores an envelope for a device that has no active
+WS connection, or when a device's socket dies without a close frame
+(§5.9, or the app was killed) after a push that no pong has confirmed,
+the server MUST publish a minimal wake notification to the device's
+registered Web Push endpoint (AUTH_CONTRACT §5). A close the client
+sent itself needs no wake: it pulls from its pointer when it comes
+back.
 
 - Plaintext `{"t":"wake"}`, encrypted to the device (RFC 8291) and
   signed with the server's VAPID key (RFC 8292). MUST NOT contain
@@ -1326,7 +1328,7 @@ endpoint (AUTH_CONTRACT §5):
 Rationale: the push service (ntfy, FCM, …) only relays; even
 encrypted, a wake-only payload means a compromised or curious push
 service learns nothing but timing. The client reconnects WS and
-drains the undelivered queue, which carries the full payload.
+pulls its timeline (§10.6), which carries the full payload.
 
 Coalescing: if multiple envelopes are enqueued in quick succession,
 the server MAY debounce the publish (no more than one wake per
@@ -1341,8 +1343,8 @@ the server MAY debounce the publish (no more than one wake per
 
 The distributor (ntfy app, FCM via the embedded distributor, …)
 receives the wake → delivers it to Vartalap → the UnifiedPush
-connector decrypts it → Vartalap reopens WS → drain protocol runs
-(§10.6, undelivered queue). No client-initiated request to the push
+connector decrypts it → Vartalap reopens WS → the pull runs
+(§10.6, from the device's pointer). No client-initiated request to the push
 service other than registration.
 
 ---
@@ -1377,8 +1379,8 @@ On `WS_REAUTH_REQUIRED` or 4001/4002 close:
    or returns user to login (4002).
 3. On 4001 success, reconnect WS with new accesskey per §5.2; on
    4002, clear local credentials.
-4. After WS reconnect, the undelivered-queue drain runs (§10.6),
-   then scheduler resumes.
+4. After WS reconnect, the pull runs (§10.6), then the scheduler
+   resumes.
 
 In-flight ops with no ACK at disconnect are handled by Flow C
 timeout sweep (`SPIKE_B_SYNC.md` §5). Dedup by `op_id` (§7: the
@@ -1458,7 +1460,7 @@ Scenario: app killed after dispatch, before ACK / HTTP response.
 Scenario: server killed before emitting ACKs / 2xx responses for
 ops it accepted (or while they were queued downstream).
 - Server: connection-gateway drops connections. Durable state
-  survives in MongoDB (undelivered queue, channels, profiles); the
+  survives in MongoDB (timeline, channels, profiles); the
   best-effort cache (dedup window, rate limits) may not, which costs
   at most a re-fanout that recipients dedup (§7.2).
 - Client: WS disconnect detected, Flow C times out in-flight ops,
@@ -1494,12 +1496,20 @@ others.
 
 Scenario: a push arrives (live or pulled) and the app is killed, or
 its database write fails, before the envelope is stored.
-- Client: never acked it (§10.5 step 4).
-- Server: the frame is still in the device's queue. If the socket
-  closed with it un-acked, the device gets a wake (§12.1).
-- On the next pull (app start, reconnect, wake) the frame comes back
-  and is stored; dedup (§7.2) covers the case where it was stored
-  after all and only the ack was lost.
+- Client: its pointer never moved past the envelope (§10.5 step 4).
+- Server: the envelope is still on the timeline. If the socket died
+  under an unconfirmed push, the device gets a wake (§12.1).
+- On the next pull (app start, reconnect, wake) it comes back and is
+  stored; dedup (§7.2) covers the case where it was stored after all.
+
+### 15.4b Server restarts
+
+Scenario: the server process is restarted or redeployed.
+- An op the server had not acked is retried by the sender (§15.2).
+- An op it had acked is on the timeline (§10.3 step 2), and a device
+  pulls it from its own pointer. Which devices a user has comes from
+  the stored sessions, logged-out ones included for the retention, so
+  a restart forgets none.
 
 ### 15.5 User logs in on a different device (v3.1)
 
@@ -1513,11 +1523,10 @@ Scenario: user deletes app data or reinstalls.
   OTP, gets new accesskey. `user_id` is the same (per AUTH_CONTRACT
   §2; the prefix is bound to the account, not the install — re-OTP
   on the same phone resolves to the same `user_id`).
-- Server: has no message history to replay. chat-server is a
-  relay, not a store. Any undelivered frames in the queue from
-  before the reinstall MAY still be drained on the first WS
-  connect. Frames acked and fanned out before the wipe are gone
-  forever on this device.
+- Server: keeps the timeline for 30 days, but the fresh install's
+  pointer starts at its sign-in time (§10.6), so nothing from before
+  the reinstall is replayed. Messages from before the wipe are gone
+  on this device.
 - Channel list: groups come back from `GET /v3.0/channels`. DMs do
   not — a DM has no server-side row to list (§11.3), so a fresh
   install starts with no DM chats at all. Each one reappears the
@@ -1540,13 +1549,13 @@ queued WS chat-content envelopes for that channel.
   it on `resource_id=A` are dispatched and judged on their own; a
   `send_message` to A succeeds while the sender is still a member.
 
-### 15.8 Undelivered queue overflow
+### 15.8 Away past the retention
 
-Scenario: recipient offline long enough that > 10,000 frames
-accumulate.
-- Server: drops oldest on overflow (§10.6 — undelivered queue).
-- Client: on reconnect, drains what remains. Does NOT know what
-  was dropped. Timeline shows a gap.
+Scenario: a device offline longer than the 30-day retention.
+- Server: the timeline keeps 30 days (§10.6), with no per-user cap.
+- Client: on reconnect, pulls from its pointer, page by page. Away
+  longer than 30 days, it gets what remains and does NOT know what
+  aged out. The chat shows a gap.
 - v3.0: known limitation. v3.1 plans a resync path.
 
 ### 15.9 Chat payload from a buggy / malicious sender
@@ -1628,7 +1637,7 @@ the point.
   routing only (size, fanout target) but the bytes are still
   cleartext. E2E is a v4+ topic.
 - **Full resync after long offline (> 30 days).** Currently no
-  recovery path for lost fanout frames beyond the undelivered TTL.
+  recovery path for lost fanout frames beyond the timeline retention.
 - **Stateless WS authentication via signed token (JWT).** Considered
   and rejected for v3.0 (see AUTH_CONTRACT §15).
 - **Presence (online / last-seen).** Deferred per V3_ARCHITECTURE
@@ -1672,8 +1681,8 @@ the point.
 
 | # | Decision | Value | Rationale |
 |---|---|---|---|
-| 1 | Undelivered-queue TTL | 30 days | Vacation/device-replacement coverage; bounded storage. |
-| 2 | Max undelivered queue per user | 10,000 frames | Heavy-use outlier; beyond that, user needs resync. |
+| 1 | Timeline retention | 30 days | Vacation/device-replacement coverage; bounded storage. Nothing is removed on read. |
+| 2 | Max timeline per user | none (was 10,000 frames) | Stored once per envelope, read through an index; retention bounds it. Pages of 500. |
 | 3 | Server dedup window | 10,000 op_ids per user, 7 days rolling | A week of heavy use; idempotency handles overflow. |
 | 4 | WS sync rate limit | 30 env/sec sustained, 100 env/sec burst per user | Drain bursts; abuse cap. |
 | 5 | Proactive accesskey refresh | < 48 hours TTL remaining | Foreground refresh; avoids surprise reauth. |
