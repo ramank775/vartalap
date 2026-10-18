@@ -133,6 +133,11 @@ class ChatStore {
               await db.execute(stmt);
             }
           }
+          if (from < 4) {
+            for (final stmt in migrateV3ToV4) {
+              await db.execute(stmt);
+            }
+          }
           for (final stmt in ddl) {
             await db.execute(stmt);
           }
@@ -2503,6 +2508,88 @@ class ChatStore {
     _notify(const {'outbound_ops', 'messages'});
   }
 
+  // --- Starred messages -------------------------------------------------
+  //
+  // WhatsApp's Starred messages. `messages.starred_at` is local-only,
+  // like pin and mute: no outbound op, nothing to fail.
+
+  /// Star or unstar [messageIds]. A message already starred keeps its
+  /// original star time, so starring a mixed selection leaves the list
+  /// order of the ones that were there.
+  Future<void> setStarred(
+    List<String> messageIds,
+    bool starred,
+    int nowMs,
+  ) async {
+    final marks = List.filled(messageIds.length, '?').join(', ');
+    await db.update(
+      'messages',
+      {'starred_at': starred ? nowMs : null},
+      where: 'message_id IN ($marks)'
+          '${starred ? ' AND starred_at IS NULL' : ''}',
+      whereArgs: messageIds,
+    );
+    _notify(const {'messages'});
+  }
+
+  /// Starred messages across every chat, newest star first. A deleted
+  /// (tombstoned) message drops off; Undo brings it back starred.
+  ///
+  /// Each row carries its chat as a [ChannelListEntry] so the title
+  /// goes through the same [ChannelListEntry.title] resolver as the
+  /// chat list: a DM's peer contact is joined the way
+  /// [fetchChannelList] picks it.
+  Future<List<StarredMessage>> fetchStarredMessages() async {
+    final rows = await db.rawQuery('''
+      SELECT m.*, c.kind, c.name, c.last_activity_ms, c.unread_count,
+             c.pinned, c.muted_until_ms,
+             ct.user_id AS peer_user_id,
+             ct.username AS peer_username,
+             ct.display_name AS peer_display_name,
+             ct.contact_book_name AS peer_contact_book_name
+      FROM messages m
+      JOIN channels c ON c.channel_id = m.channel_id
+      LEFT JOIN contacts ct ON c.kind = 'one_to_one' AND ct.user_id =
+        (SELECT pm.user_id FROM channel_members pm
+           JOIN contacts pc ON pc.user_id = pm.user_id
+          WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
+          LIMIT 1)
+      WHERE m.starred_at IS NOT NULL AND m.tombstoned = 0
+      ORDER BY m.starred_at DESC, $_newestFirst
+      ''');
+    return [
+      for (final r in rows)
+        (message: _rowToMessage(r), channel: _rowToChannelListEntry(r)),
+    ];
+  }
+
+  /// Reactive wrapper over [fetchStarredMessages]: a star, a delete, a
+  /// rename or a contact's new name all re-emit.
+  Stream<List<StarredMessage>> watchStarredMessages() {
+    late StreamController<List<StarredMessage>> controller;
+    StreamSubscription<Set<String>>? changeSub;
+
+    Future<void> emit() => _safeEmit(controller, fetchStarredMessages);
+
+    controller = StreamController<List<StarredMessage>>(
+      onListen: () {
+        changeSub = tableChanges.listen((tables) {
+          if (tables.contains('messages') ||
+              tables.contains('channels') ||
+              tables.contains('contacts')) {
+            emit();
+          }
+        });
+        emit();
+      },
+      onCancel: () async {
+        await changeSub?.cancel();
+        changeSub = null;
+      },
+    );
+    return controller.stream;
+  }
+
   // --- row marshalling ---------------------------------------------------
 
   static Map<String, Object?> _messageToRow(MessageRow m) => {
@@ -2540,6 +2627,7 @@ class ChatStore {
         lastEditMs: r['last_edit_ms'] as int?,
         tombstoned: (r['tombstoned'] as int) != 0,
         tombstonePendingUntil: r['tombstone_pending_until'] as int?,
+        starredAtMs: r['starred_at'] as int?,
         attachments: r['attachments'] as List<int>?,
         reactions: _parseReactions(r['reactions'] as String?),
       );

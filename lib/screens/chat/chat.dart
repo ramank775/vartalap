@@ -766,6 +766,8 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// exactly one.
   AppBar _selectionBar(List<MessageRow> sel) {
     final one = sel.length == 1 ? sel.single : null;
+    // WhatsApp: Unstar only when every selected message is starred.
+    final allStarred = sel.every((m) => m.starredAtMs != null);
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.close),
@@ -779,6 +781,16 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
             icon: const Icon(Icons.reply),
             tooltip: 'Reply',
             onPressed: () => _reply(one),
+          ),
+        if (sel.every((m) => !m.tombstoned))
+          IconButton(
+            icon: Icon(allStarred ? Icons.star_border : Icons.star),
+            tooltip: allStarred ? 'Unstar' : 'Star',
+            onPressed: () {
+              _clearSelection();
+              widget.chatService.setStarred(
+                  [for (final m in sel) m.messageId], !allStarred);
+            },
           ),
         if (sel.every(_canCopy))
           IconButton(
@@ -2292,7 +2304,9 @@ class _MessageBubble extends StatelessWidget {
       DateTime.fromMillisecondsSinceEpoch(message.displayTimestampMs),
     ).format(context);
 
-    // Time + tick (+ "edited"); white when it sits on a photo.
+    final starred = message.starredAtMs != null && !tombstoned;
+
+    // Time + tick (+ "edited", + star); white when it sits on a photo.
     Widget metaIn(Color color) => Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2306,6 +2320,11 @@ class _MessageBubble extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
+            ],
+            if (starred) ...[
+              Icon(Icons.star,
+                  size: 12, color: color, semanticLabel: 'Starred'),
+              const SizedBox(width: 3),
             ],
             Text(timeStr, style: TextStyle(fontSize: 11, color: color)),
             if (isMine && !tombstoned) ...[
@@ -2345,6 +2364,7 @@ class _MessageBubble extends StatelessWidget {
           ),
           const WidgetSpan(child: SizedBox(width: 4)),
         ],
+        if (starred) const WidgetSpan(child: SizedBox(width: 15)),
         TextSpan(text: timeStr),
         if (isMine && !tombstoned) const WidgetSpan(child: SizedBox(width: 18)),
       ],

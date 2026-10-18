@@ -118,6 +118,50 @@ void main() {
         reason: 'a queued op survives the migration and still dispatches');
   });
 
+  test('a v3 database migrates to v4: messages gain starred_at, rows kept',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('vartalap_v3');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/v3.db';
+    sqfliteFfiInit();
+    final v3 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 3,
+        onCreate: (db, _) async {
+          await db.execute(_v1Ddl.first); // channels: unchanged since v1
+          await db.execute(_v3Messages);
+        },
+      ),
+    );
+    await v3.insert('channels', {
+      'channel_id': 'g-1',
+      'kind': 'group',
+      'owner_user_id': 'u-1',
+      'created_at': 1,
+      'last_activity_ms': 1,
+    });
+    await v3.insert('messages', {
+      'message_id': 'm-1',
+      'channel_id': 'g-1',
+      'author_user_id': 'u-2',
+      'body': 'kept',
+      'client_timestamp_ms': 490,
+      'server_timestamp_ms': 500,
+      'message_state': 'sent',
+      'state_updated_at': 500,
+    });
+    await v3.close();
+
+    final store = await ChatStore.open(path: path);
+    addTearDown(store.close);
+    expect((await store.fetchMessage('m-1'))!.starredAtMs, isNull);
+    await store.setStarred(['m-1'], true, 42);
+    final starred = await store.fetchStarredMessages();
+    expect(starred.single.message.body, 'kept');
+    expect(starred.single.message.starredAtMs, 42);
+  });
+
   test('the sync pointer starts where it is first put, never moves back, '
       'and lives with the database file', () async {
     final dir = await Directory.systemTemp.createTemp('vartalap_pointer');
@@ -244,3 +288,18 @@ const _v1Ddl = [
   )
   ''',
 ];
+
+/// The v3 `messages` table: v2's, before `starred_at`.
+const _v3Messages = '''
+  CREATE TABLE messages (
+    message_id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL REFERENCES channels(channel_id) ON DELETE CASCADE,
+    author_user_id TEXT NOT NULL, body TEXT, content_type TEXT,
+    reply_to_message_id TEXT, attachments BLOB, forward_source BLOB,
+    client_timestamp_ms INTEGER NOT NULL, server_timestamp_ms INTEGER,
+    message_state TEXT NOT NULL, state_updated_at INTEGER NOT NULL,
+    is_edited INTEGER NOT NULL DEFAULT 0, last_edit_ms INTEGER,
+    tombstoned INTEGER NOT NULL DEFAULT 0, tombstone_pending_until INTEGER,
+    rollback_body TEXT
+  )
+''';

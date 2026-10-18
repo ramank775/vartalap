@@ -1200,6 +1200,14 @@ class ChatService {
   Future<List<MessageRow>> fetchLinks(String channelId) =>
       _store.fetchChannelLinks(channelId);
 
+  /// Star or unstar messages — local-only, like pin and mute.
+  Future<void> setStarred(List<String> messageIds, bool starred) =>
+      _store.setStarred(messageIds, starred, _clock.nowMs());
+
+  /// Starred messages in every chat, newest star first.
+  Stream<List<StarredMessage>> watchStarredMessages() =>
+      _store.watchStarredMessages();
+
   // --- attachments and photos — V3_RELEASE_PLAN §4.2 ---------------------
   //
   // Everything here is local-first in the same sense as [sendMessage]:
