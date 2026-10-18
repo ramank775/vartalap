@@ -143,6 +143,10 @@ class WsTransport implements Transport {
 
   Future<void> _connect() async {
     if (_disposed) return;
+    // Up or on its way: a second socket for this device would make the
+    // server replace one with the other (one socket per device), and
+    // the replaced one's reconnect would replace the new one back.
+    if (_state != TransportState.disconnected) return;
     final token = auth.currentAccesskey;
     if (token == null) {
       // No session yet — don't even try. Stay disconnected; the UI will
@@ -154,9 +158,13 @@ class WsTransport implements Transport {
     _setState(TransportState.connecting);
 
     try {
+      // §5.10: the server pings every 30 s, which only tells the
+      // server. Our own ping closes a socket that died without a close
+      // (network change, lost coverage), so we reconnect and pull.
       final socket = await IOWebSocketChannel.connect(
         endpoint,
         protocols: ['accesskey.$token'],
+        pingInterval: const Duration(seconds: 30),
       );
       // web_socket_channel v3: `ready` completes once the upgrade succeeds.
       await socket.ready;

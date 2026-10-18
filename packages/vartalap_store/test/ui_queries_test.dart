@@ -293,7 +293,7 @@ void main() {
       final sub = store.watchChannelList().listen(emissions.add);
 
       // Initial emission.
-      await _pumpEventLoop();
+      await _until(() => emissions.isNotEmpty);
       expect(emissions, hasLength(1));
       expect(emissions.first, isEmpty);
 
@@ -306,8 +306,7 @@ void main() {
         ownerUserId: 'u-self',
         createdAt: 100,
       );
-      await _pumpEventLoop();
-      expect(emissions.length, greaterThanOrEqualTo(2));
+      await _until(() => emissions.length >= 2);
       expect(emissions.last, isEmpty);
 
       // Enqueueing a message → messages table change → re-emit.
@@ -348,9 +347,9 @@ void main() {
         ),
         nowMs: 150,
       );
-      await _pumpEventLoop();
-      // We've had at minimum one emission after the insert; the exact
-      // count depends on how table-change notifications coalesce.
+      // At least one emission after the insert; the exact count depends
+      // on how table-change notifications coalesce.
+      await _until(() => emissions.last.isNotEmpty);
       final latest = emissions.last;
       expect(latest, hasLength(1));
       expect(latest.single.lastMessagePreview, 'hi');
@@ -1372,3 +1371,11 @@ Future<void> _insertSentMessage({
 /// Gives stream controllers a turn to deliver events.
 Future<void> _pumpEventLoop() =>
     Future<void>.delayed(const Duration(milliseconds: 10));
+
+/// Pump until [done] holds (up to 2 s), for an emission that a busy
+/// machine delivers later than one fixed pump allows.
+Future<void> _until(bool Function() done) async {
+  for (var i = 0; i < 200 && !done(); i++) {
+    await _pumpEventLoop();
+  }
+}

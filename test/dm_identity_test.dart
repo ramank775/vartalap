@@ -25,6 +25,7 @@ import 'dart:async';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:vartalap/main.dart' show pullPendingPages;
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap_store/vartalap_store.dart';
@@ -419,8 +420,8 @@ void main() {
       await a.drain();
     }
     expect(
-      mock.state.undelivered[b.userId],
-      isNotNull,
+      mock.storedOpIds(b.userId),
+      isNotEmpty,
       reason: 'an offline recipient accumulates frames server-side.',
     );
 
@@ -430,8 +431,8 @@ void main() {
       reason: 'the knob reports how many frames it threw away.',
     );
     expect(
-      mock.state.undelivered[b.userId],
-      isNull,
+      mock.storedOpIds(b.userId),
+      isEmpty,
       reason: 'and the queue is empty afterwards.',
     );
     expect(
@@ -747,16 +748,7 @@ class _Client {
     await _pump();
   }
 
-  Future<void> pullPendingSync() async {
-    try {
-      for (final env in await rest.pullPendingSync()) {
-        ws.injectPush(env);
-      }
-      await inbound?.drainPending();
-    } finally {
-      ws.endSyncBuffer();
-    }
-  }
+  Future<void> pullPendingSync() => pullPendingPages(rest, ws, inbound);
 
   // ---- actions ---------------------------------------------------------
 

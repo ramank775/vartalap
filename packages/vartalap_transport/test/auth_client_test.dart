@@ -77,6 +77,7 @@ void main() {
         expect(body['sessionId'], 'sess-123');
         expect(body['code'], '654321');
         expect(body['deviceId'], 'device-001');
+        req.response.headers.date = DateTime.utc(2026, 10, 18, 9, 30);
         _respond(req, 200, {
           'status': true,
           'user_id': 'a3f2e8c5d',
@@ -104,6 +105,28 @@ void main() {
       // In-memory state updated.
       expect(client.currentAccesskey, 'ak-new');
       expect(client.currentUserId, 'a3f2e8c5d');
+      // The server's clock at sign-in (seeds a fresh pull pointer).
+      expect(client.signedInAt, DateTime.utc(2026, 10, 18, 9, 30));
+    });
+
+    test('an unparseable Date leaves signedInAt null', () async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      server.handler = (req) async {
+        req.response.headers.set('date', 'not a date');
+        _respond(req, 200, {
+          'user_id': 'a3f2e8c5d',
+          'accesskey': 'ak-new',
+          'refreshToken': 'rt-new',
+          'accesskeyExpiresAt': now + 2592000000,
+          'refreshTokenExpiresAt': now + 7776000000,
+        });
+      };
+      await client.verifyOtp(
+        phone: '+919876543210',
+        code: '654321',
+        sessionId: 'sess-123',
+      );
+      expect(client.signedInAt, isNull);
     });
 
     test('401 INVALID_CODE throws', () async {

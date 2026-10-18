@@ -1102,6 +1102,220 @@ void main() {
     },
   );
 
+  // --- §10.6: handled frames and the pull pointer -------------------------
+
+  test(
+    'handled names every envelope dealt with — stored, already seen, '
+    'dropped on purpose — and each moves the pointer to its stamp; an '
+    'ephemeral one and an older stamp do not',
+    () async {
+      // A pull caught up to 6000: single frames move the pointer now.
+      await receiver.advanceSyncPointer(6000,
+          release: receiver.holdSyncPointer());
+      final handled = <String>[];
+      receiver.handled.listen(handled.add);
+      final create = _makeEnvelope(
+        opId: 'op-h-stored',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: 'm-h',
+          body: 'hi',
+        ),
+        serverTimestampMs: 7000,
+      );
+      pushes
+        ..add(create)
+        ..add(create) // already seen
+        ..add(_makeEnvelope(
+          opId: 'op-h-malformed',
+          senderUserId: _peerUserId,
+          payload: const [0xff, 0xff, 0xff],
+          serverTimestampMs: 7001,
+        ))
+        ..add(_makeEnvelope(
+          // A DM id that does not derive from us and the sender: the
+          // recipient gate drops it.
+          channelId: dmChannelId(_peerUserId, _thirdUserId),
+          opId: 'op-h-gate',
+          senderUserId: _peerUserId,
+          payload: _chatPayload(
+            type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+            messageId: 'm-h-gate',
+            body: 'not ours',
+          ),
+          serverTimestampMs: 7002,
+        ))
+        ..add(_makeEnvelope(
+          // A group this device has no row for and no resolver to fetch.
+          channelId: 'c-h-no-group',
+          opId: 'op-h-no-group',
+          senderUserId: _peerUserId,
+          payload: _chatPayload(
+            type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+            messageId: 'm-h-no-group',
+            body: 'nowhere to go',
+          ),
+          serverTimestampMs: 7003,
+        ))
+        ..add(pb.Envelope(
+          opId: 'op-h-typing',
+          channelId: _channelId,
+          senderUserId: _peerUserId,
+          payload: pb.ChatPayload(
+            version: 1,
+            type: pb.ChatPayloadType.TYPE_TYPING,
+            isTyping: true,
+          ).writeToBuffer(),
+          ephemeral: true,
+        ))
+        ..add(_makeEnvelope(
+          opId: 'op-h-older',
+          senderUserId: _peerUserId,
+          payload: _chatPayload(
+            type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+            messageId: 'm-h-older',
+            body: 'late',
+          ),
+          serverTimestampMs: 6999,
+        ));
+      await receiver.drainPending();
+
+      expect(handled, [
+        'op-h-stored',
+        'op-h-stored',
+        'op-h-malformed',
+        'op-h-gate',
+        'op-h-no-group',
+        'op-h-older',
+      ]);
+      expect((await store.fetchMessage('m-h'))!.body, 'hi');
+      expect(receiver.syncPointer, 7003, reason: 'never backwards');
+      expect(await store.syncPointer(), 7003);
+    },
+  );
+
+  test(
+    'an apply that throws is not handled and holds the pointer before it '
+    'for the rest of the run; a pull that gets through releases it',
+    () async {
+      var offline = true;
+      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final withResolver = InboundReceiver(
+        store: store,
+        pushes: localPushes.stream,
+        localUserId: _selfUserId,
+        clock: clock,
+        resolveGroup: (channelId) async {
+          if (offline) throw StateError('offline');
+          return (
+            name: 'Fetched later',
+            avatarUrl: null,
+            roles: {_peerUserId: 'owner', _selfUserId: 'member'},
+            createdAt: 100,
+          );
+        },
+      );
+      await withResolver.start();
+      addTearDown(withResolver.stop);
+      addTearDown(localPushes.close);
+      await withResolver.advanceSyncPointer(900,
+          release: withResolver.holdSyncPointer());
+      final handled = <String>[];
+      withResolver.handled.listen(handled.add);
+
+      final needsGroup = _makeEnvelope(
+        channelId: 'c-grp-offline',
+        opId: 'op-needs-group',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: 'm-needs-group',
+          body: 'later',
+        ),
+        serverTimestampMs: 950,
+      );
+      final after = _makeEnvelope(
+        opId: 'op-after-failure',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: 'm-after-failure',
+          body: 'fine',
+        ),
+        serverTimestampMs: 960,
+      );
+      localPushes
+        ..add(needsGroup)
+        ..add(after);
+      await withResolver.drainPending();
+      expect(handled, ['op-after-failure']);
+      expect(await store.fetchMessage('m-needs-group'), isNull);
+      expect(await store.hasSeenOpId('c-grp-offline', 'op-needs-group'),
+          isFalse);
+      expect(withResolver.syncPointer, 900,
+          reason: 'a frame after the failure must not carry the pointer '
+              'past it');
+
+      // The next pull: from 900, it brings both back.
+      final token = withResolver.holdSyncPointer();
+      offline = false;
+      localPushes
+        ..add(needsGroup)
+        ..add(after);
+      await withResolver.drainPending();
+      await withResolver.advanceSyncPointer(960, release: token);
+      expect((await store.fetchMessage('m-needs-group'))!.body, 'later');
+      expect(withResolver.syncPointer, 960);
+
+      // Caught up again: a live frame moves it on its own.
+      localPushes.add(_makeEnvelope(
+        opId: 'op-live',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: 'm-live',
+          body: 'live',
+        ),
+        serverTimestampMs: 970,
+      ));
+      await withResolver.drainPending();
+      expect(withResolver.syncPointer, 970);
+      expect(await store.syncPointer(), 970);
+    },
+  );
+
+  test('a fresh receiver starts from the pointer in the account database, '
+      'and holds it until a pull has caught up', () async {
+    await store.setSyncPointer(77);
+    final localPushes = StreamController<pb.Envelope>.broadcast();
+    final fresh = InboundReceiver(
+      store: store,
+      pushes: localPushes.stream,
+      localUserId: _selfUserId,
+      clock: clock,
+    );
+    await fresh.start();
+    addTearDown(fresh.stop);
+    addTearDown(localPushes.close);
+    expect(fresh.syncPointer, 77);
+
+    localPushes.add(_makeEnvelope(
+      opId: 'op-before-pull',
+      senderUserId: _peerUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+        messageId: 'm-before-pull',
+        body: 'early',
+      ),
+      serverTimestampMs: 990,
+    ));
+    await fresh.drainPending();
+    expect((await store.fetchMessage('m-before-pull'))!.body, 'early');
+    expect(fresh.syncPointer, 77,
+        reason: 'what lies between 77 and 990 is unknown until a pull');
+  });
+
   // --- decision 79: unknown-peer profile backfill -------------------------
 
   test(

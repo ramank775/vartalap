@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 2;
+const int schemaVersion = 3;
 
 const List<String> pragmas = [
   'PRAGMA journal_mode = WAL',
@@ -236,6 +236,17 @@ const List<String> ddl = [
   '''
   CREATE INDEX IF NOT EXISTS idx_op_id_seen_age
     ON op_id_seen(channel_id, seen_at)
+  ''',
+
+  // SYNC_PROTOCOL §10.6 — the pull pointer: the newest
+  // server_timestamp_ms among the pushes this account has handled, the
+  // next pull's `since`. One row; none reads as 0. v3 adds it through
+  // [ddl] alone, which onUpgrade re-runs.
+  '''
+  CREATE TABLE IF NOT EXISTS sync_state (
+    id                INTEGER PRIMARY KEY CHECK (id = 1),
+    newest_handled_ms INTEGER NOT NULL
+  )
   ''',
 ];
 

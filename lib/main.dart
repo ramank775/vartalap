@@ -53,8 +53,8 @@ void main(List<String> args) async {
   if (picker is ImagePickerAndroid) picker.useAndroidPhotoPicker = true;
   // A distributor starts this entrypoint in a background engine to
   // deliver a wake (`unifiedpush` README). Everything the wake needs —
-  // pull `/sync/pending`, reconnect the WS, post the notifications — is
-  // wired by initializeApp; there is no UI to run, so we stop short
+  // pull `/sync/pending`, post the notifications — is wired by
+  // initializeApp (no WS there: the app's own engine has it); there is no UI to run, so we stop short
   // of runApp and let the callback fire.
   final background = args.contains('--unifiedpush-bg');
   final services = await initializeApp(background: background);
@@ -147,6 +147,7 @@ class AppServices {
   Future<void> openAccount(String userId, {bool adoptGroups = true}) async {
     await closeAccount();
     final store = await openDb(accountDbPath(dbDir, userId));
+    await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
     // Trim 4: derived DM ops name their peer on the wire, which is
     // relative to the signed-in user.
     final scheduler = SyncScheduler(
@@ -197,25 +198,10 @@ class AppServices {
     if (erase) await deleteAccountDb(dbDir, userId);
   }
 
-  /// Pull whatever the server has queued for us, feed each frame into
-  /// the same fanout stream as live WS_PUSHes, wait for the inbound
-  /// receiver to apply them, and then release the WS post-connect
-  /// buffer (live frames captured during the window flush in arrival
-  /// order). Safe to call many times — `InboundReceiver` dedups by
-  /// op_id; [WsTransport.endSyncBuffer] is idempotent. Returns how many
-  /// frames the server handed over.
-  Future<int> pullPendingSync() async {
-    try {
-      final envelopes = await restTransport.pullPendingSync();
-      for (final env in envelopes) {
-        wsTransport.injectPush(env);
-      }
-      await inboundReceiver?.drainPending();
-      return envelopes.length;
-    } finally {
-      wsTransport.endSyncBuffer();
-    }
-  }
+  /// Pull whatever the server holds for us ([pullPendingPages]).
+  /// Returns how many frames the server handed over.
+  Future<int> pullPendingSync() =>
+      pullPendingPages(restTransport, wsTransport, inboundReceiver);
 
   /// Stop any previous receiver and construct + start a fresh one
   /// bound to [userIdHex]. Called on every login so the new session's
@@ -253,6 +239,70 @@ class AppServices {
     // notifies (the WS stays up while the app is in the background).
     notifications.bindSource(next.peerMessagesStored);
   }
+}
+
+/// Where a fresh account database's pull pointer starts (an existing
+/// one keeps its own, so a re-login still gets what came while signed
+/// out): the sign-in, in server time — the otp/verify `Date`, less a
+/// minute for its one-second precision — so a new install does not
+/// replay the 30 days the server keeps. No `Date`: 0, all of it.
+/// Revisit with end-to-end encryption.
+int freshSyncPointer(DateTime? signedInAt) =>
+    signedInAt == null ? 0 : signedInAt.millisecondsSinceEpoch - 60000;
+
+/// SYNC_PROTOCOL §10.6 pull loop. Pull a page of what the server holds
+/// for us from the account's pointer on ([InboundReceiver.syncPointer],
+/// inclusive), feed each frame into the same fanout stream as live
+/// WS_PUSHes, wait for [receiver] to apply them, and if it handled them
+/// all move the pointer to the page's newest stamp and pull again while
+/// the server says there is `more`; then release the WS post-connect
+/// buffer (live frames captured during the window flush in arrival
+/// order). Safe to call many times — [InboundReceiver] dedups by op_id;
+/// [WsTransport.endSyncBuffer] is idempotent. Returns how many frames
+/// the server handed over.
+Future<int> pullPendingPages(
+  RestTransport rest,
+  WsTransport ws,
+  InboundReceiver? receiver,
+) async {
+  var pulled = 0;
+  try {
+    if (receiver == null) return 0;
+    // Live frames stop moving the pointer while this runs: until it
+    // has every page, they may be newer than what it has yet to bring.
+    final token = receiver.holdSyncPointer();
+    while (true) {
+      final since = receiver.syncPointer;
+      final page = await rest.pullPendingSync(since: since);
+      if (page == null) break;
+      pulled += page.envelopes.length;
+      final ids = {for (final env in page.envelopes) env.opId}..remove('');
+      final handled = <String>{};
+      final sub = receiver.handled.listen((id) {
+        if (ids.contains(id)) handled.add(id);
+      });
+      for (final env in page.envelopes) {
+        ws.injectPush(env);
+      }
+      await receiver.drainPending();
+      await sub.cancel();
+      // A frame that failed keeps the pointer before it, so the next
+      // pull from there brings it back.
+      if (handled.length < ids.length) break;
+      final newest = page.envelopes.isEmpty
+          ? since
+          : page.envelopes.last.serverTimestampMs.toInt();
+      await receiver.advanceSyncPointer(newest,
+          release: page.more ? null : token);
+      // Never spin on a page that moved nothing. ponytail: more than a
+      // page of frames in one millisecond stalls here; that needs an
+      // op_id tie-break in the cursor.
+      if (!page.more || receiver.syncPointer <= since) break;
+    }
+  } finally {
+    ws.endSyncBuffer();
+  }
+  return pulled;
 }
 
 /// [background]: the engine a distributor starts to deliver a wake.
@@ -296,8 +346,11 @@ Future<AppServices> initializeApp({bool background = false}) async {
 
   // Start the WS transport. If no accesskey yet (pre-login), it stays
   // disconnected and auto-connects once auth lands. Reconnect with
-  // backoff on disconnect.
-  await wsTransport.start();
+  // backoff on disconnect. Never in a wake's background engine: it only
+  // pulls and notifies, and its socket would outlive the wake and fight
+  // the app's own for this device (the server keeps one per device),
+  // each replacing the other about once a second.
+  if (!background) await wsTransport.start();
 
   // The account's store comes and goes with sign-in ([AppServices.store]).
   late final AppServices services;
@@ -329,9 +382,9 @@ Future<AppServices> initializeApp({bool background = false}) async {
   authService.onLogout = services.closeAccount;
 
   // SYNC_PROTOCOL §12.3 — the wake says nothing, so the client owns
-  // the follow-up: WS back up, then drain whatever was queued.
+  // the follow-up: the app's WS back up, then pull from the pointer.
   pushService.onWake = () async {
-    await wsTransport.start();
+    if (!background) await wsTransport.start();
     return services.pullPendingSync();
   };
   // AUTH_CONTRACT §5.1 — deregister while the accesskey still works.

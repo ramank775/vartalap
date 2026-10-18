@@ -28,6 +28,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:http/http.dart' as http;
+import 'package:vartalap/main.dart' show pullPendingPages;
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap_store/vartalap_store.dart';
@@ -290,20 +291,21 @@ void main() {
               .where((x) => x == offlineBody)
               .length,
           1,
-          reason: 'SYNC_PROTOCOL §7.2 + §10.4: GET /v3.0/sync/pending drains '
-              'the queue destructively and the op_id_seen set makes a '
-              'second delivery a no-op — the message lands exactly once.',
+          reason: 'SYNC_PROTOCOL §7.2 + §10.6: the pull brings what the '
+              'device log holds past the pointer and the op_id_seen set '
+              'makes a second delivery a no-op — the message lands '
+              'exactly once.',
         );
 
-        // The drain is destructive: a second pull returns nothing new.
+        // The pointer moved past it: a second pull returns nothing new.
         final before = (await b.bodiesIn(dmChannel)).length;
         await b.pullPendingSync();
         await b.pump();
         expect(
           (await b.bodiesIn(dmChannel)).length,
           before,
-          reason: 'GET /v3.0/sync/pending has no cursor and no ack — the '
-              'same drain must not replay.',
+          reason: 'GET /v3.0/sync/pending?after=<pointer> — the same frame '
+              'must not replay.',
         );
       });
 
@@ -735,17 +737,7 @@ class _Client {
   }
 
   /// AppServices.pullPendingSync.
-  Future<void> pullPendingSync() async {
-    try {
-      final envelopes = await rest.pullPendingSync();
-      for (final env in envelopes) {
-        ws.injectPush(env);
-      }
-      await inbound?.drainPending();
-    } finally {
-      ws.endSyncBuffer();
-    }
-  }
+  Future<int> pullPendingSync() => pullPendingPages(rest, ws, inbound);
 
   /// AppServices.rebuildInboundReceiverForUser.
   Future<void> rebuildInboundReceiverForUser(String userIdHex) async {

@@ -811,6 +811,32 @@ class ChatStore {
     return rows.isNotEmpty;
   }
 
+  /// SYNC_PROTOCOL §10.6 — the pull pointer: the newest
+  /// server_timestamp_ms among the pushes this account has handled, i.e.
+  /// the next pull's `since`. 0 until [initSyncPointer] or
+  /// [setSyncPointer].
+  Future<int> syncPointer() async {
+    final rows =
+        await db.query('sync_state', columns: const ['newest_handled_ms']);
+    return rows.isEmpty ? 0 : rows.single['newest_handled_ms'] as int;
+  }
+
+  /// Where a fresh database's pointer starts; a no-op once it has one.
+  Future<void> initSyncPointer(int ms) => db.rawInsert(
+        'INSERT OR IGNORE INTO sync_state (id, newest_handled_ms) '
+        'VALUES (1, ?)',
+        [ms],
+      );
+
+  /// Move [syncPointer] to [ms]. Never backwards: the MAX makes a late,
+  /// smaller write a no-op.
+  Future<void> setSyncPointer(int ms) => db.rawInsert(
+        'INSERT INTO sync_state (id, newest_handled_ms) VALUES (1, ?) '
+        'ON CONFLICT(id) DO UPDATE SET '
+        'newest_handled_ms = MAX(newest_handled_ms, excluded.newest_handled_ms)',
+        [ms],
+      );
+
   /// Recipient-side dedup record (SYNC_PROTOCOL.md §7.2), for the apply
   /// paths that write it on their own rather than inside one of the
   /// inbound writers' transactions below.

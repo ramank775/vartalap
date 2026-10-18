@@ -225,18 +225,23 @@ class RestTransport implements Transport {
     if (!_ackCtrl.isClosed) _ackCtrl.add(frame);
   }
 
-  /// Client-triggered sync pull. Hits `GET /v3.0/sync/pending` and
-  /// returns the queued `WS_PUSH` envelopes. The server-side queue is
-  /// drained in the same call. Caller is responsible for feeding each
-  /// returned envelope into the inbound apply pipeline (typically via
-  /// [WsTransport.injectPush]). Returns an empty list on transport
-  /// failure or non-2xx so callers can fail open and retry on next
-  /// tick — there's no error reporting since this isn't a queued op.
-  Future<List<pb.Envelope>> pullPendingSync() async {
-    if (_disposed) return const [];
+  /// Client-triggered sync pull (§10.6). Hits `GET
+  /// /v3.0/sync/pending?since=` and returns one page of the `WS_PUSH`
+  /// envelopes for us stamped at or after [since] (inclusive: several
+  /// can share a millisecond), oldest first, plus the server's `more`
+  /// (frames past this page). Reading removes nothing; the caller keeps
+  /// [since]. Caller is responsible
+  /// for feeding each returned envelope into the inbound apply pipeline
+  /// (typically via [WsTransport.injectPush]). Returns null on transport
+  /// failure or non-2xx so callers can fail open and retry on next tick
+  /// — and so they never mistake "could not ask" for "nothing new".
+  Future<({List<pb.Envelope> envelopes, bool more})?> pullPendingSync({
+    int since = 0,
+  }) async {
+    if (_disposed) return null;
     final token = auth.currentAccesskey;
-    if (token == null) return const [];
-    final uri = baseUrl.resolve('/v3.0/sync/pending');
+    if (token == null) return null;
+    final uri = baseUrl.resolve('/v3.0/sync/pending?since=$since');
     http.Response resp;
     try {
       resp = await _client.get(uri, headers: {
@@ -244,19 +249,19 @@ class RestTransport implements Transport {
         'Accept': 'application/json',
       });
     } catch (_) {
-      return const [];
+      return null;
     }
-    if (resp.statusCode != 200) return const [];
+    if (resp.statusCode != 200) return null;
     Map<String, dynamic> body;
     try {
       final decoded = jsonDecode(resp.body);
-      if (decoded is! Map<String, dynamic>) return const [];
+      if (decoded is! Map<String, dynamic>) return null;
       body = decoded;
     } catch (_) {
-      return const [];
+      return null;
     }
     final framesB64 = body['frames'];
-    if (framesB64 is! List) return const [];
+    if (framesB64 is! List) return null;
     final out = <pb.Envelope>[];
     for (final entry in framesB64) {
       if (entry is! String) continue;
@@ -274,7 +279,7 @@ class RestTransport implements Transport {
         continue;
       }
     }
-    return out;
+    return (envelopes: out, more: body['more'] == true);
   }
 }
 

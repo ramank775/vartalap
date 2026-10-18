@@ -142,6 +142,27 @@ void main() {
       expect(ack.outcome, isA<AckAuthFailure>());
     });
 
+    test('start while connecting or connected opens no second socket',
+        () async {
+      // A push wake calls start() on a transport that may already be up.
+      // A second socket for the same device makes the server replace one
+      // with the other, and the orphan's reconnect replaced the new one
+      // back, once a second, for good.
+      final transport = WsTransport(
+        endpoint: server.uri,
+        auth: _FakeAuth('acc-1'),
+      );
+      addTearDown(transport.dispose);
+
+      await Future.wait([transport.start(), transport.start()]);
+      await _waitForState(transport, TransportState.connected);
+      await transport.start();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(server.upgrades, 1);
+      expect(transport.currentState, TransportState.connected);
+    });
+
     test('send before connect throws', () async {
       final transport = WsTransport(
         endpoint: server.uri,
@@ -425,6 +446,53 @@ void main() {
       expect(transport.currentState, TransportState.connected);
     });
 
+    test('pullPendingSync asks from `since` and returns the page with '
+        '`more`; null when it could not ask (§10.6)', () async {
+      String? query;
+      String frame(pb.WsEnvelope env) => base64Encode(env.writeToBuffer());
+      server.handler = (req) async {
+        query = req.uri.query;
+        req.response.statusCode = 200;
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(jsonEncode({
+          'frames': [
+            frame(pb.WsEnvelope(
+              type: pb.WsType.WS_PUSH,
+              push: pb.Envelope(
+                  opId: 'p-11', serverTimestampMs: fixnum.Int64(11)),
+            )),
+            frame(pb.WsEnvelope(type: pb.WsType.WS_ACK)), // not a push
+            frame(pb.WsEnvelope(
+              type: pb.WsType.WS_PUSH,
+              push: pb.Envelope(
+                  opId: 'p-12', serverTimestampMs: fixnum.Int64(12)),
+            )),
+          ],
+          'more': true,
+        }));
+        await req.response.close();
+      };
+      final transport = RestTransport(
+        baseUrl: server.uri,
+        auth: _FakeAuth('acc-pull'),
+      );
+      addTearDown(transport.dispose);
+
+      final page = await transport.pullPendingSync(since: 10);
+      expect(query, 'since=10');
+      expect(server.lastAuthHeader, 'Bearer acc-pull');
+      expect(page!.envelopes.map((e) => e.opId), ['p-11', 'p-12']);
+      expect(page.envelopes.last.serverTimestampMs.toInt(), 12);
+      expect(page.more, isTrue);
+
+      server.handler = (req) async {
+        req.response.statusCode = 503;
+        await req.response.close();
+      };
+      expect(await transport.pullPendingSync(since: 12), isNull,
+          reason: 'could not ask is not the same as nothing new');
+    });
+
     test('classifyHttpStatus maps across the §8.1 table', () {
       expect(classifyHttpStatus(200), isA<AckSuccess>());
       expect(classifyHttpStatus(201), isA<AckSuccess>());
@@ -456,6 +524,9 @@ class _WsEchoServer {
 
   String? lastSubprotocol;
   pb.Envelope? lastEnvelope;
+
+  /// WS upgrades accepted so far.
+  int upgrades = 0;
 
   Uri get uri => Uri.parse('ws://127.0.0.1:${_http!.port}/wss');
 
@@ -497,6 +568,7 @@ class _WsEchoServer {
       protocolSelector: (protocols) =>
           protocols.isNotEmpty ? protocols.first : '',
     );
+    upgrades++;
     _activeSocket = sock;
     sock.listen((dynamic data) {
       if (data is! List<int>) return;
