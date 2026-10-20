@@ -93,6 +93,7 @@ do not improvise.
   phone lookup with rate limits is v3.0; PSI is deferred to v4.
 - **E2E encryption is required before launch but not implemented yet.**
   The server relays opaque payloads; the current client sends them plaintext.
+  Its public-key directory is implemented (§17); client encryption is pending.
   The fresh-release integration proposal is in the workspace release plan §10.
 - **No legacy migration.** v3 ships as a clean relaunch; v2's local DB is
   kept for download, never imported.
@@ -2173,6 +2174,106 @@ There is no "no-username" variant: `username` is required (§2.4)
 and `POST /v3.0/users/me/delete` is not on the gate-exempt list, so
 every account that can reach this endpoint already has a username,
 and `DELETE <username>` (§8.2) is the only confirmation form.
+
+---
+
+## 17. E2EE public-key directory (server foundation, 2026-10-20)
+
+These endpoints are implemented on the production monolith. Client message
+encryption is still pending: key registration alone does **not** enable E2EE.
+All three endpoints require a valid accesskey and the username gate (§2.4).
+The server stores public keys only; clients must verify signed-prekey signatures
+against the identity key and apply their local identity-trust policy.
+
+### 17.1 `PUT /v3.0/keys/me`
+
+Registers or replenishes keys for the authenticated session's `(user_id,
+deviceId)`. Request JSON cannot supply either owner identifier or any private
+field. Unknown fields are rejected.
+
+```json
+{
+  "identityKey": "<base64 33-byte Signal public key>",
+  "registrationId": 42,
+  "signedPreKey": {
+    "id": 1,
+    "publicKey": "<base64 33-byte Signal public key>",
+    "signature": "<base64 64-byte signature>"
+  },
+  "preKeys": [{"id": 0, "publicKey": "<base64 33-byte Signal public key>"}]
+}
+```
+
+Public keys use Signal's `0x05` prefix; encodings are canonical padded base64.
+`registrationId` is an integer 1–16383. All prekey ids are integers 0–16777215.
+`preKeys` is required, may be empty, contains no duplicate ids, and has at most
+200 entries; the server holds at most 200 unclaimed prekeys for one device.
+
+Within an identity generation, upload **strictly increasing new prekey ids**.
+Ids at or below the greatest previously uploaded id are ignored on retry,
+including consumed ids; retries cannot resurrect a one-time key. Replenish
+with new ids. Keep the registration id stable for an identity. A signed-prekey
+id cannot be overwritten with different key bytes/signature, and retrying an
+older signed prekey does not roll back the currently published one.
+
+Success `200` is the public bundle below, plus `preKeyCount`. The first upload
+allocates a random UUID `generation`. Replenishment/rotation with the same
+identity preserves it; a changed identity replaces the old generation and
+retires its remaining public prekeys. Clients must pin identity keys and warn
+about new/changed identities; this endpoint cannot make first-contact trust
+safe against a malicious server.
+
+Conflicts are `409 KEY_CONFLICT` or `409 PREKEY_CAPACITY`. A competing state
+update that exhausts the bounded retry window returns `503 KEYS_BUSY`; retry
+with backoff. Budget: 60 publications per account per hour. A concurrent
+account deletion purges the registration instead of leaving an orphan bundle.
+
+### 17.2 `GET /v3.0/keys/{userId}`
+
+`userId` is the 9-character lowercase hex account id. Success `200`:
+
+```json
+{
+  "devices": [{
+    "deviceId": "<installation id>",
+    "generation": "<UUID>",
+    "identityKey": "<public key>",
+    "registrationId": 42,
+    "signedPreKey": {"id": 1, "publicKey": "<public key>", "signature": "<signature>"}
+  }]
+}
+```
+
+An existing account without registered keys returns an empty list. No one-time
+prekeys, internal revisions or counters appear in this response. Unknown/deleted
+accounts return `404 KEYS_NOT_FOUND`.
+
+### 17.3 `POST /v3.0/keys/{userId}/claim`
+
+Body: `{"deviceId":"<installation id>","generation":"<UUID from directory>"}`.
+Success `200` is that public bundle plus `preKey: {id, publicKey}`. The selected
+one-time key is removed in the same atomic revision update; concurrent claims
+cannot receive the same key. If none remain, `preKey` is `null` (Signal's
+signed-prekey-only initialization is possible; never substitute plaintext).
+A missing device or stale generation returns `404 KEYS_NOT_FOUND`; refetch the
+directory and apply the identity-trust policy before trying another generation.
+
+Directory reads and claims share budgets of 1000 requests/account/hour and
+2000 requests/IP/hour. Exceeded publication/read budgets return
+`429 RATE_LIMITED`. The limits use the service's configured cache backend.
+
+### 17.4 Persistence and lifecycle
+
+Mongo `device_keys` has a unique `(user_id, deviceId)` index. PostgreSQL
+`device_keys` has the same primary key and stores the record as JSONB. Both
+replace only an expected revision, so upload, claim and replenishment races
+preserve each other's updates. The internal revision is never returned.
+
+Logout revokes the authentication session and push endpoint but retains the
+published key generation, just as it retains the phone's local history. It
+can still receive encrypted messages for later re-login; account deletion
+purges every published generation. Device unlink/revocation UI is not built.
+The server never receives private keys or attachment decryption keys.
 
 ---
 
