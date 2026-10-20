@@ -5,7 +5,6 @@ library vartalap.services.account_db_test;
 
 import 'dart:io';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/main.dart';
@@ -15,6 +14,8 @@ import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
+
+import '../fake_unified_push.dart';
 
 const alice = 'a11ce0001';
 const bob = 'b0b000002';
@@ -80,7 +81,8 @@ void main() {
       final client = AuthClient(baseUrl: Uri.parse('http://127.0.0.1:9'));
       services = AppServices(
         authClient: client,
-        authService: AuthService(client: client, storage: _NoStorage()),
+        authService:
+            AuthService(client: client, storage: InMemorySecureStorage()),
         wsTransport:
             WsTransport(endpoint: Uri.parse('ws://127.0.0.1:9'), auth: client),
         restTransport: RestTransport(baseUrl: client.baseUrl, auth: client),
@@ -125,6 +127,7 @@ void main() {
       expect([services.store, services.scheduler, services.inboundReceiver],
           everyElement(isNull),
           reason: 'nothing is left to write to the closed store');
+      expect(services.cryptoRecords, isNull);
       expect(files(), {'vartalap_v3_$alice.db'});
 
       await services.openAccount(alice, adoptGroups: false);
@@ -151,9 +154,4 @@ void main() {
       expect(files(), {'vartalap_v3_$bob.db'});
     });
   });
-}
-
-class _NoStorage implements FlutterSecureStorage {
-  @override
-  dynamic noSuchMethod(Invocation invocation) async => null;
 }

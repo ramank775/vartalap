@@ -2277,6 +2277,13 @@ The server never receives private keys or attachment decryption keys.
 
 ### 17.5 Client foundation, not yet enabled
 
+`vartalap_transport` exposes typed `AuthClient.publishDeviceKeys`,
+`getDeviceKeys` and `claimDeviceKeys` calls. Their JSON boundary validates
+public key sizes/prefixes, canonical encodings, ids, generations and duplicate
+devices/prekeys; claims must match the requested device/generation. These calls
+do not verify signatures or make identity-trust decisions. The Signal adapter
+must do both before using a bundle; no enrollment is triggered by the app yet.
+
 `lib/services/e2ee.dart` provides an AES-256-GCM `E2eeRecordStore` for serialized
 crypto records and an authenticated-inner-plaintext operation frame. Record AAD
 binds version, account, namespace and record key; each write gets a random
@@ -2290,11 +2297,35 @@ New-device roster approval must also be enforced when integrating the key
 directory; per-device first-use trust alone does not stop a malicious server
 from inserting an additional device into an already trusted account.
 
+Account startup now initializes this store before starting the scheduler or
+inbound receiver, through the same path in foreground and push-wake engines.
+Key creation is serialized by the account database transaction. A random
+32-byte wrapping key is persisted in secure storage before the first encrypted
+record; a key-check record detects lost, corrupt or substituted keys on reopen.
+Existing records with an unavailable key fail startup instead of generating
+replacement keys. A fresh database replaces any orphan keychain item left by
+an uninstall. Logout keeps the key; successful account deletion removes it
+after the account writer teardown. Android secure-storage errors do not reset
+the storage container. Crypto keys on Apple platforms use non-synchronizing,
+device-only access after first unlock.
+Boot discards an orphan saved auth session when its account DB is absent,
+requiring sign-in before a fresh installation pulls messages. Login opens the
+account DB before publishing its accesskey for a background engine to restore.
+
+Android disables automatic backup and explicitly excludes app data from cloud
+backup and device transfer. iOS excludes the Documents directory (account DBs
+and cached assets) before Flutter starts. Physical backup/restore and locked
+background-wake checks remain release gates.
+Secure-storage completion is not a proven power-loss durability guarantee.
+Deletion while a separate background engine retains an open DB/key also needs
+coordination before encrypted messaging ships; stopping the foreground graph
+alone does not stop that engine.
+
 The operation frame binds op/channel ids, sender account/device/generation,
 ephemeral status, peer and TTL inside Signal's authenticated plaintext. It is
 not itself encryption and must never be sent as a plaintext fallback. Signal
-adapters, secure-storage key lifecycle and the app send/receive integration are
-still pending; these helpers are not called by the app yet.
+adapters and app send/receive encryption are still pending. Initializing encrypted
+record storage does not encrypt messages or the local plaintext chat projection.
 
 ---
 

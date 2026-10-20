@@ -11,6 +11,7 @@
 library vartalap.main;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -34,6 +35,7 @@ import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/e2ee.dart';
 import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/services/push_service.dart';
@@ -107,6 +109,7 @@ class AppServices {
   // at logout. Null while no one is signed in.
   String? _userId;
   ChatStore? store;
+  E2eeRecordStore? cryptoRecords;
   SyncScheduler? scheduler;
 
   /// Unset until the first [openAccount]. [closeAccount] leaves the last
@@ -147,6 +150,12 @@ class AppServices {
   Future<void> openAccount(String userId, {bool adoptGroups = true}) async {
     await closeAccount();
     final store = await openDb(accountDbPath(dbDir, userId));
+    try {
+      cryptoRecords = await authService.openCryptoRecords(store.db, userId);
+    } catch (_) {
+      await store.close();
+      rethrow;
+    }
     await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
     // Trim 4: derived DM ops name their peer on the wire, which is
     // relative to the signed-in user.
@@ -183,6 +192,7 @@ class AppServices {
     if (store == null) return;
     final userId = _userId!;
     this.store = null;
+    cryptoRecords = null;
     _userId = null;
     // Frames still arriving on this session's socket are this account's;
     // the next login starts it again.
@@ -329,7 +339,9 @@ Future<AppServices> initializeApp({bool background = false}) async {
 
   final authClient = AuthClient(baseUrl: apiUrl);
   final authService = AuthService(client: authClient);
-  await authService.init();
+  await authService.init(
+      hasAccountDatabase: (userId) =>
+          File(accountDbPath(docsDir.path, userId)).exists());
 
   final wsTransport = WsTransport(endpoint: wsUrl, auth: authClient);
   // `connectivity_plus` is Flutter-only, so the pure-Dart transport

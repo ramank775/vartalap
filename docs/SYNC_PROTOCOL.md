@@ -1647,10 +1647,14 @@ the point.
 
 ## 18. Open items deferred to v3.1
 
-- **Multi-device fanout.** v3.0 = one active device per user.
-- **End-to-end encryption.** v3.0 server reads payload bytes for
-  routing only (size, fanout target) but the bytes are still
-  cleartext. E2E is a v4+ topic.
+- **Multi-device management UI.** Server sessions and delivery are already
+  keyed by user/device; linked-device approval and revocation UI remains open.
+- **End-to-end encryption is a v3 launch requirement (2026-10-20), not a
+  deferred v4 feature.** Messages are currently cleartext. AUTH_CONTRACT §17
+  describes the key directory and client foundation; workspace
+  `V3_RELEASE_PLAN.md` §10 specifies Signal sessions and group Sender Keys.
+  Each group content operation remains one stored ciphertext fanned out to
+  its recipients. Signal message encryption is still unimplemented.
 - **Full resync after long offline (> 30 days).** Currently no
   recovery path for lost fanout frames beyond the timeline retention.
 - **Stateless WS authentication via signed token (JWT).** Considered
