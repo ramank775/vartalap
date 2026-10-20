@@ -34,6 +34,7 @@ dependencies:
   package_info_plus: ^9.0.1
   url_launcher: ^6.1.12
   crypto: ^3.0.3
+  pointycastle: ^4.0.0
   shared_preferences: ^2.2.2
   path_provider: ^2.1.2
   sqflite_common_ffi: ^2.3.0

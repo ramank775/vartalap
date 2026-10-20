@@ -1,0 +1,209 @@
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:pointycastle/export.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+/// Private Signal records, encrypted with a per-account secure-storage key.
+/// Pass the caller's transaction so ratchet writes and the corresponding
+/// ciphertext/projection commit together; let every failure roll it back.
+/// This store does not implement or enable message encryption.
+class E2eeRecordStore {
+  final DatabaseExecutor _db;
+  final String _accountId;
+  final Uint8List _wrappingKey;
+
+  E2eeRecordStore(
+    this._db, {
+    required String accountId,
+    required Uint8List wrappingKey,
+  })  : _accountId = accountId,
+        _wrappingKey = Uint8List.fromList(wrappingKey) {
+    if (accountId.isEmpty || wrappingKey.length != 32) {
+      throw ArgumentError('An account and a 32-byte wrapping key are required');
+    }
+  }
+
+  static Future<void> createSchema(DatabaseExecutor db) => db.execute('''
+CREATE TABLE IF NOT EXISTS e2ee_records (
+  namespace TEXT NOT NULL,
+  record_key TEXT NOT NULL,
+  value BLOB NOT NULL,
+  PRIMARY KEY (namespace, record_key)
+)''');
+
+  void _requireTransaction() {
+    if (_db is! Transaction) {
+      throw StateError('Crypto record mutations require a caller transaction');
+    }
+  }
+
+  Uint8List _aad(String namespace, String key) {
+    if (namespace.isEmpty || key.isEmpty) {
+      throw ArgumentError('Record namespace and key must be nonempty');
+    }
+    return Uint8List.fromList(
+        utf8.encode(jsonEncode([1, _accountId, namespace, key])));
+  }
+
+  Future<Uint8List?> read(String namespace, String key) async {
+    final aad = _aad(namespace, key);
+    final rows = await _db.query('e2ee_records',
+        columns: ['value'],
+        where: 'namespace = ? AND record_key = ?',
+        whereArgs: [namespace, key]);
+    if (rows.isEmpty) return null;
+    final value = Uint8List.fromList(rows.single['value'] as List<int>);
+    if (value.length < 29 || value[0] != 1) {
+      throw const FormatException('Invalid encrypted crypto record');
+    }
+    final cipher = GCMBlockCipher(AESEngine())
+      ..init(
+          false,
+          AEADParameters(
+              KeyParameter(_wrappingKey), 128, value.sublist(1, 13), aad));
+    return cipher.process(value.sublist(13));
+  }
+
+  Future<void> write(String namespace, String key, Uint8List record) async {
+    _requireTransaction();
+    final aad = _aad(namespace, key);
+    final random = Random.secure();
+    final nonce =
+        Uint8List.fromList(List.generate(12, (_) => random.nextInt(256)));
+    final cipher = GCMBlockCipher(AESEngine())
+      ..init(true, AEADParameters(KeyParameter(_wrappingKey), 128, nonce, aad));
+    await _db.insert(
+      'e2ee_records',
+      {
+        'namespace': namespace,
+        'record_key': key,
+        'value': Uint8List.fromList([1, ...nonce, ...cipher.process(record)]),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> remove(String namespace, String key) async {
+    _requireTransaction();
+    _aad(namespace, key);
+    await _db.delete('e2ee_records',
+        where: 'namespace = ? AND record_key = ?', whereArgs: [namespace, key]);
+  }
+
+  /// Pin by stable user/device, never generation: a new generation must not
+  /// bypass a changed-identity warning. Replacement needs an explicit UI decision.
+  Future<void> pinIdentity({
+    required String userId,
+    required String deviceId,
+    required Uint8List identityKey,
+  }) async {
+    _requireTransaction();
+    if (userId.isEmpty ||
+        deviceId.isEmpty ||
+        identityKey.length != 33 ||
+        identityKey[0] != 5) {
+      throw ArgumentError('Invalid Signal identity');
+    }
+    final key = jsonEncode([userId, deviceId]);
+    final previous = await read('identity_pin', key);
+    if (previous == null) {
+      await write('identity_pin', key, identityKey);
+    } else if (!_equal(previous, identityKey)) {
+      throw E2eeIdentityChanged(userId, deviceId);
+    }
+  }
+}
+
+class E2eeIdentityChanged implements Exception {
+  final String userId;
+  final String deviceId;
+
+  const E2eeIdentityChanged(this.userId, this.deviceId);
+
+  @override
+  String toString() => 'Identity changed for $userId / $deviceId';
+}
+
+bool _equal(List<int> first, List<int> second) {
+  if (first.length != second.length) return false;
+  var difference = 0;
+  for (var i = 0; i < first.length; i++) {
+    difference |= first[i] ^ second[i];
+  }
+  return difference == 0;
+}
+
+/// Header binding INSIDE Signal's authenticated plaintext, not a wire cipher.
+/// Decode only after Signal authentication and inside the ratchet transaction.
+/// The server's timestamps are deliberately excluded because it changes them.
+class E2eeOperationContext {
+  final String opId;
+  final String channelId;
+  final String senderUserId;
+  final String senderDeviceId;
+  final String generation;
+  final bool ephemeral;
+  final String peer;
+  final int ttlSec;
+
+  E2eeOperationContext({
+    required this.opId,
+    required this.channelId,
+    required this.senderUserId,
+    required this.senderDeviceId,
+    required this.generation,
+    this.ephemeral = false,
+    this.peer = '',
+    this.ttlSec = 0,
+  }) {
+    if ([opId, channelId, senderUserId, senderDeviceId, generation]
+            .any((value) => value.isEmpty) ||
+        ttlSec < 0 ||
+        ttlSec > 0xffffffff) {
+      throw ArgumentError('Invalid authenticated operation context');
+    }
+  }
+
+  List<Object> get _header => [
+        1,
+        opId,
+        channelId,
+        senderUserId,
+        senderDeviceId,
+        generation,
+        ephemeral,
+        peer,
+        ttlSec,
+      ];
+
+  Uint8List encodePlaintext(Uint8List payload) => Uint8List.fromList(
+      utf8.encode(jsonEncode([..._header, base64.encode(payload)])));
+
+  /// Rejects unknown versions, malformed frames and copied/modified headers.
+  /// Authentication/context failures must escape the caller's transaction.
+  Uint8List decodeAuthenticatedPlaintext(Uint8List plaintext) {
+    final decoded = jsonDecode(utf8.decode(plaintext));
+    if (decoded is! List ||
+        decoded.length != 10 ||
+        decoded[0] is! int ||
+        decoded[6] is! bool ||
+        decoded[8] is! int ||
+        decoded[9] is! String ||
+        [1, 2, 3, 4, 5, 7].any((i) => decoded[i] is! String)) {
+      throw const FormatException('Invalid authenticated operation frame');
+    }
+    final expected = _header;
+    for (var i = 0; i < expected.length; i++) {
+      if (decoded[i] != expected[i]) {
+        throw const FormatException('Authenticated operation context mismatch');
+      }
+    }
+    final payload = base64.decode(decoded[9] as String);
+    if (base64.encode(payload) != decoded[9]) {
+      throw const FormatException('Noncanonical authenticated payload');
+    }
+    return payload;
+  }
+}

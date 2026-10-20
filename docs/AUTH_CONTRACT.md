@@ -2275,5 +2275,26 @@ can still receive encrypted messages for later re-login; account deletion
 purges every published generation. Device unlink/revocation UI is not built.
 The server never receives private keys or attachment decryption keys.
 
+### 17.5 Client foundation, not yet enabled
+
+`lib/services/e2ee.dart` provides an AES-256-GCM `E2eeRecordStore` for serialized
+crypto records and an authenticated-inner-plaintext operation frame. Record AAD
+binds version, account, namespace and record key; each write gets a random
+12-byte nonce. The caller supplies a 32-byte per-account wrapping key.
+Mutations and identity pinning require an actual SQLite `Transaction`, so the
+future Signal adapter can commit ratchet records with ciphertext/projections.
+
+Identity pins use the stable `(user_id, deviceId)`, **not generation**: changing
+the generation cannot turn a changed identity into a fresh first contact.
+New-device roster approval must also be enforced when integrating the key
+directory; per-device first-use trust alone does not stop a malicious server
+from inserting an additional device into an already trusted account.
+
+The operation frame binds op/channel ids, sender account/device/generation,
+ephemeral status, peer and TTL inside Signal's authenticated plaintext. It is
+not itself encryption and must never be sent as a plaintext fallback. Signal
+adapters, secure-storage key lifecycle and the app send/receive integration are
+still pending; these helpers are not called by the app yet.
+
 ---
 
