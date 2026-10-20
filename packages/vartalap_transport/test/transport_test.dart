@@ -201,6 +201,7 @@ void main() {
         opId: 'push-op-1',
         channelId: 'ch-abc',
         senderUserId: '1a2b3c4d5',
+        senderDeviceId: 'peer-phone',
         serverTimestampMs: fixnum.Int64(1800000),
         payload: utf8.encode('hi'),
       ));
@@ -208,6 +209,7 @@ void main() {
       final pushed = await pushFuture;
       expect(pushed.opId, 'push-op-1');
       expect(pushed.senderUserId, '1a2b3c4d5');
+      expect(pushed.senderDeviceId, 'peer-phone');
       expect(pushed.serverTimestampMs.toInt(), 1800000);
     });
   });

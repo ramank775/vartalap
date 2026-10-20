@@ -108,6 +108,9 @@ void main() {
 
     // The first message is the only introduction a DM has: there is no
     // ChannelCreated for one, because there is no channel to create.
+    final pushed = b.ws.pushes.firstWhere(
+      (env) => env.channelId == id && env.senderUserId == a.userId,
+    ).timeout(budget);
     await a.chat.sendMessage(
       channelId: id,
       body: 'first',
@@ -115,6 +118,8 @@ void main() {
     );
     await a.drain();
     await b.drain();
+    expect((await pushed).senderDeviceId,
+        mock.state.lookupByAccesskey(a.authClient.currentAccesskey!)!.deviceId);
     expect(
       await b.hasChannel(id),
       isTrue,

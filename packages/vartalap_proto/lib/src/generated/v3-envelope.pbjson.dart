@@ -76,6 +76,7 @@ const Envelope$json = {
       '5': 4,
       '10': 'serverTimestampMs'
     },
+    {'1': 'sender_device_id', '3': 23, '4': 1, '5': 9, '10': 'senderDeviceId'},
   ],
   '9': [
     {'1': 3, '2': 4},
@@ -91,8 +92,8 @@ final $typed_data.Uint8List envelopeDescriptor = $convert.base64Decode(
     'GAoHcGF5bG9hZBgFIAEoDFIHcGF5bG9hZBIcCgllcGhlbWVyYWwYBiABKAhSCWVwaGVtZXJhbB'
     'ISCgRwZWVyGAcgASgJUgRwZWVyEhcKB3R0bF9zZWMYCCABKA1SBnR0bFNlYxIkCg5zZW5kZXJf'
     'dXNlcl9pZBgUIAEoCVIMc2VuZGVyVXNlcklkEi4KE3NlcnZlcl90aW1lc3RhbXBfbXMYFSABKA'
-    'RSEXNlcnZlclRpbWVzdGFtcE1zSgQIAxAESgQIFhAXUgxyZXNvdXJjZV9zZXFSEWRlbGl2ZXJ5'
-    'X3NlcXVlbmNl');
+    'RSEXNlcnZlclRpbWVzdGFtcE1zEigKEHNlbmRlcl9kZXZpY2VfaWQYFyABKAlSDnNlbmRlckRl'
+    'dmljZUlkSgQIAxAESgQIFhAXUgxyZXNvdXJjZV9zZXFSEWRlbGl2ZXJ5X3NlcXVlbmNl');
 
 @$core.Deprecated('Use ackDescriptor instead')
 const Ack$json = {

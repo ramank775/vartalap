@@ -43,6 +43,7 @@ class Envelope extends $pb.GeneratedMessage {
     $core.int? ttlSec,
     $core.String? senderUserId,
     $fixnum.Int64? serverTimestampMs,
+    $core.String? senderDeviceId,
   }) {
     final result = create();
     if (opId != null) result.opId = opId;
@@ -54,6 +55,7 @@ class Envelope extends $pb.GeneratedMessage {
     if (ttlSec != null) result.ttlSec = ttlSec;
     if (senderUserId != null) result.senderUserId = senderUserId;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
+    if (senderDeviceId != null) result.senderDeviceId = senderDeviceId;
     return result;
   }
 
@@ -84,6 +86,7 @@ class Envelope extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(
         21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(23, _omitFieldNames ? '' : 'senderDeviceId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -254,6 +257,17 @@ class Envelope extends $pb.GeneratedMessage {
   $core.bool hasServerTimestampMs() => $_has(8);
   @$pb.TagNumber(21)
   void clearServerTimestampMs() => $_clearField(21);
+
+  /// Authenticated sending installation, overwritten from the session.
+  /// Empty on server-authored events. Selects the sender's E2EE device keys.
+  @$pb.TagNumber(23)
+  $core.String get senderDeviceId => $_getSZ(9);
+  @$pb.TagNumber(23)
+  set senderDeviceId($core.String value) => $_setString(9, value);
+  @$pb.TagNumber(23)
+  $core.bool hasSenderDeviceId() => $_has(9);
+  @$pb.TagNumber(23)
+  void clearSenderDeviceId() => $_clearField(23);
 }
 
 /// -----------------------------------------------------------------------------

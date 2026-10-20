@@ -68,10 +68,13 @@ behavior is mandated.
   transaction as event append.
 - **tombstone** — A local-only projection marker that a resource has
   been deleted/edited, pending server confirmation. See §9.
-- **server-stamped fields** — `sender_user_id` and
+- **server-stamped fields** — `sender_user_id`, `sender_device_id` and
   `server_timestamp_ms` on the Envelope. Absent on client→server,
   populated by the server before fanout. `server_timestamp_ms` is the
-  ordering key (§6).
+  ordering key (§6). `sender_device_id` (field 23) is overwritten from
+  the authenticated session for stored and ephemeral client operations;
+  it is empty for server-authored events. It identifies the installation
+  whose public keys the receiver uses for E2EE.
 - **best-effort server cache** — State the server keeps only to save
   work (the dedup window, §7.1; rate-limit counters, §14). It may be
   in-process or Redis and may be lost on any restart; correctness never
@@ -273,7 +276,7 @@ Envelope {
   uint32 ttl_sec            // how long the server keeps it on the
                             // timeline (§10.6); 0 = the 30-day max.
                             // Echoed unchanged on fanout.
-  // sender_user_id, server_timestamp_ms absent on client→server
+  // sender_user_id, sender_device_id, server_timestamp_ms absent on client→server
 }
 ```
 
@@ -796,6 +799,7 @@ WsEnvelope {
     client_timestamp_ms:  <sender's value>
     payload:              <sender's opaque bytes>
     sender_user_id:       <server-stamped, authenticated sender's user_id>
+    sender_device_id:     <server-stamped, authenticated installation id>
     server_timestamp_ms:  <server-stamped; the ordering key, §6>
   }
 }

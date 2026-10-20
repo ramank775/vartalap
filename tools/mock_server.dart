@@ -998,6 +998,7 @@ class MockServer {
       senderUserId,
       _recipientsFor(channelId, senderUserId),
       now,
+      senderDeviceId: 'mock-peer',
     );
   }
 
@@ -2251,7 +2252,7 @@ class MockServer {
     ws.listen(
       (dynamic data) {
         if (data is! List<int>) return;
-        _handleWsFrame(userId, Uint8List.fromList(data), ws);
+        _handleWsFrame(session, Uint8List.fromList(data), ws);
       },
       onError: (e) {
         _log('WS error for userId=$userId: $e');
@@ -2265,7 +2266,8 @@ class MockServer {
   }
 
   void _handleWsFrame(
-      String senderUserId, Uint8List bytes, WebSocket senderSocket) {
+      SessionRecord sender, Uint8List bytes, WebSocket senderSocket) {
+    final senderUserId = sender.userId;
     pb.WsEnvelope wsEnv;
     try {
       wsEnv = pb.WsEnvelope.fromBuffer(bytes);
@@ -2302,7 +2304,7 @@ class MockServer {
 
     final acks = <pb.Ack>[];
     for (final env in wsEnv.ops.envelopes) {
-      final ack = _processEnvelope(senderUserId, env, senderSocket);
+      final ack = _processEnvelope(senderUserId, sender.deviceId, env, senderSocket);
       if (ack != null) acks.add(ack);
     }
 
@@ -2328,7 +2330,7 @@ class MockServer {
   }
 
   pb.Ack? _processEnvelope(
-      String senderUserId, pb.Envelope env, WebSocket senderSocket) {
+      String senderUserId, String senderDeviceId, pb.Envelope env, WebSocket senderSocket) {
     final channelId = env.channelId;
     final opId = env.opId;
     final now = _stamp();
@@ -2427,6 +2429,7 @@ class MockServer {
         rejectReason: null,
       ));
       _fanoutEphemeral(env, senderUserId, recipients, now,
+          senderDeviceId: senderDeviceId,
           exceptSocket: senderSocket);
       if (demoMode &&
           senderUserId != seedPeerUserId &&
@@ -2476,10 +2479,12 @@ class MockServer {
       clientTimestampMs: env.clientTimestampMs,
       payload: env.payload,
       senderUserId: senderUserId,
+      senderDeviceId: senderDeviceId,
       serverTimestampMs: fixnum.Int64(now),
       // Echoed unchanged; from the recipient's side the other
       // participant is `sender_user_id`, so nothing reads it.
       peer: env.peer.isEmpty ? null : env.peer,
+      ttlSec: env.ttlSec,
     );
 
     final pushFrame = pb.WsEnvelope(
@@ -2985,6 +2990,7 @@ class MockServer {
     String senderUserId,
     Set<String> recipients,
     int now, {
+    required String senderDeviceId,
     WebSocket? exceptSocket,
   }) {
     final pushEnv = pb.Envelope(
@@ -2994,6 +3000,9 @@ class MockServer {
       payload: env.payload,
       ephemeral: true,
       senderUserId: senderUserId,
+      senderDeviceId: senderDeviceId,
+      peer: env.peer,
+      ttlSec: env.ttlSec,
       serverTimestampMs: fixnum.Int64(now),
     );
     final pushFrame = pb.WsEnvelope(
