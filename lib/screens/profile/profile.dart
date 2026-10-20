@@ -201,8 +201,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: Icons.lock_outline,
             label: 'Username key (optional)',
             value: auth.usernameKey,
-            placeholder: 'Not set',
-            caption: 'People who message you by username must enter this.',
+            placeholder: 'Set a new key',
+            caption: auth.usernameKey == null
+                ? 'If you set a key on another phone, it is not stored here. '
+                    'Saving a new key replaces it; existing chats are unaffected.'
+                : 'People who message you by username must enter this.',
             maxLength: 4,
             textCapitalization: TextCapitalization.none,
             keyboardType: TextInputType.number,

@@ -219,8 +219,8 @@ class AuthService {
     _usernameChange.add(_username);
   }
 
-  /// The 4-digit username key, or null when discovery by handle is
-  /// ungated. AUTH_CONTRACT §4.5.
+  /// This phone's copy of the 4-digit username key. Null also means
+  /// unknown after signing in on another phone. AUTH_CONTRACT §4.5.
   String? get usernameKey => _usernameKey;
 
   /// Set or clear the username key. Server-first for the same reason

@@ -206,7 +206,7 @@ void main() {
     expect(find.text('Only you can see this'), findsOneWidget);
   });
 
-  testWidgets('username key row reads "Not set" with the explainer',
+  testWidgets('unknown username key offers replacement with an explainer',
       (tester) async {
     final auth = _FakeAuthService(
       phone: '+919876543210',
@@ -218,9 +218,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Username key (optional)'), findsOneWidget);
-    expect(find.text('Not set'), findsOneWidget);
+    expect(find.text('Set a new key'), findsOneWidget);
     expect(
-      find.text('People who message you by username must enter this.'),
+      find.text('If you set a key on another phone, it is not stored here. '
+          'Saving a new key replaces it; existing chats are unaffected.'),
       findsOneWidget,
     );
   });
@@ -236,7 +237,7 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -400));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Not set'));
+    await tester.tap(find.text('Set a new key'));
     await tester.pumpAndSettle();
 
     // Too short — AUTH_CONTRACT §4.5 wants exactly 4 digits, so the
@@ -255,6 +256,9 @@ void main() {
 
     expect(auth.setUsernameKeyCalls, ['4821']);
     expect(find.text('4821'), findsOneWidget);
+    expect(find.text('Set a new key'), findsNothing);
+    expect(find.text('People who message you by username must enter this.'),
+        findsOneWidget);
   });
 
   testWidgets('username row refuses to clear the handle', (tester) async {

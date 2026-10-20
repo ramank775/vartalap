@@ -122,8 +122,9 @@ class _MyCodeState extends State<_MyCode> {
         const SizedBox(height: kSpaceMd),
         Text(
           key == null
-              ? 'Anyone who scans this code can message you. It shares '
-                  '@$username, never your number.'
+              ? 'This code shares @$username, never your number. If you set '
+                  'a username key on another phone, people scanning this '
+                  'code still need it. Set a new key in Profile to include it.'
               : 'Anyone who scans this code can message you: it carries '
                   'your username key. It never shares your number.',
           textAlign: TextAlign.center,

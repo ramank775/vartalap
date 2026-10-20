@@ -91,8 +91,9 @@ do not improvise.
 - **No iOS APNs.** Android-first launch.
 - **No PSI (private-set-intersection) contact discovery.** Hashed
   phone lookup with rate limits is v3.0; PSI is deferred to v4.
-- **No E2E encryption.** Server reads message bodies for fanout;
-  E2E is a v4 conversation.
+- **E2E encryption is required before launch but not implemented yet.**
+  The server relays opaque payloads; the current client sends them plaintext.
+  The fresh-release integration proposal is in the workspace release plan §10.
 - **No legacy migration.** v3 ships as a clean relaunch; v2's local DB is
   kept for download, never imported.
   This contract is the only auth surface; the v0.1 Firebase migration
@@ -517,14 +518,15 @@ without re-supplying the phone number.
 
 **Behavior.** Server looks up the phone bound to the session,
 applies §3.1 idempotency: if `< resendAfterSec` since last send,
-returns the same response without re-sending SMS. Otherwise mints a
-new code (replaces the prior code on the session — the prior code
-becomes invalid immediately) and sends SMS.
+returns the same response without re-sending SMS. Otherwise sends the same
+code again. Verification keeps using the hash; a separate AES-256-GCM copy
+bound to the session id allows resend. `OTP_ENCRYPTION_KEY` is a 32-byte hex
+server secret kept outside the database and stable across restarts.
 
 **Distinct from `/send`** in that it does not allocate a new
 session — the OTP attempt count from §6 carries forward. A user can
-resend up to `expiresInSec / resendAfterSec` times on the same
-session before they must call `/send` again.
+resend subject to the per-phone and per-IP SMS budgets. Neither the expiry
+nor the wrong-code counter resets.
 
 ---
 
@@ -718,7 +720,7 @@ is exempt from that gate, since it is the only way to satisfy it.
   `username` is `null`.
 - **Exactly 4 digits**, regex `^\d{4}$`. Reject with
   `INVALID_USERNAME_KEY` otherwise.
-- **Stored hashed** (same treatment as the OTP code, §14.5), never
+- **Stored hashed** (without OTP's separate encrypted resend copy, §14.5), never
   returned in plaintext by any endpoint, including to the owner —
   the client is the only holder of the plaintext value it set.
 - **Rotatable at any time** via the same PATCH; a new value replaces
@@ -1893,9 +1895,12 @@ contact list, not determined attack. PSI in v4 closes this gap.
 - 6 digits, generated uniformly from `000000`-`999999` using a
   cryptographic RNG (`crypto.randomInt` in Node, NOT
   `Math.random`). Leading zeros preserved (stored as string).
-- Stored as bcrypt hash (cost 10), never plaintext.
-- Background job purges sessions where `expiresAt < now - 1h`
-  every 60 seconds.
+- Verification uses a salted scrypt hash (`helper.hashSecret`), never plaintext.
+- A separate AES-256-GCM encrypted copy supports same-code resend (§3.3).
+  Use a random 12-byte nonce and 16-byte authentication tag, with the session id
+  as associated data. The 32-byte `OTP_ENCRYPTION_KEY` stays outside the DB.
+- Sessions expire after 10 minutes; Mongo's TTL index or the PostgreSQL
+  60-second sweep removes them. Every request checks expiry before use.
 
 ### 14.6 SMS gateway sender ID
 
