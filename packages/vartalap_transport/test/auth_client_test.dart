@@ -459,6 +459,300 @@ void main() {
       await client.deleteAccount(confirmation: 'DELETE alice');
     });
   });
+
+  group('E2EE device-key directory', () {
+    const userId = 'a3f2e8c5d';
+    const generation = 'b6cb8ea5-fcee-4bf2-8734-ad0a90252464';
+    String publicKey([int value = 0]) =>
+        base64.encode([5, ...List.filled(32, value)]);
+    Map<String, dynamic> signedKey() => {
+          'id': 1,
+          'publicKey': publicKey(),
+          'signature': base64.encode(List.filled(64, 0)),
+        };
+    Map<String, dynamic> bundle({String deviceId = 'device-001'}) => {
+          'deviceId': deviceId,
+          'generation': generation,
+          'identityKey': publicKey(),
+          'registrationId': 42,
+          'signedPreKey': signedKey(),
+        };
+    E2eeKeyUpload upload({List<E2eePreKey>? keys}) => E2eeKeyUpload(
+          identityKey: publicKey(),
+          registrationId: 42,
+          signedPreKey: E2eeSignedPreKey.fromJson(signedKey()),
+          preKeys: keys ?? [E2eePreKey(id: 0, publicKey: publicKey())],
+        );
+
+    setUp(() => client.restoreSession(
+        accesskey: 'ak', userId: userId, deviceId: 'device-001'));
+
+    test('publishes only public material with authenticated PUT', () async {
+      server.handler = (req) async {
+        expect(req.method, 'PUT');
+        expect(req.uri.path, '/v3.0/keys/me');
+        expect(req.headers.value('Authorization'), 'Bearer ak');
+        expect(req.headers.contentType?.mimeType, 'application/json');
+        final body = jsonDecode(await utf8.decodeStream(req));
+        expect(body, upload().toJson());
+        // Retrying an older signed prekey may return a newer published key.
+        _respond(req, 200, {
+          ...bundle(),
+          'signedPreKey': {...signedKey(), 'id': 2},
+          'preKeyCount': 1
+        });
+      };
+      final result = await client.publishDeviceKeys(upload());
+      expect(result.bundle.deviceId, 'device-001');
+      expect(result.bundle.generation, generation);
+      expect(result.bundle.signedPreKey.id, 2);
+      expect(result.preKeyCount, 1);
+    });
+
+    test('directory returns validated devices and permits an empty directory',
+        () async {
+      server.handler = (req) async {
+        expect(req.method, 'GET');
+        expect(req.uri.path, '/v3.0/keys/$userId');
+        expect(req.headers.value('Authorization'), 'Bearer ak');
+        _respond(req, 200, {
+          'devices': [bundle(), bundle(deviceId: 'second-phone')]
+        });
+      };
+      final devices = await client.getDeviceKeys(userId);
+      expect(devices.map((device) => device.deviceId),
+          ['device-001', 'second-phone']);
+      expect(devices.first.identityKey, publicKey());
+      expect(() => devices.clear(), throwsUnsupportedError);
+      server.handler = (req) async => _respond(req, 200, {'devices': []});
+      expect(await client.getDeviceKeys(userId), isEmpty);
+    });
+
+    test('claim accepts a one-time key or signed-prekey-only exhaustion',
+        () async {
+      for (final preKey in [
+        null,
+        {'id': 0xffffff, 'publicKey': publicKey()}
+      ]) {
+        server.handler = (req) async {
+          expect(req.method, 'POST');
+          expect(req.uri.path, '/v3.0/keys/$userId/claim');
+          expect(req.headers.value('Authorization'), 'Bearer ak');
+          expect(jsonDecode(await utf8.decodeStream(req)),
+              {'deviceId': 'device-001', 'generation': generation});
+          _respond(req, 200, {...bundle(), 'preKey': preKey});
+        };
+        final result = await client.claimDeviceKeys(userId,
+            deviceId: 'device-001', generation: generation);
+        expect(result.preKey?.id, preKey?['id']);
+      }
+    });
+
+    test('upload validates limits and freezes the caller prekey list',
+        () async {
+      final keys = [E2eePreKey(id: 0, publicKey: publicKey())];
+      final frozen = upload(keys: keys);
+      keys.clear();
+      expect(frozen.preKeys, hasLength(1));
+      expect(() => frozen.preKeys.clear(), throwsUnsupportedError);
+      expect(() => upload(keys: [frozen.preKeys.first, frozen.preKeys.first]),
+          throwsFormatException);
+      expect(
+          () => upload(
+              keys: List.generate(
+                  201, (id) => E2eePreKey(id: id, publicKey: publicKey()))),
+          throwsFormatException);
+      expect(() => E2eePreKey(id: -1, publicKey: publicKey()),
+          throwsFormatException);
+      expect(() => E2eePreKey(id: 0x1000000, publicKey: publicKey()),
+          throwsFormatException);
+      expect(() => upload(keys: [E2eeSignedPreKey.fromJson(signedKey())]),
+          throwsFormatException);
+      server.handler = (req) async {
+        expect((jsonDecode(await utf8.decodeStream(req)) as Map)['preKeys'],
+            isEmpty);
+        _respond(req, 200, {...bundle(), 'preKeyCount': 0});
+      };
+      expect((await client.publishDeviceKeys(upload(keys: []))).preKeyCount, 0);
+    });
+
+    test('all key endpoints preserve HTTP errors and error codes', () async {
+      final calls = <Future<Object> Function()>[
+        () => client.publishDeviceKeys(upload()),
+        () => client.getDeviceKeys(userId),
+        () => client.claimDeviceKeys(userId,
+            deviceId: 'device-001', generation: generation),
+      ];
+      for (final status in [401, 403, 404, 409, 429, 503]) {
+        server.handler = (req) async => _respond(req, status, {
+              'error': {
+                'code': 'KEY_ERROR',
+                'message': 'retry or reauthenticate'
+              }
+            });
+        for (final call in calls) {
+          await expectLater(
+              call(),
+              throwsA(isA<AuthClientException>()
+                  .having((error) => error.statusCode, 'status', status)
+                  .having((error) => error.errorCode, 'code', 'KEY_ERROR')
+                  .having((error) => error.message, 'message',
+                      'retry or reauthenticate')));
+        }
+      }
+    });
+
+    test('requires authentication and rejects unsafe request identifiers',
+        () async {
+      var requests = 0;
+      server.handler = (req) async {
+        requests++;
+        _respond(req, 500, {});
+      };
+      for (final user in ['../me', 'a3f2e8c5d/claim', 'A3F2E8C5D', '']) {
+        await expectLater(client.getDeviceKeys(user), throwsFormatException);
+        await expectLater(
+            client.claimDeviceKeys(user,
+                deviceId: 'device-001', generation: generation),
+            throwsFormatException);
+      }
+      for (final device in ['', 'x' * 257]) {
+        await expectLater(
+            client.claimDeviceKeys(userId,
+                deviceId: device, generation: generation),
+            throwsFormatException);
+      }
+      await expectLater(
+          client.claimDeviceKeys(userId,
+              deviceId: 'device-001', generation: 'not-a-uuid'),
+          throwsFormatException);
+      client.clearSession();
+      await expectLater(client.publishDeviceKeys(upload()), throwsStateError);
+      await expectLater(client.getDeviceKeys(userId), throwsStateError);
+      await expectLater(
+          client.claimDeviceKeys(userId,
+              deviceId: 'device-001', generation: generation),
+          throwsStateError);
+      expect(requests, 0);
+    });
+
+    test('rejects malformed directory key material and metadata', () async {
+      final malformed = <Object?>[
+        null,
+        [],
+        'bundle',
+        {...bundle(), 'identityKey': base64.encode(List.filled(33, 0))},
+        {
+          ...bundle(),
+          'identityKey': base64.encode([5, ...List.filled(31, 0)])
+        },
+        {...bundle(), 'identityKey': publicKey(255).replaceAll('/', '_')},
+        {...bundle(), 'registrationId': 0},
+        {...bundle(), 'registrationId': 16384},
+        {...bundle(), 'registrationId': 42.0},
+        {...bundle(), 'deviceId': ''},
+        {...bundle(), 'deviceId': 'x' * 257},
+        {...bundle(), 'generation': 'wrong'},
+        {...bundle(), 'privateKey': 'must never be accepted'},
+        {
+          ...bundle(),
+          'signedPreKey': {...signedKey(), 'id': -1}
+        },
+        {
+          ...bundle(),
+          'signedPreKey': {...signedKey(), 'id': 1.0}
+        },
+        {
+          ...bundle(),
+          'signedPreKey': {
+            ...signedKey(),
+            'signature': base64.encode(List.filled(63, 0))
+          }
+        },
+        {
+          ...bundle(),
+          'signedPreKey': {
+            ...signedKey(),
+            'signature':
+                (signedKey()['signature'] as String).replaceAll('=', '')
+          }
+        },
+        {...bundle(), 'preKey': null},
+      ];
+      for (final device in malformed) {
+        server.handler = (req) async => _respond(req, 200, {
+              'devices': [device]
+            });
+        await expectLater(client.getDeviceKeys(userId), throwsFormatException);
+      }
+      for (final directory in [
+        <String, dynamic>{},
+        {'devices': null},
+        {
+          'devices': [bundle(), bundle()]
+        },
+        {'devices': [], 'privateKey': 'bad'}
+      ]) {
+        server.handler = (req) async => _respond(req, 200, directory);
+        await expectLater(client.getDeviceKeys(userId), throwsFormatException);
+      }
+    });
+
+    test('rejects malformed publication counts and mismatched ownership',
+        () async {
+      for (final response in [
+        {...bundle()},
+        {...bundle(), 'preKeyCount': -1},
+        {...bundle(), 'preKeyCount': 201},
+        {...bundle(), 'preKeyCount': 1.0},
+        {...bundle(deviceId: 'wrong-device'), 'preKeyCount': 0},
+        {...bundle(), 'identityKey': publicKey(1), 'preKeyCount': 0},
+        {...bundle(), 'registrationId': 43, 'preKeyCount': 0},
+      ]) {
+        server.handler = (req) async => _respond(req, 200, response);
+        await expectLater(
+            client.publishDeviceKeys(upload()), throwsFormatException);
+      }
+    });
+
+    test('rejects substituted claim targets and malformed one-time keys',
+        () async {
+      for (final response in [
+        {...bundle()},
+        {...bundle(), 'preKey': {}},
+        {
+          ...bundle(),
+          'preKey': {'id': 1, 'publicKey': publicKey(), 'privateKey': 'bad'}
+        },
+        {
+          ...bundle(),
+          'preKey': {'id': 0x1000000, 'publicKey': publicKey()}
+        },
+        {...bundle(deviceId: 'different-device'), 'preKey': null},
+        {
+          ...bundle(),
+          'generation': 'a9d892ad-821e-480f-8b87-6deded490654',
+          'preKey': null
+        },
+      ]) {
+        server.handler = (req) async => _respond(req, 200, response);
+        await expectLater(
+            client.claimDeviceKeys(userId,
+                deviceId: 'device-001', generation: generation),
+            throwsFormatException);
+      }
+    });
+
+    test('rejects non-object JSON and malformed JSON responses', () async {
+      for (final body in ['[]', 'null', '{bad-json']) {
+        server.handler = (req) async {
+          req.response.write(body);
+          await req.response.close();
+        };
+        await expectLater(client.getDeviceKeys(userId), throwsFormatException);
+      }
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
