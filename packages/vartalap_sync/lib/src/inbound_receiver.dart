@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 
@@ -85,6 +86,9 @@ class TypingEvent {
 /// [_logServerEventFallback] — `op_id_seen` is intentionally NOT
 /// recorded for those so a later client release can apply them on
 /// re-fanout.
+/// What [InboundReceiver.open] hands back (decision 188).
+typedef OpenedPayload = ({List<int> payload, String retryOf});
+
 class InboundReceiver {
   final ChatStore store;
   final Stream<pb.Envelope> pushes;
@@ -104,10 +108,17 @@ class InboundReceiver {
   final Future<GroupRoster?> Function(String channelId)? resolveGroup;
 
   /// End-to-end encryption (decision 188): the ChatPayload bytes sealed in
-  /// a client envelope. Throws when they will not open, so the frame is not
-  /// handled and the pull pointer stays before it. Unset: payloads are
-  /// read as they are.
-  final Future<List<int>> Function(pb.Envelope env)? open;
+  /// a client envelope, and the op it re-sends ('' for none). An empty
+  /// payload is a control frame the crypto took (a group key, a re-send
+  /// request); null is an op that will never open here, which becomes a
+  /// "Waiting for this message" row and an [undecryptable] call. A throw
+  /// (the database) leaves the frame unhandled, the pull pointer before
+  /// it. Unset: payloads are read as they are.
+  final Future<OpenedPayload?> Function(pb.Envelope env)? open;
+
+  /// After an undecryptable op's placeholder is stored: ask its sender to
+  /// re-send it.
+  final Future<void> Function(pb.Envelope env)? undecryptable;
 
   /// After a stored op applied, so [open] can drop what it staged for it.
   final Future<void> Function(pb.Envelope env)? applied;
@@ -185,6 +196,7 @@ class InboundReceiver {
     this.resolveGroup,
     this.open,
     this.applied,
+    this.undecryptable,
   });
 
   /// Subscribe to inbound pushes. Idempotent — re-calling after [stop]
@@ -352,6 +364,7 @@ class InboundReceiver {
     // there is nothing local it could belong to.
     final open = this.open;
     List<int> plain = payload;
+    var retryOf = '';
     if (isDmChannelId(channelId)) {
       final sender = env.senderUserId;
       if (sender.isEmpty || dmChannelId(localUserId, sender) != channelId) {
@@ -364,8 +377,15 @@ class InboundReceiver {
       // Decision 188: group keys ride 1:1 channels. Open first, so a key
       // hand-out (opened to nothing to apply) never makes a chat.
       if (open != null) {
-        plain = await open(env);
-        if (!_running || plain.isEmpty) return;
+        final opened = await open(env);
+        if (!_running) return;
+        if (opened == null) {
+          await _ensureDmChannel(channelId, sender, env);
+          await _placeholder(env);
+          return;
+        }
+        if (opened.payload.isEmpty) return;
+        (payload: plain, :retryOf) = opened;
       }
       await _ensureDmChannel(channelId, sender, env);
     } else if (!await store.channelExists(channelId) &&
@@ -380,8 +400,28 @@ class InboundReceiver {
     }
 
     if (open != null && !isDmChannelId(channelId)) {
-      plain = await open(env);
-      if (!_running || plain.isEmpty) return;
+      final opened = await open(env);
+      if (!_running) return;
+      if (opened == null) {
+        await _placeholder(env);
+        return;
+      }
+      if (opened.payload.isEmpty) return;
+      (payload: plain, :retryOf) = opened;
+    }
+    // The re-send of an op this phone could not decrypt takes its place,
+    // in the chat too: it applies at the placeholder's server time.
+    if (retryOf.isNotEmpty) {
+      final placeholderId = undecryptedMessageId(env.senderUserId, retryOf);
+      final placeholder = await store.fetchMessage(placeholderId);
+      if (placeholder != null) {
+        await store.removeMessage(placeholderId);
+        final at = placeholder.serverTimestampMs;
+        if (at != null) {
+          env = pb.Envelope.fromBuffer(env.writeToBuffer())
+            ..serverTimestampMs = fixnum.Int64(at);
+        }
+      }
     }
     pb.ChatPayload chat;
     try {
@@ -501,6 +541,31 @@ class InboundReceiver {
     await applied?.call(env);
   }
 
+  /// Decision 188: an op that will never open here shows as "Waiting for
+  /// this message" in its place, recorded as handled so the pointer moves
+  /// on, and its sender is asked to re-send it.
+  Future<void> _placeholder(pb.Envelope env) async {
+    // ignore: avoid_print
+    print('InboundReceiver: cannot decrypt channel=${env.channelId} '
+        'op_id=${env.opId}; asking for a re-send');
+    await store.applyInboundMessage(
+      localUserId: localUserId,
+      channelId: env.channelId,
+      opId: env.opId,
+      messageId: undecryptedMessageId(env.senderUserId, env.opId),
+      senderUserId: env.senderUserId,
+      body: null,
+      contentType: kUndecryptedType,
+      attachments: null,
+      forwardSource: null,
+      replyToMessageId: null,
+      clientTimestampMs: env.clientTimestampMs.toInt(),
+      serverTimestampMs: env.serverTimestampMs.toInt(),
+      nowMs: clock.nowMs(),
+    );
+    await undecryptable?.call(env);
+  }
+
   /// §10.2 dispatcher. Decodes the proto-bytes-without-distinguisher
   /// and routes by `whichBody()`. Channel + membership lifecycle is
   /// applied here; the remaining variants fall through to a log stub
@@ -559,7 +624,8 @@ class InboundReceiver {
       } else {
         // Lossy: one that will not open is dropped like a malformed one.
         final open = this.open;
-        final plain = open == null ? payload : await open(env);
+        final plain = open == null ? payload : (await open(env))?.payload;
+        if (plain == null || plain.isEmpty) return;
         final chat = pb.ChatPayload.fromBuffer(plain);
         isTyping = chat.type == pb.ChatPayloadType.TYPE_TYPING
             ? chat.isTyping

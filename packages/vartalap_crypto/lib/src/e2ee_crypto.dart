@@ -34,6 +34,17 @@ class E2eeNoKeys implements Exception {
   String toString() => 'No published device keys for $userId';
 }
 
+/// A sealed op that will never open here (a broken or missing session, a
+/// group key that never came, a forged or moved ciphertext): the receiver
+/// shows "Waiting for this message" and asks the sender to re-send it.
+class E2eeUndecryptable implements Exception {
+  final Object cause;
+  const E2eeUndecryptable(this.cause);
+
+  @override
+  String toString() => 'Cannot decrypt: $cause';
+}
+
 /// The key directory, as `AuthClient` serves it (AUTH_CONTRACT §17) or the
 /// mock server answers in process.
 typedef DeviceDirectory = Future<List<E2eeDeviceBundle>> Function(
@@ -93,6 +104,7 @@ class E2eeCrypto {
     bool ephemeral = false,
     int ttlSec = 0,
     bool onlyIfSession = false,
+    String retryOf = '',
     Future<void> Function(Transaction txn, Uint8List sealed)? persist,
   }) =>
       _serial(() => _sealPairwise(
@@ -103,6 +115,7 @@ class E2eeCrypto {
             ephemeral: ephemeral,
             ttlSec: ttlSec,
             onlyIfSession: onlyIfSession,
+            retryOf: retryOf,
             persist: persist,
           ));
 
@@ -114,6 +127,7 @@ class E2eeCrypto {
     bool ephemeral = false,
     int ttlSec = 0,
     bool onlyIfSession = false,
+    String retryOf = '',
     Future<void> Function(Transaction txn, Uint8List sealed)? persist,
   }) async {
     final known = await _records.read('peer_device', peer);
@@ -152,7 +166,7 @@ class E2eeCrypto {
       }
       final message =
           await SessionCipher(stores, stores, stores, stores, address)
-              .encrypt(context.encodePlaintext(payload));
+              .encrypt(context.encodePlaintext(payload, retryOf: retryOf));
       final sealed = Uint8List.fromList([
         kSealedMarker,
         _version,
@@ -190,6 +204,7 @@ class E2eeCrypto {
     bool ephemeral = false,
     int ttlSec = 0,
     bool onlyIfDistributed = false,
+    String retryOf = '',
     Future<void> Function(Transaction txn, Uint8List sealed)? persist,
   }) =>
       _serial(() async {
@@ -246,7 +261,7 @@ class E2eeCrypto {
           await records.write('group_key_holders', channelId,
               utf8.encode(jsonEncode(holders.toList()..sort())));
           final ciphertext = await GroupCipher(SignalStores(records), self)
-              .encrypt(context.encodePlaintext(payload));
+              .encrypt(context.encodePlaintext(payload, retryOf: retryOf));
           final sealed = Uint8List.fromList(
               [kSealedMarker, _version, _kindGroup, ...ciphertext]);
           await persist?.call(txn, sealed);
@@ -294,19 +309,10 @@ class E2eeCrypto {
   /// A pairwise op that hands over a group key is processed here and opens
   /// to an empty payload: there is nothing for the receiver to apply, and
   /// a re-delivery opens empty again without touching the ratchet.
-  Future<Uint8List> open(pb.Envelope env) => _serial(() async {
-        if (await _records.read('keys_taken', _inboxKey(env)) != null) {
-          return Uint8List(0);
-        }
-        final staged = await _records.read('inbox', _inboxKey(env));
-        if (staged != null) return staged;
-        final p = env.payload;
-        if (p.length < 4 || p[0] != kSealedMarker || p[1] != _version) {
-          throw const FormatException('Not an end-to-end encrypted payload');
-        }
-        final kind = p[2];
-        final body = Uint8List.fromList(p.sublist(3));
-        final sender = signalAddress(env.senderUserId, env.senderDeviceId);
+  /// Throws [E2eeUndecryptable] for an op that will never open here; any
+  /// other failure (the database) may pass, so the op stays unhandled.
+  Future<({Uint8List payload, String retryOf})> open(pb.Envelope env) =>
+      _serial(() async {
         final context = E2eeOperationContext(
           opId: env.opId,
           channelId: env.channelId,
@@ -316,45 +322,121 @@ class E2eeCrypto {
           peer: env.peer,
           ttlSec: env.ttlSec,
         );
-        final (payload, changed) = await _db.transaction((txn) async {
-          final records = _records.forTransaction(txn);
-          final stores = SignalStores(records);
-          final cipher = SessionCipher(stores, stores, stores, stores, sender);
-          final plain = switch (kind) {
-            _kindPreKey => await cipher.decrypt(PreKeySignalMessage(body)),
-            _kindSignal => await cipher
-                .decryptFromSignal(SignalMessage.fromSerialized(body)),
-            _kindGroup =>
-              await GroupCipher(stores, SenderKeyName(env.channelId, sender))
-                  .decrypt(body),
-            _ => throw FormatException('Unknown sealed payload kind $kind'),
-          };
-          final payload = context.decodeAuthenticatedPlaintext(plain);
-          if (kind != _kindGroup) {
-            // A message from a phone proves it is that user's current one.
-            await records.write('peer_device', env.senderUserId,
-                utf8.encode(env.senderDeviceId));
-          }
-          if (kind != _kindGroup &&
-              payload.isNotEmpty &&
-              payload[0] == _groupKeyMarker) {
-            final key = jsonDecode(utf8.decode(payload.sublist(1)))
-                as Map<String, dynamic>;
-            await GroupSessionBuilder(stores).process(
-                SenderKeyName(key['g'] as String, sender),
-                SenderKeyDistributionMessageWrapper.fromSerialized(
-                    base64.decode(key['k'] as String)));
-            await records.write('keys_taken', _inboxKey(env), Uint8List(1));
-            return (Uint8List(0), stores.changedIdentities);
-          }
-          if (!env.ephemeral) {
-            await records.write('inbox', _inboxKey(env), payload);
-          }
-          return (payload, stores.changedIdentities);
-        });
-        changed.forEach(_identityChanges.add);
-        return payload;
+        if (await _records.read('keys_taken', _inboxKey(env)) != null) {
+          return (payload: Uint8List(0), retryOf: '');
+        }
+        final staged = await _records.read('inbox', _inboxKey(env));
+        if (staged != null) return context.decodeAuthenticated(staged);
+        try {
+          final (opened, changed) = await _open(env, context);
+          changed.forEach(_identityChanges.add);
+          return opened;
+        } on DatabaseException {
+          rethrow;
+        } catch (e) {
+          throw E2eeUndecryptable(e);
+        }
       });
+
+  Future<(({Uint8List payload, String retryOf}), Set<String>)> _open(
+      pb.Envelope env, E2eeOperationContext context) async {
+    final p = env.payload;
+    if (p.length < 4 || p[0] != kSealedMarker || p[1] != _version) {
+      throw const FormatException('Not an end-to-end encrypted payload');
+    }
+    final kind = p[2];
+    final body = Uint8List.fromList(p.sublist(3));
+    final sender = signalAddress(env.senderUserId, env.senderDeviceId);
+    return _db.transaction((txn) async {
+      final records = _records.forTransaction(txn);
+      final stores = SignalStores(records);
+      final cipher = SessionCipher(stores, stores, stores, stores, sender);
+      final plain = switch (kind) {
+        _kindPreKey => await cipher.decrypt(PreKeySignalMessage(body)),
+        _kindSignal =>
+          await cipher.decryptFromSignal(SignalMessage.fromSerialized(body)),
+        _kindGroup =>
+          await GroupCipher(stores, SenderKeyName(env.channelId, sender))
+              .decrypt(body),
+        _ => throw FormatException('Unknown sealed payload kind $kind'),
+      };
+      final opened = context.decodeAuthenticated(plain);
+      final payload = opened.payload;
+      if (kind != _kindGroup) {
+        // A message from a phone proves it is that user's current one.
+        await records.write(
+            'peer_device', env.senderUserId, utf8.encode(env.senderDeviceId));
+      }
+      if (kind != _kindGroup &&
+          payload.isNotEmpty &&
+          payload[0] == _groupKeyMarker) {
+        final key =
+            jsonDecode(utf8.decode(payload.sublist(1))) as Map<String, dynamic>;
+        await GroupSessionBuilder(stores).process(
+            SenderKeyName(key['g'] as String, sender),
+            SenderKeyDistributionMessageWrapper.fromSerialized(
+                base64.decode(key['k'] as String)));
+        await records.write('keys_taken', _inboxKey(env), Uint8List(1));
+        return ((payload: Uint8List(0), retryOf: ''), stores.changedIdentities);
+      }
+      if (!env.ephemeral) {
+        await records.write('inbox', _inboxKey(env), plain);
+      }
+      return (opened, stores.changedIdentities);
+    });
+  }
+
+  /// Logged with each sealed op, inside its transaction ([txn]), so a
+  /// recipient whose phone cannot open it can have it once more (decision
+  /// 188) for as long as the server keeps it. Plaintext, so in the
+  /// encrypted records.
+  Future<void> rememberSent(
+          Transaction txn, String opId, Map<String, Object?> op) =>
+      _records.forTransaction(txn).write('sent', opId,
+          utf8.encode(jsonEncode({...op, 'at': DateTime.now().millisecondsSinceEpoch})));
+
+  /// The logged op to re-send for [opId], at most once: null when unknown
+  /// (never logged, or trimmed) or re-sent before.
+  Future<Map<String, dynamic>?> takeForResend(String opId) =>
+      _serial(() => _db.transaction((txn) async {
+            final records = _records.forTransaction(txn);
+            final bytes = await records.read('sent', opId);
+            if (bytes == null) return null;
+            final op = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+            if (op['resent'] == true) return null;
+            await records.write(
+                'sent', opId, utf8.encode(jsonEncode({...op, 'resent': true})));
+            return op;
+          }));
+
+  /// Drop logged ops sent before [cutoffMs] (the server's own retention).
+  Future<void> forgetSentBefore(int cutoffMs) => _serial(() async {
+        final stale = <String>[];
+        for (final opId in await _records.keys('sent')) {
+          final bytes = await _records.read('sent', opId);
+          final at = bytes == null
+              ? 0
+              : (jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>)['at'];
+          if (at is! int || at < cutoffMs) stale.add(opId);
+        }
+        if (stale.isEmpty) return;
+        await _db.transaction((txn) async {
+          final records = _records.forTransaction(txn);
+          for (final opId in stale) {
+            await records.remove('sent', opId);
+          }
+        });
+      });
+
+  /// [userId]'s phone could not open what this one sent: start a fresh
+  /// session with [deviceId] (its current phone) on the next send.
+  Future<void> resetSession(String userId, String deviceId) =>
+      _serial(() => _db.transaction((txn) async {
+            final records = _records.forTransaction(txn);
+            await SignalStores(records)
+                .deleteSession(signalAddress(userId, deviceId));
+            await records.write('peer_device', userId, utf8.encode(deviceId));
+          }));
 
   /// The receiver applied [env]: its staged payload can go.
   Future<void> applied(pb.Envelope env) => _db.transaction(

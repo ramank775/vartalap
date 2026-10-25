@@ -1799,6 +1799,45 @@ void main() {
           reason: 'only the frame at the pointer\'s own millisecond');
       expect((await h.counts())['messages'], messages);
     });
+
+    // ---- 25 -------------------------------------------------------------
+    test('25. a message that will not decrypt reads "Waiting for this '
+        'message"; the phone asks, and the re-send takes its place '
+        '(decision 188)', () async {
+      final selfId = h.authService.currentUserId!;
+      final channelId = dmChannelId(selfId, peerUserId);
+      h.mock.holdResends = true;
+      await h.mock.injectPeerMessage(channelId: channelId, body: 'just before');
+      final lost = await h.mock.injectPeerMessage(
+          channelId: channelId, body: 'lost, then re-sent', corrupt: true);
+      await h.mock.injectPeerMessage(channelId: channelId, body: 'just after');
+      await h.pullPendingSync();
+      final placeholderId = undecryptedMessageId(peerUserId, lost.opId);
+      await h.waitForAsync(
+          () async => (await h.store.fetchMessage(placeholderId)) != null);
+      final placeholder = (await h.store.fetchMessage(placeholderId))!;
+      expect(placeholder.contentType, kUndecryptedType);
+      expect(await h.store.syncPointer(),
+          greaterThanOrEqualTo(placeholder.serverTimestampMs!),
+          reason: 'handled: the pointer moves on past it');
+
+      // The phone asked the sender, on their 1:1 channel, without the
+      // request itself being readable as chat content.
+      await h.waitFor(() => h.mock.peerResendRequests.isNotEmpty);
+      final ask = h.mock.peerResendRequests.last.env;
+      expect([ask.channelId, ask.payload.sublist(0, 3)],
+          [channelId, [kSealedMarker, 1, 5]]);
+
+      // The sender re-sent it; it lands where the placeholder was.
+      await h.mock.releaseResends();
+      await h.waitForAsync(() async =>
+          (await h.bodiesIn(channelId)).contains('lost, then re-sent'));
+      expect(await h.store.fetchMessage(placeholderId), isNull);
+      final bodies = await h.bodiesIn(channelId);
+      expect(bodies.sublist(bodies.length - 3),
+          ['just before', 'lost, then re-sent', 'just after']);
+      expect(bodies.where((b) => b == 'lost, then re-sent'), hasLength(1));
+    });
   });
 }
 
@@ -1970,6 +2009,7 @@ class _Harness {
     )
       ..selfUserId = userId
       ..seal = crypto.seal;
+    crypto.tick = scheduler.tickSoon;
     await scheduler.start();
     chat = ChatService(
       store: store,
@@ -2049,6 +2089,7 @@ class _Harness {
       },
       open: crypto!.open,
       applied: crypto!.applied,
+      undecryptable: crypto!.requestResend,
     );
     await next.start();
     inbound = next;

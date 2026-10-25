@@ -281,9 +281,10 @@ class SyncScheduler {
     // check needs the peer on every envelope.
     // ponytail: one small indexed SELECT per dispatched DM op. Carry
     // the peer on the op row if dispatch ever gets hot enough to care.
-    final peer = isDmChannelId(op.resourceId) && selfUserId != null
-        ? await store.dmPeer(op.resourceId, selfUserId!)
-        : null;
+    final peer = op.peer ??
+        (isDmChannelId(op.resourceId) && selfUserId != null
+            ? await store.dmPeer(op.resourceId, selfUserId!)
+            : null);
 
     var payload = op.payload;
     final seal = this.seal;

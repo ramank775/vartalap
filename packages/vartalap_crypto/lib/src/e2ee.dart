@@ -204,20 +204,28 @@ class E2eeOperationContext {
         ttlSec,
       ];
 
-  Uint8List encodePlaintext(Uint8List payload) => Uint8List.fromList(
-      utf8.encode(jsonEncode([..._header, base64.encode(payload)])));
+  /// [retryOf]: the op this one re-sends for a phone that could not
+  /// decrypt it (decision 188), authenticated with the rest.
+  Uint8List encodePlaintext(Uint8List payload, {String retryOf = ''}) =>
+      Uint8List.fromList(utf8.encode(
+          jsonEncode([..._header, retryOf, base64.encode(payload)])));
 
   /// Rejects unknown versions, malformed frames and copied/modified headers.
   /// Authentication/context failures must escape the caller's transaction.
-  Uint8List decodeAuthenticatedPlaintext(Uint8List plaintext) {
+  Uint8List decodeAuthenticatedPlaintext(Uint8List plaintext) =>
+      decodeAuthenticated(plaintext).payload;
+
+  /// [decodeAuthenticatedPlaintext] and the op it re-sends ('' for none).
+  ({Uint8List payload, String retryOf}) decodeAuthenticated(
+      Uint8List plaintext) {
     final decoded = jsonDecode(utf8.decode(plaintext));
     if (decoded is! List ||
-        decoded.length != 9 ||
+        decoded.length != 10 ||
         decoded[0] is! int ||
         decoded[5] is! bool ||
         decoded[7] is! int ||
-        decoded[8] is! String ||
-        [1, 2, 3, 4, 6].any((i) => decoded[i] is! String)) {
+        decoded[9] is! String ||
+        [1, 2, 3, 4, 6, 8].any((i) => decoded[i] is! String)) {
       throw const FormatException('Invalid authenticated operation frame');
     }
     final expected = _header;
@@ -226,10 +234,10 @@ class E2eeOperationContext {
         throw const FormatException('Authenticated operation context mismatch');
       }
     }
-    final payload = base64.decode(decoded[8] as String);
-    if (base64.encode(payload) != decoded[8]) {
+    final payload = base64.decode(decoded[9] as String);
+    if (base64.encode(payload) != decoded[9]) {
       throw const FormatException('Noncanonical authenticated payload');
     }
-    return payload;
+    return (payload: payload, retryOf: decoded[8] as String);
   }
 }

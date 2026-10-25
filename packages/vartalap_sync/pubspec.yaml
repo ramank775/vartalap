@@ -8,6 +8,7 @@ environment:
 
 dependencies:
   crypto: ^3.0.0
+  fixnum: ^1.1.0
   vartalap_store:
     path: ../vartalap_store
   vartalap_transport:

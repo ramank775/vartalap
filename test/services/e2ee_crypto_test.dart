@@ -95,7 +95,7 @@ class _Phone {
   }
 
   Future<String> open(pb.Envelope env) async =>
-      utf8.decode(await crypto.open(env));
+      utf8.decode((await crypto.open(env)).payload);
 }
 
 void main() {
@@ -130,7 +130,7 @@ void main() {
       pb.Envelope.fromBuffer(env.writeToBuffer())..peer = 'c0ffee003',
       pb.Envelope.fromBuffer(env.writeToBuffer())..ephemeral = true,
     ]) {
-      await expectLater(bob.open(moved), throwsA(isA<FormatException>()));
+      await expectLater(bob.open(moved), throwsA(isA<E2eeUndecryptable>()));
     }
     expect(await bob.open(env), 'hi');
   });
@@ -153,7 +153,7 @@ void main() {
       senderUserId: alice.userId,
       senderDeviceId: alice.deviceId,
     );
-    await expectLater(bob.open(plain), throwsA(isA<FormatException>()));
+    await expectLater(bob.open(plain), throwsA(isA<E2eeUndecryptable>()));
     await expectLater(
         alice.crypto.sealDm(
             opId: 'op-2',
@@ -222,9 +222,9 @@ void main() {
       expect(keys.keys, unorderedEquals([bob.userId, carol.userId]));
       expect(message.payload.sublist(0, 3), [kSealedMarker, 1, 3]);
       for (final p in [bob, carol]) {
-        expect(await p.crypto.open(keys[p.userId]!), isEmpty,
+        expect((await p.crypto.open(keys[p.userId]!)).payload, isEmpty,
             reason: 'a key hand-out has nothing to apply');
-        expect(await p.crypto.open(keys[p.userId]!), isEmpty,
+        expect((await p.crypto.open(keys[p.userId]!)).payload, isEmpty,
             reason: 'and opens empty again, without a ratchet step');
         expect(await p.open(message), 'hello all');
       }

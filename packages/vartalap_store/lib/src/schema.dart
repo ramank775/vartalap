@@ -186,7 +186,9 @@ const List<String> ddl = [
     created_at         INTEGER NOT NULL,
     target_message_id  TEXT,
     target_channel_id  TEXT,
-    sealed_payload     BLOB
+    sealed_payload     BLOB,
+    peer               TEXT,
+    retry_of           TEXT
   )
   ''',
   '''
@@ -280,8 +282,11 @@ const List<String> migrateV3ToV4 = [
   'ALTER TABLE messages ADD COLUMN starred_at INTEGER',
 ];
 
-/// v4 → v5: `outbound_ops.sealed_payload`, the end-to-end encrypted bytes
-/// of a WS op (decision 188), kept so a retry resends the same ciphertext.
+/// v4 → v5 (decision 188): `outbound_ops.sealed_payload`, the encrypted
+/// bytes of a WS op, kept so a retry resends the same ciphertext; `peer`
+/// and `retry_of` for re-sends to a phone that could not decrypt one.
 const List<String> migrateV4ToV5 = [
   'ALTER TABLE outbound_ops ADD COLUMN sealed_payload BLOB',
+  'ALTER TABLE outbound_ops ADD COLUMN peer TEXT',
+  'ALTER TABLE outbound_ops ADD COLUMN retry_of TEXT',
 ];

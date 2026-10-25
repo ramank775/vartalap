@@ -736,6 +736,24 @@ class MockServer {
   final List<({String userId, pb.Envelope env, Uint8List payload})>
       peerOpened = [];
 
+  /// Re-send requests the simulated users received. Test hook.
+  final List<({String userId, pb.Envelope env})> peerResendRequests = [];
+
+  /// While set, simulated users hold their answers to re-send requests
+  /// until [releaseResends], so a test can see the placeholder first.
+  bool holdResends = false;
+  final _heldResends = <(String, E2eeCrypto, pb.Envelope)>[];
+
+  Future<void> releaseResends() async {
+    holdResends = false;
+    final held = [..._heldResends];
+    _heldResends.clear();
+    for (final (userId, crypto, env) in held) {
+      await _answerResend(userId, crypto, env);
+    }
+    await settled();
+  }
+
   Future<void> _peerSends = Future.value();
   Future<void> _peerReceives = Future.value();
 
@@ -880,6 +898,8 @@ class MockServer {
   /// [messageId] and [serverTimestampMs] let a test deliver the create
   /// AFTER ops that target it (SYNC_PROTOCOL §6b: the client copes).
   /// [ttlSec] is the sender's `ttl_sec` (0: the 30-day maximum).
+  /// [corrupt]: a byte of the ciphertext flips in transit, so the
+  /// recipient cannot decrypt it and asks for a re-send (decision 188).
   Future<({String messageId, String opId})> injectPeerMessage({
     required String channelId,
     required String body,
@@ -887,11 +907,13 @@ class MockServer {
     String? messageId,
     int? serverTimestampMs,
     int ttlSec = 0,
+    bool corrupt = false,
   }) =>
       _settle(_sendPeerMessage(channelId, senderUserId, body,
           messageId: messageId,
           serverTimestampMs: serverTimestampMs,
-          ttlSec: ttlSec));
+          ttlSec: ttlSec,
+          corrupt: corrupt));
 
   /// Inject a peer-authored edit of [messageId] (SYNC_PROTOCOL §6a:
   /// the recipient applies it only because [senderUserId] is the
@@ -3275,7 +3297,10 @@ class MockServer {
   /// every other member of [channelId].
   ({String messageId, String opId}) _sendPeerMessage(
           String channelId, String senderUserId, String body,
-          {String? messageId, int? serverTimestampMs, int ttlSec = 0}) =>
+          {String? messageId,
+          int? serverTimestampMs,
+          int ttlSec = 0,
+          bool corrupt = false}) =>
       _fanoutPeerChatPayload(
         channelId,
         senderUserId,
@@ -3288,6 +3313,7 @@ class MockServer {
         ),
         serverTimestampMs: serverTimestampMs,
         ttlSec: ttlSec,
+        corrupt: corrupt,
       );
 
   /// Fan an arbitrary peer-authored [payload] to every other member of
@@ -3300,22 +3326,27 @@ class MockServer {
   /// edit stamped before its create, two messages on one millisecond).
   ({String messageId, String opId}) _fanoutPeerChatPayload(
       String channelId, String senderUserId, pb.ChatPayload payload,
-      {int? serverTimestampMs, int ttlSec = 0}) {
+      {int? serverTimestampMs,
+      int ttlSec = 0,
+      bool corrupt = false,
+      String? opId,
+      String retryOf = ''}) {
     final recipients = _recipientsFor(channelId, senderUserId);
     final messageId = payload.messageId;
     final plain = payload.writeToBuffer();
-    final opId = state.generateUuid();
+    opId ??= state.generateUuid();
     // Sealed like a phone's send (decision 188), in order, on a chain:
     // [settled] waits for it.
     _peerSends = _peerSends.then((_) async {
       final peer = isMockDmChannelId(channelId) ? recipients.single : null;
       final bytes = peer == null
           ? await _sealGroupFromPeer(
-              senderUserId, opId, channelId, recipients, plain,
+              senderUserId, opId!, channelId, recipients, plain,
               ttlSec: ttlSec)
-          : await _sealFromPeer(senderUserId, opId, channelId, peer, plain,
-              ttlSec: ttlSec);
+          : await _sealFromPeer(senderUserId, opId!, channelId, peer, plain,
+              ttlSec: ttlSec, retryOf: retryOf);
       if (bytes == null) return;
+      if (corrupt) bytes.last ^= 1;
       // Stamped after any group key hand-out it needed, as a real server
       // would: a pull meets the key first.
       final now = serverTimestampMs ?? _stamp();
@@ -3348,7 +3379,7 @@ class MockServer {
   /// phone's outbound queue retries; null if they never come.
   Future<Uint8List?> _sealFromPeer(String sender, String opId,
       String channelId, String peer, Uint8List plain,
-      {int ttlSec = 0, bool ephemeral = false}) async {
+      {int ttlSec = 0, bool ephemeral = false, String retryOf = ''}) async {
     final crypto = await peers.forUser(sender);
     for (var attempt = 0; attempt < 200; attempt++) {
       try {
@@ -3358,13 +3389,36 @@ class MockServer {
             peer: peer,
             payload: plain,
             ttlSec: ttlSec,
-            ephemeral: ephemeral);
+            ephemeral: ephemeral,
+            retryOf: retryOf,
+            // Logged like a phone's send, so a re-send request can be met.
+            persist: ephemeral || retryOf.isNotEmpty
+                ? null
+                : (txn, _) => crypto.rememberSent(txn, opId,
+                    {'ch': channelId, 'payload': base64.encode(plain)}));
       } on E2eeNoKeys {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
     }
     _log('Peer send dropped: $peer never published keys');
     return null;
+  }
+
+  /// A simulated user's phone meeting a re-send request, as the app does:
+  /// once, from its sent log, sealed afresh under a new op id that names
+  /// the one the requester could not open.
+  Future<void> _answerResend(
+      String userId, E2eeCrypto crypto, pb.Envelope env) async {
+    final ask = jsonDecode(utf8.decode(env.payload.sublist(3))) as Map;
+    final sent = await crypto.takeForResend('${ask['op']}');
+    if (sent == null || sent['ch'] != ask['ch']) return;
+    await crypto.resetSession(env.senderUserId, env.senderDeviceId);
+    _fanoutPeerChatPayload(
+      '${ask['ch']}',
+      userId,
+      pb.ChatPayload.fromBuffer(base64.decode(sent['payload'] as String)),
+      retryOf: '${ask['op']}',
+    );
   }
 
   /// [sender]'s Sender Key ciphertext for the group, its key handed to each
@@ -3413,7 +3467,18 @@ class MockServer {
     _peerReceives = _peerReceives.then((_) async {
       final sealed = env.payload.isNotEmpty && env.payload[0] == kSealedMarker;
       final crypto = await peers.forUser(userId);
-      final plain = sealed ? await crypto.open(env) : Uint8List.fromList(env.payload);
+      if (sealed && env.payload.length > 3 && env.payload[2] == 5) {
+        peerResendRequests.add((userId: userId, env: env));
+        if (holdResends) {
+          _heldResends.add((userId, crypto, env));
+        } else {
+          await _answerResend(userId, crypto, env);
+        }
+        return;
+      }
+      final plain = sealed
+          ? (await crypto.open(env)).payload
+          : Uint8List.fromList(env.payload);
       if (sealed && !env.ephemeral) await crypto.applied(env);
       if (plain.isEmpty) return; // a group key, taken
       peerOpened.add((userId: userId, env: env, payload: plain));

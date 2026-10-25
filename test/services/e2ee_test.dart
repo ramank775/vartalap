@@ -293,6 +293,15 @@ void main() {
           payload);
     });
 
+    test('carries the op a re-send replaces, authenticated with the rest', () {
+      final opened = context.decodeAuthenticated(
+          context.encodePlaintext(payload, retryOf: 'op-0'));
+      expect([opened.payload, opened.retryOf], [payload, 'op-0']);
+      expect(
+          context.decodeAuthenticated(context.encodePlaintext(payload)).retryOf,
+          '');
+    });
+
     test('rejects each mismatched context field and version', () {
       final original =
           jsonDecode(utf8.decode(context.encodePlaintext(payload))) as List;
@@ -321,8 +330,9 @@ void main() {
         [...original]..[0] = 1.0,
         [...original]..[5] = 0,
         [...original]..[7] = 30.0,
-        [...original]..[8] = 'AAj_8A==',
         [...original]..[8] = 1,
+        [...original]..[9] = 'AAj_8A==',
+        [...original]..[9] = 1,
       ];
       for (final value in malformed) {
         expect(

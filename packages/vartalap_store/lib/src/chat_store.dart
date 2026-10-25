@@ -2677,7 +2677,16 @@ class ChatStore {
         'sealed_payload': o.sealedPayload == null
             ? null
             : Uint8List.fromList(o.sealedPayload!),
+        'peer': o.peer,
+        'retry_of': o.retryOf,
       };
+
+  /// Drop a message row outright: an undecrypted placeholder its re-send
+  /// replaced. Not for user deletes, which tombstone.
+  Future<void> removeMessage(String messageId) async {
+    await db.delete('messages', where: 'message_id = ?', whereArgs: [messageId]);
+    _notify(const {'messages'});
+  }
 
   /// Keep the end-to-end encrypted bytes of [opId] (decision 188). Called
   /// inside the ratchet's own transaction, so the session never moves on
@@ -2705,5 +2714,7 @@ class ChatStore {
         targetMessageId: r['target_message_id'] as String?,
         targetChannelId: r['target_channel_id'] as String?,
         sealedPayload: r['sealed_payload'] as List<int>?,
+        peer: r['peer'] as String?,
+        retryOf: r['retry_of'] as String?,
       );
 }

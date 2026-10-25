@@ -26,6 +26,7 @@ String messagePreview(
     kContactType => '👤 ${contactName(body)}',
     kLocationType => '📍 Location',
     kEventType => '📅 ${EventInfo.parse(body)?.title ?? 'Event'}',
+    kUndecryptedType => 'Waiting for this message',
     _ => body,
   };
 }

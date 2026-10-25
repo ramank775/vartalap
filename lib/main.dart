@@ -194,6 +194,10 @@ class AppServices {
     )
       ..selfUserId = userId
       ..seal = crypto.seal;
+    crypto.tick = scheduler.tickSoon;
+    // The server keeps an envelope 30 days; so does the re-send log.
+    unawaited(crypto.crypto.forgetSentBefore(
+        DateTime.now().subtract(const Duration(days: 30)).millisecondsSinceEpoch));
     scheduler.authFailures.listen(_authFailures.add);
     await scheduler.start();
     _userId = userId;
@@ -313,6 +317,7 @@ class AppServices {
       },
       open: crypto!.open,
       applied: crypto!.applied,
+      undecryptable: crypto!.requestResend,
     );
     await next.start();
     inboundReceiver = next;
