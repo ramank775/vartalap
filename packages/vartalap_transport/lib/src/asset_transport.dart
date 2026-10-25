@@ -37,11 +37,12 @@ class AssetUploadTransport implements Transport {
       onUploaded;
 
   /// End-to-end encryption (decisions 188, 190) for a spec with `seal`:
-  /// the file's key, its sealed bytes and their sha256 (hex). The same
-  /// file seals to the same bytes, so an upload the server already holds
-  /// is skipped. Set by the app; unset, such a spec is refused rather than
-  /// uploaded in the clear.
-  final Future<({Uint8List key, Uint8List sealed, String sha256})> Function(
+  /// the file's key, its sealed bytes and their MD5. The same file seals to
+  /// the same bytes, so an upload the server already holds is skipped; the
+  /// MD5 is signed into the upload url and the store checks the body.
+  /// Set by the app; unset, such a spec is refused rather than uploaded in
+  /// the clear.
+  final Future<({Uint8List key, Uint8List sealed, Uint8List md5})> Function(
       Uint8List plain)? seal;
 
   final _ackCtrl = StreamController<AckFrame>.broadcast();
@@ -101,19 +102,21 @@ class AssetUploadTransport implements Transport {
       final sealIt = spec['seal'] == true || spec['key'] != null;
       var bytes = await file.readAsBytes();
       Uint8List? key;
-      String? sha256;
+      Uint8List? md5;
       if (sealIt) {
         final seal = this.seal;
         if (seal == null) throw StateError('No attachment sealer');
         final sealed = await seal(bytes);
-        (key, bytes, sha256) = (sealed.key, sealed.sealed, sealed.sha256);
+        (key, bytes, md5) = (sealed.key, sealed.sealed, sealed.md5);
       }
       final presigned = await client.presignUpload(
         // Ciphertext is opaque bytes to the server and the bucket.
         ext: sealIt ? 'bin' : spec['ext'] as String,
         category: spec['category'] as String? ?? 'message',
         size: bytes.length,
-        sha256: sha256,
+        md5: md5 == null
+            ? null
+            : [for (final b in md5) b.toRadixString(16).padLeft(2, '0')].join(),
       );
       if (!presigned.existing) {
         await client.putBytes(
@@ -123,6 +126,7 @@ class AssetUploadTransport implements Transport {
           // table lacks, and a mismatch fails the signature.
           contentType: presigned.contentType ??
               (sealIt ? 'application/octet-stream' : spec['mime'] as String),
+          contentMd5: md5 == null ? null : base64.encode(md5),
         );
         await client.markUploaded(presigned.fileId);
       }

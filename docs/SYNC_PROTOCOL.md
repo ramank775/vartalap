@@ -591,9 +591,11 @@ in it: the server stamps after encryption.
 - **Attachments** are sealed convergently (decision 190): the key is a
   hash of the file and the nonce a hash of the key, ChaCha20-Poly1305, so
   the same file always seals to the same bytes. The phone presigns with
-  their sha256; when media-ms already holds a verified copy it answers with
-  that fileId and nothing is uploaded, so a file re-shared any number of
-  times is stored once. The key travels as the `#fragment` of
+  their MD5; when media-ms already holds a copy it answers with that fileId
+  (no url, no record) and nothing is uploaded, so a file re-shared any
+  number of times is stored once. Otherwise the upload url signs that
+  Content-MD5 and the object store refuses any other body; a file is only
+  complete once a HEAD finds it stored. The key travels as the `#fragment` of
   `Attachment.url`, which exists only inside the ciphertext. Avatars and
   server-held profile and group metadata stay readable by the server.
 - **Retries** resend the exact sealed bytes kept on the outbound row; the

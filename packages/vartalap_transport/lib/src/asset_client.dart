@@ -54,14 +54,14 @@ class AssetClient {
     required String ext,
     required String category,
     required int size,
-    String? sha256,
+    String? md5,
   }) async {
     final uri = baseUrl.resolve('/v3.0/assets/upload/presigned_url').replace(
       queryParameters: {
         'ext': ext,
         'category': category,
         'size': '$size',
-        if (sha256 != null) 'sha256': sha256,
+        if (md5 != null) 'md5': md5,
       },
     );
     final resp = await _client.get(uri, headers: _headers());
@@ -78,16 +78,20 @@ class AssetClient {
   /// The signed PUT. No Authorization header — the signature is the
   /// authorization, and an extra bearer token can invalidate it on real
   /// object stores.
+  /// [contentMd5] (base64): when the url signs one, the store refuses a
+  /// body with any other MD5 (decision 190).
   Future<void> putBytes({
     required String url,
     required List<int> bytes,
     required String contentType,
+    String? contentMd5,
   }) async {
     final resp = await _client.put(
       Uri.parse(url),
       headers: {
         'Content-Type': contentType,
         'Content-Length': '${bytes.length}',
+        if (contentMd5 != null) 'Content-MD5': contentMd5,
       },
       body: bytes,
     );
