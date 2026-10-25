@@ -25,8 +25,6 @@ class OutboundFrame {
     required this.ops,
     this.peer,
   });
-
-  bool get isBatch => ops.length > 1;
 }
 
 class FramedOp {

@@ -206,12 +206,6 @@ class ChatStore {
     _notify(const {'outbound_ops'});
   }
 
-  /// Delete an outbound op row (e.g. after ACK success for non-message ops).
-  Future<void> deleteOp(String opId) async {
-    await db.delete('outbound_ops', where: 'op_id = ?', whereArgs: [opId]);
-    _notify(const {'outbound_ops'});
-  }
-
   /// Flow A — dispatcher flip. Op row → `in_flight`, message → `sending`.
   Future<void> markOpInFlight({
     required String opId,

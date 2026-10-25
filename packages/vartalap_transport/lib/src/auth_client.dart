@@ -569,9 +569,6 @@ class AuthClientException implements Exception {
 
   /// True if this is an auth failure (401).
   bool get isAuthFailure => statusCode == 401;
-
-  /// True if the session is locked (423, too many wrong OTP codes).
-  bool get isSessionLocked => statusCode == 423;
 }
 
 class OtpSendResult {
