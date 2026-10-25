@@ -135,7 +135,5 @@ dependencies {
     // (no Firebase SDK). The app's own package then shows up as a
     // distributor; PushService offers it as "Google Play services".
     gmsImplementation 'org.unifiedpush.android:embedded-fcm-distributor:3.1.0'
-    implementation 'androidx.browser:browser:1.4.0'
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7"
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
 }
