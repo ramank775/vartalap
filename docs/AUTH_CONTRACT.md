@@ -2344,8 +2344,10 @@ Android disables automatic backup and excludes app data from cloud backup and
 device transfer. iOS excludes the Documents directory before Flutter starts.
 Physical backup/restore and locked background-wake checks remain release
 gates. Secure-storage completion is not a proven power-loss durability
-guarantee. Deletion while a separate background engine holds the database open
-still needs cross-engine coordination.
+guarantee. Accepted without cross-engine locking: a push-wake engine that
+still holds the database while the foreground deletes the account writes into
+the unlinked file, which goes when it closes; its accesskey is already revoked
+and its copy of the wrapping key dies with its isolate seconds later.
 
 ---
 
