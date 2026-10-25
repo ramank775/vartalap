@@ -2,11 +2,12 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Private Signal records, encrypted with a per-account secure-storage key.
+/// Private Signal records, encrypted with a per-account secure-storage key
+/// (its lifecycle is in `e2ee_account.dart`; this file stays plain Dart so
+/// the mock server's simulated peers run the same crypto).
 /// Pass the caller's transaction so ratchet writes and the corresponding
 /// ciphertext/projection commit together; let every failure roll it back.
 /// This store does not implement or enable message encryption.
@@ -26,63 +27,6 @@ class E2eeRecordStore {
     }
   }
 
-  static String _keyName(String accountId) => 'v3.e2ee.wrappingKey.$accountId';
-  static const _android = AndroidOptions(resetOnError: false);
-  static const _ios =
-      IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device);
-  static const _macos = MacOsOptions(
-      accessibility: KeychainAccessibility.first_unlock_this_device);
-
-  /// The database transaction serializes foreground/background key creation.
-  /// A fresh database replaces any keychain item left behind by an uninstall.
-  static Future<E2eeRecordStore> openAccount(Database db,
-      {required String accountId,
-      required FlutterSecureStorage storage}) async {
-    if (accountId.isEmpty) throw ArgumentError('An account is required');
-    await createSchema(db);
-    return db.transaction((txn) async {
-      final existing = await txn.query('e2ee_records', limit: 1);
-      Uint8List wrappingKey;
-      if (existing.isEmpty) {
-        final random = Random.secure();
-        wrappingKey =
-            Uint8List.fromList(List.generate(32, (_) => random.nextInt(256)));
-        // Save the key before DB state; secure-storage failures abort init.
-        await storage.write(
-            key: _keyName(accountId),
-            value: base64Encode(wrappingKey),
-            aOptions: _android,
-            iOptions: _ios,
-            mOptions: _macos);
-        await E2eeRecordStore(txn,
-                accountId: accountId, wrappingKey: wrappingKey)
-            .write('account', 'key_check', Uint8List.fromList([1]));
-      } else {
-        final encoded = await storage.read(
-            key: _keyName(accountId),
-            aOptions: _android,
-            iOptions: _ios,
-            mOptions: _macos);
-        if (encoded == null) {
-          throw StateError('The account crypto wrapping key is missing');
-        }
-        wrappingKey = base64Decode(encoded);
-        if (wrappingKey.length != 32 || base64Encode(wrappingKey) != encoded) {
-          throw const FormatException('Invalid account crypto wrapping key');
-        }
-        final check = await E2eeRecordStore(txn,
-                accountId: accountId, wrappingKey: wrappingKey)
-            .read('account', 'key_check');
-        if (check == null || check.length != 1 || check.single != 1) {
-          throw StateError(
-              'The account crypto key check is missing or invalid');
-        }
-      }
-      return E2eeRecordStore(db,
-          accountId: accountId, wrappingKey: wrappingKey);
-    });
-  }
-
   E2eeRecordStore forTransaction(Transaction txn) {
     if (!identical(txn.database, _db.database)) {
       throw ArgumentError('Crypto records must use their account database');
@@ -90,27 +34,6 @@ class E2eeRecordStore {
     return E2eeRecordStore(txn,
         accountId: _accountId, wrappingKey: _wrappingKey);
   }
-
-  /// The user chose to start this phone's encryption over. Records go before
-  /// the key, so a crash between still leaves a fresh start for [openAccount].
-  /// ponytail: a keystore too broken to write a new key stays locked; clearing
-  /// the app's storage is the way out then.
-  static Future<void> resetAccount(Database db,
-      {required String accountId,
-      required FlutterSecureStorage storage}) async {
-    await createSchema(db);
-    await db.delete('e2ee_records');
-    await deleteAccountKey(accountId, storage);
-  }
-
-  /// Called after account deletion has stopped every writer and erased its DB.
-  static Future<void> deleteAccountKey(
-          String accountId, FlutterSecureStorage storage) =>
-      storage.delete(
-          key: _keyName(accountId),
-          aOptions: _android,
-          iOptions: _ios,
-          mOptions: _macos);
 
   static Future<void> createSchema(DatabaseExecutor db) => db.execute('''
 CREATE TABLE IF NOT EXISTS e2ee_records (
@@ -227,7 +150,6 @@ class E2eeOperationContext {
   final String channelId;
   final String senderUserId;
   final String senderDeviceId;
-  final String generation;
   final bool ephemeral;
   final String peer;
   final int ttlSec;
@@ -237,12 +159,11 @@ class E2eeOperationContext {
     required this.channelId,
     required this.senderUserId,
     required this.senderDeviceId,
-    required this.generation,
     this.ephemeral = false,
     this.peer = '',
     this.ttlSec = 0,
   }) {
-    if ([opId, channelId, senderUserId, senderDeviceId, generation]
+    if ([opId, channelId, senderUserId, senderDeviceId]
             .any((value) => value.isEmpty) ||
         ttlSec < 0 ||
         ttlSec > 0xffffffff) {
@@ -256,7 +177,6 @@ class E2eeOperationContext {
         channelId,
         senderUserId,
         senderDeviceId,
-        generation,
         ephemeral,
         peer,
         ttlSec,
@@ -270,12 +190,12 @@ class E2eeOperationContext {
   Uint8List decodeAuthenticatedPlaintext(Uint8List plaintext) {
     final decoded = jsonDecode(utf8.decode(plaintext));
     if (decoded is! List ||
-        decoded.length != 10 ||
+        decoded.length != 9 ||
         decoded[0] is! int ||
-        decoded[6] is! bool ||
-        decoded[8] is! int ||
-        decoded[9] is! String ||
-        [1, 2, 3, 4, 5, 7].any((i) => decoded[i] is! String)) {
+        decoded[5] is! bool ||
+        decoded[7] is! int ||
+        decoded[8] is! String ||
+        [1, 2, 3, 4, 6].any((i) => decoded[i] is! String)) {
       throw const FormatException('Invalid authenticated operation frame');
     }
     final expected = _header;
@@ -284,8 +204,8 @@ class E2eeOperationContext {
         throw const FormatException('Authenticated operation context mismatch');
       }
     }
-    final payload = base64.decode(decoded[9] as String);
-    if (base64.encode(payload) != decoded[9]) {
+    final payload = base64.decode(decoded[8] as String);
+    if (base64.encode(payload) != decoded[8]) {
       throw const FormatException('Noncanonical authenticated payload');
     }
     return payload;

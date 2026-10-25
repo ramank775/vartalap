@@ -14,6 +14,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 import 'e2ee.dart';
+import 'e2ee_account.dart';
 
 /// Secure-storage keys per AUTH_CONTRACT §14.1.
 const String _keyAccesskey = 'v3.accesskey';
@@ -102,10 +103,10 @@ class AuthService {
                 aOptions: AndroidOptions(resetOnError: false));
 
   Future<E2eeRecordStore> openCryptoRecords(Database db, String userId) =>
-      E2eeRecordStore.openAccount(db, accountId: userId, storage: _storage);
+      openAccountRecords(db, accountId: userId, storage: _storage);
 
   Future<void> resetCryptoRecords(Database db, String userId) =>
-      E2eeRecordStore.resetAccount(db, accountId: userId, storage: _storage);
+      resetAccountRecords(db, accountId: userId, storage: _storage);
 
   /// Observable auth state. True after login, false after logout.
   /// Does NOT emit the current value on subscribe — callers read
@@ -452,7 +453,7 @@ class AuthService {
     _client.clearSession();
     await onLogout?.call(erase: erase);
     if (erase && userId != null) {
-      await E2eeRecordStore.deleteAccountKey(userId, _storage);
+      await deleteAccountRecordsKey(userId, _storage);
     }
     _phoneNumber = null;
     _displayName = null;

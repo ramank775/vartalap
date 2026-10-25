@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/e2ee.dart';
+import 'package:vartalap/services/e2ee_account.dart';
 
 import '../fake_unified_push.dart';
 
@@ -32,7 +33,7 @@ void main() {
       late _KeyStorage storage;
       const keyName = 'v3.e2ee.wrappingKey.account';
       Future<E2eeRecordStore> open({String account = 'account'}) =>
-          E2eeRecordStore.openAccount(db, accountId: account, storage: storage);
+          openAccountRecords(db, accountId: account, storage: storage);
 
       setUp(() => storage = _KeyStorage());
 
@@ -97,14 +98,14 @@ void main() {
             inMemoryDatabasePath,
             options: OpenDatabaseOptions(singleInstance: false));
         try {
-          final second = await E2eeRecordStore.openAccount(other,
+          final second = await openAccountRecords(other,
               accountId: 'other', storage: storage);
           await other.transaction((txn) async {
             expect(() => first.forTransaction(txn), throwsArgumentError);
             await second.forTransaction(txn).write('session', 'peer', record);
           });
           expect(await first.read('session', 'peer'), isNull);
-          await E2eeRecordStore.deleteAccountKey('account', storage);
+          await deleteAccountRecordsKey('account', storage);
           expect(await storage.read(key: keyName), isNull);
           expect(await second.read('session', 'peer'), record);
           await expectLater(open(), throwsStateError);
@@ -263,7 +264,6 @@ void main() {
         channelId: 'channel',
         senderUserId: 'alice',
         senderDeviceId: 'phone',
-        generation: 'generation',
         peer: 'bob',
         ttlSec: 30);
     final payload = Uint8List.fromList([0, 8, 255, 240]);
@@ -278,7 +278,7 @@ void main() {
     test('rejects each mismatched context field and version', () {
       final original =
           jsonDecode(utf8.decode(context.encodePlaintext(payload))) as List;
-      for (var i = 0; i < 9; i++) {
+      for (var i = 0; i < 8; i++) {
         final modified = [...original];
         modified[i] = switch (original[i]) {
           int value => value + 1,
@@ -301,10 +301,10 @@ void main() {
         [...original, 'extra'],
         original.sublist(1),
         [...original]..[0] = 1.0,
-        [...original]..[6] = 0,
-        [...original]..[8] = 30.0,
-        [...original]..[9] = 'AAj_8A==',
-        [...original]..[9] = 1,
+        [...original]..[5] = 0,
+        [...original]..[7] = 30.0,
+        [...original]..[8] = 'AAj_8A==',
+        [...original]..[8] = 1,
       ];
       for (final value in malformed) {
         expect(
@@ -323,8 +323,7 @@ void main() {
               opId: '',
               channelId: 'channel',
               senderUserId: 'alice',
-              senderDeviceId: 'phone',
-              generation: 'gen'),
+              senderDeviceId: 'phone'),
           throwsArgumentError);
       expect(
           () => E2eeOperationContext(
@@ -332,7 +331,6 @@ void main() {
               channelId: 'channel',
               senderUserId: 'alice',
               senderDeviceId: 'phone',
-              generation: 'gen',
               ttlSec: 0x100000000),
           throwsArgumentError);
     });
