@@ -17,6 +17,12 @@ const int kSealedMarker = 0x45;
 const int _version = 1;
 const int _kindPreKey = 1; // first 1:1 message to a phone (X3DH)
 const int _kindSignal = 2; // 1:1 message on an established session
+const int _kindGroup = 3; // a group message, one Sender Key ciphertext
+
+/// First byte of a pairwise plaintext that hands over a Sender Key rather
+/// than carrying a ChatPayload (whose first byte is always its `version`
+/// tag, 0x08): JSON `{"g": group channel id, "k": base64 distribution}`.
+const int _groupKeyMarker = 0x4B;
 
 /// The peer has no published phone yet (never opened the app since
 /// signing up, or signed out everywhere): the op waits and retries.
@@ -89,57 +95,175 @@ class E2eeCrypto {
     bool onlyIfSession = false,
     Future<void> Function(Transaction txn, Uint8List sealed)? persist,
   }) =>
+      _serial(() => _sealPairwise(
+            opId: opId,
+            channelId: channelId,
+            peer: peer,
+            payload: payload,
+            ephemeral: ephemeral,
+            ttlSec: ttlSec,
+            onlyIfSession: onlyIfSession,
+            persist: persist,
+          ));
+
+  Future<Uint8List?> _sealPairwise({
+    required String opId,
+    required String channelId,
+    required String peer,
+    required Uint8List payload,
+    bool ephemeral = false,
+    int ttlSec = 0,
+    bool onlyIfSession = false,
+    Future<void> Function(Transaction txn, Uint8List sealed)? persist,
+  }) async {
+    final known = await _records.read('peer_device', peer);
+    var device = known == null ? null : utf8.decode(known);
+    PreKeyBundle? bundle;
+    if (device == null ||
+        !await SignalStores(_records)
+            .containsSession(signalAddress(peer, device))) {
+      if (onlyIfSession) return null;
+      // ponytail: one phone per account (183), so its first device is
+      // the one; linked devices mean a ciphertext per device here.
+      final devices = await _directory(peer);
+      if (devices.isEmpty) throw E2eeNoKeys(peer);
+      final claim =
+          await _claim(peer, devices.first.deviceId, devices.first.generation);
+      device = claim.bundle.deviceId;
+      bundle = _bundleOf(claim);
+    }
+    final address = signalAddress(peer, device);
+    final context = E2eeOperationContext(
+      opId: opId,
+      channelId: channelId,
+      senderUserId: selfUserId,
+      senderDeviceId: selfDeviceId,
+      ephemeral: ephemeral,
+      peer: peer,
+      ttlSec: ttlSec,
+    );
+    final (sealed, changed) = await _db.transaction((txn) async {
+      final records = _records.forTransaction(txn);
+      final stores = SignalStores(records);
+      if (bundle != null) {
+        await SessionBuilder(stores, stores, stores, stores, address)
+            .processPreKeyBundle(bundle);
+        await records.write('peer_device', peer, utf8.encode(device!));
+      }
+      final message =
+          await SessionCipher(stores, stores, stores, stores, address)
+              .encrypt(context.encodePlaintext(payload));
+      final sealed = Uint8List.fromList([
+        kSealedMarker,
+        _version,
+        message.getType() == CiphertextMessage.prekeyType
+            ? _kindPreKey
+            : _kindSignal,
+        ...message.serialize(),
+      ]);
+      await persist?.call(txn, sealed);
+      return (sealed, stores.changedIdentities);
+    });
+    changed.forEach(_identityChanges.add);
+    return sealed;
+  }
+
+  /// Seal [payload] for the group [channelId]: one Sender Key ciphertext
+  /// that every member opens (decision 188), stored once by the server.
+  /// A member whose phone lacks this phone's current sender key gets it
+  /// first, sealed pairwise as an op on their 1:1 channel ([dmChannel])
+  /// and handed to [sendKey] to go out ahead of this one. A member gone
+  /// since the last hand-out rotates the key, so they cannot read on.
+  /// A member without keys yet is skipped; their phone asks for the key
+  /// when a message will not open. With [onlyIfDistributed] (typing)
+  /// nothing is handed out: null unless every member already has it.
+  Future<Uint8List?> sealGroup({
+    required String opId,
+    required String channelId,
+    required Set<String> members,
+    required Uint8List payload,
+    required String Function(String member) dmChannel,
+    required String Function() newOpId,
+    required Future<void> Function(
+            String member, String channelId, String opId, Uint8List sealed)
+        sendKey,
+    bool ephemeral = false,
+    int ttlSec = 0,
+    bool onlyIfDistributed = false,
+    Future<void> Function(Transaction txn, Uint8List sealed)? persist,
+  }) =>
       _serial(() async {
-        final known = await _records.read('peer_device', peer);
-        var device = known == null ? null : utf8.decode(known);
-        PreKeyBundle? bundle;
-        if (device == null ||
-            !await SignalStores(_records)
-                .containsSession(signalAddress(peer, device))) {
-          if (onlyIfSession) return null;
-          // ponytail: one phone per account (183), so its first device is
-          // the one; linked devices mean a ciphertext per device here.
-          final devices = await _directory(peer);
-          if (devices.isEmpty) throw E2eeNoKeys(peer);
-          final claim = await _claim(
-              peer, devices.first.deviceId, devices.first.generation);
-          device = claim.bundle.deviceId;
-          bundle = _bundleOf(claim);
+        final self =
+            SenderKeyName(channelId, signalAddress(selfUserId, selfDeviceId));
+        final held = await _records.read('group_key_holders', channelId);
+        var holders = held == null
+            ? <String>{}
+            : (jsonDecode(utf8.decode(held)) as List).cast<String>().toSet();
+        if (holders.difference(members).isNotEmpty) {
+          // Someone left: a fresh key only the remaining members get.
+          await _db.transaction((txn) =>
+              SignalStores(_records.forTransaction(txn))
+                  .storeSenderKey(self, SenderKeyRecord()));
+          holders = {};
         }
-        final address = signalAddress(peer, device);
+        final missing = members.difference(holders);
+        if (onlyIfDistributed && missing.isNotEmpty) return null;
+        for (final member in missing) {
+          final distribution = await _db.transaction((txn) =>
+              GroupSessionBuilder(SignalStores(_records.forTransaction(txn)))
+                  .create(self));
+          final keyOpId = newOpId();
+          final keyChannel = dmChannel(member);
+          try {
+            final sealed = await _sealPairwise(
+              opId: keyOpId,
+              channelId: keyChannel,
+              peer: member,
+              payload: Uint8List.fromList([
+                _groupKeyMarker,
+                ...utf8.encode(jsonEncode({
+                  'g': channelId,
+                  'k': base64.encode(distribution.serialize()),
+                })),
+              ]),
+            );
+            await sendKey(member, keyChannel, keyOpId, sealed!);
+          } on E2eeNoKeys {
+            continue;
+          }
+          holders.add(member);
+        }
         final context = E2eeOperationContext(
           opId: opId,
           channelId: channelId,
           senderUserId: selfUserId,
           senderDeviceId: selfDeviceId,
           ephemeral: ephemeral,
-          peer: peer,
           ttlSec: ttlSec,
         );
-        final (sealed, changed) = await _db.transaction((txn) async {
+        return _db.transaction((txn) async {
           final records = _records.forTransaction(txn);
-          final stores = SignalStores(records);
-          if (bundle != null) {
-            await SessionBuilder(stores, stores, stores, stores, address)
-                .processPreKeyBundle(bundle);
-            await records.write('peer_device', peer, utf8.encode(device!));
-          }
-          final message = await SessionCipher(
-                  stores, stores, stores, stores, address)
+          await records.write('group_key_holders', channelId,
+              utf8.encode(jsonEncode(holders.toList()..sort())));
+          final ciphertext = await GroupCipher(SignalStores(records), self)
               .encrypt(context.encodePlaintext(payload));
-          final sealed = Uint8List.fromList([
-            kSealedMarker,
-            _version,
-            message.getType() == CiphertextMessage.prekeyType
-                ? _kindPreKey
-                : _kindSignal,
-            ...message.serialize(),
-          ]);
+          final sealed = Uint8List.fromList(
+              [kSealedMarker, _version, _kindGroup, ...ciphertext]);
           await persist?.call(txn, sealed);
-          return (sealed, stores.changedIdentities);
+          return sealed;
         });
-        changed.forEach(_identityChanges.add);
-        return sealed;
+      });
+
+  /// A member's phone asked again (it could not open one of ours): hand it
+  /// the current key with the next group send.
+  Future<void> forgetKeyHolder(String channelId, String member) =>
+      _serial(() async {
+        final held = await _records.read('group_key_holders', channelId);
+        if (held == null) return;
+        final holders = (jsonDecode(utf8.decode(held)) as List).cast<String>()
+          ..remove(member);
+        await _db.transaction((txn) => _records.forTransaction(txn).write(
+            'group_key_holders', channelId, utf8.encode(jsonEncode(holders))));
       });
 
   static PreKeyBundle _bundleOf(E2eeKeyClaim claim) {
@@ -166,7 +290,14 @@ class E2eeCrypto {
   /// op, channel and sender; the transaction then rolls back every library
   /// write. A stored op's payload is staged until [applied], so a crash or
   /// a re-delivery never needs a second ratchet step.
+  ///
+  /// A pairwise op that hands over a group key is processed here and opens
+  /// to an empty payload: there is nothing for the receiver to apply, and
+  /// a re-delivery opens empty again without touching the ratchet.
   Future<Uint8List> open(pb.Envelope env) => _serial(() async {
+        if (await _records.read('keys_taken', _inboxKey(env)) != null) {
+          return Uint8List(0);
+        }
         final staged = await _records.read('inbox', _inboxKey(env));
         if (staged != null) return staged;
         final p = env.payload;
@@ -193,12 +324,29 @@ class E2eeCrypto {
             _kindPreKey => await cipher.decrypt(PreKeySignalMessage(body)),
             _kindSignal => await cipher
                 .decryptFromSignal(SignalMessage.fromSerialized(body)),
+            _kindGroup =>
+              await GroupCipher(stores, SenderKeyName(env.channelId, sender))
+                  .decrypt(body),
             _ => throw FormatException('Unknown sealed payload kind $kind'),
           };
           final payload = context.decodeAuthenticatedPlaintext(plain);
-          // A message from a phone proves it is that user's current one.
-          await records.write(
-              'peer_device', env.senderUserId, utf8.encode(env.senderDeviceId));
+          if (kind != _kindGroup) {
+            // A message from a phone proves it is that user's current one.
+            await records.write('peer_device', env.senderUserId,
+                utf8.encode(env.senderDeviceId));
+          }
+          if (kind != _kindGroup &&
+              payload.isNotEmpty &&
+              payload[0] == _groupKeyMarker) {
+            final key = jsonDecode(utf8.decode(payload.sublist(1)))
+                as Map<String, dynamic>;
+            await GroupSessionBuilder(stores).process(
+                SenderKeyName(key['g'] as String, sender),
+                SenderKeyDistributionMessageWrapper.fromSerialized(
+                    base64.decode(key['k'] as String)));
+            await records.write('keys_taken', _inboxKey(env), Uint8List(1));
+            return (Uint8List(0), stores.changedIdentities);
+          }
           if (!env.ephemeral) {
             await records.write('inbox', _inboxKey(env), payload);
           }

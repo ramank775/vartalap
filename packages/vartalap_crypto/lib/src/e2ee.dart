@@ -65,15 +65,38 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
         whereArgs: [namespace, key]);
     if (rows.isEmpty) return null;
     final value = Uint8List.fromList(rows.single['value'] as List<int>);
-    if (value.length < 29 || value[0] != 1) {
+    if (value.length < 29 || (value[0] != 1 && value[0] != 2)) {
       throw const FormatException('Invalid encrypted crypto record');
     }
-    final cipher = GCMBlockCipher(AESEngine())
-      ..init(
-          false,
-          AEADParameters(
-              KeyParameter(_wrappingKey), 128, value.sublist(1, 13), aad));
-    return cipher.process(value.sublist(13));
+    return _cipher(value[0], false, value.sublist(1, 13), aad)(
+        value.sublist(13));
+  }
+
+  /// Version 2: ChaCha20-Poly1305 (RFC 8439). Pure-Dart AES-GCM, version
+  /// 1, cost 5-15 ms a record, and every message touches several; 1 still
+  /// opens. Both take a 12-byte nonce and a 16-byte tag.
+  Uint8List Function(Uint8List) _cipher(
+      int version, bool encrypt, Uint8List nonce, Uint8List aad) {
+    final params =
+        AEADParameters(KeyParameter(_wrappingKey), 128, nonce, aad);
+    if (version == 1) {
+      return (GCMBlockCipher(AESEngine())..init(encrypt, params)).process;
+    }
+    final cipher = ChaCha20Poly1305(ChaCha7539Engine(), Poly1305())
+      ..init(encrypt, params);
+    // Its inherited process() skips doFinal: no tag written or checked.
+    return (input) {
+      final out = Uint8List(cipher.getOutputSize(input.length));
+      try {
+        var length = cipher.processBytes(input, 0, input.length, out, 0);
+        length += cipher.doFinal(out, length);
+        return out.sublist(0, length);
+      } on ArgumentError catch (e) {
+        // A failed tag check is an ArgumentError here, GCM's own exception
+        // everywhere else: one failure type for callers.
+        throw InvalidCipherTextException('$e');
+      }
+    };
   }
 
   /// The record keys stored under [namespace].
@@ -91,14 +114,13 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
     final random = Random.secure();
     final nonce =
         Uint8List.fromList(List.generate(12, (_) => random.nextInt(256)));
-    final cipher = GCMBlockCipher(AESEngine())
-      ..init(true, AEADParameters(KeyParameter(_wrappingKey), 128, nonce, aad));
     await _db.insert(
       'e2ee_records',
       {
         'namespace': namespace,
         'record_key': key,
-        'value': Uint8List.fromList([1, ...nonce, ...cipher.process(record)]),
+        'value': Uint8List.fromList(
+            [2, ...nonce, ..._cipher(2, true, nonce, aad)(record)]),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );

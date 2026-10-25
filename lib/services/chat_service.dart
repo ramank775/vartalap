@@ -21,7 +21,7 @@ import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
-import 'package:vartalap_crypto/vartalap_crypto.dart';
+import 'package:vartalap/services/message_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -98,8 +98,8 @@ Uint8List _encodeReceipt(
     ).writeToBuffer();
 
 class ChatService {
-  /// Seals DM typing indicators (decision 188). Set by `main.dart`.
-  E2eeCrypto? crypto;
+  /// Seals typing indicators (decision 188). Set by `main.dart`.
+  MessageCrypto? crypto;
 
   final ChatStore _store;
   final SyncScheduler _scheduler;
@@ -485,32 +485,20 @@ class ChatService {
     if (localUserId.isEmpty) return;
     final opId = _uuidGen.next(nowMs: now);
     final payload = _encodeTyping(isTyping: isTyping);
-    if (!isDmChannelId(channelId)) {
-      _wsTransport.sendEphemeral(
-        opId: opId,
-        channelId: channelId,
-        payload: payload,
-        clientTimestampMs: now,
-      );
-      return;
-    }
-    // Trim 4: a DM has no channel row for the server to check the
-    // sender against, so even a typing frame names its peer. The
-    // lookup is async; the call stays fire-and-forget.
-    // Encrypted like everything else, but never worth claiming keys
-    // for: without a session yet, the indicator is simply not sent.
-    unawaited(_store.dmPeer(channelId, localUserId).then((peer) async {
-      if (peer == null) return;
+    // Encrypted like everything else (decision 188), but never worth
+    // claiming keys or handing out a group key for: without that set up
+    // the indicator is simply not sent. Trim 4: a DM names its peer even
+    // on a typing frame. Fire-and-forget throughout.
+    unawaited(() async {
+      final peer = isDmChannelId(channelId)
+          ? await _store.dmPeer(channelId, localUserId)
+          : null;
+      if (isDmChannelId(channelId) && peer == null) return;
       final crypto = this.crypto;
       final sealed = crypto == null
           ? payload
-          : await crypto.sealDm(
-              opId: opId,
-              channelId: channelId,
-              peer: peer,
-              payload: payload,
-              ephemeral: true,
-              onlyIfSession: true);
+          : await crypto.sealTyping(
+              opId: opId, channelId: channelId, peer: peer, payload: payload);
       if (sealed == null) return;
       _wsTransport.sendEphemeral(
         opId: opId,
@@ -519,7 +507,8 @@ class ChatService {
         clientTimestampMs: now,
         peer: peer,
       );
-    }).catchError((Object _) {}));
+    }()
+        .catchError((Object _) {}));
   }
 
   /// Discover contacts from the server and cache locally.

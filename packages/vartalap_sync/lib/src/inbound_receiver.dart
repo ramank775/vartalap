@@ -350,6 +350,8 @@ class InboundReceiver {
     // check the server makes from the other side. A frame that fails
     // it is either a bug or someone else's channel, and either way
     // there is nothing local it could belong to.
+    final open = this.open;
+    List<int> plain = payload;
     if (isDmChannelId(channelId)) {
       final sender = env.senderUserId;
       if (sender.isEmpty || dmChannelId(localUserId, sender) != channelId) {
@@ -358,6 +360,12 @@ class InboundReceiver {
             'derive from ($localUserId, $sender): channel=$channelId '
             'op_id=$opId');
         return;
+      }
+      // Decision 188: group keys ride 1:1 channels. Open first, so a key
+      // hand-out (opened to nothing to apply) never makes a chat.
+      if (open != null) {
+        plain = await open(env);
+        if (!_running || plain.isEmpty) return;
       }
       await _ensureDmChannel(channelId, sender, env);
     } else if (!await store.channelExists(channelId) &&
@@ -371,9 +379,10 @@ class InboundReceiver {
       return;
     }
 
-    final open = this.open;
-    final plain = open == null ? payload : await open(env);
-    if (!_running) return;
+    if (open != null && !isDmChannelId(channelId)) {
+      plain = await open(env);
+      if (!_running || plain.isEmpty) return;
+    }
     pb.ChatPayload chat;
     try {
       chat = pb.ChatPayload.fromBuffer(plain);

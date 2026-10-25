@@ -25,8 +25,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:vartalap/main.dart'
-    show freshSyncPointer, openPayload, pullPendingPages, sealOp;
+import 'package:vartalap/main.dart' show freshSyncPointer, pullPendingPages;
+import 'package:vartalap/services/message_crypto.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -485,6 +485,26 @@ void main() {
             'group-create REST op must be accepted. '
             'Envelope outcomes: $outcomes. ${await h.opDebug(groupChannelId)}',
       );
+
+      // Decision 188: one Sender Key ciphertext for the whole group, its
+      // key handed to each member first over their 1:1 channel.
+      final wire = h.mock.envelopes
+          .lastWhere((e) => e.channelId == groupChannelId)
+          .payload;
+      expect([wire[0], wire[2], _contains(wire, utf8.encode('group hello'))],
+          [kSealedMarker, 3, isFalse],
+          reason: 'A group op is sealed once with Sender Keys (kind 3).');
+      await h.waitFor(() =>
+          h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE, body: 'group hello'));
+      expect(
+          h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE, body: 'group hello'),
+          isTrue,
+          reason: 'Every member opens that one ciphertext.');
+      expect(
+          h.mock.envelopes.where((e) =>
+              e.channelId == dmChannelId(userIdA, extraMemberId)),
+          isNotEmpty,
+          reason: 'The added member got the group key on their 1:1 channel.');
     });
 
     // ---- 6b -------------------------------------------------------------
@@ -1856,7 +1876,7 @@ class _Harness {
   late SyncScheduler scheduler;
   late ChatService chat;
   E2eeRecordStore? records;
-  E2eeCrypto? crypto;
+  MessageCrypto? crypto;
   InboundReceiver? inbound;
   late final StreamSubscription<TransportState> _wsStateSub;
 
@@ -1927,14 +1947,19 @@ class _Harness {
     final records = this.records =
         await authService.openCryptoRecords(store.db, userId);
     await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
-    final crypto = this.crypto = E2eeCrypto(
-      db: store.db,
-      records: records,
+    final crypto = this.crypto = MessageCrypto(
+      crypto: E2eeCrypto(
+        db: store.db,
+        records: records,
+        selfUserId: userId,
+        selfDeviceId: authClient.deviceId!,
+        directory: authClient.getDeviceKeys,
+        claim: (user, device, generation) => authClient
+            .claimDeviceKeys(user, deviceId: device, generation: generation),
+      ),
+      store: store,
+      ws: ws,
       selfUserId: userId,
-      selfDeviceId: authClient.deviceId!,
-      directory: authClient.getDeviceKeys,
-      claim: (user, device, generation) => authClient.claimDeviceKeys(user,
-          deviceId: device, generation: generation),
     );
     scheduler = SyncScheduler(
       store: store,
@@ -1944,7 +1969,7 @@ class _Harness {
       clock: Clock.system,
     )
       ..selfUserId = userId
-      ..seal = (op, peer) => sealOp(crypto, op, peer);
+      ..seal = crypto.seal;
     await scheduler.start();
     chat = ChatService(
       store: store,
@@ -1976,7 +2001,7 @@ class _Harness {
     chat.bindDeliverySource(null);
     await prev?.stop();
     await scheduler.stop();
-    await crypto?.close();
+    await crypto?.crypto.close();
     crypto = null;
     await store.close();
   }
@@ -2022,10 +2047,8 @@ class _Harness {
         final json = await authClient.getChannel(channelId);
         return json == null ? null : groupRosterFromJson(json);
       },
-      open: (env) => openPayload(crypto, env),
-      applied: (env) async {
-        if (isDmChannelId(env.channelId)) await crypto?.applied(env);
-      },
+      open: crypto!.open,
+      applied: crypto!.applied,
     );
     await next.start();
     inbound = next;

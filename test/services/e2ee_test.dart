@@ -115,7 +115,25 @@ void main() {
       });
     });
 
-    test('reads an independently generated Node AES-256-GCM fixture', () async {
+    test('reads an independently generated Node ChaCha20-Poly1305 fixture',
+        () async {
+      const hex = '02000000000000000000000000ec6e80d0343d1508fdd9f80e174d8c0b'
+          'd14400e23e783dec0fb50792b0';
+      final fixture = Uint8List.fromList([
+        for (var i = 0; i < hex.length; i += 2)
+          int.parse(hex.substring(i, i + 2), radix: 16),
+      ]);
+      await db.insert('e2ee_records', {
+        'namespace': 'session',
+        'record_key': 'peer',
+        'value': fixture,
+      });
+      final store = E2eeRecordStore(db,
+          accountId: 'account-a', wrappingKey: Uint8List(32));
+      expect(await store.read('session', 'peer'), utf8.encode('signal-record'));
+    });
+
+    test('still reads a version 1 Node AES-256-GCM fixture', () async {
       const hex = '01000000000000000000000000bdce27532c0c461c622daaa1de78843c'
           'ef3831262406af9deed3f4f322';
       final fixture = Uint8List.fromList([
@@ -189,7 +207,7 @@ void main() {
 
     test('rejects truncated and unknown record formats', () async {
       await write('session', 'peer', record);
-      for (final invalid in [Uint8List(28), Uint8List(29)..[0] = 2]) {
+      for (final invalid in [Uint8List(28), Uint8List(29)..[0] = 3]) {
         await db.update('e2ee_records', {'value': invalid});
         await expectLater(records(db).read('session', 'peer'),
             throwsA(isA<FormatException>()));

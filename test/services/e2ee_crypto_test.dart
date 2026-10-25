@@ -172,6 +172,90 @@ void main() {
         isNull);
   });
 
+  group('groups (Sender Keys, decision 188)', () {
+    late _Phone carol;
+    setUp(() async {
+      carol = await _Phone.enrolled('c0ffee003', 'phone-c', directory);
+    });
+
+    /// Alice seals for [members]; the key hand-outs come back as the
+    /// envelopes the server would push on each member's 1:1 channel.
+    Future<(pb.Envelope, Map<String, pb.Envelope>)> groupSend(
+        String text, Set<String> members,
+        {String opId = 'g-op', bool onlyIfDistributed = false}) async {
+      final keys = <String, pb.Envelope>{};
+      var n = 0;
+      final sealed = await alice.crypto.sealGroup(
+        opId: opId,
+        channelId: 'g-1',
+        members: members,
+        payload: Uint8List.fromList(utf8.encode(text)),
+        dmChannel: (m) => 'dm-$m',
+        newOpId: () => '$opId-key-${n++}',
+        onlyIfDistributed: onlyIfDistributed,
+        sendKey: (member, channel, keyOpId, bytes) async {
+          keys[member] = pb.Envelope(
+            opId: keyOpId,
+            channelId: channel,
+            payload: bytes,
+            senderUserId: alice.userId,
+            senderDeviceId: alice.deviceId,
+            peer: member,
+          );
+        },
+      );
+      return (
+        pb.Envelope(
+          opId: opId,
+          channelId: 'g-1',
+          payload: sealed,
+          senderUserId: alice.userId,
+          senderDeviceId: alice.deviceId,
+        ),
+        keys
+      );
+    }
+
+    test('one ciphertext opens for every member; a key re-delivered is '
+        'harmless', () async {
+      final (message, keys) = await groupSend('hello all', {bob.userId, carol.userId});
+      expect(keys.keys, unorderedEquals([bob.userId, carol.userId]));
+      expect(message.payload.sublist(0, 3), [kSealedMarker, 1, 3]);
+      for (final p in [bob, carol]) {
+        expect(await p.crypto.open(keys[p.userId]!), isEmpty,
+            reason: 'a key hand-out has nothing to apply');
+        expect(await p.crypto.open(keys[p.userId]!), isEmpty,
+            reason: 'and opens empty again, without a ratchet step');
+        expect(await p.open(message), 'hello all');
+      }
+      final (second, more) = await groupSend('again', {bob.userId, carol.userId},
+          opId: 'g-op-2');
+      expect(more, isEmpty, reason: 'every member already holds the key');
+      expect(await carol.open(second), 'again');
+    });
+
+    test('a member who left cannot read on; the rest get a fresh key',
+        () async {
+      final (first, keys) = await groupSend('before', {bob.userId, carol.userId});
+      for (final p in [bob, carol]) {
+        await p.crypto.open(keys[p.userId]!);
+        await p.open(first);
+      }
+      final (after, rotated) =
+          await groupSend('after carol left', {bob.userId}, opId: 'g-op-2');
+      expect(rotated.keys, [bob.userId]);
+      await bob.crypto.open(rotated[bob.userId]!);
+      expect(await bob.open(after), 'after carol left');
+      await expectLater(carol.open(after), throwsA(anything));
+    });
+
+    test('typing never hands out a key', () async {
+      final (typing, keys) = await groupSend('typing', {bob.userId},
+          onlyIfDistributed: true);
+      expect([typing.payload, keys], [isEmpty, isEmpty]);
+    });
+  });
+
   test('a contact on a new phone is reached there and reported once (184)',
       () async {
     await bob.open(await alice.send(bob, 'old phone'));

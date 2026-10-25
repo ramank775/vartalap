@@ -1034,7 +1034,9 @@ class MockServer {
     _peerSends = _peerSends.then((_) async {
       final peer = isMockDmChannelId(channelId) ? recipients.single : null;
       final bytes = peer == null
-          ? plain
+          ? await _sealGroupFromPeer(
+              senderUserId, opId, channelId, recipients, plain,
+              ephemeral: true)
           : await _sealFromPeer(senderUserId, opId, channelId, peer, plain,
               ephemeral: true);
       if (bytes == null) return;
@@ -3300,20 +3302,24 @@ class MockServer {
       String channelId, String senderUserId, pb.ChatPayload payload,
       {int? serverTimestampMs, int ttlSec = 0}) {
     final recipients = _recipientsFor(channelId, senderUserId);
-    final now = serverTimestampMs ?? _stamp();
     final messageId = payload.messageId;
     final plain = payload.writeToBuffer();
-    _recordStamp(plain, now);
     final opId = state.generateUuid();
     // Sealed like a phone's send (decision 188), in order, on a chain:
     // [settled] waits for it.
     _peerSends = _peerSends.then((_) async {
       final peer = isMockDmChannelId(channelId) ? recipients.single : null;
       final bytes = peer == null
-          ? plain
+          ? await _sealGroupFromPeer(
+              senderUserId, opId, channelId, recipients, plain,
+              ttlSec: ttlSec)
           : await _sealFromPeer(senderUserId, opId, channelId, peer, plain,
               ttlSec: ttlSec);
       if (bytes == null) return;
+      // Stamped after any group key hand-out it needed, as a real server
+      // would: a pull meets the key first.
+      final now = serverTimestampMs ?? _stamp();
+      _recordStamp(plain, now);
       final pushEnv = pb.Envelope(
         opId: opId,
         channelId: channelId,
@@ -3333,7 +3339,7 @@ class MockServer {
       }
     }).catchError((Object e) => _log('Peer send failed: $e'));
     _log('Peer ${payload.type.name}: channel=$channelId '
-        'from=$senderUserId ts=$now message=$messageId');
+        'from=$senderUserId message=$messageId');
     return (messageId: messageId, opId: opId);
   }
 
@@ -3361,6 +3367,43 @@ class MockServer {
     return null;
   }
 
+  /// [sender]'s Sender Key ciphertext for the group, its key handed to each
+  /// member first over their 1:1 channel, as a phone does.
+  Future<Uint8List?> _sealGroupFromPeer(String sender, String opId,
+      String channelId, Set<String> members, Uint8List plain,
+      {int ttlSec = 0, bool ephemeral = false}) async {
+    for (final member in members) {
+      await _enrollIfSimulated(member);
+    }
+    final crypto = await peers.forUser(sender);
+    return crypto.sealGroup(
+      opId: opId,
+      channelId: channelId,
+      members: members,
+      payload: plain,
+      ttlSec: ttlSec,
+      ephemeral: ephemeral,
+      dmChannel: (member) => mockDmChannelId(sender, member),
+      newOpId: state.generateUuid,
+      sendKey: (member, keyChannel, keyOpId, sealed) async {
+        final now = _stamp();
+        final env = pb.Envelope(
+          opId: keyOpId,
+          channelId: keyChannel,
+          clientTimestampMs: fixnum.Int64(now),
+          payload: sealed,
+          senderUserId: sender,
+          senderDeviceId: MockPeers.deviceId,
+          peer: member,
+          serverTimestampMs: fixnum.Int64(now),
+        );
+        _sendToUser(member,
+            pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: env).writeToBuffer());
+        _peerReceive(member, env);
+      },
+    );
+  }
+
   /// A simulated user's phone receiving [env]: a DM opens with its crypto,
   /// a group payload is read as it came. Lands in [peerOpened]; for a
   /// sealed message the conveniences the mock used to read off the wire
@@ -3372,6 +3415,7 @@ class MockServer {
       final crypto = await peers.forUser(userId);
       final plain = sealed ? await crypto.open(env) : Uint8List.fromList(env.payload);
       if (sealed && !env.ephemeral) await crypto.applied(env);
+      if (plain.isEmpty) return; // a group key, taken
       peerOpened.add((userId: userId, env: env, payload: plain));
       if (!sealed || env.ephemeral || !_isMessageCreate(plain)) return;
       final now = env.serverTimestampMs.toInt();
