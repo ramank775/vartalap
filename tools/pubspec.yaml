@@ -9,5 +9,10 @@ environment:
 dependencies:
   vartalap_proto:
     path: ../packages/vartalap_proto
+  vartalap_transport:
+    path: ../packages/vartalap_transport
+  vartalap_crypto:
+    path: ../packages/vartalap_crypto
+  sqflite_common_ffi: ^2.3.0
   fixnum: ^1.1.0
   crypto: ^3.0.3

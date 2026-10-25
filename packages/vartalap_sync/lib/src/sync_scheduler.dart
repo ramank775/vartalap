@@ -92,6 +92,14 @@ class SyncScheduler {
   /// null before the first one, when nothing is enqueued anyway.
   String? selfUserId;
 
+  /// End-to-end encryption (decision 188): turns a WS op's payload into
+  /// the bytes that go on the wire, storing them on the row in the same
+  /// transaction as the ratchet step ([OutboundOpRow.sealedPayload]), so
+  /// every retry resends the same ciphertext. Throws when it cannot yet
+  /// (no peer keys): the op retries with backoff and, out of attempts,
+  /// dead-letters; it never goes out in plaintext. Unset: as they are.
+  Future<List<int>> Function(OutboundOpRow op, String? peer)? seal;
+
   /// Fires whenever an outbound op gets an ACK_AUTH_FAILURE. The auth
   /// layer subscribes and triggers a session refresh; on success it
   /// calls [resumeAfterAuthRefresh] which flips [_authPaused] back to
@@ -277,6 +285,17 @@ class SyncScheduler {
         ? await store.dmPeer(op.resourceId, selfUserId!)
         : null;
 
+    var payload = op.payload;
+    final seal = this.seal;
+    if (seal != null && op.transport == OpTransport.ws) {
+      try {
+        payload = op.sealedPayload ?? await seal(op, peer);
+      } catch (e) {
+        await _sealFailed(op, e);
+        return;
+      }
+    }
+
     final frame = OutboundFrame(
       kind: op.kind,
       resourceId: op.resourceId,
@@ -284,7 +303,7 @@ class SyncScheduler {
       ops: [
         FramedOp(
           opId: op.opId,
-          payload: op.payload,
+          payload: payload,
           clientTimestampMs: clock.nowMs(),
           restMethod: op.restMethod,
           restPath: op.restPath,
@@ -305,6 +324,21 @@ class SyncScheduler {
       );
       tickSoon();
     }
+  }
+
+  /// Like a transient reject, charged against the op's attempts.
+  Future<void> _sealFailed(OutboundOpRow op, Object error) async {
+    final current = await store.fetchOutboundOp(op.opId) ?? op;
+    if (_exhausted(current)) {
+      await _moveToDeadLetter(current, 'seal_failed');
+      return;
+    }
+    await store.markOpRetrying(
+      opId: op.opId,
+      nextRetryAt:
+          clock.nowMs() + backoff.delayFor(current.attempts).inMilliseconds,
+      reason: 'seal_failed:${error.runtimeType}',
+    );
   }
 
   // ---------------------------------------------------------------------

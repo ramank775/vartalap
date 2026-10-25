@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'e2ee.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 
 /// The per-account wrapping key of [E2eeRecordStore], kept in secure
 /// storage: created with the first record, checked on every open,

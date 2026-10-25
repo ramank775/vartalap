@@ -36,13 +36,13 @@ import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/services/e2ee.dart';
-import 'package:vartalap/services/signal_store.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
+import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -112,6 +112,7 @@ class AppServices {
   String? _userId;
   ChatStore? store;
   E2eeRecordStore? cryptoRecords;
+  E2eeCrypto? crypto;
   SyncScheduler? scheduler;
 
   /// The account whose crypto records would not open (a lost or unreadable
@@ -168,6 +169,15 @@ class AppServices {
       return;
     }
     await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
+    final crypto = E2eeCrypto(
+      db: store.db,
+      records: cryptoRecords!,
+      selfUserId: userId,
+      selfDeviceId: authClient.deviceId!,
+      directory: authClient.getDeviceKeys,
+      claim: (user, device, generation) => authClient.claimDeviceKeys(user,
+          deviceId: device, generation: generation),
+    );
     // Trim 4: derived DM ops name their peer on the wire, which is
     // relative to the signed-in user.
     final scheduler = SyncScheduler(
@@ -176,11 +186,14 @@ class AppServices {
       restTransport: restTransport,
       backoff: ExponentialJitterBackoff(),
       clock: Clock.system,
-    )..selfUserId = userId;
+    )
+      ..selfUserId = userId
+      ..seal = (op, peer) => sealOp(crypto, op, peer);
     scheduler.authFailures.listen(_authFailures.add);
     await scheduler.start();
     _userId = userId;
     this.store = store;
+    this.crypto = crypto;
     this.scheduler = scheduler;
     // The op_id generator carries the user_id bits (SPIKE_B_SYNC §4).
     chatService = ChatService(
@@ -190,7 +203,9 @@ class AppServices {
       wsTransport: wsTransport,
       uuidGen: Uuid7Gen(userIdBits: _parseUserIdOrZero(userId)),
       clock: Clock.system,
-    )..onRead = notifications.cancelChat;
+    )
+      ..onRead = notifications.cancelChat
+      ..crypto = crypto;
     await rebuildInboundReceiverForUser(userId, adoptGroups: adoptGroups);
     // A push wake has seconds; the foreground publishes.
     if (adoptGroups) unawaited(publishKeys());
@@ -221,6 +236,8 @@ class AppServices {
     final userId = _userId!;
     this.store = null;
     cryptoRecords = null;
+    final crypto = this.crypto;
+    this.crypto = null;
     _userId = null;
     // Frames still arriving on this session's socket are this account's;
     // the next login starts it again.
@@ -232,6 +249,7 @@ class AppServices {
     await receiver?.stop();
     await scheduler?.stop();
     scheduler = null;
+    await crypto?.close();
     await store.close();
     if (erase) await deleteAccountDb(dbDir, userId);
   }
@@ -288,6 +306,10 @@ class AppServices {
         final json = await authClient.getChannel(channelId);
         return json == null ? null : groupRosterFromJson(json);
       },
+      open: (env) => openPayload(crypto, env),
+      applied: (env) async {
+        if (isDmChannelId(env.channelId)) await crypto?.applied(env);
+      },
     );
     await next.start();
     inboundReceiver = next;
@@ -299,6 +321,29 @@ class AppServices {
     // notifies (the WS stays up while the app is in the background).
     notifications.bindSource(next.peerMessagesStored);
   }
+}
+
+/// Decision 188: a DM op's payload sealed for its peer, the sealed bytes
+/// kept on its row in the ratchet's transaction.
+/// ponytail: group ops go as they are until Sender Keys land (step C of
+/// V3_RELEASE_PLAN §10); `e2ee/prelaunch` merges to v3.0 only after that.
+Future<List<int>> sealOp(E2eeCrypto crypto, OutboundOpRow op, String? peer) async {
+  if (peer == null) return op.payload;
+  return (await crypto.sealDm(
+    opId: op.opId,
+    channelId: op.resourceId,
+    peer: peer,
+    payload: Uint8List.fromList(op.payload),
+    persist: (txn, sealed) => ChatStore.storeSealedPayload(txn, op.opId, sealed),
+  ))!;
+}
+
+/// The ChatPayload bytes of an inbound client envelope (decision 188):
+/// a DM's opened, a group's (until step C) as they came.
+Future<List<int>> openPayload(E2eeCrypto? crypto, pb.Envelope env) async {
+  if (!isDmChannelId(env.channelId)) return env.payload;
+  if (crypto == null) throw StateError('No crypto for an encrypted DM');
+  return crypto.open(env);
 }
 
 /// Where a fresh account database's pull pointer starts (an existing

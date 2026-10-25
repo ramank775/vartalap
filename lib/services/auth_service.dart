@@ -13,7 +13,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
-import 'e2ee.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'e2ee_account.dart';
 
 /// Secure-storage keys per AUTH_CONTRACT §14.1.

@@ -55,6 +55,8 @@ dependencies:
     path: packages/vartalap_transport
   vartalap_sync:
     path: packages/vartalap_sync
+  vartalap_crypto:
+    path: packages/vartalap_crypto
   intl: ^0.20.2
   unifiedpush: ^6.2.0
   flutter_local_notifications: ^22.3.1

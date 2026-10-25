@@ -25,11 +25,13 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:vartalap/main.dart' show freshSyncPointer, pullPendingPages;
+import 'package:vartalap/main.dart'
+    show freshSyncPointer, openPayload, pullPendingPages, sealOp;
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/push_service.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -290,7 +292,8 @@ void main() {
     });
 
     // ---- 3 --------------------------------------------------------------
-    test('3. send text → ACK_SUCCESS → message_state=sent, payload is proto',
+    test('3. send text → ACK_SUCCESS → message_state=sent, the wire carries '
+        'only ciphertext and the peer opens the proto',
         () async {
       // Nothing to reconcile: there is no server-side DM row to line up
       // with, and the derivation check the server runs instead needs
@@ -314,14 +317,22 @@ void main() {
         reason: 'SYNC_PROTOCOL §5.2: the message must reach the server as a '
             'WS_OP envelope.',
       );
+      final wire = envs.last.payload;
       expect(
-        _decodesAsChatPayload(envs.last.payload),
-        isTrue,
-        reason: 'SYNC_PROTOCOL §6a.1 + docs/proto/v3-chat-payload.proto: '
-            'Envelope.payload is a ChatPayload protobuf (or a 0x53-prefixed '
-            'ServerEventPayload, §10.2). ChatService._encodeChatPayload ships '
-            'JSON instead: ${_preview(envs.last.payload)}. Server answered '
+        [wire.first, _contains(wire, utf8.encode('hello from golden path'))],
+        [kSealedMarker, isFalse],
+        reason: 'Decision 188: a client payload is sealed (0x45 marker), never '
+            'readable on the wire: ${_preview(wire)}. Server answered '
             '"${envs.last.rejectReason}".',
+      );
+      await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          body: 'hello from golden path'));
+      expect(
+        h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+            body: 'hello from golden path'),
+        isTrue,
+        reason: 'SYNC_PROTOCOL §6a.1: inside the ciphertext the peer finds a '
+            'ChatPayload protobuf.',
       );
     });
 
@@ -369,7 +380,7 @@ void main() {
       addTearDown(sub.cancel);
       await _pump();
 
-      final injected = h.mock.injectPeerMessage(
+      final injected = await h.mock.injectPeerMessage(
         channelId: dmChannel,
         body: 'ping from the peer',
       );
@@ -497,7 +508,7 @@ void main() {
         // announcement it will never get and materializes the channel
         // from the first frame that lands on the derived id.
         final strangerDmChannel = dmChannelId(userIdA, stranger.userId);
-        h.mock.injectPeerMessage(
+        await h.mock.injectPeerMessage(
           channelId: strangerDmChannel,
           body: 'hi, found you via search',
           senderUserId: stranger.userId,
@@ -579,10 +590,9 @@ void main() {
 
       await h.waitFor(() => h.mock.envelopes.any((e) =>
           e.channelId == dmChannel &&
-          _payloadType(e.payload) ==
-              pb.ChatPayloadType.TYPE_REACTION_ADD));
+          _openedType(h, e) == pb.ChatPayloadType.TYPE_REACTION_ADD));
       final sent = h.mock.envelopes.lastWhere((e) =>
-          _payloadType(e.payload) == pb.ChatPayloadType.TYPE_REACTION_ADD);
+          _openedType(h, e) == pb.ChatPayloadType.TYPE_REACTION_ADD);
       expect(
         sent.rejectReason,
         isNull,
@@ -601,7 +611,7 @@ void main() {
       );
 
       // …and the reverse direction.
-      h.mock.injectPeerReaction(
+      await h.mock.injectPeerReaction(
         channelId: dmChannel,
         messageId: peerMessageId,
         emoji: '\u{2764}\u{FE0F}',
@@ -677,7 +687,7 @@ void main() {
       );
 
       // Inbound edit of the peer's own message (§6a.3 authorship holds).
-      h.mock.injectPeerEdit(
+      await h.mock.injectPeerEdit(
         channelId: dmChannel,
         messageId: peerMessageId,
         body: 'ping from the peer (fixed)',
@@ -753,7 +763,7 @@ void main() {
       expect((await h.store.fetchMessage(gone.messageId))?.tombstoned, isTrue);
 
       // Inbound delete of the peer's own message.
-      h.mock.injectPeerDelete(
+      await h.mock.injectPeerDelete(
         channelId: dmChannel,
         messageId: peerMessageId,
       );
@@ -831,7 +841,7 @@ void main() {
 
       // Step 7d tombstoned the only peer message, so seed a live one —
       // markRead's marker is the newest NON-tombstoned peer message.
-      final unread = h.mock.injectPeerMessage(
+      final unread = await h.mock.injectPeerMessage(
         channelId: dmChannel,
         body: 'read this',
       );
@@ -879,7 +889,7 @@ void main() {
       // one the marker names.
       final older = await h.sendAndSettle(dmChannel, 'read me 1');
       final newer = await h.sendAndSettle(dmChannel, 'read me 2');
-      h.mock.injectPeerReadReceipt(
+      await h.mock.injectPeerReadReceipt(
         channelId: dmChannel,
         messageId: newer!.messageId,
       );
@@ -901,7 +911,7 @@ void main() {
       // a read message back.
       final d1 = await h.sendAndSettle(dmChannel, 'deliver me 1');
       final d2 = await h.sendAndSettle(dmChannel, 'deliver me 2');
-      h.mock.injectPeerDeliveryReceipt(
+      await h.mock.injectPeerDeliveryReceipt(
         channelId: dmChannel,
         messageId: d2!.messageId,
       );
@@ -922,8 +932,13 @@ void main() {
       // Outbound typing: an ephemeral ChatPayload, never a 0x53 forgery.
       h.chat.notifyTyping(channelId: dmChannel, isTyping: true);
       await h.waitFor(() => h.mock.ephemeralEnvelopes.isNotEmpty);
-      final typed = pb.ChatPayload.fromBuffer(
-          h.mock.ephemeralEnvelopes.last.payload);
+      expect(h.mock.ephemeralEnvelopes.last.payload.first, kSealedMarker,
+          reason: 'Decision 188: typing is end-to-end encrypted too.');
+      await h.waitFor(() => h.mock.peerOpened
+          .any((o) => o.userId == peerUserId && o.env.ephemeral));
+      final typed = pb.ChatPayload.fromBuffer(h.mock.peerOpened
+          .lastWhere((o) => o.userId == peerUserId && o.env.ephemeral)
+          .payload);
       expect(
         [typed.type, typed.isTyping],
         [pb.ChatPayloadType.TYPE_TYPING, true],
@@ -936,7 +951,7 @@ void main() {
       final typingSub = h.chat.typingEvents.listen(typings.add);
       addTearDown(typingSub.cancel);
       await _pump();
-      h.mock.injectPeerTyping(channelId: dmChannel, isTyping: true);
+      await h.mock.injectPeerTyping(channelId: dmChannel, isTyping: true);
       await h.waitFor(() =>
           typings.any((t) => t.channelId == dmChannel && t.isTyping));
       expect(
@@ -983,14 +998,14 @@ void main() {
       final edited = 'golden-early-edit-$t';
       final deleted = 'golden-early-delete-$t';
       final reacted = 'golden-early-react-$t';
-      h.mock.injectPeerEdit(
+      await h.mock.injectPeerEdit(
           channelId: dmChannel,
           messageId: edited,
           body: 'edited before it arrived',
           serverTimestampMs: t + 2);
-      h.mock.injectPeerDelete(
+      await h.mock.injectPeerDelete(
           channelId: dmChannel, messageId: deleted, serverTimestampMs: t + 4);
-      h.mock.injectPeerReaction(
+      await h.mock.injectPeerReaction(
           channelId: dmChannel,
           messageId: reacted,
           emoji: '\u{1F525}',
@@ -1004,7 +1019,7 @@ void main() {
               'dropped.');
 
       for (final (id, ts) in [(edited, t + 1), (deleted, t + 3), (reacted, t + 5)]) {
-        h.mock.injectPeerMessage(
+        await h.mock.injectPeerMessage(
             channelId: dmChannel,
             body: 'original $id',
             messageId: id,
@@ -1592,7 +1607,7 @@ void main() {
       final channelId = dmChannelId(selfId, peerUserId);
       // Caught up: from here on the socket's frames are all there is.
       await h.pullPendingSync();
-      final sent = h.mock
+      final sent = await h.mock
           .injectPeerMessage(channelId: channelId, body: 'live and stored');
       final stamp = h.mock.messageStamps[sent.messageId]!;
 
@@ -1623,7 +1638,7 @@ void main() {
       await receiver.stop();
       final arrived = <String>[];
       final sub = h.ws.pushes.listen((env) => arrived.add(env.opId));
-      final sent = h.mock
+      final sent = await h.mock
           .injectPeerMessage(channelId: channelId, body: 'lost in transit');
       await h.waitFor(() => arrived.contains(sent.opId));
       await sub.cancel();
@@ -1651,9 +1666,9 @@ void main() {
       final receiver = h.inbound!;
       h.inbound = null;
       await receiver.stop();
-      h.mock.injectPeerMessage(
+      await h.mock.injectPeerMessage(
           channelId: channelId, body: 'gone in a second', ttlSec: 1);
-      h.mock.injectPeerMessage(channelId: channelId, body: 'kept a month');
+      await h.mock.injectPeerMessage(channelId: channelId, body: 'kept a month');
       // Real time on purpose: the mock reads its own clock, as the
       // server does.
       await Future<void>.delayed(const Duration(milliseconds: 1200));
@@ -1680,7 +1695,7 @@ void main() {
       // Offline, so only a pull can bring it.
       await h.ws.stop();
       final before = await h.store.syncPointer();
-      final sent = h.mock
+      final sent = await h.mock
           .injectPeerMessage(channelId: channelId, body: 'needs its group');
 
       h.failGroupFetch = true;
@@ -1703,12 +1718,12 @@ void main() {
       final selfId = h.authService.currentUserId!;
       final channelId = dmChannelId(selfId, peerUserId);
       final first =
-          h.mock.injectPeerMessage(channelId: channelId, body: 'same ms one');
+          await h.mock.injectPeerMessage(channelId: channelId, body: 'same ms one');
       final stamp = h.mock.messageStamps[first.messageId]!;
       await h.pullPendingSync();
       expect(await h.store.syncPointer(), stamp);
 
-      h.mock.injectPeerMessage(
+      await h.mock.injectPeerMessage(
         channelId: channelId,
         body: 'same ms two',
         serverTimestampMs: stamp,
@@ -1728,7 +1743,7 @@ void main() {
       final channelId = dmChannelId(selfId, peerUserId);
       late ({String messageId, String opId}) last;
       for (var i = 0; i < 520; i++) {
-        last = h.mock.injectPeerMessage(channelId: channelId, body: 'bulk $i');
+        last = await h.mock.injectPeerMessage(channelId: channelId, body: 'bulk $i');
       }
 
       expect(await h.pullPendingSync(), greaterThan(500),
@@ -1840,6 +1855,8 @@ class _Harness {
   late ChatStore store;
   late SyncScheduler scheduler;
   late ChatService chat;
+  E2eeRecordStore? records;
+  E2eeCrypto? crypto;
   InboundReceiver? inbound;
   late final StreamSubscription<TransportState> _wsStateSub;
 
@@ -1883,6 +1900,10 @@ class _Harness {
     // closes at logout.
     authService.onLogin = h.openAccount;
     authService.onLogout = h.closeAccount;
+    // main.dart App.initState: keys go up once the username lands.
+    authService.usernameChange.listen((u) {
+      if (u != null) unawaited(h.publishKeys());
+    });
     // main.dart App.initState: re-pull on every WS reconnect.
     h._wsStateSub = ws.state.listen((s) {
       if (s == TransportState.connected) unawaited(h.pullPendingSync());
@@ -1903,14 +1924,27 @@ class _Harness {
     _keepers[uri] ??= await databaseFactoryFfi.openDatabase(uri,
         options: OpenDatabaseOptions(singleInstance: false));
     store = await ChatStore.open(path: uri);
+    final records = this.records =
+        await authService.openCryptoRecords(store.db, userId);
     await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
+    final crypto = this.crypto = E2eeCrypto(
+      db: store.db,
+      records: records,
+      selfUserId: userId,
+      selfDeviceId: authClient.deviceId!,
+      directory: authClient.getDeviceKeys,
+      claim: (user, device, generation) => authClient.claimDeviceKeys(user,
+          deviceId: device, generation: generation),
+    );
     scheduler = SyncScheduler(
       store: store,
       wsTransport: ws,
       restTransport: rest,
       backoff: const FixedBackoff(Duration(milliseconds: 50)),
       clock: Clock.system,
-    )..selfUserId = userId;
+    )
+      ..selfUserId = userId
+      ..seal = (op, peer) => sealOp(crypto, op, peer);
     await scheduler.start();
     chat = ChatService(
       store: store,
@@ -1919,8 +1953,17 @@ class _Harness {
       wsTransport: ws,
       uuidGen: Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(userId)),
       clock: Clock.system,
-    );
+    )..crypto = crypto;
     await rebuildInboundReceiverForUser(userId);
+    if (authService.username != null) await publishKeys();
+  }
+
+  /// AppServices.publishKeys: best effort, a logout may close the store
+  /// under it.
+  Future<void> publishKeys() async {
+    try {
+      await ensureKeysPublished(store.db, records!, authClient);
+    } catch (_) {}
   }
 
   /// AppServices.closeAccount.
@@ -1933,6 +1976,8 @@ class _Harness {
     chat.bindDeliverySource(null);
     await prev?.stop();
     await scheduler.stop();
+    await crypto?.close();
+    crypto = null;
     await store.close();
   }
 
@@ -1976,6 +2021,10 @@ class _Harness {
         if (failGroupFetch) throw const SocketException('offline');
         final json = await authClient.getChannel(channelId);
         return json == null ? null : groupRosterFromJson(json);
+      },
+      open: (env) => openPayload(crypto, env),
+      applied: (env) async {
+        if (isDmChannelId(env.channelId)) await crypto?.applied(env);
       },
     );
     await next.start();
@@ -2061,22 +2110,26 @@ class _Harness {
         (body == null || p.body == body));
   }
 
+  /// What the seed peer's phone opened (decision 188: the wire carries
+  /// only ciphertext), since the last call.
   List<pb.ChatPayload> peerInbox() {
     final out = <pb.ChatPayload>[];
-    for (final frame in mock.state.newFramesFor(peerUserId)) {
+    final opened = mock.peerOpened;
+    for (final o in opened.skip(_peerRead)) {
+      if (o.userId != peerUserId || o.env.ephemeral) continue;
+      if (o.payload.isEmpty || o.payload[0] == 0x53) continue;
       try {
-        final env = pb.WsEnvelope.fromBuffer(frame);
-        if (env.type != pb.WsType.WS_PUSH) continue;
-        final payload = env.push.payload;
-        if (payload.isEmpty || payload[0] == 0x53) continue;
-        out.add(pb.ChatPayload.fromBuffer(payload));
+        out.add(pb.ChatPayload.fromBuffer(o.payload));
       } catch (_) {
         // Not a chat payload — not our business here.
       }
     }
+    _peerRead = opened.length;
     peerInboxSeen.addAll(out);
     return out;
   }
+
+  int _peerRead = 0;
 
   /// The role [userId] holds in [channelId], or null when there is no
   /// active membership row.
@@ -2188,26 +2241,29 @@ Future<ContactProfile?> _resolveContactProfile(
   );
 }
 
-/// The ChatPayload type of an envelope payload, or null when the bytes
-/// are a §10.2 server event / not a ChatPayload at all.
-pb.ChatPayloadType? _payloadType(List<int> payload) {
-  if (payload.isEmpty || payload[0] == 0x53) return null;
-  try {
-    return pb.ChatPayload.fromBuffer(payload).type;
-  } catch (_) {
-    return null;
+/// The ChatPayload type inside [e], as the seed peer's phone opened it:
+/// the wire carries only ciphertext (decision 188).
+pb.ChatPayloadType? _openedType(_Harness h, RecordedEnvelope e) {
+  for (final o in h.mock.peerOpened) {
+    if (o.env.opId != e.opId) continue;
+    try {
+      return pb.ChatPayload.fromBuffer(o.payload).type;
+    } catch (_) {
+      return null;
+    }
   }
+  return null;
 }
 
-bool _decodesAsChatPayload(List<int> payload) {
-  if (payload.isEmpty) return false;
-  if (payload[0] == 0x53) return true; // §10.2 server event
-  try {
-    return pb.ChatPayload.fromBuffer(payload).type !=
-        pb.ChatPayloadType.TYPE_UNSPECIFIED;
-  } catch (_) {
-    return false;
+bool _contains(List<int> haystack, List<int> needle) {
+  for (var i = 0; i + needle.length <= haystack.length; i++) {
+    var same = true;
+    for (var j = 0; j < needle.length && same; j++) {
+      same = haystack[i + j] == needle[j];
+    }
+    if (same) return true;
   }
+  return false;
 }
 
 String _preview(List<int> payload) {

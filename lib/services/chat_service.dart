@@ -21,6 +21,7 @@ import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -97,6 +98,9 @@ Uint8List _encodeReceipt(
     ).writeToBuffer();
 
 class ChatService {
+  /// Seals DM typing indicators (decision 188). Set by `main.dart`.
+  E2eeCrypto? crypto;
+
   final ChatStore _store;
   final SyncScheduler _scheduler;
   final AuthClient _authClient;
@@ -493,16 +497,29 @@ class ChatService {
     // Trim 4: a DM has no channel row for the server to check the
     // sender against, so even a typing frame names its peer. The
     // lookup is async; the call stays fire-and-forget.
-    unawaited(_store.dmPeer(channelId, localUserId).then((peer) {
+    // Encrypted like everything else, but never worth claiming keys
+    // for: without a session yet, the indicator is simply not sent.
+    unawaited(_store.dmPeer(channelId, localUserId).then((peer) async {
       if (peer == null) return;
+      final crypto = this.crypto;
+      final sealed = crypto == null
+          ? payload
+          : await crypto.sealDm(
+              opId: opId,
+              channelId: channelId,
+              peer: peer,
+              payload: payload,
+              ephemeral: true,
+              onlyIfSession: true);
+      if (sealed == null) return;
       _wsTransport.sendEphemeral(
         opId: opId,
         channelId: channelId,
-        payload: payload,
+        payload: sealed,
         clientTimestampMs: now,
         peer: peer,
       );
-    }));
+    }).catchError((Object _) {}));
   }
 
   /// Discover contacts from the server and cache locally.

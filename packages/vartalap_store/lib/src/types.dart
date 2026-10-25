@@ -138,6 +138,10 @@ class OutboundOpRow {
   final String? targetMessageId;
   final String? targetChannelId;
 
+  /// The end-to-end encrypted bytes a WS op goes out as, once sealed
+  /// (decision 188); every retry resends exactly these.
+  final List<int>? sealedPayload;
+
   const OutboundOpRow({
     required this.opId,
     required this.transport,
@@ -155,6 +159,7 @@ class OutboundOpRow {
     required this.createdAt,
     required this.targetMessageId,
     required this.targetChannelId,
+    this.sealedPayload,
   });
 }
 

@@ -103,6 +103,15 @@ class InboundReceiver {
   /// reason as [resolveProfile]; `null` drops such frames as before.
   final Future<GroupRoster?> Function(String channelId)? resolveGroup;
 
+  /// End-to-end encryption (decision 188): the ChatPayload bytes sealed in
+  /// a client envelope. Throws when they will not open, so the frame is not
+  /// handled and the pull pointer stays before it. Unset: payloads are
+  /// read as they are.
+  final Future<List<int>> Function(pb.Envelope env)? open;
+
+  /// After a stored op applied, so [open] can drop what it staged for it.
+  final Future<void> Function(pb.Envelope env)? applied;
+
   StreamSubscription<pb.Envelope>? _sub;
   bool _running = false;
 
@@ -174,6 +183,8 @@ class InboundReceiver {
     this.clock = Clock.system,
     this.resolveProfile,
     this.resolveGroup,
+    this.open,
+    this.applied,
   });
 
   /// Subscribe to inbound pushes. Idempotent — re-calling after [stop]
@@ -316,7 +327,7 @@ class InboundReceiver {
     // op_id_seen table, and projection writes entirely. Decode and emit
     // on the side-channel.
     if (env.ephemeral) {
-      _handleEphemeral(env, payload);
+      await _handleEphemeral(env, payload);
       return;
     }
 
@@ -360,9 +371,12 @@ class InboundReceiver {
       return;
     }
 
+    final open = this.open;
+    final plain = open == null ? payload : await open(env);
+    if (!_running) return;
     pb.ChatPayload chat;
     try {
-      chat = pb.ChatPayload.fromBuffer(payload);
+      chat = pb.ChatPayload.fromBuffer(plain);
     } catch (e) {
       // ignore: avoid_print
       print(
@@ -472,7 +486,10 @@ class InboundReceiver {
           'InboundReceiver: unknown ChatPayloadType=${chat.type} '
           'channel=$channelId op_id=$opId',
         );
+        // Kept staged: the re-fanout opens from there, not the ratchet.
+        return;
     }
+    await applied?.call(env);
   }
 
   /// §10.2 dispatcher. Decodes the proto-bytes-without-distinguisher
@@ -522,7 +539,7 @@ class InboundReceiver {
   /// server-authored `ServerEventPayload{Typing}` is still accepted in
   /// case the gateway ever emits one. Anything else is a no-op
   /// (forward-compat for future presence / reaction bursts).
-  void _handleEphemeral(pb.Envelope env, List<int> payload) {
+  Future<void> _handleEphemeral(pb.Envelope env, List<int> payload) async {
     final bool? isTyping;
     try {
       if (payload[0] == 0x53) {
@@ -531,7 +548,10 @@ class InboundReceiver {
             ? sep.typing.isTyping
             : null;
       } else {
-        final chat = pb.ChatPayload.fromBuffer(payload);
+        // Lossy: one that will not open is dropped like a malformed one.
+        final open = this.open;
+        final plain = open == null ? payload : await open(env);
+        final chat = pb.ChatPayload.fromBuffer(plain);
         isTyping = chat.type == pb.ChatPayloadType.TYPE_TYPING
             ? chat.isTyping
             : null;

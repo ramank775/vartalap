@@ -4,8 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:vartalap/services/e2ee.dart';
-import 'package:vartalap/services/signal_store.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 /// One phone: its own in-memory account database and crypto records.

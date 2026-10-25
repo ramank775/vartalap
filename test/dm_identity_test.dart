@@ -193,7 +193,7 @@ void main() {
     final messageId = (await b.store.fetchChannelMessages(channelId))
         .single
         .messageId;
-    mock.injectPeerMessage(
+    await mock.injectPeerMessage(
       channelId: channelId,
       body: 'only once',
       senderUserId: a.userId,

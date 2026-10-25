@@ -62,6 +62,10 @@ class AuthClient implements AuthTokenProvider {
     _deviceId = deviceId;
   }
 
+  /// This installation's stable id; the server stamps it as
+  /// `sender_device_id` and keys this phone's E2EE keys by it.
+  String? get deviceId => _deviceId;
+
   /// Drops in-memory session state. Caller is responsible for clearing
   /// `flutter_secure_storage` and the local store.
   void clearSession() {

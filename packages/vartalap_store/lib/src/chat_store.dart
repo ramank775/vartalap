@@ -138,6 +138,15 @@ class ChatStore {
               await db.execute(stmt);
             }
           }
+          // A table [ddl] has yet to create gets the column from it.
+          if (from < 5 &&
+              (await db.query('sqlite_master',
+                      where: "type = 'table' AND name = 'outbound_ops'"))
+                  .isNotEmpty) {
+            for (final stmt in migrateV4ToV5) {
+              await db.execute(stmt);
+            }
+          }
           for (final stmt in ddl) {
             await db.execute(stmt);
           }
@@ -2665,7 +2674,18 @@ class ChatStore {
         'created_at': o.createdAt,
         'target_message_id': o.targetMessageId,
         'target_channel_id': o.targetChannelId,
+        'sealed_payload': o.sealedPayload == null
+            ? null
+            : Uint8List.fromList(o.sealedPayload!),
       };
+
+  /// Keep the end-to-end encrypted bytes of [opId] (decision 188). Called
+  /// inside the ratchet's own transaction, so the session never moves on
+  /// without the row holding what it produced.
+  static Future<void> storeSealedPayload(
+          DatabaseExecutor txn, String opId, List<int> sealed) =>
+      txn.update('outbound_ops', {'sealed_payload': Uint8List.fromList(sealed)},
+          where: 'op_id = ?', whereArgs: [opId]);
 
   static OutboundOpRow _rowToOutboundOp(Map<String, Object?> r) => OutboundOpRow(
         opId: r['op_id'] as String,
@@ -2684,5 +2704,6 @@ class ChatStore {
         createdAt: r['created_at'] as int,
         targetMessageId: r['target_message_id'] as String?,
         targetChannelId: r['target_channel_id'] as String?,
+        sealedPayload: r['sealed_payload'] as List<int>?,
       );
 }

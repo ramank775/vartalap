@@ -1,0 +1,19 @@
+name: vartalap_crypto
+description: End-to-end encryption for Vartalap v3 (Signal sessions over encrypted local records).
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  libsignal_protocol_dart: 0.8.2
+  pointycastle: ^4.0.0
+  sqflite_common_ffi: ^2.3.0
+  vartalap_proto:
+    path: ../vartalap_proto
+  vartalap_transport:
+    path: ../vartalap_transport
+
+dev_dependencies:
+  lints: ^6.0.0

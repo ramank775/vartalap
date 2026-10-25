@@ -162,6 +162,40 @@ void main() {
     expect(starred.single.message.starredAtMs, 42);
   });
 
+  test('a v4 database migrates to v5: queued ops keep their payload and gain '
+      'a sealed_payload (decision 188)', () async {
+    final dir = await Directory.systemTemp.createTemp('vartalap_v4');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/v4.db';
+    sqfliteFfiInit();
+    final v4 = await databaseFactoryFfi.openDatabase(path,
+        options: OpenDatabaseOptions(
+          version: 4,
+          onCreate: (db, _) => db.execute(_v4OutboundOps),
+        ));
+    await v4.insert('outbound_ops', {
+      'op_id': 'op-1',
+      'transport': 'ws',
+      'kind': 'chat_payload',
+      'resource_id': 'd1',
+      'payload': Uint8List.fromList([8, 1]),
+      'status': 'pending',
+      'next_retry_at': 0,
+      'created_at': 0,
+    });
+    await v4.close();
+
+    final store = await ChatStore.open(path: path);
+    addTearDown(store.close);
+    expect((await store.fetchOutboundOp('op-1'))!.sealedPayload, isNull);
+    await ChatStore.storeSealedPayload(store.db, 'op-1', [0x45, 1, 2, 3]);
+    final op = (await store.fetchOutboundOp('op-1'))!;
+    expect([op.payload, op.sealedPayload], [
+      [8, 1],
+      [0x45, 1, 2, 3]
+    ]);
+  });
+
   test('the sync pointer starts where it is first put, never moves back, '
       'and lives with the database file', () async {
     final dir = await Directory.systemTemp.createTemp('vartalap_pointer');
@@ -301,5 +335,18 @@ const _v3Messages = '''
     is_edited INTEGER NOT NULL DEFAULT 0, last_edit_ms INTEGER,
     tombstoned INTEGER NOT NULL DEFAULT 0, tombstone_pending_until INTEGER,
     rollback_body TEXT
+  )
+''';
+
+/// The v4 `outbound_ops` table: before `sealed_payload`.
+const _v4OutboundOps = '''
+  CREATE TABLE outbound_ops (
+    op_id TEXT PRIMARY KEY, transport TEXT NOT NULL, kind TEXT NOT NULL,
+    rest_method TEXT, rest_path TEXT, resource_id TEXT NOT NULL,
+    payload BLOB NOT NULL, status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0, next_retry_at INTEGER NOT NULL,
+    dispatched_at INTEGER, last_error TEXT, acknowledged_at INTEGER,
+    created_at INTEGER NOT NULL, target_message_id TEXT,
+    target_channel_id TEXT
   )
 ''';

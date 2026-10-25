@@ -5,7 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:vartalap/services/e2ee.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap/services/e2ee_account.dart';
 
 import '../fake_unified_push.dart';
