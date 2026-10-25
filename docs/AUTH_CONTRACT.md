@@ -749,9 +749,9 @@ is exempt from that gate, since it is the only way to satisfy it.
 
 **`POST /v3.0/users/username/check`** is the pre-claim availability
 check the client's inline indicator uses; it is exempt from the
-§2.4 gate for the same reason as this endpoint. Its full wire shape
-is tracked in `docs/V3_TODOS.md` ("Username uniqueness + rate
-limit") pending promotion into this contract.
+§2.4 gate for the same reason as this endpoint. Body `{username}`;
+response `200 {available, reason?}`, `reason` being `taken`,
+`reserved` or `invalid` when `available` is false.
 
 **Success response `200 OK`:** the updated profile (same shape as
 §4.4; `usernameKey` itself is never echoed, per its write
