@@ -14,6 +14,3 @@ dependencies:
     path: ../vartalap_proto
   vartalap_transport:
     path: ../vartalap_transport
-
-dev_dependencies:
-  lints: ^6.0.0
