@@ -281,6 +281,19 @@ void main() {
     });
   });
 
+  test('both phones show the same safety number; a new phone changes it '
+      '(184)', () async {
+    expect(await alice.crypto.safetyNumber(bob.userId), isNull,
+        reason: 'nothing pinned before a message');
+    await bob.open(await alice.send(bob, 'hi'));
+    final mine = await alice.crypto.safetyNumber(bob.userId);
+    expect(mine, matches(RegExp(r'^\d{60}$')));
+    expect(await bob.crypto.safetyNumber(alice.userId), mine);
+    final newPhone = await _Phone.enrolled('a11ce0001', 'phone-a2', directory);
+    await bob.open(await newPhone.send(bob, 'new phone', opId: 'op-7'));
+    expect(await bob.crypto.safetyNumber(alice.userId), isNot(mine));
+  });
+
   test('a contact on a new phone is reached there and reported once (184)',
       () async {
     await bob.open(await alice.send(bob, 'old phone'));

@@ -65,5 +65,8 @@ String groupEventText(
     GroupEventKind.photo => (event.text ?? '').isEmpty
         ? "$actor deleted this group's icon"
         : "$actor changed this group's icon",
+    GroupEventKind.securityCode =>
+      "${who(event.users.firstOrNull ?? actorUserId, first: true)}'s security "
+          'code changed',
   };
 }

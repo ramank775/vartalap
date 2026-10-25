@@ -17,6 +17,7 @@ library vartalap.screens.chat_info;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/chat_info/security_code.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/services/asset_cache.dart';
@@ -310,6 +311,18 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   await _reloadChannel();
                 },
               ),
+              if (!_isGroup && peer!.userId.isNotEmpty)
+                _InfoTile(
+                  icon: Icons.lock_outline,
+                  title: 'Encryption',
+                  subtitle: 'Messages are end-to-end encrypted. Tap to verify.',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => SecurityCodeScreen(
+                      name: peer.contact?.displayLabel ?? _name,
+                      number: widget.chatService.safetyNumber(peer.userId),
+                    ),
+                  )),
+                ),
               if (_isGroup) ...[
                 const Divider(),
                 _MembersSection(

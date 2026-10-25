@@ -30,7 +30,24 @@ class MessageCrypto {
     required this.ws,
     required this.selfUserId,
     this.clock = Clock.system,
-  }) : _opIds = Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(selfUserId));
+  }) : _opIds = Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(selfUserId)) {
+    crypto.identityChanges.listen(_noteSecurityCode);
+  }
+
+  /// Decision 184, WhatsApp style: a contact's new key is accepted and
+  /// every chat with them says so.
+  Future<void> _noteSecurityCode(String userId) async {
+    final now = clock.nowMs();
+    for (final chat in await store.fetchMemberChannels(userId: userId)) {
+      await store.insertGroupEvent(
+        channelId: chat.channelId,
+        messageId: 'sc-$userId-$now',
+        actorUserId: userId,
+        event: GroupEvent(GroupEventKind.securityCode, users: [userId]),
+        atMs: now,
+      );
+    }
+  }
 
   /// Wakes the scheduler for an op this queued (a re-send or its request).
   void Function()? tick;

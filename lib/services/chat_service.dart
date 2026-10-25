@@ -104,6 +104,11 @@ class ChatService {
   /// Seals typing indicators (decision 188). Set by `main.dart`.
   MessageCrypto? crypto;
 
+  /// The safety number to compare with [peerUserId] (decision 184), null
+  /// until a message has gone between the two phones.
+  Future<String?> safetyNumber(String peerUserId) async =>
+      crypto?.crypto.safetyNumber(peerUserId);
+
   final ChatStore _store;
   final SyncScheduler _scheduler;
   final AuthClient _authClient;

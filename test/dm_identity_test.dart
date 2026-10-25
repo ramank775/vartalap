@@ -616,6 +616,11 @@ void main() {
     expect(waiting, isEmpty, reason: 'the re-send took the placeholder\'s place');
     expect(changed, contains(b.userId),
         reason: 'decision 184: A sees that B\'s security code changed');
+    final notices = (await a.store.fetchChannelMessages(channelId))
+        .where((m) => m.contentType == kGroupEventType)
+        .map((m) => GroupEvent.parse(m.body)?.kind);
+    expect(notices, contains(GroupEventKind.securityCode),
+        reason: 'and says so in the chat, WhatsApp style');
   });
 }
 

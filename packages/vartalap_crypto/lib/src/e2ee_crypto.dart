@@ -428,6 +428,23 @@ class E2eeCrypto {
         });
       });
 
+  /// The 60-digit safety number for this phone and [peerUserId] (Signal's
+  /// numeric fingerprint over both identity keys): the same on both
+  /// phones, so two people can compare. Null before any message has
+  /// pinned the peer's key.
+  Future<String?> safetyNumber(String peerUserId) async {
+    final stores = SignalStores(_records);
+    final remote =
+        await stores.getIdentity(SignalProtocolAddress(peerUserId, 1));
+    if (remote == null) return null;
+    final local = (await stores.getIdentityKeyPair()).getPublicKey();
+    return NumericFingerprintGenerator(5200)
+        .createFor(2, Uint8List.fromList(utf8.encode(selfUserId)), local,
+            Uint8List.fromList(utf8.encode(peerUserId)), remote)
+        .displayableFingerprint
+        .getDisplayText();
+  }
+
   /// [userId]'s phone could not open what this one sent: start a fresh
   /// session with [deviceId] (its current phone) on the next send.
   Future<void> resetSession(String userId, String deviceId) =>
