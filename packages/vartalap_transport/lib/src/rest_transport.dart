@@ -292,7 +292,9 @@ AckOutcome classifyHttpStatus(int status, {String? reason}) {
     return const AckSuccess();
   }
   if (status == 401) return const AckAuthFailure();
-  if (status == 502 || status == 503 || status == 504) {
+  // 426: this build is refused (decision 192). The op waits for the
+  // updated app instead of failing.
+  if (status == 426 || status == 502 || status == 503 || status == 504) {
     return AckTransientReject(reason: reason);
   }
   if (status >= 400 && status < 500) {

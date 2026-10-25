@@ -1237,6 +1237,7 @@ class ChatService {
     final client = AssetClient(
       baseUrl: _authClient.baseUrl,
       auth: _authClient,
+      httpClient: _authClient.httpClient,
     );
     assets = AssetCache(client: client);
     AssetCache.instance = assets;

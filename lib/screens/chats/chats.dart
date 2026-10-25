@@ -22,6 +22,7 @@ import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/screens/starred/starred.dart';
+import 'package:vartalap/screens/update/app_update.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -128,53 +129,56 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     ? _searchBar()
                     : _buildDefaultAppBar(
                         context, wsTransport, chatColors, channels),
-            body: Builder(builder: (context) {
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
-              }
-              if (_searchOpen) {
-                return _searchResults(channels, chatColors, localUserId);
-              }
-              if (channels.isEmpty) {
-                return const _EmptyChats();
-              }
-              // The search bar and chips scroll away with the rows.
-              return CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(child: _header()),
-                  if (rows.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: _noneInFilter(),
-                    )
-                  else
-                    SliverList.separated(
-                      itemCount: rows.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (ctx, i) {
-                        final entry = rows[i];
-                        return ChannelTile(
-                          entry: entry,
-                          chatColors: chatColors,
-                          displayName: entry.title,
-                          senderPrefix: _senderPrefix(entry, localUserId),
-                          eventText: _eventText(entry, localUserId),
-                          selected: _selectedIds.contains(entry.channelId),
-                          // While selecting, a tap adds or removes a chat.
-                          onTap: selected.isEmpty
-                              ? () => _openChat(context, entry)
-                              : () => _toggleSelected(entry),
-                          onLongPress: () => _toggleSelected(entry),
-                        );
-                      },
-                    ),
-                ],
-              );
-            }),
+            body: Column(children: [
+              AppUpdateBanner(appBuild: widget.config.appBuild),
+              Expanded(child: Builder(builder: (context) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
+                if (_searchOpen) {
+                  return _searchResults(channels, chatColors, localUserId);
+                }
+                if (channels.isEmpty) {
+                  return const _EmptyChats();
+                }
+                // The search bar and chips scroll away with the rows.
+                return CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(child: _header()),
+                    if (rows.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _noneInFilter(),
+                      )
+                    else
+                      SliverList.separated(
+                        itemCount: rows.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (ctx, i) {
+                          final entry = rows[i];
+                          return ChannelTile(
+                            entry: entry,
+                            chatColors: chatColors,
+                            displayName: entry.title,
+                            senderPrefix: _senderPrefix(entry, localUserId),
+                            eventText: _eventText(entry, localUserId),
+                            selected: _selectedIds.contains(entry.channelId),
+                            // While selecting, a tap adds or removes a chat.
+                            onTap: selected.isEmpty
+                                ? () => _openChat(context, entry)
+                                : () => _toggleSelected(entry),
+                            onLongPress: () => _toggleSelected(entry),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              })),
+            ]),
             floatingActionButton: _searchOpen
                 ? null
                 : FloatingActionButton(

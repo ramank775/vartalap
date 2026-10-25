@@ -21,6 +21,9 @@ import 'device_keys.dart';
 class AuthClient implements AuthTokenProvider {
   final Uri baseUrl;
   final http.Client _client;
+
+  /// Shared with the asset client, so its API calls carry the build too.
+  http.Client get httpClient => _client;
   final bool _ownsClient;
 
   String? _accesskey;

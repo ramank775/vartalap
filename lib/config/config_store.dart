@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:vartalap_transport/vartalap_transport.dart' show AppBuild;
 
 /// App configuration backed by compile-time `--dart-define` values.
 ///
@@ -57,11 +58,15 @@ class ConfigStore {
     version: '',
   );
 
+  /// This build and what the server says about it (decision 192).
+  AppBuild appBuild = AppBuild(0);
+
   /// Initialize runtime state (PackageInfo + license).
   /// Call once at app boot before any widget reads [packageInfo].
   Future<void> init() async {
     if (_isInitialized) return;
     packageInfo = await PackageInfo.fromPlatform();
+    appBuild = AppBuild(int.tryParse(packageInfo.buildNumber) ?? 0);
 
     LicenseRegistry.addLicense(() async* {
       final license = await rootBundle.loadString('LICENCE');

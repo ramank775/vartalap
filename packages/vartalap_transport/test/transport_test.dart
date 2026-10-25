@@ -9,6 +9,7 @@ import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 void main() {
+  _appBuildTests();
   group('WsTransport', () {
     late _WsEchoServer server;
 
@@ -503,6 +504,8 @@ void main() {
       expect(classifyHttpStatus(404, reason: 'not_found'),
           predicate<AckOutcome>((o) =>
               o is AckPermanentReject && o.reason == 'not_found'));
+      // decision 192: a refused build waits for the update
+      expect(classifyHttpStatus(426), isA<AckTransientReject>());
       expect(classifyHttpStatus(502), isA<AckTransientReject>());
       expect(classifyHttpStatus(503), isA<AckTransientReject>());
       expect(classifyHttpStatus(504), isA<AckTransientReject>());
@@ -529,6 +532,13 @@ class _WsEchoServer {
 
   /// WS upgrades accepted so far.
   int upgrades = 0;
+
+  /// Upgrade attempts, refused ones included.
+  int attempts = 0;
+  String? lastAppBuild;
+
+  /// Answer every upgrade with this status instead of accepting it.
+  int? refuseWith;
 
   Uri get uri => Uri.parse('ws://127.0.0.1:${_http!.port}/wss');
 
@@ -563,6 +573,14 @@ class _WsEchoServer {
       return;
     }
     lastSubprotocol = req.headers.value('sec-websocket-protocol');
+    attempts++;
+    lastAppBuild = req.headers.value('x-app-build');
+    final refuse = refuseWith;
+    if (refuse != null) {
+      req.response.statusCode = refuse;
+      await req.response.close();
+      return;
+    }
     // Echo the first subprotocol token back — required for a valid
     // upgrade when the client requested one.
     final sock = await WebSocketTransformer.upgrade(
@@ -593,6 +611,63 @@ class _WsEchoServer {
       if (identical(_activeSocket, sock)) _activeSocket = null;
     });
   }
+}
+
+void _appBuildTests() {
+  group('AppBuild (decision 192)', () {
+    test('the socket sends the build and stops retrying once refused',
+        () async {
+      final server = _WsEchoServer()..refuseWith = 426;
+      await server.start();
+      addTearDown(server.stop);
+      final appBuild = AppBuild(80);
+      final transport = WsTransport(
+          endpoint: server.uri, auth: _FakeAuth('acc-1'), appBuild: appBuild);
+      addTearDown(transport.dispose);
+
+      final refused = appBuild.changes.first;
+      await transport.start();
+      await refused.timeout(const Duration(seconds: 3));
+      expect(appBuild.upgradeRequired, isTrue);
+      expect(server.lastAppBuild, '80');
+      // past the first backoff (1 s ± 25%): no second attempt
+      await Future<void>.delayed(const Duration(milliseconds: 1600));
+      expect(server.attempts, 1);
+      expect(transport.currentState, TransportState.disconnected);
+    });
+
+    test('the client tags our server only and reads its answers', () async {
+      final server = _HttpServer();
+      await server.start();
+      addTearDown(server.stop);
+      String? seen;
+      var status = 200;
+      server.handler = (req) async {
+        seen = req.headers.value('x-app-build');
+        req.response.statusCode = status;
+        req.response.headers.set('x-latest-app-build', '82');
+        await req.response.close();
+      };
+      final appBuild = AppBuild(80);
+
+      final other = AppBuildClient(appBuild, 'api.example.invalid');
+      addTearDown(other.close);
+      await other.get(server.uri);
+      expect(seen, isNull, reason: 'a presigned R2 link is not our server');
+      expect(appBuild.updateAvailable, isFalse);
+
+      final ours = AppBuildClient(appBuild, server.uri.host);
+      addTearDown(ours.close);
+      await ours.get(server.uri);
+      expect(seen, '80');
+      expect(appBuild.updateAvailable, isTrue);
+      expect(appBuild.upgradeRequired, isFalse);
+
+      status = 426;
+      await ours.get(server.uri);
+      expect(appBuild.upgradeRequired, isTrue);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------

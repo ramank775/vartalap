@@ -115,6 +115,23 @@ Clients MUST tolerate unknown fields in server responses (forward
 compat). Servers MUST reject unknown fields in client requests as
 `validation_failed` (strict ingress, forgiving egress).
 
+### 1.4 App build check (decision 192)
+
+The app sends `x-app-build: <versionCode>` on every request to the
+server and on the `/wss` upgrade (never to presigned media URLs). The
+server has two settings, both off at 0:
+
+- below `--min-app-build`, every request and upgrade answers 426
+  `UPGRADE_REQUIRED` (`{"error": {"code": "UPGRADE_REQUIRED", "message":
+  …, "minBuild": N}}`), ahead of authentication. The app shows only its
+  update screen and stops reconnecting. Queued ops stay queued for the
+  updated app: the client retries a 426 like a 503 and never drops it.
+- below `--latest-app-build`, responses carry `x-latest-app-build: N`
+  and the app shows a dismissible "New version available" banner.
+
+A request without the header passes, so curl, tests and internal
+calls are unaffected.
+
 ---
 
 ## 2. Identity model

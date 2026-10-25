@@ -15,6 +15,7 @@
 library vartalap_transport;
 
 export 'src/ack.dart';
+export 'src/app_build.dart' show AppBuild, AppBuildClient;
 export 'src/asset_client.dart' show AssetClient, PresignedUpload;
 export 'src/asset_transport.dart' show AssetUploadTransport;
 export 'src/auth_client.dart'

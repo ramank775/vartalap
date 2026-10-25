@@ -33,6 +33,7 @@ import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/startup/crypto_locked.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
+import 'package:vartalap/screens/update/app_update.dart';
 import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -417,13 +418,16 @@ Future<AppServices> initializeApp({bool background = false}) async {
   final apiUrl = Uri.parse(ConfigStore.apiUrl);
   final wsUrl = Uri.parse(ConfigStore.wsUrl);
 
-  final authClient = AuthClient(baseUrl: apiUrl);
+  // Every call to our server says which build this is (decision 192).
+  final httpClient = AppBuildClient(configStore.appBuild, apiUrl.host);
+  final authClient = AuthClient(baseUrl: apiUrl, httpClient: httpClient);
   final authService = AuthService(client: authClient);
   await authService.init(
       hasAccountDatabase: (userId) =>
           File(accountDbPath(docsDir.path, userId)).exists());
 
-  final wsTransport = WsTransport(endpoint: wsUrl, auth: authClient);
+  final wsTransport = WsTransport(
+      endpoint: wsUrl, auth: authClient, appBuild: configStore.appBuild);
   // `connectivity_plus` is Flutter-only, so the pure-Dart transport
   // package takes a plain `Stream<bool>` instead of depending on it
   // directly — mapped here from "no connectivity path at all" to the
@@ -431,6 +435,7 @@ Future<AppServices> initializeApp({bool background = false}) async {
   final restTransport = RestTransport(
     baseUrl: apiUrl,
     auth: authClient,
+    httpClient: httpClient,
     connectivityStream: Connectivity()
         .onConnectivityChanged
         .map((results) => !results.contains(ConnectivityResult.none)),
@@ -819,7 +824,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
             darkTheme: VartalapTheme.dark.data,
             navigatorKey: _navKey,
             navigatorObservers: [chatRouteObserver],
-            builder: (context, child) => _SystemBars(child: child!),
+            builder: (context, child) => _SystemBars(
+                child: AppUpdateGate(
+                    appBuild: configStore.appBuild, child: child!)),
             // Home, always (this is home's route, rebuilt with the app's
             // state): a cold-start profile link is the platform's initial
             // route, but it is opened over home, not as a page.

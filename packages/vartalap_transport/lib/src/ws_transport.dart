@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show WebSocketException;
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -8,6 +9,7 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'ack.dart';
+import 'app_build.dart';
 import 'auth_token_provider.dart';
 import 'transport.dart';
 
@@ -75,8 +77,12 @@ class WsTransport implements Transport {
   WsTransport({
     required this.endpoint,
     required this.auth,
+    this.appBuild,
     Random? random,
   }) : _rng = random ?? Random();
+
+  /// Sent on the upgrade; told when the server refuses this build.
+  final AppBuild? appBuild;
 
   @override
   Stream<AckFrame> get acks => _ackCtrl.stream;
@@ -164,6 +170,7 @@ class WsTransport implements Transport {
       final socket = await IOWebSocketChannel.connect(
         endpoint,
         protocols: ['accesskey.$token'],
+        headers: appBuild?.headers,
         pingInterval: const Duration(seconds: 30),
       );
       // web_socket_channel v3: `ready` completes once the upgrade succeeds.
@@ -197,8 +204,18 @@ class WsTransport implements Transport {
       // ignore: avoid_print
       print('WsTransport: connect failed: $e');
       _setState(TransportState.disconnected);
+      // Decision 192: this build is refused; retrying cannot change that.
+      if (_buildRefused(e)) {
+        appBuild?.observe(426, null);
+        return;
+      }
       _scheduleReconnect();
     }
+  }
+
+  static bool _buildRefused(Object e) {
+    final cause = e is WebSocketChannelException ? e.inner : e;
+    return cause is WebSocketException && cause.httpStatusCode == 426;
   }
 
   Future<void> _closeChannel() async {
