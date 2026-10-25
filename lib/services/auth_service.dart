@@ -104,6 +104,9 @@ class AuthService {
   Future<E2eeRecordStore> openCryptoRecords(Database db, String userId) =>
       E2eeRecordStore.openAccount(db, accountId: userId, storage: _storage);
 
+  Future<void> resetCryptoRecords(Database db, String userId) =>
+      E2eeRecordStore.resetAccount(db, accountId: userId, storage: _storage);
+
   /// Observable auth state. True after login, false after logout.
   /// Does NOT emit the current value on subscribe — callers read
   /// [isLoggedIn] synchronously before subscribing.

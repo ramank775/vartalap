@@ -69,6 +69,7 @@ void main() {
 
   group('AppServices accounts', () {
     late AppServices services;
+    late InMemorySecureStorage storage;
     // Each account's database is a `memdb` one named by its path, which
     // every connection in the process shares; the keeper connection holds
     // it across the close and reopen a logout and a later login make, as
@@ -79,10 +80,10 @@ void main() {
 
     setUp(() {
       final client = AuthClient(baseUrl: Uri.parse('http://127.0.0.1:9'));
+      storage = InMemorySecureStorage();
       services = AppServices(
         authClient: client,
-        authService:
-            AuthService(client: client, storage: InMemorySecureStorage()),
+        authService: AuthService(client: client, storage: storage),
         wsTransport:
             WsTransport(endpoint: Uri.parse('ws://127.0.0.1:9'), auth: client),
         restTransport: RestTransport(baseUrl: client.baseUrl, auth: client),
@@ -143,6 +144,30 @@ void main() {
       await services.openAccount(bob, adoptGroups: false);
       expect(await contacts(), isEmpty);
       expect(opened.last, accountDbPath(dir.path, bob));
+    });
+
+    test('a lost crypto key locks the account instead of crashing; reset '
+        'starts encryption over and keeps the chats', () async {
+      await services.openAccount(alice, adoptGroups: false);
+      await addContact();
+      await services.closeAccount();
+      // The keystore lost the wrapping key (or cannot read it).
+      await storage.delete(key: 'v3.e2ee.wrappingKey.$alice');
+
+      await services.openAccount(alice, adoptGroups: false);
+      expect(services.cryptoLocked.value, alice);
+      expect([services.store, services.scheduler, services.inboundReceiver],
+          everyElement(isNull),
+          reason: 'nothing reads or writes the locked account');
+
+      await services.retryAccount();
+      expect(services.cryptoLocked.value, alice, reason: 'still no key');
+
+      await services.resetCrypto();
+      expect(services.cryptoLocked.value, isNull);
+      expect(services.cryptoRecords, isNotNull);
+      expect(await storage.read(key: 'v3.e2ee.wrappingKey.$alice'), isNotNull);
+      expect(await contacts(), ['carol']);
     });
 
     test('deleting the account erases its file', () async {

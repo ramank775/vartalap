@@ -497,6 +497,15 @@ or `notificationToken` from older clients) as `validation_failed`.
 | `refreshTokenExpiresAt` | integer (ms epoch) | Absolute expiry. After this, full re-login (OTP) is required. |
 | `isNew` | boolean | `true` if this verify created the account, `false` if it logged into an existing account. Client MUST use this (or a `null` `username` from `GET /v3.0/users/me`) to decide whether to surface the **mandatory, non-skippable** username-pick UI — see §2.4. |
 
+**One active phone per account (decision 183).** A verify that logs
+into an existing account signs every other device of that account out:
+their sessions are revoked, their sockets closed (`revoked`), their push
+endpoints removed and their published E2EE keys (§17) deleted. The old
+phone's next refresh fails and it returns to the login screen; its local
+history stays on it. Sessions, keys, push and fanout stay keyed by
+`(user_id, deviceId)`, so allowing several phones later is a policy
+change plus device approval, not a redesign.
+
 **One-shot semantics.** A successful verify marks the `sessionId`
 consumed. Re-verify on the same session returns
 `410 SESSION_CONSUMED`. There is no "retry verify with different
@@ -523,6 +532,9 @@ returns the same response without re-sending SMS. Otherwise sends the same
 code again. Verification keeps using the hash; a separate AES-256-GCM copy
 bound to the session id allows resend. `OTP_ENCRYPTION_KEY` is a 32-byte hex
 server secret kept outside the database and stable across restarts.
+A pending code the server can no longer decrypt (the key changed, or a
+mock-SMS dev server restarted) returns `410 RESEND_UNAVAILABLE`; the client
+starts over with `/send`, as it does for the other 404/410/423 answers.
 
 **Distinct from `/send`** in that it does not allocate a new
 session — the OTP attempt count from §6 carries forward. A user can
@@ -1668,6 +1680,7 @@ Every error response, on every endpoint, uses this shape:
 | 409 | `SAME_PHONE` | rebind start | newPhone equals current phone |
 | 410 | `SESSION_EXPIRED` | OTP verify | `sessionId` past `expiresInSec` |
 | 410 | `SESSION_CONSUMED` | OTP verify | session already verified successfully |
+| 410 | `RESEND_UNAVAILABLE` | OTP resend | the stored copy no longer decrypts (§3.3); call `/send` |
 | 423 | `SESSION_LOCKED` | OTP verify | too many wrong codes (§10.3); resend required |
 | 429 | `OTP_RATE_LIMITED` | OTP send | §10.1 limit hit; `retryAfterSec` present, `scope` set |
 | 429 | `RATE_LIMITED` | all other | generic rate-limit code |
@@ -2226,7 +2239,8 @@ safe against a malicious server.
 Conflicts are `409 KEY_CONFLICT` or `409 PREKEY_CAPACITY`. A competing state
 update that exhausts the bounded retry window returns `503 KEYS_BUSY`; retry
 with backoff. Budget: 60 publications per account per hour. A concurrent
-account deletion purges the registration instead of leaving an orphan bundle.
+account deletion, or a newer login that signed this phone out (§3.2), purges
+the registration instead of leaving an orphan bundle (`401`).
 
 ### 17.2 `GET /v3.0/keys/{userId}`
 
@@ -2271,8 +2285,11 @@ preserve each other's updates. The internal revision is never returned.
 
 Logout revokes the authentication session and push endpoint but retains the
 published key generation, just as it retains the phone's local history. It
-can still receive encrypted messages for later re-login; account deletion
-purges every published generation. Device unlink/revocation UI is not built.
+can still receive encrypted messages for later re-login on the same phone. A
+login on another phone deletes every other device's keys (§3.2), so the
+directory lists at most one device this release; a phone that signs in again
+later re-publishes and gets a new generation. Account deletion purges every
+published generation.
 The server never receives private keys or attachment decryption keys.
 
 ### 17.5 Client foundation, not yet enabled
@@ -2293,17 +2310,21 @@ future Signal adapter can commit ratchet records with ciphertext/projections.
 
 Identity pins use the stable `(user_id, deviceId)`, **not generation**: changing
 the generation cannot turn a changed identity into a fresh first contact.
-New-device roster approval must also be enforced when integrating the key
-directory; per-device first-use trust alone does not stop a malicious server
-from inserting an additional device into an already trusted account.
+With one active phone per account (§3.2) a contact's new phone is a new
+`deviceId`, so the trust check must also compare per user: a different device
+or identity for that user is a "security code changed" event. Roster approval
+is only needed if several phones are allowed later.
 
 Account startup now initializes this store before starting the scheduler or
 inbound receiver, through the same path in foreground and push-wake engines.
 Key creation is serialized by the account database transaction. A random
 32-byte wrapping key is persisted in secure storage before the first encrypted
 record; a key-check record detects lost, corrupt or substituted keys on reopen.
-Existing records with an unavailable key fail startup instead of generating
-replacement keys. A fresh database replaces any orphan keychain item left by
+Existing records with an unavailable key never silently get replacement keys:
+the account stays closed and the app shows "Can't unlock your messages" with
+Try again and Reset encryption. Reset deletes this phone's crypto records and
+wrapping key (chats stay) and the account reopens as a new identity. A push
+wake skips the account instead of crashing. A fresh database replaces any orphan keychain item left by
 an uninstall. Logout keeps the key; successful account deletion removes it
 after the account writer teardown. Android secure-storage errors do not reset
 the storage container. Crypto keys on Apple platforms use non-synchronizing,

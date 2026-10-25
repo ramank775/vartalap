@@ -1647,8 +1647,10 @@ the point.
 
 ## 18. Open items deferred to v3.1
 
-- **Multi-device management UI.** Server sessions and delivery are already
-  keyed by user/device; linked-device approval and revocation UI remains open.
+- **Multi-device.** v3.0 = one active phone per user (decision 183): a login
+  signs the account's other phones out (AUTH_CONTRACT §3.2). Sessions,
+  delivery, `sender_device_id` and E2EE keys stay keyed by user/device so
+  linked devices can come later with device approval.
 - **End-to-end encryption is a v3 launch requirement (2026-10-20), not a
   deferred v4 feature.** Messages are currently cleartext. AUTH_CONTRACT §17
   describes the key directory and client foundation; workspace

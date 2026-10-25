@@ -91,6 +91,18 @@ class E2eeRecordStore {
         accountId: _accountId, wrappingKey: _wrappingKey);
   }
 
+  /// The user chose to start this phone's encryption over. Records go before
+  /// the key, so a crash between still leaves a fresh start for [openAccount].
+  /// ponytail: a keystore too broken to write a new key stays locked; clearing
+  /// the app's storage is the way out then.
+  static Future<void> resetAccount(Database db,
+      {required String accountId,
+      required FlutterSecureStorage storage}) async {
+    await createSchema(db);
+    await db.delete('e2ee_records');
+    await deleteAccountKey(accountId, storage);
+  }
+
   /// Called after account deletion has stopped every writer and erased its DB.
   static Future<void> deleteAccountKey(
           String accountId, FlutterSecureStorage storage) =>
