@@ -23,19 +23,6 @@ Future<String> effectiveSentryDsn() async {
   return ConfigStore.sentryDsn;
 }
 
-/// Reads the stored opt-in pref and, if on and a DSN is available,
-/// initializes Sentry. Called once at app boot (main.dart); a no-op when
-/// the user hasn't opted in or no DSN is configured — nothing is
-/// initialized and no events can be sent.
-Future<void> initSentryIfOptedIn() async {
-  final prefs = await SharedPreferences.getInstance();
-  final optedIn = prefs.getBool(kSentryOptInPrefKey) ?? false;
-  if (!optedIn) return;
-  final dsn = await effectiveSentryDsn();
-  if (dsn.isEmpty) return;
-  await SentryFlutter.init((options) => options.dsn = dsn);
-}
-
 /// Settings toggle handler — starts or stops the SDK at runtime, no app
 /// restart needed.
 Future<void> setSentryEnabled(bool enabled) async {

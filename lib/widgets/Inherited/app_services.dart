@@ -1,7 +1,7 @@
 /// App-wide service graph exposed via InheritedWidget.
 ///
 /// Screens that want the whole bundle do
-/// `AppServicesProvider.of(context).services.chatService`. Most
+/// `AppServicesProvider.maybeOf(context)?.chatService`. Most
 /// screens take the services they need through their constructor —
 /// this provider is the root handoff, not a runtime DI container.
 library vartalap.widgets.Inherited.app_services;
@@ -22,15 +22,6 @@ class AppServicesProvider extends InheritedWidget {
   static AppServices? maybeOf(BuildContext context) => context
       .dependOnInheritedWidgetOfExactType<AppServicesProvider>()
       ?.services;
-
-  static AppServicesProvider of(BuildContext context) {
-    final provider =
-        context.dependOnInheritedWidgetOfExactType<AppServicesProvider>();
-    if (provider == null) {
-      throw StateError('AppServicesProvider not found in context');
-    }
-    return provider;
-  }
 
   @override
   bool updateShouldNotify(AppServicesProvider old) =>

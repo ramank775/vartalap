@@ -6,7 +6,6 @@ library vartalap.screens.profile;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -25,7 +24,6 @@ String? _validateUsernameKey(String value) {
 
 class ProfileScreen extends StatefulWidget {
   final AuthService authService;
-  final ConfigStore config;
 
   /// Optional: without it the photo affordance (frame h2) is hidden —
   /// picking, uploading and `PATCH /v3.0/users/me {avatarUrl}` all
@@ -35,7 +33,6 @@ class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     super.key,
     required this.authService,
-    required this.config,
     this.chatService,
   });
 
