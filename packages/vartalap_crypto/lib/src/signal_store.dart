@@ -50,15 +50,43 @@ class SignalStores
 
   /// A fresh identity: key pair, registration id and signed prekey 1.
   /// One-time prekeys come from [addPreKeys].
-  Future<void> createIdentity() async {
+  Future<void> createIdentity({int? nowMs}) async {
     final identity = generateIdentityKeyPair();
     await _records.write('self', 'identity', identity.serialize());
     await _records.write(
         'self', 'registration', _int(generateRegistrationId(false)));
-    // ponytail: signed prekey 1 never rotates; Signal rotates it every few
-    // weeks. Add rotation (a new id, keep the previous one a while) later.
-    await storeSignedPreKey(1, generateSignedPreKey(identity, 1));
+    await _newSignedPreKey(identity, 1, nowMs);
     await _records.write('self', 'next_prekey', _int(1));
+  }
+
+  Future<void> _newSignedPreKey(
+      IdentityKeyPair identity, int id, int? nowMs) async {
+    await storeSignedPreKey(id, generateSignedPreKey(identity, id));
+    await _records.write('self', 'signed_prekey', _int(id));
+    await _records.write('self', 'signed_prekey_at',
+        _int((nowMs ?? DateTime.now().millisecondsSinceEpoch) ~/ 1000));
+  }
+
+  Future<int> _currentSignedPreKey() async =>
+      _readInt((await _records.read('self', 'signed_prekey')) ?? _int(1));
+
+  /// Signal's habit: a new signed prekey once the current one is [maxAge]
+  /// old, the previous kept for sessions a sender started on it, older
+  /// ones gone. The server takes a higher id and never rolls back.
+  Future<bool> rotateSignedPreKey(
+      {Duration maxAge = const Duration(days: 30), int? nowMs}) async {
+    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final at = await _records.read('self', 'signed_prekey_at');
+    if (at != null &&
+        now - _readInt(at) * 1000 < maxAge.inMilliseconds) {
+      return false;
+    }
+    final current = await _currentSignedPreKey();
+    await _newSignedPreKey(await getIdentityKeyPair(), current + 1, now);
+    for (final key in await _records.keys('signed_prekey')) {
+      if (int.parse(key) < current) await removeSignedPreKey(int.parse(key));
+    }
+    return true;
   }
 
   /// [count] new one-time prekeys with ids above every earlier one: the
@@ -78,7 +106,7 @@ class SignalStores
   /// ones claimed by a sender who never wrote stay here, so never send all.
   Future<E2eeKeyUpload> upload({int newest = 100}) async {
     final identity = await getIdentityKeyPair();
-    final signed = await loadSignedPreKey(1);
+    final signed = await loadSignedPreKey(await _currentSignedPreKey());
     final preKeys = [
       for (final key in await _records.keys('prekey'))
         await loadPreKey(int.parse(key))
@@ -257,6 +285,8 @@ Future<void> ensureKeysPublished(
     if (!await stores.hasIdentity()) {
       await stores.createIdentity();
       await stores.addPreKeys(batch);
+    } else {
+      await stores.rotateSignedPreKey();
     }
     return stores.upload(newest: batch);
   });

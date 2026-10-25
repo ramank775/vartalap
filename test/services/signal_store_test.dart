@@ -157,6 +157,30 @@ void main() {
     expect(changed, {'a11ce0001'});
   });
 
+  test('the signed prekey rotates monthly; the previous one still opens a '
+      'session a sender started on it', () async {
+    final alice = await _Phone.enrolled('a11ce0001', 'phone-a');
+    final bob = await _Phone.enrolled('b0b000002', 'phone-b');
+    final day = const Duration(days: 1).inMilliseconds;
+    final t0 = DateTime.now().millisecondsSinceEpoch;
+    expect(await bob.txn((s) => s.rotateSignedPreKey(nowMs: t0)), isFalse);
+    // Alice fetched Bob's bundle (signed prekey 1) just before it rotated.
+    final stale = await bob.bundle();
+    expect(await bob.txn((s) => s.rotateSignedPreKey(nowMs: t0 + 31 * day)),
+        isTrue);
+    expect((await bob.txn((s) => s.upload())).signedPreKey.id, 2);
+    final first = await alice.txn((s) async {
+      await SessionBuilder(s, s, s, s, bob.address).processPreKeyBundle(stale);
+      return alice.cipher(s, bob.address).encrypt(utf8.encode('late'));
+    });
+    expect(await bob.receive(alice, first), 'late');
+    // A month on, 1 is gone and 2 is the previous.
+    expect(await bob.txn((s) => s.rotateSignedPreKey(nowMs: t0 + 62 * day)),
+        isTrue);
+    expect(await bob.txn((s) => s.containsSignedPreKey(1)), isFalse);
+    expect(await bob.txn((s) => s.containsSignedPreKey(2)), isTrue);
+  });
+
   test('publishing creates the identity once and tops up a low server',
       () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
