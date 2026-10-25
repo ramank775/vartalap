@@ -23,8 +23,7 @@
   release apps.
 
 - Setup local chat-sever by following instruction in [chat-server](https://www.github.com/ramank775/chat-server) repo.
-- Create copy of `config.json.tmpl` to `config.local.json` (for development setup) and `config.json` (for production build).
-- Update `api_url` and `ws_url` of  [chat-server](https://www.github.com/ramank775/chat-server)
+- Point the app at it with `--dart-define=API_URL=<url> --dart-define=WS_URL=<url>/wss` (see `lib/config/config_store.dart`).
 
 
 
