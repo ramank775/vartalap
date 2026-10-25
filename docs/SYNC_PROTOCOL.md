@@ -547,6 +547,60 @@ malicious user could achieve by patching their local client.
 
 ---
 
+### 6a.7 The payload is end-to-end encrypted (decisions 183, 184, 188)
+
+Every client-authored `Envelope.payload` (messages, edits, deletes,
+reactions, receipts, typing) is sealed on the sending phone with the Signal
+protocol and opened only on the recipients' phones. There is no plaintext
+fallback; a phone refuses a client payload that does not open. Server
+events (`0x53`, §10.2) stay server-authored and readable by clients.
+
+```
+payload = 0x45 | version (1) | kind | body
+kind 1  first 1:1 message to a phone   body = Signal PreKeySignalMessage
+kind 2  1:1 message                    body = Signal SignalMessage
+kind 3  group message                  body = Sender Key message (one for
+                                        every member, stored once)
+kind 5  re-send request (not sealed)   body = JSON {"op": op_id, "ch": channel_id}
+```
+
+Inside the ciphertext is a JSON header that repeats `op_id`, `channel_id`,
+the sender's user and device, `ephemeral`, `peer` and `ttl_sec`, the op it
+re-sends (`retry_of`, empty for none) and then the ChatPayload bytes. A
+receiver compares the header with the envelope, so a valid ciphertext moved
+onto another op, channel or sender does not open. Server timestamps are not
+in it: the server stamps after encryption.
+
+- **Keys.** Each phone publishes its identity, signed prekey (rotated every
+  30 days) and one-time prekeys (AUTH_CONTRACT §17). One active phone per
+  account (§18), so a DM is one pairwise ciphertext. Addressing stays
+  `(user_id, device_id)` for linked devices later.
+- **Groups.** A sender's Sender Key reaches each member first as a sealed
+  op on their derived 1:1 channel (plaintext marker `0x4B` inside), ahead
+  of the group op on the same socket; it never makes a chat appear. A
+  member who left rotates the key.
+- **Trust.** WhatsApp style: a contact's new key is accepted, never blocks
+  sending, and puts "X's security code changed" in every chat with them.
+  Chat info shows the 60-digit safety number to compare.
+- **A message that will not open** becomes "Waiting for this message" (a
+  local row, so the pull pointer moves on) and the phone sends a kind 5
+  request on its 1:1 channel with the sender. The sender re-sends that op
+  once, from a 30-day local log, sealed afresh for the requester's current
+  phone under a new `op_id` with `retry_of` set; the receiver swaps the
+  placeholder for it at the placeholder's position.
+- **Attachments** are sealed with ChaCha20-Poly1305 under a fresh key and
+  uploaded as opaque `.bin`; the key travels as the `#fragment` of
+  `Attachment.url`, which exists only inside the ciphertext. Avatars and
+  server-held profile and group metadata stay readable by the server.
+- **Retries** resend the exact sealed bytes kept on the outbound row; the
+  ratchet step and those bytes commit in one transaction. On receive the
+  ratchet step and the opened payload commit together, so a re-delivery
+  never takes a second step.
+
+The server still sees who sends to whom and when, sizes, group membership,
+profiles and push endpoints. A phone's own copy of its chats is plaintext
+in its app sandbox.
+
 ## 6b. Out-of-order arrival
 
 Without server sequencing, arrival order is whatever the network,
@@ -1652,11 +1706,9 @@ the point.
   delivery, `sender_device_id` and E2EE keys stay keyed by user/device so
   linked devices can come later with device approval.
 - **End-to-end encryption is a v3 launch requirement (2026-10-20), not a
-  deferred v4 feature.** Messages are currently cleartext. AUTH_CONTRACT §17
-  describes the key directory and client foundation; workspace
-  `V3_RELEASE_PLAN.md` §10 specifies Signal sessions and group Sender Keys.
-  Each group content operation remains one stored ciphertext fanned out to
-  its recipients. Signal message encryption is still unimplemented.
+  deferred v4 feature,** and is implemented (§6a.7): Signal sessions for 1:1,
+  Sender Keys for groups (one stored ciphertext per group op), encrypted
+  attachments, WhatsApp-style security codes and re-sends.
 - **Full resync after long offline (> 30 days).** Currently no
   recovery path for lost fanout frames beyond the timeline retention.
 - **Stateless WS authentication via signed token (JWT).** Considered
