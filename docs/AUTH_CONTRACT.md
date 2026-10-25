@@ -2308,12 +2308,12 @@ binds version, account, namespace and record key; each write gets a random
 Mutations and identity pinning require an actual SQLite `Transaction`, so the
 future Signal adapter can commit ratchet records with ciphertext/projections.
 
-Identity pins use the stable `(user_id, deviceId)`, **not generation**: changing
-the generation cannot turn a changed identity into a fresh first contact.
-With one active phone per account (§3.2) a contact's new phone is a new
-`deviceId`, so the trust check must also compare per user: a different device
-or identity for that user is a "security code changed" event. Roster approval
-is only needed if several phones are allowed later.
+Identity pins are WhatsApp style (decision 184): one pin per `user_id`, never
+per generation or device, since with one active phone per account (§3.2) a
+contact's new phone is a new `deviceId`. A different identity is accepted,
+replaces the pin and adds a local "security code changed" line to that chat;
+it never blocks sending. First contact adds nothing. Linked devices later need
+a pin per device plus device approval.
 
 Account startup now initializes this store before starting the scheduler or
 inbound receiver, through the same path in foreground and push-wake engines.

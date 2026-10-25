@@ -222,20 +222,18 @@ void main() {
         () async {
       final original = Uint8List(33)..[0] = 5;
       final changed = Uint8List.fromList(original)..[32] = 1;
-      final key = jsonEncode(['peer', 'phone']);
+      const key = 'peer';
       final store = records(db);
       await expectLater(
           store.write('session', 'peer', record), throwsStateError);
       await expectLater(
-          store.pinIdentity(
-              userId: 'peer', deviceId: 'phone', identityKey: original),
+          store.pinIdentity(userId: 'peer', identityKey: original),
           throwsStateError);
       expect(await db.query('e2ee_records'), isEmpty);
-      await db.transaction((txn) => records(txn).pinIdentity(
-          userId: 'peer', deviceId: 'phone', identityKey: original));
+      await db.transaction((txn) =>
+          records(txn).pinIdentity(userId: 'peer', identityKey: original));
       await expectLater(
-          store.pinIdentity(
-              userId: 'peer', deviceId: 'phone', identityKey: changed),
+          store.pinIdentity(userId: 'peer', identityKey: changed),
           throwsStateError);
       await expectLater(
           store.write('identity_pin', key, changed), throwsStateError);
@@ -243,21 +241,18 @@ void main() {
       expect(await store.read('identity_pin', key), original);
     });
 
-    test('stable user/device pin rejects identity change across generations',
-        () async {
+    test(
+        'a contact\'s new identity replaces the pin and reports the change, '
+        'WhatsApp style (184)', () async {
       final original = Uint8List(33)..[0] = 5;
       final changed = Uint8List.fromList(original)..[32] = 1;
-      Future<void> pin(Uint8List key, {String device = 'phone'}) =>
-          db.transaction((txn) => records(txn)
-              .pinIdentity(userId: 'peer', deviceId: device, identityKey: key));
-      await pin(original);
-      await pin(original);
-      // Generation is intentionally absent from the pin's storage key.
-      await expectLater(pin(changed), throwsA(isA<E2eeIdentityChanged>()));
-      expect(
-          await records(db).read('identity_pin', jsonEncode(['peer', 'phone'])),
-          original);
-      await pin(changed, device: 'second-phone');
+      Future<bool> pin(Uint8List key) => db.transaction(
+          (txn) => records(txn).pinIdentity(userId: 'peer', identityKey: key));
+      expect(await pin(original), isFalse, reason: 'first contact: no notice');
+      expect(await pin(original), isFalse);
+      expect(await pin(changed), isTrue, reason: 'security code changed');
+      expect(await records(db).read('identity_pin', 'peer'), changed);
+      expect(await pin(changed), isFalse);
       await expectLater(pin(Uint8List(33)), throwsArgumentError);
     });
   });
