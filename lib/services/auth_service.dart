@@ -10,7 +10,10 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
+
+import 'e2ee.dart';
 
 /// Secure-storage keys per AUTH_CONTRACT §14.1.
 const String _keyAccesskey = 'v3.accesskey';
@@ -24,6 +27,18 @@ const String _keyDisplayName = 'v3.displayName';
 const String _keyUsername = 'v3.username';
 const String _keyStatusText = 'v3.statusText';
 const String _keyUsernameKey = 'v3.usernameKey';
+const _sessionKeys = [
+  _keyAccesskey,
+  _keyUserId,
+  _keyRefreshToken,
+  _keyPhone,
+  _keyDisplayName,
+  _keyUsername,
+  _keyUsernameKey,
+  _keyStatusText,
+  _keyOtpSessionId,
+  _keyOtpPhone,
+];
 
 class AuthService {
   final AuthClient _client;
@@ -62,9 +77,9 @@ class AuthService {
   /// are swallowed so a dead hook can never trap a user in a session.
   Future<void> Function()? onBeforeLogout;
 
-  /// Ran by [verifyOtp] once the session is stored, before
-  /// [authStateChange] emits true. `main.dart` opens the account's own
-  /// store here, so whatever reacts to the login finds it.
+  /// Ran by [verifyOtp] before publishing the session to secure storage or
+  /// [authStateChange]. The account DB must exist before another engine can
+  /// restore that session.
   Future<void> Function(String userId)? onLogin;
 
   /// Ran by [logout] once the session is gone, before [authStateChange]
@@ -82,7 +97,15 @@ class AuthService {
     required AuthClient client,
     FlutterSecureStorage? storage,
   })  : _client = client,
-        _storage = storage ?? const FlutterSecureStorage();
+        _storage = storage ??
+            const FlutterSecureStorage(
+                aOptions: AndroidOptions(resetOnError: false));
+
+  Future<E2eeRecordStore> openCryptoRecords(Database db, String userId) =>
+      E2eeRecordStore.openAccount(db, accountId: userId, storage: _storage);
+
+  Future<void> resetCryptoRecords(Database db, String userId) =>
+      E2eeRecordStore.resetAccount(db, accountId: userId, storage: _storage);
 
   /// Observable auth state. True after login, false after logout.
   /// Does NOT emit the current value on subscribe — callers read
@@ -95,7 +118,17 @@ class AuthService {
   ///
   /// Also ensures a stable deviceId exists (generated on first boot,
   /// persisted forever).
-  Future<void> init() async {
+  Future<void> init({
+    Future<bool> Function(String userId)? hasAccountDatabase,
+  }) async {
+    // Apple Keychain can outlive an uninstall; a missing local account must
+    // sign in and enroll fresh before any old session can pull messages.
+    final storedUser = await _storage.read(key: _keyUserId);
+    if (storedUser != null &&
+        hasAccountDatabase != null &&
+        !await hasAccountDatabase(storedUser)) {
+      await _clearStoredSession();
+    }
     // Ensure deviceId exists.
     var deviceId = await _storage.read(key: _keyDeviceId);
     if (deviceId == null) {
@@ -293,8 +326,8 @@ class AuthService {
   /// `POST /v3.0/auth/otp/verify` — AUTH_CONTRACT §3.2.
   ///
   /// On success:
-  /// 1. Persist accesskey + user_id + refreshToken to secure storage.
-  /// 2. [AuthClient] already has them in memory from the call.
+  /// 1. [AuthClient] receives the in-memory session; [onLogin] opens its DB.
+  /// 2. Persist user_id + refreshToken, then accesskey, to secure storage.
   /// 3. Emit `true` on [authStateChange] so `main.dart` swaps the
   ///    root widget from login to chat list.
   ///
@@ -310,10 +343,6 @@ class AuthService {
       code: code,
       sessionId: sessionId,
     );
-    await _storage.write(key: _keyAccesskey, value: result.accesskey);
-    await _storage.write(key: _keyUserId, value: result.userId);
-    await _storage.write(key: _keyRefreshToken, value: result.refreshToken);
-    await _storage.write(key: _keyPhone, value: phone);
     _otpSessionId = null;
     _phoneNumber = phone;
     // AUTH_CONTRACT §2.4: null here (always so for a fresh signup, and
@@ -329,7 +358,18 @@ class AuthService {
     lastDefaultChannelId = result.defaultChannelId;
     await _storage.delete(key: _keyOtpSessionId);
     await _storage.delete(key: _keyOtpPhone);
-    await onLogin?.call(result.userId);
+    try {
+      await onLogin?.call(result.userId);
+      await _storage.write(key: _keyUserId, value: result.userId);
+      await _storage.write(key: _keyRefreshToken, value: result.refreshToken);
+      await _storage.write(key: _keyPhone, value: phone);
+      await _storage.write(key: _keyAccesskey, value: result.accesskey);
+    } catch (_) {
+      _client.clearSession();
+      await _clearStoredSession();
+      await onLogout?.call(erase: false);
+      rethrow;
+    }
     _authState.add(true);
     return result;
   }
@@ -397,6 +437,7 @@ class AuthService {
   Future<void> logout() => _logout();
 
   Future<void> _logout({bool erase = false}) async {
+    final userId = currentUserId;
     try {
       await onBeforeLogout?.call();
     } catch (_) {
@@ -407,16 +448,12 @@ class AuthService {
     } catch (_) {
       // best effort — fall through to local teardown
     }
-    await _storage.delete(key: _keyAccesskey);
-    await _storage.delete(key: _keyUserId);
-    await _storage.delete(key: _keyRefreshToken);
-    await _storage.delete(key: _keyPhone);
-    await _storage.delete(key: _keyDisplayName);
-    await _storage.delete(key: _keyUsername);
-    await _storage.delete(key: _keyUsernameKey);
-    await _storage.delete(key: _keyStatusText);
+    await _clearStoredSession();
     _client.clearSession();
     await onLogout?.call(erase: erase);
+    if (erase && userId != null) {
+      await E2eeRecordStore.deleteAccountKey(userId, _storage);
+    }
     _phoneNumber = null;
     _displayName = null;
     _username = null;
@@ -424,6 +461,12 @@ class AuthService {
     _statusText = null;
     _otpSessionId = null;
     _authState.add(false);
+  }
+
+  Future<void> _clearStoredSession() async {
+    for (final key in _sessionKeys) {
+      await _storage.delete(key: key);
+    }
   }
 
   /// Disposes the internal state stream. Call on app exit.

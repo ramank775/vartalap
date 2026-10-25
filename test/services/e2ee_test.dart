@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/e2ee.dart';
+
+import '../fake_unified_push.dart';
 
 void main() {
   final wrappingKey = Uint8List.fromList(List.generate(32, (i) => i));
@@ -24,6 +27,92 @@ void main() {
       await E2eeRecordStore.createSchema(db);
     });
     tearDown(() => db.close());
+
+    group('account key lifecycle', () {
+      late _KeyStorage storage;
+      const keyName = 'v3.e2ee.wrappingKey.account';
+      Future<E2eeRecordStore> open({String account = 'account'}) =>
+          E2eeRecordStore.openAccount(db, accountId: account, storage: storage);
+
+      setUp(() => storage = _KeyStorage());
+
+      test('reopen and concurrent initialization preserve the same key',
+          () async {
+        final stores = await Future.wait([open(), open()]);
+        expect(storage.writes, 1);
+        await db.transaction((txn) =>
+            stores.first.forTransaction(txn).write('session', 'peer', record));
+        expect(await stores.last.read('session', 'peer'), record);
+        expect(await (await open()).read('session', 'peer'), record);
+        expect(storage.writes, 1);
+        expect(storage.android!['resetOnError'], 'false');
+        expect(storage.ios!['accessibility'], 'first_unlock_this_device');
+        expect(storage.ios!['synchronizable'], 'false');
+      });
+
+      test('a fresh database replaces a key left in the keychain', () async {
+        final stale = base64Encode(Uint8List(32));
+        await storage.write(key: keyName, value: stale);
+        await open();
+        expect(await storage.read(key: keyName), isNot(stale));
+        expect(await db.query('e2ee_records'), hasLength(1));
+      });
+
+      test('missing, corrupt and wrong keys never replace existing state',
+          () async {
+        final first = await open();
+        await db.transaction((txn) =>
+            first.forTransaction(txn).write('session', 'peer', record));
+        final correct = await storage.read(key: keyName);
+        for (final invalid in [
+          null,
+          'not-base64',
+          base64Encode(Uint8List(31)),
+          base64Encode(Uint8List(32))
+        ]) {
+          await storage.write(key: keyName, value: invalid);
+          final count = storage.writes;
+          await expectLater(open(), throwsA(anything));
+          expect(storage.writes, count);
+          expect(await db.query('e2ee_records'), hasLength(2));
+        }
+        await storage.write(key: keyName, value: correct);
+        expect(await (await open()).read('session', 'peer'), record);
+      });
+
+      test('secure-storage failure leaves no initialized crypto state',
+          () async {
+        storage.failWrite = true;
+        await expectLater(open(), throwsStateError);
+        expect(await db.query('e2ee_records'), isEmpty);
+        storage.failWrite = false;
+        await open();
+        expect(await db.query('e2ee_records'), hasLength(1));
+      });
+
+      test('account isolation, deletion and foreign transaction rejection',
+          () async {
+        final first = await open();
+        final other = await databaseFactoryFfi.openDatabase(
+            inMemoryDatabasePath,
+            options: OpenDatabaseOptions(singleInstance: false));
+        try {
+          final second = await E2eeRecordStore.openAccount(other,
+              accountId: 'other', storage: storage);
+          await other.transaction((txn) async {
+            expect(() => first.forTransaction(txn), throwsArgumentError);
+            await second.forTransaction(txn).write('session', 'peer', record);
+          });
+          expect(await first.read('session', 'peer'), isNull);
+          await E2eeRecordStore.deleteAccountKey('account', storage);
+          expect(await storage.read(key: keyName), isNull);
+          expect(await second.read('session', 'peer'), record);
+          await expectLater(open(), throwsStateError);
+        } finally {
+          await other.close();
+        }
+      });
+    });
 
     test('reads an independently generated Node AES-256-GCM fixture', () async {
       const hex = '01000000000000000000000000bdce27532c0c461c622daaa1de78843c'
@@ -133,20 +222,18 @@ void main() {
         () async {
       final original = Uint8List(33)..[0] = 5;
       final changed = Uint8List.fromList(original)..[32] = 1;
-      final key = jsonEncode(['peer', 'phone']);
+      const key = 'peer';
       final store = records(db);
       await expectLater(
           store.write('session', 'peer', record), throwsStateError);
       await expectLater(
-          store.pinIdentity(
-              userId: 'peer', deviceId: 'phone', identityKey: original),
+          store.pinIdentity(userId: 'peer', identityKey: original),
           throwsStateError);
       expect(await db.query('e2ee_records'), isEmpty);
-      await db.transaction((txn) => records(txn).pinIdentity(
-          userId: 'peer', deviceId: 'phone', identityKey: original));
+      await db.transaction((txn) =>
+          records(txn).pinIdentity(userId: 'peer', identityKey: original));
       await expectLater(
-          store.pinIdentity(
-              userId: 'peer', deviceId: 'phone', identityKey: changed),
+          store.pinIdentity(userId: 'peer', identityKey: changed),
           throwsStateError);
       await expectLater(
           store.write('identity_pin', key, changed), throwsStateError);
@@ -154,21 +241,18 @@ void main() {
       expect(await store.read('identity_pin', key), original);
     });
 
-    test('stable user/device pin rejects identity change across generations',
-        () async {
+    test(
+        'a contact\'s new identity replaces the pin and reports the change, '
+        'WhatsApp style (184)', () async {
       final original = Uint8List(33)..[0] = 5;
       final changed = Uint8List.fromList(original)..[32] = 1;
-      Future<void> pin(Uint8List key, {String device = 'phone'}) =>
-          db.transaction((txn) => records(txn)
-              .pinIdentity(userId: 'peer', deviceId: device, identityKey: key));
-      await pin(original);
-      await pin(original);
-      // Generation is intentionally absent from the pin's storage key.
-      await expectLater(pin(changed), throwsA(isA<E2eeIdentityChanged>()));
-      expect(
-          await records(db).read('identity_pin', jsonEncode(['peer', 'phone'])),
-          original);
-      await pin(changed, device: 'second-phone');
+      Future<bool> pin(Uint8List key) => db.transaction(
+          (txn) => records(txn).pinIdentity(userId: 'peer', identityKey: key));
+      expect(await pin(original), isFalse, reason: 'first contact: no notice');
+      expect(await pin(original), isFalse);
+      expect(await pin(changed), isTrue, reason: 'security code changed');
+      expect(await records(db).read('identity_pin', 'peer'), changed);
+      expect(await pin(changed), isFalse);
       await expectLater(pin(Uint8List(33)), throwsArgumentError);
     });
   });
@@ -253,4 +337,28 @@ void main() {
           throwsArgumentError);
     });
   });
+}
+
+class _KeyStorage extends InMemorySecureStorage {
+  int writes = 0;
+  bool failWrite = false;
+  Map<String, String>? android;
+  Map<String, String>? ios;
+
+  @override
+  Future<void> write(
+      {required String key,
+      required String? value,
+      AppleOptions? iOptions,
+      AndroidOptions? aOptions,
+      LinuxOptions? lOptions,
+      WebOptions? webOptions,
+      AppleOptions? mOptions,
+      WindowsOptions? wOptions}) {
+    if (failWrite) throw StateError('Secure storage is unavailable');
+    writes++;
+    android = aOptions?.toMap();
+    ios = iOptions?.toMap();
+    return super.write(key: key, value: value);
+  }
 }

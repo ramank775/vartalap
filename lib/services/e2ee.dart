@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -24,6 +25,92 @@ class E2eeRecordStore {
       throw ArgumentError('An account and a 32-byte wrapping key are required');
     }
   }
+
+  static String _keyName(String accountId) => 'v3.e2ee.wrappingKey.$accountId';
+  static const _android = AndroidOptions(resetOnError: false);
+  static const _ios =
+      IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device);
+  static const _macos = MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device);
+
+  /// The database transaction serializes foreground/background key creation.
+  /// A fresh database replaces any keychain item left behind by an uninstall.
+  static Future<E2eeRecordStore> openAccount(Database db,
+      {required String accountId,
+      required FlutterSecureStorage storage}) async {
+    if (accountId.isEmpty) throw ArgumentError('An account is required');
+    await createSchema(db);
+    return db.transaction((txn) async {
+      final existing = await txn.query('e2ee_records', limit: 1);
+      Uint8List wrappingKey;
+      if (existing.isEmpty) {
+        final random = Random.secure();
+        wrappingKey =
+            Uint8List.fromList(List.generate(32, (_) => random.nextInt(256)));
+        // Save the key before DB state; secure-storage failures abort init.
+        await storage.write(
+            key: _keyName(accountId),
+            value: base64Encode(wrappingKey),
+            aOptions: _android,
+            iOptions: _ios,
+            mOptions: _macos);
+        await E2eeRecordStore(txn,
+                accountId: accountId, wrappingKey: wrappingKey)
+            .write('account', 'key_check', Uint8List.fromList([1]));
+      } else {
+        final encoded = await storage.read(
+            key: _keyName(accountId),
+            aOptions: _android,
+            iOptions: _ios,
+            mOptions: _macos);
+        if (encoded == null) {
+          throw StateError('The account crypto wrapping key is missing');
+        }
+        wrappingKey = base64Decode(encoded);
+        if (wrappingKey.length != 32 || base64Encode(wrappingKey) != encoded) {
+          throw const FormatException('Invalid account crypto wrapping key');
+        }
+        final check = await E2eeRecordStore(txn,
+                accountId: accountId, wrappingKey: wrappingKey)
+            .read('account', 'key_check');
+        if (check == null || check.length != 1 || check.single != 1) {
+          throw StateError(
+              'The account crypto key check is missing or invalid');
+        }
+      }
+      return E2eeRecordStore(db,
+          accountId: accountId, wrappingKey: wrappingKey);
+    });
+  }
+
+  E2eeRecordStore forTransaction(Transaction txn) {
+    if (!identical(txn.database, _db.database)) {
+      throw ArgumentError('Crypto records must use their account database');
+    }
+    return E2eeRecordStore(txn,
+        accountId: _accountId, wrappingKey: _wrappingKey);
+  }
+
+  /// The user chose to start this phone's encryption over. Records go before
+  /// the key, so a crash between still leaves a fresh start for [openAccount].
+  /// ponytail: a keystore too broken to write a new key stays locked; clearing
+  /// the app's storage is the way out then.
+  static Future<void> resetAccount(Database db,
+      {required String accountId,
+      required FlutterSecureStorage storage}) async {
+    await createSchema(db);
+    await db.delete('e2ee_records');
+    await deleteAccountKey(accountId, storage);
+  }
+
+  /// Called after account deletion has stopped every writer and erased its DB.
+  static Future<void> deleteAccountKey(
+          String accountId, FlutterSecureStorage storage) =>
+      storage.delete(
+          key: _keyName(accountId),
+          aOptions: _android,
+          iOptions: _ios,
+          mOptions: _macos);
 
   static Future<void> createSchema(DatabaseExecutor db) => db.execute('''
 CREATE TABLE IF NOT EXISTS e2ee_records (
@@ -92,38 +179,26 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
         where: 'namespace = ? AND record_key = ?', whereArgs: [namespace, key]);
   }
 
-  /// Pin by stable user/device, never generation: a new generation must not
-  /// bypass a changed-identity warning. Replacement needs an explicit UI decision.
-  Future<void> pinIdentity({
+  /// WhatsApp style (decision 184): a contact's new identity is accepted and
+  /// replaces the pin, never blocking a send. True when it changed, so the
+  /// caller adds a "security code changed" line to that chat; first contact
+  /// is false. Keyed by user, never generation or device: a new phone is a
+  /// new device id and must still count as a change.
+  /// ponytail: one pin per user while each account has one phone (183);
+  /// linked devices need a pin per device plus device approval.
+  Future<bool> pinIdentity({
     required String userId,
-    required String deviceId,
     required Uint8List identityKey,
   }) async {
     _requireTransaction();
-    if (userId.isEmpty ||
-        deviceId.isEmpty ||
-        identityKey.length != 33 ||
-        identityKey[0] != 5) {
+    if (userId.isEmpty || identityKey.length != 33 || identityKey[0] != 5) {
       throw ArgumentError('Invalid Signal identity');
     }
-    final key = jsonEncode([userId, deviceId]);
-    final previous = await read('identity_pin', key);
-    if (previous == null) {
-      await write('identity_pin', key, identityKey);
-    } else if (!_equal(previous, identityKey)) {
-      throw E2eeIdentityChanged(userId, deviceId);
-    }
+    final previous = await read('identity_pin', userId);
+    if (previous != null && _equal(previous, identityKey)) return false;
+    await write('identity_pin', userId, identityKey);
+    return previous != null;
   }
-}
-
-class E2eeIdentityChanged implements Exception {
-  final String userId;
-  final String deviceId;
-
-  const E2eeIdentityChanged(this.userId, this.deviceId);
-
-  @override
-  String toString() => 'Identity changed for $userId / $deviceId';
 }
 
 bool _equal(List<int> first, List<int> second) {

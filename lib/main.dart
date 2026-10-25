@@ -11,6 +11,7 @@
 library vartalap.main;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -30,10 +31,12 @@ import 'package:vartalap/utils/username_link.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
+import 'package:vartalap/screens/startup/crypto_locked.dart';
 import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/e2ee.dart';
 import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/services/push_service.dart';
@@ -107,7 +110,13 @@ class AppServices {
   // at logout. Null while no one is signed in.
   String? _userId;
   ChatStore? store;
+  E2eeRecordStore? cryptoRecords;
   SyncScheduler? scheduler;
+
+  /// The account whose crypto records would not open (a lost or unreadable
+  /// wrapping key). Its store stays closed and the app shows
+  /// [CryptoLockedScreen] until [retryAccount] or [resetCrypto] opens it.
+  final cryptoLocked = ValueNotifier<String?>(null);
 
   /// Unset until the first [openAccount]. [closeAccount] leaves the last
   /// one in place, over its closed store, so a widget built while the
@@ -146,7 +155,17 @@ class AppServices {
   /// [AuthService.onLogin] at login, `initializeApp` for a restored session.
   Future<void> openAccount(String userId, {bool adoptGroups = true}) async {
     await closeAccount();
+    cryptoLocked.value = null;
     final store = await openDb(accountDbPath(dbDir, userId));
+    try {
+      cryptoRecords = await authService.openCryptoRecords(store.db, userId);
+    } catch (e) {
+      // Never a crash on every launch: the user decides (a wake just skips).
+      debugPrint('Crypto records unavailable: $e');
+      await store.close();
+      cryptoLocked.value = userId;
+      return;
+    }
     await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
     // Trim 4: derived DM ops name their peer on the wire, which is
     // relative to the signed-in user.
@@ -183,6 +202,7 @@ class AppServices {
     if (store == null) return;
     final userId = _userId!;
     this.store = null;
+    cryptoRecords = null;
     _userId = null;
     // Frames still arriving on this session's socket are this account's;
     // the next login starts it again.
@@ -196,6 +216,28 @@ class AppServices {
     scheduler = null;
     await store.close();
     if (erase) await deleteAccountDb(dbDir, userId);
+  }
+
+  /// [CryptoLockedScreen]'s Try again.
+  Future<void> retryAccount() async {
+    final userId = cryptoLocked.value;
+    if (userId == null) return;
+    await openAccount(userId);
+    if (store != null) unawaited(pullPendingSync());
+  }
+
+  /// [CryptoLockedScreen]'s Reset: this phone's crypto records and key go,
+  /// so the account opens as a new E2EE identity. Its chats stay.
+  Future<void> resetCrypto() async {
+    final userId = cryptoLocked.value;
+    if (userId == null) return;
+    final store = await openDb(accountDbPath(dbDir, userId));
+    try {
+      await authService.resetCryptoRecords(store.db, userId);
+    } finally {
+      await store.close();
+    }
+    await retryAccount();
   }
 
   /// Pull whatever the server holds for us ([pullPendingPages]).
@@ -329,7 +371,9 @@ Future<AppServices> initializeApp({bool background = false}) async {
 
   final authClient = AuthClient(baseUrl: apiUrl);
   final authService = AuthService(client: authClient);
-  await authService.init();
+  await authService.init(
+      hasAccountDatabase: (userId) =>
+          File(accountDbPath(docsDir.path, userId)).exists());
 
   final wsTransport = WsTransport(endpoint: wsUrl, auth: authClient);
   // `connectivity_plus` is Flutter-only, so the pure-Dart transport
@@ -529,6 +573,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     }));
     unawaited(notifications.cancelWake());
     _isLogin = widget.services.authService.isLoggedIn;
+    widget.services.cryptoLocked.addListener(_onCryptoLocked);
     _username = widget.services.authService.username;
     _usernameSub = widget.services.authService.usernameChange.listen((u) {
       setState(() => _username = u);
@@ -649,6 +694,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     }
   }
 
+  void _onCryptoLocked() => setState(() {});
+
   void _onConsentAccepted() {
     setState(() => _consentAccepted = true);
   }
@@ -659,6 +706,12 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     }
     if (!_isLogin) {
       return IntroductionScreen(authService: widget.services.authService);
+    }
+    if (widget.services.cryptoLocked.value != null) {
+      return CryptoLockedScreen(
+        onRetry: widget.services.retryAccount,
+        onReset: widget.services.resetCrypto,
+      );
     }
     if (_username == null) {
       // §2.4: not a route the user can pop out of — every other
@@ -767,6 +820,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.services.cryptoLocked.removeListener(_onCryptoLocked);
     _authSub.cancel();
     _usernameSub.cancel();
     _wsStateSub?.cancel();

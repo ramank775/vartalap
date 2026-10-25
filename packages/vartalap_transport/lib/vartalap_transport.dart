@@ -27,6 +27,14 @@ export 'src/auth_client.dart'
         SessionRefreshResult,
         UsernameAvailability;
 export 'src/auth_token_provider.dart' show AuthTokenProvider;
+export 'src/device_keys.dart'
+    show
+        E2eePreKey,
+        E2eeSignedPreKey,
+        E2eeKeyUpload,
+        E2eeDeviceBundle,
+        E2eeKeyPublication,
+        E2eeKeyClaim;
 export 'src/rest_transport.dart' show RestTransport, classifyHttpStatus;
 export 'src/transport.dart'
     show FramedOp, OutboundFrame, Transport, TransportState;

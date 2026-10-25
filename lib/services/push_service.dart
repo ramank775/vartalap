@@ -239,7 +239,9 @@ class PushService {
     Future<void> Function()? requestPermission,
   })  : _authClient = authClient,
         _push = unifiedPush ?? const PluginUnifiedPush(),
-        _storage = storage ?? const FlutterSecureStorage(),
+        _storage = storage ??
+            const FlutterSecureStorage(
+                aOptions: AndroidOptions(resetOnError: false)),
         _notifyWake = notifyWake,
         _requestPermission = requestPermission;
 

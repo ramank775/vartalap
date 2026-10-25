@@ -5,7 +5,6 @@ library vartalap.services.account_db_test;
 
 import 'dart:io';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/main.dart';
@@ -15,6 +14,8 @@ import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/push_service.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
+
+import '../fake_unified_push.dart';
 
 const alice = 'a11ce0001';
 const bob = 'b0b000002';
@@ -68,6 +69,7 @@ void main() {
 
   group('AppServices accounts', () {
     late AppServices services;
+    late InMemorySecureStorage storage;
     // Each account's database is a `memdb` one named by its path, which
     // every connection in the process shares; the keeper connection holds
     // it across the close and reopen a logout and a later login make, as
@@ -78,9 +80,10 @@ void main() {
 
     setUp(() {
       final client = AuthClient(baseUrl: Uri.parse('http://127.0.0.1:9'));
+      storage = InMemorySecureStorage();
       services = AppServices(
         authClient: client,
-        authService: AuthService(client: client, storage: _NoStorage()),
+        authService: AuthService(client: client, storage: storage),
         wsTransport:
             WsTransport(endpoint: Uri.parse('ws://127.0.0.1:9'), auth: client),
         restTransport: RestTransport(baseUrl: client.baseUrl, auth: client),
@@ -125,6 +128,7 @@ void main() {
       expect([services.store, services.scheduler, services.inboundReceiver],
           everyElement(isNull),
           reason: 'nothing is left to write to the closed store');
+      expect(services.cryptoRecords, isNull);
       expect(files(), {'vartalap_v3_$alice.db'});
 
       await services.openAccount(alice, adoptGroups: false);
@@ -142,6 +146,30 @@ void main() {
       expect(opened.last, accountDbPath(dir.path, bob));
     });
 
+    test('a lost crypto key locks the account instead of crashing; reset '
+        'starts encryption over and keeps the chats', () async {
+      await services.openAccount(alice, adoptGroups: false);
+      await addContact();
+      await services.closeAccount();
+      // The keystore lost the wrapping key (or cannot read it).
+      await storage.delete(key: 'v3.e2ee.wrappingKey.$alice');
+
+      await services.openAccount(alice, adoptGroups: false);
+      expect(services.cryptoLocked.value, alice);
+      expect([services.store, services.scheduler, services.inboundReceiver],
+          everyElement(isNull),
+          reason: 'nothing reads or writes the locked account');
+
+      await services.retryAccount();
+      expect(services.cryptoLocked.value, alice, reason: 'still no key');
+
+      await services.resetCrypto();
+      expect(services.cryptoLocked.value, isNull);
+      expect(services.cryptoRecords, isNotNull);
+      expect(await storage.read(key: 'v3.e2ee.wrappingKey.$alice'), isNotNull);
+      expect(await contacts(), ['carol']);
+    });
+
     test('deleting the account erases its file', () async {
       await services.openAccount(alice, adoptGroups: false);
       touch('vartalap_v3_$alice.db-wal');
@@ -151,9 +179,4 @@ void main() {
       expect(files(), {'vartalap_v3_$bob.db'});
     });
   });
-}
-
-class _NoStorage implements FlutterSecureStorage {
-  @override
-  dynamic noSuchMethod(Invocation invocation) async => null;
 }

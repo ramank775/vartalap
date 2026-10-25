@@ -10,7 +10,68 @@ import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 void main() {
+  test('missing account DB discards an orphan session before restoring it',
+      () async {
+    final storage = _InMemoryStorage(initial: {
+      'v3.accesskey': 'old-access',
+      'v3.refreshToken': 'old-refresh',
+      'v3.user_id': 'a11ce0001',
+      'v3.username': 'old_name',
+      'v3.otpSessionId': 'old-otp',
+      'v3.e2ee.wrappingKey.a11ce0001': 'old-key',
+    });
+    final client = _FakeAuthClient();
+    final auth = AuthService(client: client, storage: storage);
+    await auth.init(hasAccountDatabase: (id) async {
+      expect(id, 'a11ce0001');
+      return false;
+    });
+    expect(auth.isLoggedIn, isFalse);
+    expect(auth.username, isNull);
+    expect(client.currentRefreshToken, isNull);
+    expect(await storage.read(key: 'v3.otpSessionId'), isNull);
+    expect(client.revokeCallCount, 0,
+        reason: 'startup must not need a network');
+    await auth.dispose();
+  });
+
+  test('an existing account DB keeps its restored session', () async {
+    final auth = AuthService(
+        client: _FakeAuthClient(),
+        storage: _InMemoryStorage(initial: {
+          'v3.accesskey': 'old-access',
+          'v3.user_id': 'a11ce0001'
+        }));
+    await auth.init(hasAccountDatabase: (_) async => true);
+    expect(auth.currentUserId, 'a11ce0001');
+    expect(auth.isLoggedIn, isTrue);
+    await auth.dispose();
+  });
   group('AuthService', () {
+    test('failed account startup never publishes or retains a login', () async {
+      final storage = _InMemoryStorage(initial: {'v3.otpSessionId': 'otp'});
+      final client = _FakeAuthClient()
+        ..verifyResult = const OtpVerifyResult(
+          accesskey: 'fresh-access',
+          refreshToken: 'fresh-refresh',
+          userId: 'a11ce0001',
+          accesskeyTtl: Duration(days: 30),
+          refreshTokenTtl: Duration(days: 90),
+          isNewUser: false,
+        );
+      final auth = AuthService(client: client, storage: storage);
+      await auth.init();
+      var closed = false;
+      auth.onLogin = (_) async => throw StateError('crypto key unavailable');
+      auth.onLogout = ({bool erase = false}) async => closed = true;
+      await expectLater(
+          auth.verifyOtp('+911234567890', '123456'), throwsStateError);
+      expect(auth.isLoggedIn, isFalse);
+      expect(await storage.read(key: 'v3.accesskey'), isNull);
+      expect(await storage.read(key: 'v3.user_id'), isNull);
+      expect(closed, isTrue);
+      await auth.dispose();
+    });
     test('init rehydrates a persisted session via AuthClient.restoreSession',
         () async {
       final storage = _InMemoryStorage(
@@ -106,8 +167,7 @@ void main() {
       await auth.dispose();
     });
 
-    test('logout clears secure storage, AuthClient, and emits false',
-        () async {
+    test('logout clears secure storage, AuthClient, and emits false', () async {
       final storage = _InMemoryStorage(
         initial: {
           'v3.accesskey': 'sk_live',
@@ -169,22 +229,37 @@ void main() {
           refreshTokenTtl: Duration(days: 90),
           isNewUser: false,
         );
+      const keyName = 'v3.e2ee.wrappingKey.b7c1d2e3f';
+      final storage = _InMemoryStorage(initial: {
+        'v3.otpSessionId': 'otp',
+        keyName: 'account wrapping key',
+        'v3.e2ee.wrappingKey.other': 'another account key',
+      });
       final auth = AuthService(
         client: client,
-        storage: _InMemoryStorage(initial: {'v3.otpSessionId': 'otp'}),
+        storage: storage,
       );
       await auth.init();
       final calls = <String>[];
-      auth.onLogin = (userId) async => calls.add('open $userId');
+      auth.onLogin = (userId) async {
+        expect(await storage.read(key: 'v3.accesskey'), isNull,
+            reason:
+                'a background engine must not restore before the DB exists');
+        calls.add('open $userId');
+      };
       auth.onLogout = ({bool erase = false}) async =>
           calls.add(erase ? 'close+erase' : 'close');
 
       await auth.verifyOtp('+911234567890', '123456');
       await auth.logout();
+      expect(await storage.read(key: keyName), 'account wrapping key');
       client.restoreSession(accesskey: 'sk_live', userId: 'b7c1d2e3f');
       await auth.deleteAccount('DELETE alice_k');
 
       expect(calls, ['open b7c1d2e3f', 'close', 'close+erase']);
+      expect(await storage.read(key: keyName), isNull);
+      expect(await storage.read(key: 'v3.e2ee.wrappingKey.other'),
+          'another account key');
       await auth.dispose();
     });
   });
@@ -199,8 +274,7 @@ Future<void> _pumpEventQueue() async {
 class _InMemoryStorage implements FlutterSecureStorage {
   final Map<String, String> _data;
 
-  _InMemoryStorage({Map<String, String>? initial})
-      : _data = {...?initial};
+  _InMemoryStorage({Map<String, String>? initial}) : _data = {...?initial};
 
   @override
   Future<String?> read({
@@ -267,8 +341,7 @@ class _FakeAuthClient extends AuthClient {
   int? resendStatus;
   int _sessions = 0;
 
-  _FakeAuthClient()
-      : super(baseUrl: Uri.parse('https://example.invalid'));
+  _FakeAuthClient() : super(baseUrl: Uri.parse('https://example.invalid'));
 
   @override
   Future<OtpVerifyResult> verifyOtp({

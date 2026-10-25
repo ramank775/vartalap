@@ -5,6 +5,7 @@ import 'dart:io' show HttpDate;
 import 'package:http/http.dart' as http;
 
 import 'auth_token_provider.dart';
+import 'device_keys.dart';
 
 /// Self-hosted OTP auth + session management per AUTH_CONTRACT.md.
 ///
@@ -406,6 +407,57 @@ class AuthClient implements AuthTokenProvider {
     final resp = await _post('/v3.0/users/me/delete',
         body: {'confirmation': confirmation}, headers: _authHeaders());
     _assertOk(resp, 'deleteAccount');
+  }
+
+  /// `PUT /v3.0/keys/me` — only public material; ownership comes from auth.
+  Future<E2eeKeyPublication> publishDeviceKeys(E2eeKeyUpload upload) async {
+    final resp = await _client.put(baseUrl.resolve('/v3.0/keys/me'),
+        headers: _authHeaders(), body: jsonEncode(upload.toJson()));
+    _assertOk(resp, 'publishDeviceKeys');
+    final result = E2eeKeyPublication.fromJson(jsonDecode(resp.body));
+    if ((_deviceId != null && result.bundle.deviceId != _deviceId) ||
+        result.bundle.identityKey != upload.identityKey ||
+        result.bundle.registrationId != upload.registrationId) {
+      throw const FormatException(
+          'Published device-key bundle does not match upload');
+    }
+    return result;
+  }
+
+  /// `GET /v3.0/keys/{userId}` — directory only, no one-time keys.
+  Future<List<E2eeDeviceBundle>> getDeviceKeys(String userId) async {
+    final resp = await _get(_deviceKeysPath(userId), headers: _authHeaders());
+    _assertOk(resp, 'getDeviceKeys');
+    return decodeE2eeDirectory(jsonDecode(resp.body));
+  }
+
+  /// `POST /v3.0/keys/{userId}/claim` — consumes at most one prekey.
+  Future<E2eeKeyClaim> claimDeviceKeys(
+    String userId, {
+    required String deviceId,
+    required String generation,
+  }) async {
+    final path = _deviceKeysPath(userId);
+    validateE2eeDeviceId(deviceId);
+    validateE2eeGeneration(generation);
+    final resp = await _post('$path/claim',
+        headers: _authHeaders(),
+        body: {'deviceId': deviceId, 'generation': generation});
+    _assertOk(resp, 'claimDeviceKeys');
+    final result = E2eeKeyClaim.fromJson(jsonDecode(resp.body));
+    if (result.bundle.deviceId != deviceId ||
+        result.bundle.generation != generation) {
+      throw const FormatException(
+          'Claimed device-key bundle does not match request');
+    }
+    return result;
+  }
+
+  String _deviceKeysPath(String userId) {
+    if (!RegExp(r'^[0-9a-f]{9}$').hasMatch(userId)) {
+      throw const FormatException('Invalid device-key userId');
+    }
+    return '/v3.0/keys/${Uri.encodeComponent(userId)}';
   }
 
   // ---- HTTP helpers ---------------------------------------------------
