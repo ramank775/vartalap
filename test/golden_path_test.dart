@@ -1169,8 +1169,12 @@ void main() {
       );
       expect(stored.mimeType, 'image/png');
       expect(stored.sizeBytes.toInt(), onePixelPng.length);
+      final (:object, :key) = parseAttachmentUrl(stored.url);
+      expect(key, hasLength(32),
+          reason: 'Decision 188: the file key rides the url fragment, inside '
+              'the encrypted message only.');
       expect(
-        h.mock.assets.containsKey(stored.url),
+        h.mock.assets.containsKey(object),
         isTrue,
         reason: 'The fileId in the message must be one media-ms actually '
             'issued (decision 36).',
@@ -1198,14 +1202,23 @@ void main() {
         baseUrl: h.mock.apiUrl,
         auth: h.authClient,
       );
-      final url = await assetClient.downloadUrl(seen.attachments.single.url);
+      final url = await assetClient.downloadUrl(object);
       expect(url, startsWith('http'));
+      final inBucket = await assetClient.download(url);
       expect(
-        await assetClient.download(url),
-        onePixelPng,
-        reason: 'The presigned GET returns exactly the bytes the presigned '
-            'PUT accepted.',
+        [inBucket.length, _contains(inBucket, onePixelPng.sublist(8, 24))],
+        [onePixelPng.length + sealedAttachmentOverhead, isFalse],
+        reason: 'Decision 188: the bucket holds only the sealed file.',
       );
+      expect(openSealedAttachment(key!, inBucket), onePixelPng,
+          reason: 'which opens to exactly the bytes that were picked.');
+      // A phone with nothing cached resolves the url the same way.
+      final fresh = AssetCache(client: assetClient);
+      AssetCache.dirProvider =
+          () async => Directory('${h.tmpDir.path}/fresh-assets');
+      expect(await fresh.bytes(seen.attachments.single.url), onePixelPng);
+      AssetCache.dirProvider =
+          () async => Directory('${h.tmpDir.path}/assets');
       assetClient.dispose();
 
       // A caption edit is a full-replace UPDATE: it must carry the

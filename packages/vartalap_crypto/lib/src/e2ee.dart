@@ -82,21 +82,8 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
     if (version == 1) {
       return (GCMBlockCipher(AESEngine())..init(encrypt, params)).process;
     }
-    final cipher = ChaCha20Poly1305(ChaCha7539Engine(), Poly1305())
-      ..init(encrypt, params);
-    // Its inherited process() skips doFinal: no tag written or checked.
-    return (input) {
-      final out = Uint8List(cipher.getOutputSize(input.length));
-      try {
-        var length = cipher.processBytes(input, 0, input.length, out, 0);
-        length += cipher.doFinal(out, length);
-        return out.sublist(0, length);
-      } on ArgumentError catch (e) {
-        // A failed tag check is an ArgumentError here, GCM's own exception
-        // everywhere else: one failure type for callers.
-        throw InvalidCipherTextException('$e');
-      }
-    };
+    return (input) =>
+        chaCha20Poly1305(encrypt, _wrappingKey, nonce, aad, input);
   }
 
   /// The record keys stored under [namespace].
@@ -152,6 +139,23 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
     if (previous != null && _equal(previous, identityKey)) return false;
     await write('identity_pin', userId, identityKey);
     return previous != null;
+  }
+}
+
+/// One ChaCha20-Poly1305 (RFC 8439) pass. pointycastle's own process()
+/// skips doFinal (no tag written or checked) and fails a tag check with an
+/// ArgumentError; this does both and throws [InvalidCipherTextException].
+Uint8List chaCha20Poly1305(bool encrypt, Uint8List key, Uint8List nonce,
+    Uint8List aad, Uint8List input) {
+  final cipher = ChaCha20Poly1305(ChaCha7539Engine(), Poly1305())
+    ..init(encrypt, AEADParameters(KeyParameter(key), 128, nonce, aad));
+  final out = Uint8List(cipher.getOutputSize(input.length));
+  try {
+    var length = cipher.processBytes(input, 0, input.length, out, 0);
+    length += cipher.doFinal(out, length);
+    return out.sublist(0, length);
+  } on ArgumentError catch (e) {
+    throw InvalidCipherTextException('$e');
   }
 }
 

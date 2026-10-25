@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'ack.dart';
 import 'asset_client.dart';
@@ -33,6 +34,11 @@ class AssetUploadTransport implements Transport {
 
   final Future<void> Function(String opId, String fileId) onUploaded;
 
+  /// End-to-end encryption (decision 188): the bytes that go up for a
+  /// spec carrying a `key` (base64url), sealed with it. Set by the app;
+  /// unset, such a spec is refused rather than uploaded in the clear.
+  final Future<Uint8List> Function(Uint8List key, Uint8List plain)? seal;
+
   final _ackCtrl = StreamController<AckFrame>.broadcast();
   bool _disposed = false;
 
@@ -40,6 +46,7 @@ class AssetUploadTransport implements Transport {
     required this.client,
     required this.network,
     required this.onUploaded,
+    this.seal,
   });
 
   @override
@@ -85,9 +92,16 @@ class AssetUploadTransport implements Transport {
   Future<void> _upload(String opId, Map<String, dynamic> spec) async {
     try {
       final file = File(spec['path'] as String);
-      final bytes = await file.readAsBytes();
+      final key = spec['key'] as String?;
+      var bytes = await file.readAsBytes();
+      if (key != null) {
+        final seal = this.seal;
+        if (seal == null) throw StateError('No attachment sealer');
+        bytes = await seal(base64Url.decode(key), bytes);
+      }
       final presigned = await client.presignUpload(
-        ext: spec['ext'] as String,
+        // Ciphertext is opaque bytes to the server and the bucket.
+        ext: key != null ? 'bin' : spec['ext'] as String,
         category: spec['category'] as String? ?? 'message',
         size: bytes.length,
       );
@@ -96,7 +110,8 @@ class AssetUploadTransport implements Transport {
         bytes: bytes,
         // The server's type, not ours: they disagree on anything its
         // table lacks, and a mismatch fails the signature.
-        contentType: presigned.contentType ?? spec['mime'] as String,
+        contentType: presigned.contentType ??
+            (key != null ? 'application/octet-stream' : spec['mime'] as String),
       );
       await client.markUploaded(presigned.fileId);
       await onUploaded(opId, presigned.fileId);

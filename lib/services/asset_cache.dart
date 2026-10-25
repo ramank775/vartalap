@@ -15,11 +15,13 @@ library vartalap.services.asset_cache;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 /// Extension → MIME for the handful of things a picker hands us.
@@ -103,10 +105,17 @@ class AssetCache {
         return _mem[uri] = await f.readAsBytes();
       }
       if (!uri.startsWith('http')) {
-        // A fileId: disk cache first, then presign + download.
-        final f = File('${(await dir).path}/$uri');
+        // A fileId, `#key` for an end-to-end encrypted one (decision
+        // 188): disk cache first (the opened bytes, by fileId), then
+        // presign + download + open.
+        final (:object, :key) = parseAttachmentUrl(uri);
+        final f = File('${(await dir).path}/$object');
         if (await f.exists()) return _mem[uri] = await f.readAsBytes();
-        final bytes = await client.download(await client.downloadUrl(uri));
+        var bytes = await client.download(await client.downloadUrl(object));
+        if (key != null) {
+          final sealed = bytes;
+          bytes = await Isolate.run(() => openSealedAttachment(key, sealed));
+        }
         await f.writeAsBytes(bytes, flush: true);
         return _mem[uri] = bytes;
       }

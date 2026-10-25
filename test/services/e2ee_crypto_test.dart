@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
@@ -170,6 +171,30 @@ void main() {
             ephemeral: true,
             onlyIfSession: true),
         isNull);
+  });
+
+  group('attachments (decision 188)', () {
+    test('a file opens only with its own key, and unchanged', () {
+      final key = newAttachmentKey();
+      final photo = Uint8List.fromList(List.generate(70000, (i) => i % 251));
+      final sealed = sealAttachment(key, photo);
+      expect(sealed.length, photo.length + sealedAttachmentOverhead);
+      expect(sealAttachment(key, photo), isNot(sealed), reason: 'fresh nonce');
+      expect(openSealedAttachment(key, sealed), photo);
+      expect(() => openSealedAttachment(newAttachmentKey(), sealed),
+          throwsA(isA<InvalidCipherTextException>()));
+      final changed = Uint8List.fromList(sealed)..[40] ^= 1;
+      expect(() => openSealedAttachment(key, changed),
+          throwsA(isA<InvalidCipherTextException>()));
+    });
+
+    test('the key rides the url fragment; a plain url has none', () {
+      final key = newAttachmentKey();
+      final url = attachmentUrl('file-123', key);
+      final parsed = parseAttachmentUrl(url);
+      expect([parsed.object, parsed.key], ['file-123', key]);
+      expect(parseAttachmentUrl('avatar-9').key, isNull);
+    });
   });
 
   group('groups (Sender Keys, decision 188)', () {

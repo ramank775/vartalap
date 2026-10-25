@@ -21,7 +21,10 @@ import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
+import 'dart:isolate';
+
 import 'package:vartalap/services/message_crypto.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -1236,6 +1239,8 @@ class ChatService {
       client: client,
       network: _wsTransport,
       onUploaded: _onAssetUploaded,
+      // Off the UI isolate: about 40 ms a MB in pure Dart.
+      seal: (key, plain) => Isolate.run(() => sealAttachment(key, plain)),
     );
   }
 
@@ -1331,7 +1336,7 @@ class ChatService {
     final messageId = _uuidGen.next(nowMs: now);
     final file = File(path);
     final size = await file.length();
-    if (size > AssetClient.maxUploadBytes) {
+    if (size + sealedAttachmentOverhead > AssetClient.maxUploadBytes) {
       throw ArgumentError(
         'Attachment is ${size ~/ (1024 * 1024)} MB; the limit is '
         '${AssetClient.maxUploadBytes ~/ (1024 * 1024)} MB.',
@@ -1351,6 +1356,9 @@ class ChatService {
       'durationMs': durationMs,
       'body': caption ?? '',
       if (replyToMessageId != null) 'replyTo': replyToMessageId,
+      // Decision 188: sealed with this before upload; it travels in the
+      // url fragment inside the encrypted message, never to the server.
+      'key': base64Url.encode(newAttachmentKey()),
     };
 
     // The bubble points at the local file until the upload lands, so a
@@ -1454,9 +1462,11 @@ class ChatService {
     final op = await _store.fetchOutboundOp(opId);
     if (op == null) return;
     final spec = jsonDecode(utf8.decode(op.payload)) as Map<String, dynamic>;
+    final key = spec['key'] as String?;
+    final url = key == null ? fileId : attachmentUrl(fileId, base64Url.decode(key));
     // The bytes are already in memory under the local path — keep them
     // so the bubble doesn't re-download what it just uploaded.
-    assets.rekey(spec['path'] as String, fileId);
+    assets.rekey(spec['path'] as String, url);
     final now = _clock.nowMs();
 
     switch (spec['then'] as String?) {
@@ -1465,7 +1475,7 @@ class ChatService {
         final channelId = op.targetChannelId!;
         await _store.setMessageAttachments(
           messageId: messageId,
-          attachments: _encodeAttachments(spec, fileId),
+          attachments: _encodeAttachments(spec, url),
         );
         await _store.enqueueOutboundOp(OutboundOpRow(
           opId: _uuidGen.next(nowMs: now),
@@ -1477,7 +1487,7 @@ class ChatService {
           payload: _encodeAttachmentCreate(
             messageId: messageId,
             spec: spec,
-            url: fileId,
+            url: url,
           ),
           status: OpStatus.pending,
           attempts: 0,
