@@ -1760,8 +1760,7 @@ class MockServer {
   //   - 1-change-per-90-days rate limit per user
   //   - reserved-word list (admin, support, …)
   //   - bot/abuse heuristics
-  // This stub only does (1) — the rest are documented in
-  // docs/V3_TODOS.md.
+  // This stub only does (1) — the rest are AUTH_CONTRACT §2.4.
   Future<void> _handleCheckUsername(HttpRequest req) async {
     final session = _authenticate(req, usernameExempt: true);
     if (session == null) return;

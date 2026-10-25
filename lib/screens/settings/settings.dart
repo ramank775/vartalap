@@ -92,7 +92,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ProfileScreen(
         authService: widget.authService,
-        config: widget.config,
         chatService: widget.chatService,
       ),
     ));

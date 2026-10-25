@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -23,7 +22,6 @@ void main() {
         theme: brightness == Brightness.dark ? darkThemeData : lightThemeData,
         home: ProfileScreen(
           authService: authService,
-          config: ConfigStore(),
         ),
       ),
     );

@@ -298,17 +298,6 @@ class ContactRow {
     required this.lastRefreshedMs,
   });
 
-  /// Display name resolution per AUTH_CONTRACT §2.4:
-  /// contact-book name → `@username` → server displayName → userId.
-  ///
-  /// `userId` is the ultimate fallback so non-UI callers (logging,
-  /// sorting, debugging) always get a non-empty, stable string. UI
-  /// surfaces should use [displayLabel] instead — exposing a raw
-  /// 9-hex-char user_id to the user is jarring.
-  String get resolvedName =>
-      contactBookName ?? (username == null ? null : '@$username') ??
-          displayName ?? userId;
-
   /// **The** display-name resolver for another user — AUTH_CONTRACT
   /// §2.4. Every UI surface that labels someone other than the signed-in
   /// user routes through here (directly, or via [ChannelListEntry.title]

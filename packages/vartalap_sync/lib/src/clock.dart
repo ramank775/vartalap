@@ -16,15 +16,13 @@ class _SystemClock implements Clock {
   int nowMs() => DateTime.now().millisecondsSinceEpoch;
 }
 
-/// Test clock — advance time by calling [setNowMs].
+/// Test clock — advance time by calling [advance].
 class FakeClock implements Clock {
   int _now;
   FakeClock([this._now = 0]);
 
   @override
   int nowMs() => _now;
-
-  set now(int ms) => _now = ms;
 
   void advance(Duration d) {
     _now += d.inMilliseconds;

@@ -57,8 +57,6 @@ class ConfigStore {
     version: '',
   );
 
-  final String subtitle = "Open source personal chat messager";
-
   /// Initialize runtime state (PackageInfo + license).
   /// Call once at app boot before any widget reads [packageInfo].
   Future<void> init() async {
