@@ -1247,7 +1247,11 @@ class ChatService {
       // Off the UI isolate: about 40 ms a MB in pure Dart.
       seal: (plain) => Isolate.run(() {
         final (:key, :sealed) = sealAttachment(plain);
-        return (key: key, sealed: sealed, sha256: sha256.convert(sealed).toString());
+        return (
+          key: key,
+          sealed: sealed,
+          md5: Uint8List.fromList(md5.convert(sealed).bytes),
+        );
       }),
     );
   }

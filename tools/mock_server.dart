@@ -3638,12 +3638,12 @@ class MockServer {
       });
       return;
     }
-    // Decision 190, as media-ms: a verified copy of these exact bytes is
-    // reused, nothing uploaded.
-    final hash = q['sha256'];
+    // Decision 190, as media-ms: a stored copy of these exact bytes is
+    // reused, with no url and no record.
+    final hash = q['md5'];
     if (hash != null) {
       for (final MapEntry(:key, :value) in assets.entries) {
-        if (value.sha256 == hash && value.category == category && value.complete) {
+        if (value.md5 == hash && value.category == category && value.complete) {
           _record(req, const {}, 200);
           _respondJson(req, 200, {'fileId': key, 'existing': true});
           return;
@@ -3656,7 +3656,7 @@ class MockServer {
       category: category,
       contentType: _contentTypeForExt(ext),
       declaredSize: size,
-      sha256: hash,
+      md5: hash,
     );
     _record(req, const {}, 200);
     _respondJson(req, 200, {
@@ -3699,7 +3699,29 @@ class MockServer {
       await for (final chunk in req) {
         builder.add(chunk);
       }
-      record.bytes = builder.takeBytes();
+      final body = builder.takeBytes();
+      // Like S3: a signed Content-MD5 must be sent, and must be the body's.
+      final signedMd5 = record.md5;
+      if (signedMd5 != null) {
+        final sent = req.headers.value('content-md5');
+        if (sent == null) {
+          _respondJson(req, 403, {
+            'error': {
+              'code': 'SignatureDoesNotMatch',
+              'message': 'content-md5 is signed but missing'
+            }
+          });
+          return;
+        }
+        if (sent != base64.encode(md5.convert(body).bytes) ||
+            md5.convert(body).toString() != signedMd5) {
+          _respondJson(req, 400, {
+            'error': {'code': 'BadDigest', 'message': 'Content-MD5 mismatch'}
+          });
+          return;
+        }
+      }
+      record.bytes = body;
       _record(req, {'fileId': fileId, 'bytes': record.bytes!.length}, 200);
       _respondJson(req, 200, {'fileId': fileId});
       _log('Blob stored $fileId (${record.bytes!.length} bytes)');
@@ -3745,15 +3767,12 @@ class MockServer {
       });
       return;
     }
-    final declared = record.sha256;
-    if (body['status'] == true &&
-        declared != null &&
-        sha256.convert(record.bytes ?? const []).toString() != declared) {
+    if (body['status'] == true && record.md5 != null && record.bytes == null) {
       _record(req, body, 409);
       _respondJson(req, 409, {
         'error': {
-          'code': 'HASH_MISMATCH',
-          'message': 'the stored bytes do not match the declared sha256'
+          'code': 'NOT_UPLOADED',
+          'message': 'nothing was stored for this file'
         }
       });
       return;
@@ -4081,7 +4100,7 @@ class _AssetRecord {
   final String category;
   final String contentType;
   final int declaredSize;
-  final String? sha256;
+  final String? md5;
   Uint8List? bytes;
   bool complete = false;
 
@@ -4090,6 +4109,6 @@ class _AssetRecord {
     required this.category,
     required this.contentType,
     required this.declaredSize,
-    this.sha256,
+    this.md5,
   });
 }
