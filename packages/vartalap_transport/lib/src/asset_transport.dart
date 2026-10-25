@@ -32,12 +32,17 @@ class AssetUploadTransport implements Transport {
   /// and it keeps the scheduler from burning retry attempts offline.
   final Transport network;
 
-  final Future<void> Function(String opId, String fileId) onUploaded;
+  /// [key]: the attachment's key, for a sealed upload.
+  final Future<void> Function(String opId, String fileId, Uint8List? key)
+      onUploaded;
 
-  /// End-to-end encryption (decision 188): the bytes that go up for a
-  /// spec carrying a `key` (base64url), sealed with it. Set by the app;
-  /// unset, such a spec is refused rather than uploaded in the clear.
-  final Future<Uint8List> Function(Uint8List key, Uint8List plain)? seal;
+  /// End-to-end encryption (decisions 188, 190) for a spec with `seal`:
+  /// the file's key, its sealed bytes and their sha256 (hex). The same
+  /// file seals to the same bytes, so an upload the server already holds
+  /// is skipped. Set by the app; unset, such a spec is refused rather than
+  /// uploaded in the clear.
+  final Future<({Uint8List key, Uint8List sealed, String sha256})> Function(
+      Uint8List plain)? seal;
 
   final _ackCtrl = StreamController<AckFrame>.broadcast();
   bool _disposed = false;
@@ -92,29 +97,36 @@ class AssetUploadTransport implements Transport {
   Future<void> _upload(String opId, Map<String, dynamic> spec) async {
     try {
       final file = File(spec['path'] as String);
-      final key = spec['key'] as String?;
+      // `key` marks a spec queued before decision 190: sealed all the same.
+      final sealIt = spec['seal'] == true || spec['key'] != null;
       var bytes = await file.readAsBytes();
-      if (key != null) {
+      Uint8List? key;
+      String? sha256;
+      if (sealIt) {
         final seal = this.seal;
         if (seal == null) throw StateError('No attachment sealer');
-        bytes = await seal(base64Url.decode(key), bytes);
+        final sealed = await seal(bytes);
+        (key, bytes, sha256) = (sealed.key, sealed.sealed, sealed.sha256);
       }
       final presigned = await client.presignUpload(
         // Ciphertext is opaque bytes to the server and the bucket.
-        ext: key != null ? 'bin' : spec['ext'] as String,
+        ext: sealIt ? 'bin' : spec['ext'] as String,
         category: spec['category'] as String? ?? 'message',
         size: bytes.length,
+        sha256: sha256,
       );
-      await client.putBytes(
-        url: presigned.url,
-        bytes: bytes,
-        // The server's type, not ours: they disagree on anything its
-        // table lacks, and a mismatch fails the signature.
-        contentType: presigned.contentType ??
-            (key != null ? 'application/octet-stream' : spec['mime'] as String),
-      );
-      await client.markUploaded(presigned.fileId);
-      await onUploaded(opId, presigned.fileId);
+      if (!presigned.existing) {
+        await client.putBytes(
+          url: presigned.url,
+          bytes: bytes,
+          // The server's type, not ours: they disagree on anything its
+          // table lacks, and a mismatch fails the signature.
+          contentType: presigned.contentType ??
+              (sealIt ? 'application/octet-stream' : spec['mime'] as String),
+        );
+        await client.markUploaded(presigned.fileId);
+      }
+      await onUploaded(opId, presigned.fileId, key);
       _emit(opId, const AckSuccess());
     } on AuthClientException catch (e) {
       _emit(opId, classifyHttpStatus(e.statusCode, reason: e.errorCode));

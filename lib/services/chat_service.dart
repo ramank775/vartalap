@@ -1245,7 +1245,10 @@ class ChatService {
       network: _wsTransport,
       onUploaded: _onAssetUploaded,
       // Off the UI isolate: about 40 ms a MB in pure Dart.
-      seal: (key, plain) => Isolate.run(() => sealAttachment(key, plain)),
+      seal: (plain) => Isolate.run(() {
+        final (:key, :sealed) = sealAttachment(plain);
+        return (key: key, sealed: sealed, sha256: sha256.convert(sealed).toString());
+      }),
     );
   }
 
@@ -1361,9 +1364,10 @@ class ChatService {
       'durationMs': durationMs,
       'body': caption ?? '',
       if (replyToMessageId != null) 'replyTo': replyToMessageId,
-      // Decision 188: sealed with this before upload; it travels in the
-      // url fragment inside the encrypted message, never to the server.
-      'key': base64Url.encode(newAttachmentKey()),
+      // Decisions 188 and 190: sealed with a key derived from the file at
+      // upload; it travels in the url fragment inside the encrypted
+      // message, never to the server.
+      'seal': true,
     };
 
     // The bubble points at the local file until the upload lands, so a
@@ -1463,12 +1467,12 @@ class ChatService {
   /// whatever was waiting on it can go out. Runs before the upload op's
   /// own ACK is processed, so the follow-up op is durable by the time
   /// the upload op is retired.
-  Future<void> _onAssetUploaded(String opId, String fileId) async {
+  Future<void> _onAssetUploaded(
+      String opId, String fileId, Uint8List? key) async {
     final op = await _store.fetchOutboundOp(opId);
     if (op == null) return;
     final spec = jsonDecode(utf8.decode(op.payload)) as Map<String, dynamic>;
-    final key = spec['key'] as String?;
-    final url = key == null ? fileId : attachmentUrl(fileId, base64Url.decode(key));
+    final url = key == null ? fileId : attachmentUrl(fileId, key);
     // The bytes are already in memory under the local path — keep them
     // so the bubble doesn't re-download what it just uploaded.
     assets.rekey(spec['path'] as String, url);
