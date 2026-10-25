@@ -21,6 +21,7 @@
 library vartalap.dm_identity_test;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +29,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/main.dart' show pullPendingPages;
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/message_crypto.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -193,7 +196,7 @@ void main() {
     final messageId = (await b.store.fetchChannelMessages(channelId))
         .single
         .messageId;
-    mock.injectPeerMessage(
+    await mock.injectPeerMessage(
       channelId: channelId,
       body: 'only once',
       senderUserId: a.userId,
@@ -575,10 +578,49 @@ void main() {
     await a.drain();
     expect(
       (await a.lastOpOn(malformed))?.lastError,
-      'validation_failed',
-      reason: 'a missing or malformed peer is a malformed envelope, not a '
-          'permission problem. ${await a.opDebug(malformed)}',
+      startsWith('seal_failed'),
+      reason: 'decision 188: there are no keys to seal for a peer that is '
+          'not a user, so the op never leaves this phone (the server would '
+          'call it validation_failed). ${await a.opDebug(malformed)}',
     );
+  });
+
+  test('10. a phone that reset its encryption reads "Waiting for this '
+      'message", asks, and the sender re-sends to its new keys (decision 188)',
+      () async {
+    final (a, b) = await pair();
+    final channelId = await a.startDm(b);
+    await a.chat.sendMessage(
+        channelId: channelId, body: 'one', authorUserId: a.userId);
+    await a.drain();
+    await b.drain();
+    expect(await b.bodiesIn(channelId), ['one']);
+
+    final changed = <String>[];
+    final sub = a.crypto!.crypto.identityChanges.listen(changed.add);
+    addTearDown(sub.cancel);
+    await b.resetKeys();
+    // A still holds the session with B's old keys.
+    await a.chat.sendMessage(
+        channelId: channelId, body: 'two', authorUserId: a.userId);
+    await a.drain();
+    await b.drain();
+    await b.waitForAsync(() async {
+      await a.drain();
+      await b.drain();
+      return (await b.bodiesIn(channelId)).contains('two');
+    });
+    expect(await b.bodiesIn(channelId), ['one', 'two']);
+    final waiting = (await b.store.fetchChannelMessages(channelId))
+        .where((m) => m.contentType == kUndecryptedType);
+    expect(waiting, isEmpty, reason: 'the re-send took the placeholder\'s place');
+    expect(changed, contains(b.userId),
+        reason: 'decision 184: A sees that B\'s security code changed');
+    final notices = (await a.store.fetchChannelMessages(channelId))
+        .where((m) => m.contentType == kGroupEventType)
+        .map((m) => GroupEvent.parse(m.body)?.kind);
+    expect(notices, contains(GroupEventKind.securityCode),
+        reason: 'and says so in the chat, WhatsApp style');
   });
 }
 
@@ -599,6 +641,8 @@ class _Client {
   final ChatService chat;
   final StreamController<bool> connectivity;
   InboundReceiver? inbound;
+  E2eeRecordStore? records;
+  MessageCrypto? crypto;
   late final StreamSubscription<TransportState> _wsStateSub;
 
   _Client._({
@@ -691,12 +735,44 @@ class _Client {
     await authService.sendOtp(phone);
     await authService.verifyOtp(phone, mock.sendOtpCodeFor(phone));
     chat.reseedForUser(userId);
+    // AppServices.openAccount's crypto half (decision 188).
+    await E2eeRecordStore.createSchema(store.db);
+    records = E2eeRecordStore(store.db,
+        accountId: userId, wrappingKey: Uint8List(32));
+    final crypto = this.crypto = MessageCrypto(
+      crypto: E2eeCrypto(
+        db: store.db,
+        records: records!,
+        selfUserId: userId,
+        selfDeviceId: authClient.deviceId!,
+        directory: authClient.getDeviceKeys,
+        claim: (user, device, generation) => authClient
+            .claimDeviceKeys(user, deviceId: device, generation: generation),
+      ),
+      store: store,
+      ws: ws,
+      selfUserId: userId,
+    )..tick = scheduler.tickSoon;
+    scheduler
+      ..selfUserId = userId
+      ..seal = crypto.seal;
+    chat.crypto = crypto;
     await rebuildInboundReceiver();
     await wsOnline();
   }
 
-  Future<void> setUsername(String username) =>
-      authService.setUsername(username);
+  /// The username gate opens the key routes: publish, as the app does.
+  Future<void> setUsername(String username) async {
+    await authService.setUsername(username);
+    await ensureKeysPublished(store.db, records!, authClient);
+  }
+
+  /// Reset encryption, as "Can't unlock your messages" offers: every
+  /// crypto record goes and the phone publishes a new identity.
+  Future<void> resetKeys() async {
+    await store.db.delete('e2ee_records');
+    await ensureKeysPublished(store.db, records!, authClient);
+  }
 
   Future<void> rebuildInboundReceiver() async {
     final prev = inbound;
@@ -708,6 +784,9 @@ class _Client {
       store: store,
       pushes: ws.pushes,
       localUserId: userId,
+      open: crypto?.open,
+      applied: crypto?.applied,
+      undecryptable: crypto?.requestResend,
     );
     await next.start();
     inbound = next;

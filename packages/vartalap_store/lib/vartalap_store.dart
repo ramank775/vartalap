@@ -18,6 +18,7 @@ export 'src/types.dart'
         ChannelListEntry,
         ChannelMemberRow,
         ContactRow,
+        kUndecryptedType,
         kVoiceNoteType,
         MessageReaction,
         MessageRow,
@@ -26,4 +27,5 @@ export 'src/types.dart'
         OpStatus,
         OpTransport,
         OutboundOpRow,
-        StarredMessage;
+        StarredMessage,
+        undecryptedMessageId;

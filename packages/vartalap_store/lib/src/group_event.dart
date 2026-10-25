@@ -11,7 +11,9 @@ import 'dart:convert';
 
 const String kGroupEventType = 'application/x-vartalap-group-event';
 
-enum GroupEventKind { created, added, removed, left, renamed, photo }
+/// [securityCode]: `users.first`'s phone has a new identity key (decision
+/// 184); written into every chat with them, DMs included.
+enum GroupEventKind { created, added, removed, left, renamed, photo, securityCode }
 
 class GroupEvent {
   final GroupEventKind kind;

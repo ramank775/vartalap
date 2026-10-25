@@ -2292,61 +2292,62 @@ later re-publishes and gets a new generation. Account deletion purges every
 published generation.
 The server never receives private keys or attachment decryption keys.
 
-### 17.5 Client foundation, not yet enabled
+### 17.5 Client encryption (enabled, decisions 183, 184, 188)
 
 `vartalap_transport` exposes typed `AuthClient.publishDeviceKeys`,
-`getDeviceKeys` and `claimDeviceKeys` calls. Their JSON boundary validates
-public key sizes/prefixes, canonical encodings, ids, generations and duplicate
-devices/prekeys; claims must match the requested device/generation. These calls
-do not verify signatures or make identity-trust decisions. The Signal adapter
-must do both before using a bundle; no enrollment is triggered by the app yet.
+`getDeviceKeys` and `claimDeviceKeys`; their JSON boundary validates key
+sizes/prefixes, canonical encodings, ids, generations and duplicates, and a
+claim must match the requested device/generation. The Signal library verifies
+the signed prekey's signature when it builds a session from a claimed bundle.
 
-`lib/services/e2ee.dart` provides an AES-256-GCM `E2eeRecordStore` for serialized
-crypto records and an authenticated-inner-plaintext operation frame. Record AAD
-binds version, account, namespace and record key; each write gets a random
-12-byte nonce. The caller supplies a 32-byte per-account wrapping key.
-Mutations and identity pinning require an actual SQLite `Transaction`, so the
-future Signal adapter can commit ratchet records with ciphertext/projections.
+`packages/vartalap_crypto` (plain Dart, shared with the mock server's simulated
+users) holds the rest. `E2eeRecordStore` keeps serialized Signal state in the
+account database, wrapped with a per-account key from secure storage:
+ChaCha20-Poly1305 (version 2; version 1 AES-256-GCM records still open), AAD
+binding version, account, namespace and record key, a random 12-byte nonce per
+write. Mutations require the caller's SQLite `Transaction`; the library's
+stores are built per transaction, so a failed decrypt rolls back everything the
+library wrote (it saves a forged first message's identity before the MAC fails).
+
+Each phone creates its identity on first open, publishes it with the newest
+one-time prekeys at account open and when the username lands, tops the server
+up below 20 and rotates its signed prekey every 30 days, keeping the previous
+one. Message sealing, groups, re-sends and attachments are described in
+SYNC_PROTOCOL §6a.7.
 
 Identity pins are WhatsApp style (decision 184): one pin per `user_id`, never
 per generation or device, since with one active phone per account (§3.2) a
 contact's new phone is a new `deviceId`. A different identity is accepted,
-replaces the pin and adds a local "security code changed" line to that chat;
-it never blocks sending. First contact adds nothing. Linked devices later need
-a pin per device plus device approval.
+replaces the pin and puts "X's security code changed" in every chat with them;
+it never blocks sending. First contact adds nothing. Chat info's Encryption
+row shows the 60-digit safety number (Signal's numeric fingerprint over both
+identity keys). Linked devices later need a pin per device plus device approval.
 
-Account startup now initializes this store before starting the scheduler or
-inbound receiver, through the same path in foreground and push-wake engines.
-Key creation is serialized by the account database transaction. A random
-32-byte wrapping key is persisted in secure storage before the first encrypted
-record; a key-check record detects lost, corrupt or substituted keys on reopen.
+Account startup initializes the records before the scheduler or inbound
+receiver, through the same path in foreground and push-wake engines. Key
+creation is serialized by the account database transaction. A random 32-byte
+wrapping key is persisted in secure storage before the first encrypted record;
+a key-check record detects lost, corrupt or substituted keys on reopen.
 Existing records with an unavailable key never silently get replacement keys:
 the account stays closed and the app shows "Can't unlock your messages" with
 Try again and Reset encryption. Reset deletes this phone's crypto records and
 wrapping key (chats stay) and the account reopens as a new identity. A push
-wake skips the account instead of crashing. A fresh database replaces any orphan keychain item left by
-an uninstall. Logout keeps the key; successful account deletion removes it
-after the account writer teardown. Android secure-storage errors do not reset
-the storage container. Crypto keys on Apple platforms use non-synchronizing,
-device-only access after first unlock.
-Boot discards an orphan saved auth session when its account DB is absent,
-requiring sign-in before a fresh installation pulls messages. Login opens the
-account DB before publishing its accesskey for a background engine to restore.
+wake skips the account instead of crashing. A fresh database replaces any
+orphan keychain item left by an uninstall. Logout keeps the key; successful
+account deletion removes it after the account writer teardown. Android
+secure-storage errors do not reset the storage container. Crypto keys on Apple
+platforms use non-synchronizing, device-only access after first unlock. Boot
+discards an orphan saved auth session when its account DB is absent; login
+opens the account DB before publishing its accesskey for a background engine.
 
-Android disables automatic backup and explicitly excludes app data from cloud
-backup and device transfer. iOS excludes the Documents directory (account DBs
-and cached assets) before Flutter starts. Physical backup/restore and locked
-background-wake checks remain release gates.
-Secure-storage completion is not a proven power-loss durability guarantee.
-Deletion while a separate background engine retains an open DB/key also needs
-coordination before encrypted messaging ships; stopping the foreground graph
-alone does not stop that engine.
-
-The operation frame binds op/channel ids, sender account/device/generation,
-ephemeral status, peer and TTL inside Signal's authenticated plaintext. It is
-not itself encryption and must never be sent as a plaintext fallback. Signal
-adapters and app send/receive encryption are still pending. Initializing encrypted
-record storage does not encrypt messages or the local plaintext chat projection.
+Android disables automatic backup and excludes app data from cloud backup and
+device transfer. iOS excludes the Documents directory before Flutter starts.
+Physical backup/restore and locked background-wake checks remain release
+gates. Secure-storage completion is not a proven power-loss durability
+guarantee. Accepted without cross-engine locking: a push-wake engine that
+still holds the database while the foreground deletes the account writes into
+the unlinked file, which goes when it closes; its accesskey is already revoked
+and its copy of the wrapping key dies with its isolate seconds later.
 
 ---
 

@@ -2,11 +2,12 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Private Signal records, encrypted with a per-account secure-storage key.
+/// Private Signal records, encrypted with a per-account secure-storage key
+/// (its lifecycle is in `e2ee_account.dart`; this file stays plain Dart so
+/// the mock server's simulated peers run the same crypto).
 /// Pass the caller's transaction so ratchet writes and the corresponding
 /// ciphertext/projection commit together; let every failure roll it back.
 /// This store does not implement or enable message encryption.
@@ -26,63 +27,6 @@ class E2eeRecordStore {
     }
   }
 
-  static String _keyName(String accountId) => 'v3.e2ee.wrappingKey.$accountId';
-  static const _android = AndroidOptions(resetOnError: false);
-  static const _ios =
-      IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device);
-  static const _macos = MacOsOptions(
-      accessibility: KeychainAccessibility.first_unlock_this_device);
-
-  /// The database transaction serializes foreground/background key creation.
-  /// A fresh database replaces any keychain item left behind by an uninstall.
-  static Future<E2eeRecordStore> openAccount(Database db,
-      {required String accountId,
-      required FlutterSecureStorage storage}) async {
-    if (accountId.isEmpty) throw ArgumentError('An account is required');
-    await createSchema(db);
-    return db.transaction((txn) async {
-      final existing = await txn.query('e2ee_records', limit: 1);
-      Uint8List wrappingKey;
-      if (existing.isEmpty) {
-        final random = Random.secure();
-        wrappingKey =
-            Uint8List.fromList(List.generate(32, (_) => random.nextInt(256)));
-        // Save the key before DB state; secure-storage failures abort init.
-        await storage.write(
-            key: _keyName(accountId),
-            value: base64Encode(wrappingKey),
-            aOptions: _android,
-            iOptions: _ios,
-            mOptions: _macos);
-        await E2eeRecordStore(txn,
-                accountId: accountId, wrappingKey: wrappingKey)
-            .write('account', 'key_check', Uint8List.fromList([1]));
-      } else {
-        final encoded = await storage.read(
-            key: _keyName(accountId),
-            aOptions: _android,
-            iOptions: _ios,
-            mOptions: _macos);
-        if (encoded == null) {
-          throw StateError('The account crypto wrapping key is missing');
-        }
-        wrappingKey = base64Decode(encoded);
-        if (wrappingKey.length != 32 || base64Encode(wrappingKey) != encoded) {
-          throw const FormatException('Invalid account crypto wrapping key');
-        }
-        final check = await E2eeRecordStore(txn,
-                accountId: accountId, wrappingKey: wrappingKey)
-            .read('account', 'key_check');
-        if (check == null || check.length != 1 || check.single != 1) {
-          throw StateError(
-              'The account crypto key check is missing or invalid');
-        }
-      }
-      return E2eeRecordStore(db,
-          accountId: accountId, wrappingKey: wrappingKey);
-    });
-  }
-
   E2eeRecordStore forTransaction(Transaction txn) {
     if (!identical(txn.database, _db.database)) {
       throw ArgumentError('Crypto records must use their account database');
@@ -90,27 +34,6 @@ class E2eeRecordStore {
     return E2eeRecordStore(txn,
         accountId: _accountId, wrappingKey: _wrappingKey);
   }
-
-  /// The user chose to start this phone's encryption over. Records go before
-  /// the key, so a crash between still leaves a fresh start for [openAccount].
-  /// ponytail: a keystore too broken to write a new key stays locked; clearing
-  /// the app's storage is the way out then.
-  static Future<void> resetAccount(Database db,
-      {required String accountId,
-      required FlutterSecureStorage storage}) async {
-    await createSchema(db);
-    await db.delete('e2ee_records');
-    await deleteAccountKey(accountId, storage);
-  }
-
-  /// Called after account deletion has stopped every writer and erased its DB.
-  static Future<void> deleteAccountKey(
-          String accountId, FlutterSecureStorage storage) =>
-      storage.delete(
-          key: _keyName(accountId),
-          aOptions: _android,
-          iOptions: _ios,
-          mOptions: _macos);
 
   static Future<void> createSchema(DatabaseExecutor db) => db.execute('''
 CREATE TABLE IF NOT EXISTS e2ee_records (
@@ -142,16 +65,35 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
         whereArgs: [namespace, key]);
     if (rows.isEmpty) return null;
     final value = Uint8List.fromList(rows.single['value'] as List<int>);
-    if (value.length < 29 || value[0] != 1) {
+    if (value.length < 29 || (value[0] != 1 && value[0] != 2)) {
       throw const FormatException('Invalid encrypted crypto record');
     }
-    final cipher = GCMBlockCipher(AESEngine())
-      ..init(
-          false,
-          AEADParameters(
-              KeyParameter(_wrappingKey), 128, value.sublist(1, 13), aad));
-    return cipher.process(value.sublist(13));
+    return _cipher(value[0], false, value.sublist(1, 13), aad)(
+        value.sublist(13));
   }
+
+  /// Version 2: ChaCha20-Poly1305 (RFC 8439). Pure-Dart AES-GCM, version
+  /// 1, cost 5-15 ms a record, and every message touches several; 1 still
+  /// opens. Both take a 12-byte nonce and a 16-byte tag.
+  Uint8List Function(Uint8List) _cipher(
+      int version, bool encrypt, Uint8List nonce, Uint8List aad) {
+    final params =
+        AEADParameters(KeyParameter(_wrappingKey), 128, nonce, aad);
+    if (version == 1) {
+      return (GCMBlockCipher(AESEngine())..init(encrypt, params)).process;
+    }
+    return (input) =>
+        chaCha20Poly1305(encrypt, _wrappingKey, nonce, aad, input);
+  }
+
+  /// The record keys stored under [namespace].
+  Future<List<String>> keys(String namespace) async => [
+        for (final row in await _db.query('e2ee_records',
+            columns: ['record_key'],
+            where: 'namespace = ?',
+            whereArgs: [namespace]))
+          row['record_key'] as String
+      ];
 
   Future<void> write(String namespace, String key, Uint8List record) async {
     _requireTransaction();
@@ -159,14 +101,13 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
     final random = Random.secure();
     final nonce =
         Uint8List.fromList(List.generate(12, (_) => random.nextInt(256)));
-    final cipher = GCMBlockCipher(AESEngine())
-      ..init(true, AEADParameters(KeyParameter(_wrappingKey), 128, nonce, aad));
     await _db.insert(
       'e2ee_records',
       {
         'namespace': namespace,
         'record_key': key,
-        'value': Uint8List.fromList([1, ...nonce, ...cipher.process(record)]),
+        'value': Uint8List.fromList(
+            [2, ...nonce, ..._cipher(2, true, nonce, aad)(record)]),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -201,6 +142,23 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
   }
 }
 
+/// One ChaCha20-Poly1305 (RFC 8439) pass. pointycastle's own process()
+/// skips doFinal (no tag written or checked) and fails a tag check with an
+/// ArgumentError; this does both and throws [InvalidCipherTextException].
+Uint8List chaCha20Poly1305(bool encrypt, Uint8List key, Uint8List nonce,
+    Uint8List aad, Uint8List input) {
+  final cipher = ChaCha20Poly1305(ChaCha7539Engine(), Poly1305())
+    ..init(encrypt, AEADParameters(KeyParameter(key), 128, nonce, aad));
+  final out = Uint8List(cipher.getOutputSize(input.length));
+  try {
+    var length = cipher.processBytes(input, 0, input.length, out, 0);
+    length += cipher.doFinal(out, length);
+    return out.sublist(0, length);
+  } on ArgumentError catch (e) {
+    throw InvalidCipherTextException('$e');
+  }
+}
+
 bool _equal(List<int> first, List<int> second) {
   if (first.length != second.length) return false;
   var difference = 0;
@@ -218,7 +176,6 @@ class E2eeOperationContext {
   final String channelId;
   final String senderUserId;
   final String senderDeviceId;
-  final String generation;
   final bool ephemeral;
   final String peer;
   final int ttlSec;
@@ -228,12 +185,11 @@ class E2eeOperationContext {
     required this.channelId,
     required this.senderUserId,
     required this.senderDeviceId,
-    required this.generation,
     this.ephemeral = false,
     this.peer = '',
     this.ttlSec = 0,
   }) {
-    if ([opId, channelId, senderUserId, senderDeviceId, generation]
+    if ([opId, channelId, senderUserId, senderDeviceId]
             .any((value) => value.isEmpty) ||
         ttlSec < 0 ||
         ttlSec > 0xffffffff) {
@@ -247,26 +203,33 @@ class E2eeOperationContext {
         channelId,
         senderUserId,
         senderDeviceId,
-        generation,
         ephemeral,
         peer,
         ttlSec,
       ];
 
-  Uint8List encodePlaintext(Uint8List payload) => Uint8List.fromList(
-      utf8.encode(jsonEncode([..._header, base64.encode(payload)])));
+  /// [retryOf]: the op this one re-sends for a phone that could not
+  /// decrypt it (decision 188), authenticated with the rest.
+  Uint8List encodePlaintext(Uint8List payload, {String retryOf = ''}) =>
+      Uint8List.fromList(utf8.encode(
+          jsonEncode([..._header, retryOf, base64.encode(payload)])));
 
   /// Rejects unknown versions, malformed frames and copied/modified headers.
   /// Authentication/context failures must escape the caller's transaction.
-  Uint8List decodeAuthenticatedPlaintext(Uint8List plaintext) {
+  Uint8List decodeAuthenticatedPlaintext(Uint8List plaintext) =>
+      decodeAuthenticated(plaintext).payload;
+
+  /// [decodeAuthenticatedPlaintext] and the op it re-sends ('' for none).
+  ({Uint8List payload, String retryOf}) decodeAuthenticated(
+      Uint8List plaintext) {
     final decoded = jsonDecode(utf8.decode(plaintext));
     if (decoded is! List ||
         decoded.length != 10 ||
         decoded[0] is! int ||
-        decoded[6] is! bool ||
-        decoded[8] is! int ||
+        decoded[5] is! bool ||
+        decoded[7] is! int ||
         decoded[9] is! String ||
-        [1, 2, 3, 4, 5, 7].any((i) => decoded[i] is! String)) {
+        [1, 2, 3, 4, 6, 8].any((i) => decoded[i] is! String)) {
       throw const FormatException('Invalid authenticated operation frame');
     }
     final expected = _header;
@@ -279,6 +242,6 @@ class E2eeOperationContext {
     if (base64.encode(payload) != decoded[9]) {
       throw const FormatException('Noncanonical authenticated payload');
     }
-    return payload;
+    return (payload: payload, retryOf: decoded[8] as String);
   }
 }

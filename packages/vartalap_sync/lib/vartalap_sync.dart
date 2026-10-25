@@ -17,6 +17,7 @@ export 'src/failure_watch.dart' show watchFailures;
 export 'src/inbound_receiver.dart'
     show
         InboundReceiver,
+        OpenedPayload,
         TypingEvent,
         ContactProfile,
         GroupRoster,

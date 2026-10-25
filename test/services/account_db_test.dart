@@ -79,7 +79,8 @@ void main() {
     final opened = <String>[];
 
     setUp(() {
-      final client = AuthClient(baseUrl: Uri.parse('http://127.0.0.1:9'));
+      final client = AuthClient(baseUrl: Uri.parse('http://127.0.0.1:9'))
+        ..setDeviceId('device-test');
       storage = InMemorySecureStorage();
       services = AppServices(
         authClient: client,

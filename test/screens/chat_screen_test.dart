@@ -494,6 +494,32 @@ void main() {
     expect(find.text('03:05'), findsOneWidget);
   });
 
+  testWidgets('a message that has not decrypted yet reads "Waiting for this '
+      'message" and offers no reply (decision 188)', (tester) async {
+    await pumpChat(tester, seed: () async {
+      await store.applyInboundMessage(
+        localUserId: localUserId,
+        channelId: channelId,
+        opId: 'op-lost',
+        messageId: undecryptedMessageId(peerUserId, 'op-lost'),
+        senderUserId: peerUserId,
+        body: null,
+        contentType: kUndecryptedType,
+        attachments: null,
+        forwardSource: null,
+        replyToMessageId: null,
+        clientTimestampMs: 3,
+        serverTimestampMs: 3,
+        nowMs: 3,
+      );
+    });
+    expect(find.textContaining('Waiting for this message. This may take a while.'),
+        findsOneWidget);
+    await tester.longPress(find.textContaining('Waiting for this message'));
+    await settle(tester);
+    expect(find.byTooltip('Reply'), findsNothing);
+  });
+
   group('read only once the user can see it', () {
     Future<int> unread(WidgetTester tester) => q(tester,
         () async => (await store.fetchChannel(channelId))!.unreadCount);

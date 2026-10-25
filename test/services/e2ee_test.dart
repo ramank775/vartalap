@@ -5,7 +5,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:vartalap/services/e2ee.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
+import 'package:vartalap/services/e2ee_account.dart';
 
 import '../fake_unified_push.dart';
 
@@ -32,7 +33,7 @@ void main() {
       late _KeyStorage storage;
       const keyName = 'v3.e2ee.wrappingKey.account';
       Future<E2eeRecordStore> open({String account = 'account'}) =>
-          E2eeRecordStore.openAccount(db, accountId: account, storage: storage);
+          openAccountRecords(db, accountId: account, storage: storage);
 
       setUp(() => storage = _KeyStorage());
 
@@ -97,14 +98,14 @@ void main() {
             inMemoryDatabasePath,
             options: OpenDatabaseOptions(singleInstance: false));
         try {
-          final second = await E2eeRecordStore.openAccount(other,
+          final second = await openAccountRecords(other,
               accountId: 'other', storage: storage);
           await other.transaction((txn) async {
             expect(() => first.forTransaction(txn), throwsArgumentError);
             await second.forTransaction(txn).write('session', 'peer', record);
           });
           expect(await first.read('session', 'peer'), isNull);
-          await E2eeRecordStore.deleteAccountKey('account', storage);
+          await deleteAccountRecordsKey('account', storage);
           expect(await storage.read(key: keyName), isNull);
           expect(await second.read('session', 'peer'), record);
           await expectLater(open(), throwsStateError);
@@ -114,7 +115,25 @@ void main() {
       });
     });
 
-    test('reads an independently generated Node AES-256-GCM fixture', () async {
+    test('reads an independently generated Node ChaCha20-Poly1305 fixture',
+        () async {
+      const hex = '02000000000000000000000000ec6e80d0343d1508fdd9f80e174d8c0b'
+          'd14400e23e783dec0fb50792b0';
+      final fixture = Uint8List.fromList([
+        for (var i = 0; i < hex.length; i += 2)
+          int.parse(hex.substring(i, i + 2), radix: 16),
+      ]);
+      await db.insert('e2ee_records', {
+        'namespace': 'session',
+        'record_key': 'peer',
+        'value': fixture,
+      });
+      final store = E2eeRecordStore(db,
+          accountId: 'account-a', wrappingKey: Uint8List(32));
+      expect(await store.read('session', 'peer'), utf8.encode('signal-record'));
+    });
+
+    test('still reads a version 1 Node AES-256-GCM fixture', () async {
       const hex = '01000000000000000000000000bdce27532c0c461c622daaa1de78843c'
           'ef3831262406af9deed3f4f322';
       final fixture = Uint8List.fromList([
@@ -188,7 +207,7 @@ void main() {
 
     test('rejects truncated and unknown record formats', () async {
       await write('session', 'peer', record);
-      for (final invalid in [Uint8List(28), Uint8List(29)..[0] = 2]) {
+      for (final invalid in [Uint8List(28), Uint8List(29)..[0] = 3]) {
         await db.update('e2ee_records', {'value': invalid});
         await expectLater(records(db).read('session', 'peer'),
             throwsA(isA<FormatException>()));
@@ -263,7 +282,6 @@ void main() {
         channelId: 'channel',
         senderUserId: 'alice',
         senderDeviceId: 'phone',
-        generation: 'generation',
         peer: 'bob',
         ttlSec: 30);
     final payload = Uint8List.fromList([0, 8, 255, 240]);
@@ -275,10 +293,19 @@ void main() {
           payload);
     });
 
+    test('carries the op a re-send replaces, authenticated with the rest', () {
+      final opened = context.decodeAuthenticated(
+          context.encodePlaintext(payload, retryOf: 'op-0'));
+      expect([opened.payload, opened.retryOf], [payload, 'op-0']);
+      expect(
+          context.decodeAuthenticated(context.encodePlaintext(payload)).retryOf,
+          '');
+    });
+
     test('rejects each mismatched context field and version', () {
       final original =
           jsonDecode(utf8.decode(context.encodePlaintext(payload))) as List;
-      for (var i = 0; i < 9; i++) {
+      for (var i = 0; i < 8; i++) {
         final modified = [...original];
         modified[i] = switch (original[i]) {
           int value => value + 1,
@@ -301,8 +328,9 @@ void main() {
         [...original, 'extra'],
         original.sublist(1),
         [...original]..[0] = 1.0,
-        [...original]..[6] = 0,
-        [...original]..[8] = 30.0,
+        [...original]..[5] = 0,
+        [...original]..[7] = 30.0,
+        [...original]..[8] = 1,
         [...original]..[9] = 'AAj_8A==',
         [...original]..[9] = 1,
       ];
@@ -323,8 +351,7 @@ void main() {
               opId: '',
               channelId: 'channel',
               senderUserId: 'alice',
-              senderDeviceId: 'phone',
-              generation: 'gen'),
+              senderDeviceId: 'phone'),
           throwsArgumentError);
       expect(
           () => E2eeOperationContext(
@@ -332,7 +359,6 @@ void main() {
               channelId: 'channel',
               senderUserId: 'alice',
               senderDeviceId: 'phone',
-              generation: 'gen',
               ttlSec: 0x100000000),
           throwsArgumentError);
     });

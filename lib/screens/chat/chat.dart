@@ -679,6 +679,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// button that does nothing. An attachment is editable (its caption)
   /// once the server has it; before that it still points at a local
   /// file (editMessage).
+  /// Decision 188: a placeholder for a message that would not decrypt,
+  /// until its re-send arrives. Nothing to reply to, react to or copy.
+  static bool _waiting(MessageRow msg) => msg.contentType == kUndecryptedType;
+
   bool _canEdit(MessageRow msg) =>
       _isMine(msg) &&
       !msg.tombstoned &&
@@ -776,13 +780,13 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       ),
       title: Text('${sel.length}'),
       actions: [
-        if (one != null && !one.tombstoned)
+        if (one != null && !one.tombstoned && !_waiting(one))
           IconButton(
             icon: const Icon(Icons.reply),
             tooltip: 'Reply',
             onPressed: () => _reply(one),
           ),
-        if (sel.every((m) => !m.tombstoned))
+        if (sel.every((m) => !m.tombstoned && !_waiting(m)))
           IconButton(
             icon: Icon(allStarred ? Icons.star_border : Icons.star),
             tooltip: allStarred ? 'Unstar' : 'Star',
@@ -1529,7 +1533,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                   if (event == null && msg.contentType != kGroupEventType) {
                   items.add(_SwipeToReply(
                     key: ValueKey('swipe-${msg.messageId}'),
-                    onReply: msg.tombstoned || selecting
+                    onReply: msg.tombstoned || _waiting(msg) || selecting
                         ? null
                         : () => _reply(msg),
                     child: _MessageBubble(
@@ -1595,7 +1599,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                     // WhatsApp's reaction bar, pinned to the selected
                     // bubble's top edge (bottom edge near the list top)
                     // on the side the bubble sits.
-                    if (sel != null && !sel.tombstoned)
+                    if (sel != null && !sel.tombstoned && !_waiting(sel))
                       Positioned(
                         left: 0,
                         top: 0,
@@ -2214,6 +2218,9 @@ InlineSpan _marked(String text, String query) {
 const _matchStyle =
     TextStyle(color: Colors.black87, backgroundColor: Color(0xFFFFE082));
 
+/// WhatsApp's words for a message that has not decrypted yet.
+const _waitingText = 'Waiting for this message. This may take a while.';
+
 class _MessageBubble extends StatelessWidget {
   final MessageRow message;
   final bool isMine;
@@ -2285,6 +2292,7 @@ class _MessageBubble extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final failed = onRetry != null;
     final tombstoned = message.tombstoned;
+    final waiting = message.contentType == kUndecryptedType;
     // A contact / location / event renders as a card, never its body.
     final rich = !tombstoned && isRichType(message.contentType);
 
@@ -2491,8 +2499,29 @@ class _MessageBubble extends StatelessWidget {
                                     text: ' This message was deleted'),
                               ],
                             )
-                          : _marked(body, searchQuery),
-                      tombstoned ? 'This message was deleted' : body,
+                          : waiting
+                              ? TextSpan(
+                                  style: TextStyle(
+                                    color: fg.withValues(alpha: 0.6),
+                                    fontSize: 15,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                  children: [
+                                    WidgetSpan(
+                                      alignment: PlaceholderAlignment.middle,
+                                      child: Icon(Icons.schedule,
+                                          size: 14,
+                                          color: fg.withValues(alpha: 0.6)),
+                                    ),
+                                    const TextSpan(text: ' $_waitingText'),
+                                  ],
+                                )
+                              : _marked(body, searchQuery),
+                      tombstoned
+                          ? 'This message was deleted'
+                          : waiting
+                              ? _waitingText
+                              : body,
                     )),
                   if (failed)
                     pad(Padding(

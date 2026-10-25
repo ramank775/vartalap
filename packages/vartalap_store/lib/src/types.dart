@@ -11,6 +11,14 @@ library vartalap_store.types;
 /// play every `audio/*` as a voice note, doing so.
 const String kVoiceNoteType = 'audio/x-vartalap-voice';
 
+/// `content_type` of a placeholder for a message this phone could not
+/// decrypt (decision 188): "Waiting for this message" until the sender's
+/// re-send replaces it. Its `message_id` is [undecryptedMessageId].
+const String kUndecryptedType = 'application/x-vartalap-undecrypted';
+
+String undecryptedMessageId(String senderUserId, String opId) =>
+    'undecrypted:$senderUserId:$opId';
+
 /// `messages.message_state` — SPIKE_A_SCHEMA.md §5.1.
 enum MessageState {
   /// Local author tapped send; sitting in undo window or queued but
@@ -138,6 +146,18 @@ class OutboundOpRow {
   final String? targetMessageId;
   final String? targetChannelId;
 
+  /// The end-to-end encrypted bytes a WS op goes out as, once sealed
+  /// (decision 188); every retry resends exactly these.
+  final List<int>? sealedPayload;
+
+  /// The DM peer, for an op on a 1:1 channel this phone may hold no row
+  /// for (a re-send request to a group member). Null: from the channel.
+  final String? peer;
+
+  /// This op re-sends [retryOf] for a phone that could not decrypt it;
+  /// the receiver swaps that op's placeholder for this one.
+  final String? retryOf;
+
   const OutboundOpRow({
     required this.opId,
     required this.transport,
@@ -155,6 +175,9 @@ class OutboundOpRow {
     required this.createdAt,
     required this.targetMessageId,
     required this.targetChannelId,
+    this.sealedPayload,
+    this.peer,
+    this.retryOf,
   });
 }
 

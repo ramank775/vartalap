@@ -36,7 +36,8 @@ import 'package:vartalap/screens/startup/destructive_reset_consent.dart';
 import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
-import 'package:vartalap/services/e2ee.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
+import 'package:vartalap/services/message_crypto.dart';
 import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/services/push_service.dart';
@@ -111,6 +112,7 @@ class AppServices {
   String? _userId;
   ChatStore? store;
   E2eeRecordStore? cryptoRecords;
+  MessageCrypto? crypto;
   SyncScheduler? scheduler;
 
   /// The account whose crypto records would not open (a lost or unreadable
@@ -167,6 +169,20 @@ class AppServices {
       return;
     }
     await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));
+    final crypto = MessageCrypto(
+      crypto: E2eeCrypto(
+        db: store.db,
+        records: cryptoRecords!,
+        selfUserId: userId,
+        selfDeviceId: authClient.deviceId!,
+        directory: authClient.getDeviceKeys,
+        claim: (user, device, generation) => authClient
+            .claimDeviceKeys(user, deviceId: device, generation: generation),
+      ),
+      store: store,
+      ws: wsTransport,
+      selfUserId: userId,
+    );
     // Trim 4: derived DM ops name their peer on the wire, which is
     // relative to the signed-in user.
     final scheduler = SyncScheduler(
@@ -175,11 +191,18 @@ class AppServices {
       restTransport: restTransport,
       backoff: ExponentialJitterBackoff(),
       clock: Clock.system,
-    )..selfUserId = userId;
+    )
+      ..selfUserId = userId
+      ..seal = crypto.seal;
+    crypto.tick = scheduler.tickSoon;
+    // The server keeps an envelope 30 days; so does the re-send log.
+    unawaited(crypto.crypto.forgetSentBefore(
+        DateTime.now().subtract(const Duration(days: 30)).millisecondsSinceEpoch));
     scheduler.authFailures.listen(_authFailures.add);
     await scheduler.start();
     _userId = userId;
     this.store = store;
+    this.crypto = crypto;
     this.scheduler = scheduler;
     // The op_id generator carries the user_id bits (SPIKE_B_SYNC §4).
     chatService = ChatService(
@@ -189,8 +212,27 @@ class AppServices {
       wsTransport: wsTransport,
       uuidGen: Uuid7Gen(userIdBits: _parseUserIdOrZero(userId)),
       clock: Clock.system,
-    )..onRead = notifications.cancelChat;
+    )
+      ..onRead = notifications.cancelChat
+      ..crypto = crypto;
     await rebuildInboundReceiverForUser(userId, adoptGroups: adoptGroups);
+    // A push wake has seconds; the foreground publishes.
+    if (adoptGroups) unawaited(publishKeys());
+  }
+
+  /// [ensureKeysPublished] for the open account. Best effort: the next
+  /// open or username change tries again.
+  Future<void> publishKeys() async {
+    final store = this.store;
+    final records = cryptoRecords;
+    if (store == null || records == null || authService.username == null) {
+      return;
+    }
+    try {
+      await ensureKeysPublished(store.db, records, authClient);
+    } catch (e) {
+      debugPrint('Key publish failed: $e');
+    }
   }
 
   /// [AuthService.onLogout]: stop everything that writes to the account's
@@ -203,6 +245,8 @@ class AppServices {
     final userId = _userId!;
     this.store = null;
     cryptoRecords = null;
+    final crypto = this.crypto;
+    this.crypto = null;
     _userId = null;
     // Frames still arriving on this session's socket are this account's;
     // the next login starts it again.
@@ -214,6 +258,7 @@ class AppServices {
     await receiver?.stop();
     await scheduler?.stop();
     scheduler = null;
+    await crypto?.crypto.close();
     await store.close();
     if (erase) await deleteAccountDb(dbDir, userId);
   }
@@ -270,6 +315,9 @@ class AppServices {
         final json = await authClient.getChannel(channelId);
         return json == null ? null : groupRosterFromJson(json);
       },
+      open: crypto!.open,
+      applied: crypto!.applied,
+      undecryptable: crypto!.requestResend,
     );
     await next.start();
     inboundReceiver = next;
@@ -580,7 +628,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // AUTH_CONTRACT §2.4: push/vapid and push/topic are behind the
       // USERNAME_REQUIRED gate like every other authenticated route, so
       // the endpoint can only be registered once the handle lands.
-      if (u != null) unawaited(widget.services.pushService.refresh());
+      if (u != null) {
+        unawaited(widget.services.pushService.refresh());
+        unawaited(widget.services.publishKeys());
+      }
     });
     _authSub = widget.services.authService.authStateChange.listen((loggedIn) {
       if (!loggedIn) {

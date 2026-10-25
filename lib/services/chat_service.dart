@@ -21,6 +21,10 @@ import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
+import 'dart:isolate';
+
+import 'package:vartalap/services/message_crypto.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -97,6 +101,14 @@ Uint8List _encodeReceipt(
     ).writeToBuffer();
 
 class ChatService {
+  /// Seals typing indicators (decision 188). Set by `main.dart`.
+  MessageCrypto? crypto;
+
+  /// The safety number to compare with [peerUserId] (decision 184), null
+  /// until a message has gone between the two phones.
+  Future<String?> safetyNumber(String peerUserId) async =>
+      crypto?.crypto.safetyNumber(peerUserId);
+
   final ChatStore _store;
   final SyncScheduler _scheduler;
   final AuthClient _authClient;
@@ -481,28 +493,30 @@ class ChatService {
     if (localUserId.isEmpty) return;
     final opId = _uuidGen.next(nowMs: now);
     final payload = _encodeTyping(isTyping: isTyping);
-    if (!isDmChannelId(channelId)) {
+    // Encrypted like everything else (decision 188), but never worth
+    // claiming keys or handing out a group key for: without that set up
+    // the indicator is simply not sent. Trim 4: a DM names its peer even
+    // on a typing frame. Fire-and-forget throughout.
+    unawaited(() async {
+      final peer = isDmChannelId(channelId)
+          ? await _store.dmPeer(channelId, localUserId)
+          : null;
+      if (isDmChannelId(channelId) && peer == null) return;
+      final crypto = this.crypto;
+      final sealed = crypto == null
+          ? payload
+          : await crypto.sealTyping(
+              opId: opId, channelId: channelId, peer: peer, payload: payload);
+      if (sealed == null) return;
       _wsTransport.sendEphemeral(
         opId: opId,
         channelId: channelId,
-        payload: payload,
-        clientTimestampMs: now,
-      );
-      return;
-    }
-    // Trim 4: a DM has no channel row for the server to check the
-    // sender against, so even a typing frame names its peer. The
-    // lookup is async; the call stays fire-and-forget.
-    unawaited(_store.dmPeer(channelId, localUserId).then((peer) {
-      if (peer == null) return;
-      _wsTransport.sendEphemeral(
-        opId: opId,
-        channelId: channelId,
-        payload: payload,
+        payload: sealed,
         clientTimestampMs: now,
         peer: peer,
       );
-    }));
+    }()
+        .catchError((Object _) {}));
   }
 
   /// Discover contacts from the server and cache locally.
@@ -1230,6 +1244,8 @@ class ChatService {
       client: client,
       network: _wsTransport,
       onUploaded: _onAssetUploaded,
+      // Off the UI isolate: about 40 ms a MB in pure Dart.
+      seal: (key, plain) => Isolate.run(() => sealAttachment(key, plain)),
     );
   }
 
@@ -1325,7 +1341,7 @@ class ChatService {
     final messageId = _uuidGen.next(nowMs: now);
     final file = File(path);
     final size = await file.length();
-    if (size > AssetClient.maxUploadBytes) {
+    if (size + sealedAttachmentOverhead > AssetClient.maxUploadBytes) {
       throw ArgumentError(
         'Attachment is ${size ~/ (1024 * 1024)} MB; the limit is '
         '${AssetClient.maxUploadBytes ~/ (1024 * 1024)} MB.',
@@ -1345,6 +1361,9 @@ class ChatService {
       'durationMs': durationMs,
       'body': caption ?? '',
       if (replyToMessageId != null) 'replyTo': replyToMessageId,
+      // Decision 188: sealed with this before upload; it travels in the
+      // url fragment inside the encrypted message, never to the server.
+      'key': base64Url.encode(newAttachmentKey()),
     };
 
     // The bubble points at the local file until the upload lands, so a
@@ -1448,9 +1467,11 @@ class ChatService {
     final op = await _store.fetchOutboundOp(opId);
     if (op == null) return;
     final spec = jsonDecode(utf8.decode(op.payload)) as Map<String, dynamic>;
+    final key = spec['key'] as String?;
+    final url = key == null ? fileId : attachmentUrl(fileId, base64Url.decode(key));
     // The bytes are already in memory under the local path — keep them
     // so the bubble doesn't re-download what it just uploaded.
-    assets.rekey(spec['path'] as String, fileId);
+    assets.rekey(spec['path'] as String, url);
     final now = _clock.nowMs();
 
     switch (spec['then'] as String?) {
@@ -1459,7 +1480,7 @@ class ChatService {
         final channelId = op.targetChannelId!;
         await _store.setMessageAttachments(
           messageId: messageId,
-          attachments: _encodeAttachments(spec, fileId),
+          attachments: _encodeAttachments(spec, url),
         );
         await _store.enqueueOutboundOp(OutboundOpRow(
           opId: _uuidGen.next(nowMs: now),
@@ -1471,7 +1492,7 @@ class ChatService {
           payload: _encodeAttachmentCreate(
             messageId: messageId,
             spec: spec,
-            url: fileId,
+            url: url,
           ),
           status: OpStatus.pending,
           attempts: 0,

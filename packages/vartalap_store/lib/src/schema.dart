@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 4;
+const int schemaVersion = 5;
 
 const List<String> pragmas = [
   'PRAGMA journal_mode = WAL',
@@ -185,7 +185,10 @@ const List<String> ddl = [
     acknowledged_at    INTEGER,
     created_at         INTEGER NOT NULL,
     target_message_id  TEXT,
-    target_channel_id  TEXT
+    target_channel_id  TEXT,
+    sealed_payload     BLOB,
+    peer               TEXT,
+    retry_of           TEXT
   )
   ''',
   '''
@@ -277,4 +280,13 @@ const List<String> migrateV1ToV2 = [
 /// which then creates its index.
 const List<String> migrateV3ToV4 = [
   'ALTER TABLE messages ADD COLUMN starred_at INTEGER',
+];
+
+/// v4 → v5 (decision 188): `outbound_ops.sealed_payload`, the encrypted
+/// bytes of a WS op, kept so a retry resends the same ciphertext; `peer`
+/// and `retry_of` for re-sends to a phone that could not decrypt one.
+const List<String> migrateV4ToV5 = [
+  'ALTER TABLE outbound_ops ADD COLUMN sealed_payload BLOB',
+  'ALTER TABLE outbound_ops ADD COLUMN peer TEXT',
+  'ALTER TABLE outbound_ops ADD COLUMN retry_of TEXT',
 ];
