@@ -37,6 +37,7 @@ import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/e2ee.dart';
+import 'package:vartalap/services/signal_store.dart';
 import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/services/push_service.dart';
@@ -191,6 +192,23 @@ class AppServices {
       clock: Clock.system,
     )..onRead = notifications.cancelChat;
     await rebuildInboundReceiverForUser(userId, adoptGroups: adoptGroups);
+    // A push wake has seconds; the foreground publishes.
+    if (adoptGroups) unawaited(publishKeys());
+  }
+
+  /// [ensureKeysPublished] for the open account. Best effort: the next
+  /// open or username change tries again.
+  Future<void> publishKeys() async {
+    final store = this.store;
+    final records = cryptoRecords;
+    if (store == null || records == null || authService.username == null) {
+      return;
+    }
+    try {
+      await ensureKeysPublished(store.db, records, authClient);
+    } catch (e) {
+      debugPrint('Key publish failed: $e');
+    }
   }
 
   /// [AuthService.onLogout]: stop everything that writes to the account's
@@ -580,7 +598,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // AUTH_CONTRACT §2.4: push/vapid and push/topic are behind the
       // USERNAME_REQUIRED gate like every other authenticated route, so
       // the endpoint can only be registered once the handle lands.
-      if (u != null) unawaited(widget.services.pushService.refresh());
+      if (u != null) {
+        unawaited(widget.services.pushService.refresh());
+        unawaited(widget.services.publishKeys());
+      }
     });
     _authSub = widget.services.authService.authStateChange.listen((loggedIn) {
       if (!loggedIn) {

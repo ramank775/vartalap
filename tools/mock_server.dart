@@ -286,6 +286,11 @@ class MockState {
   /// check for, and the welcome is what introduces the derived
   /// channel, so "have we said hello yet" is its own fact.
   final Set<String> welcomedUsers = {};
+  /// AUTH_CONTRACT §17: user_id -> deviceId -> the published record
+  /// (`generation`, public bundle, unclaimed `preKeys`, `lastPreKeyId`).
+  /// ponytail: in memory only, not persisted; a restarted mock makes
+  /// every phone publish again on its next open.
+  final Map<String, Map<String, Map<String, dynamic>>> deviceKeys = {};
 
   final Random _rng = Random.secure();
 
@@ -1250,6 +1255,14 @@ class MockServer {
       await _handleGetUserByUsername(req);
     } else if (method == 'GET' && path.startsWith('/v3.0/users/')) {
       await _handleGetUser(req);
+    } else if (method == 'PUT' && path == '/v3.0/keys/me') {
+      await _handlePutKeys(req);
+    } else if (method == 'GET' && path.startsWith('/v3.0/keys/')) {
+      _handleGetKeys(req, path.split('/')[3]);
+    } else if (method == 'POST' &&
+        path.startsWith('/v3.0/keys/') &&
+        path.endsWith('/claim')) {
+      await _handleClaimKeys(req, path.split('/')[3]);
     } else if (method == 'POST' && path == '/v3.0/contacts/lookup') {
       await _handleContactLookup(req);
     } else if (method == 'GET' && path == '/v3.0/push/vapid') {
@@ -1464,6 +1477,87 @@ class MockServer {
   // ---------------------------------------------------------------------------
   // Profile / contacts handlers
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // E2EE key directory — AUTH_CONTRACT §17, the server's semantics in
+  // short: a same-identity upload keeps its generation and adds only
+  // prekey ids above the greatest seen; a new identity starts over.
+  // ---------------------------------------------------------------------------
+
+  static Map<String, dynamic> _publicBundle(
+          String deviceId, Map<String, dynamic> r) =>
+      {
+        'deviceId': deviceId,
+        'generation': r['generation'],
+        'identityKey': r['identityKey'],
+        'registrationId': r['registrationId'],
+        'signedPreKey': r['signedPreKey'],
+      };
+
+  Future<void> _handlePutKeys(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final body = await _readJsonBody(req);
+    final devices = state.deviceKeys.putIfAbsent(session.userId, () => {});
+    final current = devices[session.deviceId];
+    final same = current != null && current['identityKey'] == body['identityKey'];
+    final last = same ? current['lastPreKeyId'] as int : -1;
+    final added = [
+      for (final key in (body['preKeys'] as List).cast<Map<String, dynamic>>())
+        if ((key['id'] as int) > last) key
+    ];
+    final record = <String, dynamic>{
+      'generation': same ? current['generation'] : state.generateUuid(),
+      'identityKey': body['identityKey'],
+      'registrationId': body['registrationId'],
+      'signedPreKey': body['signedPreKey'],
+      'preKeys': [if (same) ...current['preKeys'] as List, ...added],
+      'lastPreKeyId': [last, for (final key in added) key['id'] as int]
+          .reduce(max),
+    };
+    devices[session.deviceId] = record;
+    _respondJson(req, 200, {
+      ..._publicBundle(session.deviceId, record),
+      'preKeyCount': (record['preKeys'] as List).length,
+    });
+  }
+
+  void _handleGetKeys(HttpRequest req, String userId) {
+    if (_authenticate(req) == null) return;
+    if (!state.usersById.containsKey(userId)) {
+      _respondJson(req, 404, {
+        'error': {'code': 'KEYS_NOT_FOUND', 'message': 'The account is unavailable'}
+      });
+      return;
+    }
+    _respondJson(req, 200, {
+      'devices': [
+        for (final MapEntry(:key, :value)
+            in (state.deviceKeys[userId] ?? {}).entries)
+          _publicBundle(key, value)
+      ]
+    });
+  }
+
+  Future<void> _handleClaimKeys(HttpRequest req, String userId) async {
+    if (_authenticate(req) == null) return;
+    final body = await _readJsonBody(req);
+    final record = state.deviceKeys[userId]?[body['deviceId']];
+    if (record == null || record['generation'] != body['generation']) {
+      _respondJson(req, 404, {
+        'error': {
+          'code': 'KEYS_NOT_FOUND',
+          'message': 'This device key generation is unavailable'
+        }
+      });
+      return;
+    }
+    final preKeys = record['preKeys'] as List;
+    _respondJson(req, 200, {
+      ..._publicBundle(body['deviceId'] as String, record),
+      'preKey': preKeys.isEmpty ? null : preKeys.removeAt(0),
+    });
+  }
 
   Future<void> _handleGetProfile(HttpRequest req) async {
     final session = _authenticate(req, usernameExempt: true);

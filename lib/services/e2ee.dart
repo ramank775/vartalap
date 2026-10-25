@@ -153,6 +153,15 @@ CREATE TABLE IF NOT EXISTS e2ee_records (
     return cipher.process(value.sublist(13));
   }
 
+  /// The record keys stored under [namespace].
+  Future<List<String>> keys(String namespace) async => [
+        for (final row in await _db.query('e2ee_records',
+            columns: ['record_key'],
+            where: 'namespace = ?',
+            whereArgs: [namespace]))
+          row['record_key'] as String
+      ];
+
   Future<void> write(String namespace, String key, Uint8List record) async {
     _requireTransaction();
     final aad = _aad(namespace, key);
