@@ -174,14 +174,18 @@ void main() {
   });
 
   group('attachments (decision 188)', () {
-    test('a file opens only with its own key, and unchanged', () {
-      final key = newAttachmentKey();
+    test('the same file seals to the same bytes; it opens only with its key, '
+        'unchanged (190)', () {
       final photo = Uint8List.fromList(List.generate(70000, (i) => i % 251));
-      final sealed = sealAttachment(key, photo);
+      final (:key, :sealed) = sealAttachment(photo);
       expect(sealed.length, photo.length + sealedAttachmentOverhead);
-      expect(sealAttachment(key, photo), isNot(sealed), reason: 'fresh nonce');
+      final again = sealAttachment(Uint8List.fromList(photo));
+      expect([again.key, again.sealed], [key, sealed],
+          reason: 'convergent: stored once however often it is shared');
+      final other = sealAttachment(Uint8List.fromList(photo)..[0] ^= 1);
+      expect(other.key, isNot(key));
       expect(openSealedAttachment(key, sealed), photo);
-      expect(() => openSealedAttachment(newAttachmentKey(), sealed),
+      expect(() => openSealedAttachment(other.key, sealed),
           throwsA(isA<InvalidCipherTextException>()));
       final changed = Uint8List.fromList(sealed)..[40] ^= 1;
       expect(() => openSealedAttachment(key, changed),
@@ -189,7 +193,7 @@ void main() {
     });
 
     test('the key rides the url fragment; a plain url has none', () {
-      final key = newAttachmentKey();
+      final key = sealAttachment(Uint8List.fromList([1, 2, 3])).key;
       final url = attachmentUrl('file-123', key);
       final parsed = parseAttachmentUrl(url);
       expect([parsed.object, parsed.key], ['file-123', key]);

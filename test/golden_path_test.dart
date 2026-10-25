@@ -1240,6 +1240,38 @@ void main() {
       expect(update.attachments.single.url, stored.url);
     });
 
+    // ---- 10a ------------------------------------------------------------
+    test('10a. the same photo shared again is stored once: the second send '
+        'reuses the upload (decision 190)', () async {
+      final blobPuts = () => h.mock.requests
+          .where((r) => r.method == 'PUT' && r.path.startsWith('/v3.0/_blob/'))
+          .length;
+      final before = blobPuts();
+      final copy = File('${h.tmpDir.path}/again/holiday.png')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(onePixelPng);
+      final again = await h.chat.sendAttachment(
+        channelId: attachmentChannelId,
+        authorUserId: h.authService.currentUserId!,
+        path: copy.path,
+        width: 1,
+        height: 1,
+      );
+      await h.waitForAsync(() async {
+        final m = await h.store.fetchMessage(again);
+        return m != null &&
+            m.state != MessageState.pending &&
+            m.state != MessageState.sending;
+      });
+      String urlOf(MessageRow? m) =>
+          pb.ChatPayload.fromBuffer(m!.attachments!).attachments.single.url;
+      expect((await h.store.fetchMessage(again))?.state, isAcked);
+      expect(urlOf(await h.store.fetchMessage(again)),
+          urlOf(await h.store.fetchMessage(attachmentMessageId)),
+          reason: 'same bytes, same key, same stored copy');
+      expect(blobPuts(), before, reason: 'nothing was uploaded the second time');
+    });
+
     // ---- 10b ------------------------------------------------------------
     test('10b. a voice note uploads although media-ms types .m4a its own '
         'way: the PUT carries the content-type the server signed', () async {

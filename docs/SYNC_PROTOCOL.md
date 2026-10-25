@@ -588,8 +588,12 @@ in it: the server stamps after encryption.
   once, from a 30-day local log, sealed afresh for the requester's current
   phone under a new `op_id` with `retry_of` set; the receiver swaps the
   placeholder for it at the placeholder's position.
-- **Attachments** are sealed with ChaCha20-Poly1305 under a fresh key and
-  uploaded as opaque `.bin`; the key travels as the `#fragment` of
+- **Attachments** are sealed convergently (decision 190): the key is a
+  hash of the file and the nonce a hash of the key, ChaCha20-Poly1305, so
+  the same file always seals to the same bytes. The phone presigns with
+  their sha256; when media-ms already holds a verified copy it answers with
+  that fileId and nothing is uploaded, so a file re-shared any number of
+  times is stored once. The key travels as the `#fragment` of
   `Attachment.url`, which exists only inside the ciphertext. Avatars and
   server-held profile and group metadata stay readable by the server.
 - **Retries** resend the exact sealed bytes kept on the outbound row; the
@@ -598,7 +602,9 @@ in it: the server stamps after encryption.
   never takes a second step.
 
 The server still sees who sends to whom and when, sizes, group membership,
-profiles and push endpoints. A phone's own copy of its chats is plaintext
+profiles and push endpoints. Because media is convergent, anyone holding a
+file can also learn whether the server stores it, and the server sees who
+fetches each stored file (decision 190). A phone's own copy of its chats is plaintext
 in its app sandbox.
 
 ## 6b. Out-of-order arrival

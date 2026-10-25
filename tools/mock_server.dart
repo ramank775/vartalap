@@ -3638,12 +3638,25 @@ class MockServer {
       });
       return;
     }
+    // Decision 190, as media-ms: a verified copy of these exact bytes is
+    // reused, nothing uploaded.
+    final hash = q['sha256'];
+    if (hash != null) {
+      for (final MapEntry(:key, :value) in assets.entries) {
+        if (value.sha256 == hash && value.category == category && value.complete) {
+          _record(req, const {}, 200);
+          _respondJson(req, 200, {'fileId': key, 'existing': true});
+          return;
+        }
+      }
+    }
     final fileId = state.generateUuid();
     assets[fileId] = _AssetRecord(
       owner: session.userId,
       category: category,
       contentType: _contentTypeForExt(ext),
       declaredSize: size,
+      sha256: hash,
     );
     _record(req, const {}, 200);
     _respondJson(req, 200, {
@@ -3728,6 +3741,19 @@ class MockServer {
         'error': {
           'code': 'ALREADY_MARKED',
           'message': 'file status is already set'
+        }
+      });
+      return;
+    }
+    final declared = record.sha256;
+    if (body['status'] == true &&
+        declared != null &&
+        sha256.convert(record.bytes ?? const []).toString() != declared) {
+      _record(req, body, 409);
+      _respondJson(req, 409, {
+        'error': {
+          'code': 'HASH_MISMATCH',
+          'message': 'the stored bytes do not match the declared sha256'
         }
       });
       return;
@@ -4055,6 +4081,7 @@ class _AssetRecord {
   final String category;
   final String contentType;
   final int declaredSize;
+  final String? sha256;
   Uint8List? bytes;
   bool complete = false;
 
@@ -4063,5 +4090,6 @@ class _AssetRecord {
     required this.category,
     required this.contentType,
     required this.declaredSize,
+    this.sha256,
   });
 }

@@ -54,21 +54,24 @@ class AssetClient {
     required String ext,
     required String category,
     required int size,
+    String? sha256,
   }) async {
     final uri = baseUrl.resolve('/v3.0/assets/upload/presigned_url').replace(
       queryParameters: {
         'ext': ext,
         'category': category,
         'size': '$size',
+        if (sha256 != null) 'sha256': sha256,
       },
     );
     final resp = await _client.get(uri, headers: _headers());
     _assertOk(resp, 'presignUpload');
     final json = jsonDecode(resp.body) as Map<String, dynamic>;
     return PresignedUpload(
-      url: json['url'] as String,
+      url: json['url'] as String? ?? '',
       fileId: json['fileId'] as String,
       contentType: json['contentType'] as String?,
+      existing: json['existing'] == true,
     );
   }
 
@@ -142,9 +145,14 @@ class PresignedUpload {
   /// Null from a server older than this field.
   final String? contentType;
 
+  /// Decision 190: the server already holds these exact (encrypted)
+  /// bytes as [fileId]; there is no [url] and nothing to upload.
+  final bool existing;
+
   const PresignedUpload({
     required this.url,
     required this.fileId,
     this.contentType,
+    this.existing = false,
   });
 }
