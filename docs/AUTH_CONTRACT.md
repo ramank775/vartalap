@@ -1328,55 +1328,52 @@ Example:
 { "status": true }
 ```
 
-**Server side-effects, in order, in a single transaction:**
-1. Insert `(user_id, username, deleted_at)` into the
-   `tombstones` table. `user_id` is permanently reserved (never
-   reassigned to a new user). `username` is always present (§2.4)
-   and is permanently reserved too, preventing reuse of the handle.
-2. Delete the row from `users`. (This releases `phone` — the
-   `users.phone` unique constraint no longer applies, so a fresh
-   signup on the same number creates a new account with a new
-   `user_id`, `username: null` until the mandatory pick step is
-   completed.)
-3. Delete all `accesskeys` and `refresh_tokens` for this
-   `user_id`.
-4. Delete all `notification_topics` for this `user_id`.
-5. Remove the user from all group memberships (channel-ms cascade).
-6. Schedule async cleanup of message authorship records, undelivered
-   queue entries, and dedup window entries (these may exceed
-   transaction time on a heavy account; safe to do best-effort
-   post-commit).
-7. Drop any active WS connections with code **4002** (treated as
-   session revoked, since the credentials no longer resolve).
+**Server side-effects, in order** (each cross-service step is best
+effort and logged on failure; the account is gone once step 1 commits):
+1. The `users` row becomes the tombstone: `deletedAt` is set and every
+   other personal field is erased (`phone`, `phoneHash`, `displayName`,
+   `avatarUrl`, `statusText`, `usernameKeyHash`, `usernameChangedAt`,
+   `createdAt`). Only `user_id` and `username` remain, both reserved
+   forever (8.3). Every lookup skips the row, so the phone is free for
+   a fresh signup with a new `user_id` and `username: null`.
+2. Every session is revoked and every device's published keys are
+   deleted.
+3. The gateway drops live WS connections (session revoked).
+4. Every device's push topic is deleted (notification-ms).
+5. The user leaves every group (channel-ms `/_internal/members/remove`),
+   exactly as if they had left themselves: `ChannelMemberRemoved` to the
+   members, who rotate the group key (decision 188); the owner role
+   passes on, and an emptied group is deleted.
+6. The current profile photo is deleted (media-ms
+   `/_internal/files/delete`, only a file this user uploaded). Earlier
+   photos were deleted when they were replaced.
 
 **What persists about a deleted user:**
-- Past message authorship in other users' local stores. The
-  chat-server is a relay; it does not store history. Recipients
+- Past message authorship in other users' local stores. Recipients
   who already received the user's messages keep them.
 - The `(user_id, username)` tombstone, forever.
+- Encrypted envelopes and message files already sent, until they
+  expire: envelopes after their TTL (at most 30 days,
+  `SYNC_PROTOCOL.md` §10.6), message files 30 days after they were
+  last sent (decision 195).
+- Database backups, for up to 7 days.
 
 **What is permanently gone:**
 - The user's own local data (the client deletes the account's
   database file on confirm, §8.4).
-- The undelivered queue (best-effort cleanup, may briefly persist
-  but is bounded by the 30-day TTL anyway, see `SYNC_PROTOCOL.md`
-  §10.6).
-- Any in-flight messages the user sent that have not yet been
-  fanned out.
+- Phone number, name, About, profile photo, sessions, keys, push
+  registrations and group memberships.
 
 ### 8.3 Tombstone semantics
 
-`tombstones` table:
-```
-(user_id TEXT PRIMARY KEY, username TEXT UNIQUE, deleted_at TIMESTAMP)
-```
+The tombstone is the `users` row itself, reduced to `(user_id,
+username, deletedAt)` (8.2 step 1).
 
-- A `username` in `tombstones.username` cannot be picked at signup
-  (§3.2) or via `PATCH /v3.0/users/me` (§4.5). Server validates
-  against this table on every username write.
-- A `user_id` in `tombstones.user_id` cannot be assigned
-  at signup (§2.3). Server validates the random pick against
-  both `users.user_id` and `tombstones.user_id`.
+- A tombstoned `username` cannot be picked at signup (§3.2) or via
+  `PATCH /v3.0/users/me` (§4.5): the unique index on `usernameLower`
+  covers tombstones too.
+- A tombstoned `user_id` cannot be assigned at signup (§2.3): the
+  random pick is checked against every row, tombstones included.
 - `GET /v3.0/users/<user_id>` (§7.5) returns `404
   USER_NOT_FOUND` for tombstoned prefixes — clients with cached
   references to a deleted user observe the deletion as a "user no
