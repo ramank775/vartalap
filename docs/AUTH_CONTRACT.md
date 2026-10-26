@@ -1348,6 +1348,11 @@ effort and logged on failure; the account is gone once step 1 commits):
    `/_internal/files/delete`, only a file this user uploaded). Earlier
    photos were deleted when they were replaced.
 
+An email request (decision 197) runs the same steps: the operator calls
+profile-ms `POST /_internal/users/delete {phone, username}` from inside
+the server, after checking the requester holds the number. `/_internal`
+routes answer only on loopback.
+
 **What persists about a deleted user:**
 - Past message authorship in other users' local stores. Recipients
   who already received the user's messages keep them.
