@@ -2676,10 +2676,29 @@ class ChatStore {
       };
 
   /// Drop a message row outright: an undecrypted placeholder its re-send
-  /// replaced. Not for user deletes, which tombstone.
+  /// replaced. Not for user deletes, which tombstone. The placeholder
+  /// counted as unread when it came, so it stops counting as it goes:
+  /// the re-send that replaces it counts the line once more. The preview
+  /// moves back to the message before it, in case the re-send was no
+  /// message at all (a receipt).
   Future<void> removeMessage(String messageId) async {
-    await db.delete('messages', where: 'message_id = ?', whereArgs: [messageId]);
-    _notify(const {'messages'});
+    await db.transaction((txn) async {
+      final row = await txn.query('messages',
+          columns: ['channel_id'],
+          where: 'message_id = ?',
+          whereArgs: [messageId]);
+      if (row.isEmpty) return;
+      await txn.delete('messages',
+          where: 'message_id = ?', whereArgs: [messageId]);
+      await txn.rawUpdate('''
+        UPDATE channels
+           SET unread_count = MAX(unread_count - 1, 0),
+               last_message_id = (SELECT message_id FROM messages
+                                   WHERE channel_id = channels.channel_id
+                                   ORDER BY $_newestFirst LIMIT 1)
+         WHERE channel_id = ?''', [row.first['channel_id']]);
+    });
+    _notify(const {'messages', 'channels'});
   }
 
   /// Keep the end-to-end encrypted bytes of [opId] (decision 188). Called

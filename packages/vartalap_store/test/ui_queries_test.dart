@@ -536,6 +536,13 @@ void main() {
       expect(entry.lastMessagePreview, 'newer');
       expect(entry.lastActivityMs, 600);
       expect(entry.unreadCount, 2);
+
+      // A placeholder whose re-send was no message (a receipt): it goes,
+      // and takes its unread line and the preview with it.
+      await deliver('placeholder', 700);
+      await store.removeMessage('placeholder');
+      final after = (await store.fetchChannelList()).single;
+      expect([after.lastMessagePreview, after.unreadCount], ['newer', 2]);
     });
 
     test('tombstoned rows stay in the chat view, with their reactions',

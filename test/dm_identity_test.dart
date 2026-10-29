@@ -590,6 +590,21 @@ void main() {
       () async {
     final (a, b) = await pair();
     final channelId = await a.startDm(b);
+    // A group they share hears about it too (decision 189).
+    const groupId = 'shared-group';
+    await a.store.insertChannel(
+        channelId: groupId,
+        kind: 'group',
+        ownerUserId: a.userId,
+        createdAt: 1,
+        name: 'shared');
+    for (final id in [a.userId, b.userId]) {
+      await a.store.insertChannelMember(
+          channelId: groupId,
+          userId: id,
+          role: id == a.userId ? 'owner' : 'member',
+          joinedAt: 1);
+    }
     await a.chat.sendMessage(
         channelId: channelId, body: 'one', authorUserId: a.userId);
     await a.drain();
@@ -616,11 +631,14 @@ void main() {
     expect(waiting, isEmpty, reason: 'the re-send took the placeholder\'s place');
     expect(changed, contains(b.userId),
         reason: 'decision 184: A sees that B\'s security code changed');
-    final notices = (await a.store.fetchChannelMessages(channelId))
-        .where((m) => m.contentType == kGroupEventType)
-        .map((m) => GroupEvent.parse(m.body)?.kind);
-    expect(notices, contains(GroupEventKind.securityCode),
+    Future<Iterable<GroupEventKind?>> notices(String id) async =>
+        (await a.store.fetchChannelMessages(id))
+            .where((m) => m.contentType == kGroupEventType)
+            .map((m) => GroupEvent.parse(m.body)?.kind);
+    expect(await notices(channelId), contains(GroupEventKind.securityCode),
         reason: 'and says so in the chat, WhatsApp style');
+    expect(await notices(groupId), contains(GroupEventKind.securityCode),
+        reason: 'and in every group they share');
   });
 }
 

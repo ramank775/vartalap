@@ -1851,6 +1851,12 @@ void main() {
         '(decision 188)', () async {
       final selfId = h.authService.currentUserId!;
       final channelId = dmChannelId(selfId, peerUserId);
+      Future<int> unread() async => (await h.store.fetchChannelList())
+              .where((c) => c.channelId == channelId)
+              .firstOrNull
+              ?.unreadCount ??
+          0;
+      final unreadBefore = await unread();
       h.mock.holdResends = true;
       await h.mock.injectPeerMessage(channelId: channelId, body: 'just before');
       final lost = await h.mock.injectPeerMessage(
@@ -1882,6 +1888,8 @@ void main() {
       expect(bodies.sublist(bodies.length - 3),
           ['just before', 'lost, then re-sent', 'just after']);
       expect(bodies.where((b) => b == 'lost, then re-sent'), hasLength(1));
+      expect(await unread(), unreadBefore + 3,
+          reason: 'the placeholder leaves the unread count with its row');
     });
   });
 }

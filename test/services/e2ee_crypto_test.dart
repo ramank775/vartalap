@@ -278,6 +278,21 @@ void main() {
       await expectLater(carol.open(after), throwsA(anything));
     });
 
+    test('with everyone else gone a send still seals; whoever is added back '
+        'gets a new key and only what follows', () async {
+      final (first, keys) = await groupSend('before', {bob.userId});
+      await bob.crypto.open(keys[bob.userId]!);
+      await bob.open(first);
+      final (alone, none) =
+          await groupSend('alone', <String>{}, opId: 'g-op-2');
+      expect(none, isEmpty);
+      await expectLater(bob.open(alone), throwsA(anything));
+      final (back, rekeyed) =
+          await groupSend('bob is back', {bob.userId}, opId: 'g-op-3');
+      await bob.crypto.open(rekeyed[bob.userId]!);
+      expect(await bob.open(back), 'bob is back');
+    });
+
     test('typing never hands out a key', () async {
       final (typing, keys) = await groupSend('typing', {bob.userId},
           onlyIfDistributed: true);

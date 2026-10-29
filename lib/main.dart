@@ -479,9 +479,14 @@ Future<AppServices> initializeApp({bool background = false}) async {
   authService.onLogout = services.closeAccount;
 
   // SYNC_PROTOCOL §12.3 — the wake says nothing, so the client owns
-  // the follow-up: the app's WS back up, then pull from the pointer.
+  // the follow-up: the app's WS back up, then pull from the pointer. A
+  // cold wake calls in before the account below is open: without the
+  // wait its pull has no receiver, finds nothing and says "New activity",
+  // and the real pull lands after Android has frozen the app.
+  final accountOpened = Completer<void>();
   pushService.onWake = () async {
     if (!background) await wsTransport.start();
+    await accountOpened.future;
     return services.pullPendingSync();
   };
   // AUTH_CONTRACT §5.1 — deregister while the accesskey still works.
@@ -504,12 +509,17 @@ Future<AppServices> initializeApp({bool background = false}) async {
   if (restoredUserId != null || !background) {
     await migrateLegacyDb(docsDir.path, restoredUserId);
   }
-  if (restoredUserId != null) {
-    await services.openAccount(restoredUserId, adoptGroups: !background);
-    // Best-effort initial pull — picks up anything the server queued
-    // between the last connection and now (e.g. seed-peer DM created
-    // at OTP-verify on a fresh install). Server never auto-pushes.
-    unawaited(services.pullPendingSync());
+  try {
+    if (restoredUserId != null) {
+      await services.openAccount(restoredUserId, adoptGroups: !background);
+      // Best-effort initial pull — picks up anything the server queued
+      // between the last connection and now (e.g. seed-peer DM created
+      // at OTP-verify on a fresh install). Server never auto-pushes. A
+      // wake's engine leaves it to the wake's own pull.
+      if (!background) unawaited(services.pullPendingSync());
+    }
+  } finally {
+    accountOpened.complete();
   }
 
   return services;

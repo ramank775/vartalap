@@ -41,7 +41,9 @@ class MessageCrypto {
     for (final chat in await store.fetchMemberChannels(userId: userId)) {
       await store.insertGroupEvent(
         channelId: chat.channelId,
-        messageId: 'sc-$userId-$now',
+        // message ids are unique across chats: one shared id would land
+        // in the first chat only
+        messageId: 'sc-$userId-${chat.channelId}-$now',
         actorUserId: userId,
         event: GroupEvent(GroupEventKind.securityCode, users: [userId]),
         atMs: now,

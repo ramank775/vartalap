@@ -1406,7 +1406,10 @@ pulls its timeline (§10.6), which carries the full payload.
 
 Coalescing: if multiple envelopes are enqueued in quick succession,
 the server MAY debounce the publish (no more than one wake per
-5 seconds per recipient).
+5 seconds per recipient). A wake the window holds back is sent when
+it ends, never dropped: the phone may have pulled before that
+envelope was queued (a read receipt wakes it, the reply follows a
+second later), and with the app killed nothing else fetches it.
 
 ### 12.2 Endpoint registration
 

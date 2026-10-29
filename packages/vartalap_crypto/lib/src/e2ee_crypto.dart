@@ -223,6 +223,13 @@ class E2eeCrypto {
         }
         final missing = members.difference(holders);
         if (onlyIfDistributed && missing.isNotEmpty) return null;
+        if (members.isEmpty) {
+          // Everyone else left: no hand-out below creates the fresh key,
+          // so create it here, or the send could never seal.
+          await _db.transaction((txn) =>
+              GroupSessionBuilder(SignalStores(_records.forTransaction(txn)))
+                  .create(self));
+        }
         for (final member in missing) {
           final distribution = await _db.transaction((txn) =>
               GroupSessionBuilder(SignalStores(_records.forTransaction(txn)))
