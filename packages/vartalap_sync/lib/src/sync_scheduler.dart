@@ -166,6 +166,16 @@ class SyncScheduler {
       sweepInterval,
       (_) => _track(_sweepTimeouts()),
     );
+    // In flight before we started: sent by a process that is gone, whose
+    // connection took the ack with it. Again now, not after Flow C's
+    // timeout, which outlives a push wake or the send job; the server's
+    // dedup window answers a repeat with the stored ack. No attempt
+    // charged (Flow A charged it).
+    final now = clock.nowMs();
+    for (final op in await store.selectInFlightOlderThan(cutoffMs: now + 1)) {
+      await store.markOpRetrying(
+          opId: op.opId, nextRetryAt: now, reason: 'orphaned_in_flight');
+    }
     await _dispatchOnce();
   }
 

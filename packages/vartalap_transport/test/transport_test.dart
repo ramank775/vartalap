@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart' as fixnum;
+import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -614,6 +615,84 @@ class _WsEchoServer {
 }
 
 void _appBuildTests() {
+  group('OpsTransport', () {
+    late _HttpServer server;
+
+    setUp(() async {
+      server = _HttpServer();
+      await server.start();
+    });
+
+    tearDown(() async => server.stop());
+
+    OutboundFrame frame(List<String> opIds) => OutboundFrame(
+          kind: 'chat_payload',
+          resourceId: 'd-ab',
+          peer: 'b1c2d3e4f',
+          ops: [
+            for (final id in opIds)
+              FramedOp(opId: id, payload: [1, 2], clientTimestampMs: 7),
+          ],
+        );
+
+    test('posts the WS_OP beside the socket; the reply WS_ACK is the acks',
+        () async {
+      server.handler = (req) async {
+        expect(req.method, 'POST');
+        expect(req.uri.path, '/wss/ops');
+        final body =
+            jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
+        final sent = pb.WsEnvelope.fromBuffer(base64Decode(body['frame']));
+        expect(sent.type, pb.WsType.WS_OP);
+        expect(sent.ops.envelopes.single.opId, 'op-1');
+        expect(sent.ops.envelopes.single.peer, 'b1c2d3e4f');
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(jsonEncode({
+          'frame': base64Encode(pb.WsEnvelope(
+            type: pb.WsType.WS_ACK,
+            acks: pb.AckBatch(acks: [
+              pb.Ack(
+                  opId: 'op-1',
+                  outcome: pb.AckOutcome.ACK_SUCCESS,
+                  serverTimestampMs: fixnum.Int64(42)),
+            ]),
+          ).writeToBuffer()),
+        }));
+        await req.response.close();
+      };
+      final transport = OpsTransport(
+        wsEndpoint: server.uri.replace(scheme: 'ws', path: '/wss'),
+        auth: _FakeAuth('acc-ops'),
+        httpClient: http.Client(),
+      );
+      final ack = transport.acks.first.timeout(const Duration(seconds: 3));
+      await transport.send(frame(['op-1']));
+
+      final got = await ack;
+      expect(got.opId, 'op-1');
+      expect((got.outcome as AckSuccess).serverTimestampMs, 42);
+      expect(server.lastAuthHeader, 'Bearer acc-ops');
+    });
+
+    test('a refused request is an ack for every op in the frame', () async {
+      server.handler = (req) async {
+        req.response.statusCode = 401;
+        await req.response.close();
+      };
+      final transport = OpsTransport(
+        wsEndpoint: server.uri.replace(scheme: 'ws', path: '/wss'),
+        auth: _FakeAuth('acc-ops'),
+        httpClient: http.Client(),
+      );
+      final acks = transport.acks.take(2).toList();
+      await transport.send(frame(['op-1', 'op-2']));
+
+      final got = await acks.timeout(const Duration(seconds: 3));
+      expect(got.map((a) => a.opId), ['op-1', 'op-2']);
+      expect(got.every((a) => a.outcome is AckAuthFailure), isTrue);
+    });
+  });
+
   group('AppBuild (decision 192)', () {
     test('the socket sends the build and stops retrying once refused',
         () async {

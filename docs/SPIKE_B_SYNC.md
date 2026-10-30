@@ -2,6 +2,7 @@
 
 **Status:** Draft, 2026-04-14
 **Note (2026-10-11):** `resource_seq` and `delivery_sequence` are retired (DECISIONS 127); ordering is client-side by `(server_timestamp_ms, op_id)` — see SYNC_PROTOCOL §6. This spike predates that and is kept as written.
+**Note (2026-10-30):** chat content is no longer WS-only: an engine with no socket (a push wake, the queued-send job) sends the same `WS_OP` frames over `POST /wss/ops` (SYNC_PROTOCOL §5.11). The "WS-only" lines in §7a predate that.
 **Branch:** `feat/v3-foundation`
 **Supersedes:** `packages/taskq/` (to be deleted when v3 scaffold lands)
 

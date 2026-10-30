@@ -228,6 +228,29 @@ void main() {
           'the caller may already be closing the store.',
     );
   });
+
+  test('an op a dead process left in flight goes again when a scheduler '
+      'starts, not after the in-flight timeout',
+      timeout: const Timeout(Duration(seconds: 15)), () async {
+    final store = await storeWithPendingOp('op-orphan', 'c-orphan');
+    // sent on a socket that died with its app: that ack is never coming
+    await store.markOpInFlight(
+        opId: 'op-orphan',
+        messageId: null,
+        nowMs: DateTime.now().millisecondsSinceEpoch);
+    final ws = _ScriptedTransport();
+    final scheduler = schedulerFor(store, ws, _ScriptedTransport());
+    addTearDown(() async {
+      await scheduler.stop();
+      await store.close();
+    });
+
+    await scheduler.start();
+
+    expect(ws.sent, ['op-orphan'],
+        reason: 'a push wake or the send job lives seconds; the 30 s '
+            'in-flight timeout would outlive it');
+  });
 }
 
 class _ScriptedTransport implements Transport {
@@ -247,8 +270,11 @@ class _ScriptedTransport implements Transport {
     _stateCtrl.add(_state);
   }
 
+  final sent = <String>[];
+
   @override
-  Future<void> send(OutboundFrame frame) async {}
+  Future<void> send(OutboundFrame frame) async =>
+      sent.addAll(frame.ops.map((op) => op.opId));
 
   @override
   Stream<AckFrame> get acks => _ackCtrl.stream;

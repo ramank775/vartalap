@@ -287,32 +287,9 @@ class WsTransport implements Transport {
       throw StateError('WsTransport.send: not connected');
     }
 
-    // Build envelopes from the frame's ops. Per SYNC_PROTOCOL.md §5.4,
-    // client→server envelopes carry op_id / channel_id /
-    // client_timestamp_ms / payload. sender_user_id and
-    // server_timestamp_ms are absent (server stamps on fanout).
-    final envelopes = <pb.Envelope>[];
-    for (final op in frame.ops) {
-      final env = pb.Envelope(
-        opId: op.opId,
-        channelId: frame.resourceId,
-        clientTimestampMs: op.clientTimestampMs != null
-            ? fixnum.Int64(op.clientTimestampMs!)
-            : null,
-        payload: op.payload,
-        peer: frame.peer,
-      );
-      envelopes.add(env);
-    }
-
-    final wsEnv = pb.WsEnvelope(
-      type: pb.WsType.WS_OP,
-      ops: pb.EnvelopeBatch(envelopes: envelopes),
-    );
-
     Uint8List bytes;
     try {
-      bytes = wsEnv.writeToBuffer();
+      bytes = opFrame(frame).writeToBuffer();
     } catch (e) {
       throw StateError('WsTransport.send: malformed envelope: $e');
     }
@@ -420,7 +397,7 @@ class WsTransport implements Transport {
 
   void _handleAckBatch(pb.AckBatch batch) {
     for (final ack in batch.acks) {
-      final frame = AckFrame(opId: ack.opId, outcome: _outcomeFor(ack));
+      final frame = AckFrame(opId: ack.opId, outcome: ackOutcomeOf(ack));
       _emitAck(frame);
     }
   }
@@ -465,39 +442,61 @@ class WsTransport implements Transport {
     }
   }
 
-  static AckOutcome _outcomeFor(pb.Ack ack) {
-    switch (ack.outcome) {
-      case pb.AckOutcome.ACK_SUCCESS:
-        return AckSuccess(
-          serverTimestampMs: ack.hasServerTimestampMs()
-              ? ack.serverTimestampMs.toInt()
-              : null,
-        );
-      case pb.AckOutcome.ACK_TRANSIENT:
-        return AckTransientReject(
-          serverRetryAfter: ack.hasRetryAfterMs()
-              ? Duration(milliseconds: ack.retryAfterMs.toInt())
-              : null,
-          reason: ack.hasReason() ? ack.reason : null,
-        );
-      case pb.AckOutcome.ACK_PERMANENT:
-        return AckPermanentReject(
-          reason: ack.hasReason() ? ack.reason : 'permanent',
-        );
-      case pb.AckOutcome.ACK_AUTH_FAILURE:
-        return const AckAuthFailure();
-      default:
-        // ACK_OUTCOME_UNSPECIFIED — server bug. Surface as permanent so
-        // the op lands in dead_letter rather than spinning forever.
-        return const AckPermanentReject(reason: 'unknown_outcome');
-    }
-  }
-
   /// WS frames arrive as `List<int>` / `Uint8List` (binary) or `String`
   /// (text). We only speak binary per SYNC_PROTOCOL.md §5.3.
   Uint8List? _coerceBinary(dynamic frame) {
     if (frame is Uint8List) return frame;
     if (frame is List<int>) return Uint8List.fromList(frame);
     return null;
+  }
+}
+
+/// The `WS_OP` for [frame]'s ops, on the socket or over https
+/// ([OpsTransport]). Per SYNC_PROTOCOL.md §5.4, client→server envelopes
+/// carry op_id / channel_id / client_timestamp_ms / payload.
+/// sender_user_id and server_timestamp_ms are absent (server stamps on
+/// fanout).
+pb.WsEnvelope opFrame(OutboundFrame frame) => pb.WsEnvelope(
+      type: pb.WsType.WS_OP,
+      ops: pb.EnvelopeBatch(envelopes: [
+        for (final op in frame.ops)
+          pb.Envelope(
+            opId: op.opId,
+            channelId: frame.resourceId,
+            clientTimestampMs: op.clientTimestampMs != null
+                ? fixnum.Int64(op.clientTimestampMs!)
+                : null,
+            payload: op.payload,
+            peer: frame.peer,
+          ),
+      ]),
+    );
+
+/// A server [pb.Ack] as the scheduler's [AckOutcome].
+AckOutcome ackOutcomeOf(pb.Ack ack) {
+  switch (ack.outcome) {
+    case pb.AckOutcome.ACK_SUCCESS:
+      return AckSuccess(
+        serverTimestampMs: ack.hasServerTimestampMs()
+            ? ack.serverTimestampMs.toInt()
+            : null,
+      );
+    case pb.AckOutcome.ACK_TRANSIENT:
+      return AckTransientReject(
+        serverRetryAfter: ack.hasRetryAfterMs()
+            ? Duration(milliseconds: ack.retryAfterMs.toInt())
+            : null,
+        reason: ack.hasReason() ? ack.reason : null,
+      );
+    case pb.AckOutcome.ACK_PERMANENT:
+      return AckPermanentReject(
+        reason: ack.hasReason() ? ack.reason : 'permanent',
+      );
+    case pb.AckOutcome.ACK_AUTH_FAILURE:
+      return const AckAuthFailure();
+    default:
+      // ACK_OUTCOME_UNSPECIFIED — server bug. Surface as permanent so
+      // the op lands in dead_letter rather than spinning forever.
+      return const AckPermanentReject(reason: 'unknown_outcome');
   }
 }

@@ -7,6 +7,9 @@ library vartalap_store.schema;
 const int schemaVersion = 5;
 
 const List<String> pragmas = [
+  // A background engine (push wake, send job) holds its own connection to
+  // the same file: wait for its lock instead of failing "database is locked".
+  'PRAGMA busy_timeout = 5000',
   'PRAGMA journal_mode = WAL',
   'PRAGMA synchronous = NORMAL',
   'PRAGMA wal_autocheckpoint = 1000',

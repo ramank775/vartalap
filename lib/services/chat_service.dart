@@ -171,6 +171,20 @@ class ChatService {
     });
   }
 
+  /// The delivery receipts still waiting out their debounce, queued now:
+  /// a push wake's engine may not live the 500 ms.
+  Future<void> queueDeliveryReceiptsNow() async {
+    final channels = _deliveryTimers.keys.toList();
+    for (final t in _deliveryTimers.values) {
+      t.cancel();
+    }
+    _deliveryTimers.clear();
+    for (final channelId in channels) {
+      await _enqueueReceipt(
+          channelId, pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT);
+    }
+  }
+
   /// Presigned-upload / download cache for attachments and avatars.
   /// Also published as [AssetCache.instance] for widgets that cannot
   /// reach a service (see [_installAssetPipeline]).

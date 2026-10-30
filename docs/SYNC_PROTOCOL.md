@@ -127,7 +127,7 @@ contracts.)
 
 | Operation | Transport | Why |
 |---|---|---|
-| Send / edit / delete / react / forward — chat content | WS | Opaque payload routing; server doesn't interpret |
+| Send / edit / delete / react / forward — chat content | WS; `POST /wss/ops` from an engine with no socket (§5.11) | Opaque payload routing; server doesn't interpret |
 | Create channel | REST `POST /v3.0/channels` | Server allocates channel-ms row, enrolls members |
 | Add / remove channel members | REST `POST/DELETE /v3.0/channels/<id>/members` | Server updates channel-ms membership |
 | Edit channel name / avatar | REST `PATCH /v3.0/channels/<id>` | Server updates channel-ms metadata |
@@ -346,6 +346,32 @@ answered its previous ping, and the client reconnects (then pulls,
 without a close (the phone changed networks or lost coverage) is
 noticed within a minute rather than at the TCP timeout. A pong also
 tells the server that every push sent before its ping arrived (§12.1).
+
+### 5.11 Op frames over HTTPS
+
+`POST /wss/ops` (beside the socket's URL, authenticated like its
+handshake and, like it, never username-gated) carries one §5.4 `WS_OP`
+frame for a client engine that has no socket: a push wake's background
+engine (§12.3) and the queued-send job, which Android runs once there
+is network after the app was closed with something unsent.
+
+```
+POST /wss/ops
+{"frame": "<base64 WsEnvelope{type: WS_OP}>"}
+
+200 {"frame": "<base64 WsEnvelope{type: WS_ACK}>"}
+```
+
+The gateway runs the frame's envelopes through the socket's own path
+(§5.4, §6a.3, §7, §14): the reply holds the acks the socket would have
+sent, one per non-ephemeral envelope in order, and the server owns an
+op once that ack is out. The dedup window is shared, so an op sent
+both ways lands once. A body that is not a `WS_OP` frame is 400; a
+failed session check is the usual §11 envelope. The client turns a
+non-200 or a failed request into one ack per op in the frame (§8.1
+mapping) and retries it as it would on the socket. Nothing is pushed
+back on this route: inbound frames still come by §10.6 pull or the
+socket.
 
 ---
 
@@ -1366,9 +1392,11 @@ overhead is acceptable. Revisit if telemetry shows otherwise.
 
 When the WS connection is unavailable (app backgrounded, network
 flapping), the scheduler dispatches REST writes in the background
-exactly the same way. There is no "REST batch" endpoint for
-chat-content envelopes — chat content is WS-only — but REST writes
-proceed independently of WS state.
+exactly the same way. Chat content waits for the socket while the app
+runs; an engine with no socket (a push wake, the queued-send job)
+sends it over `POST /wss/ops` (§5.11) instead. A scheduler that starts
+with ops still in flight (sent by a process that has since died) sends
+them again at once; the dedup window answers with the stored ack.
 
 ---
 
@@ -1424,8 +1452,10 @@ connector decrypts it → Vartalap pulls (§10.6, from the device's
 pointer) and, if the app itself is running, reopens its WS. A
 background engine started only to handle the wake never opens a WS:
 it would outlive the wake and fight the app's socket, since the server
-keeps one per device. No client-initiated request to the push
-service other than registration.
+keeps one per device. That engine sends instead over `POST /wss/ops`
+(§5.11): the delivery receipts for what it pulled, and whatever else
+was queued. No client-initiated request to the push service other
+than registration.
 
 ---
 

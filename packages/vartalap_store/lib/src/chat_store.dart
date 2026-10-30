@@ -755,6 +755,22 @@ class ChatStore {
     return rows.map(_rowToOutboundOp).toList();
   }
 
+  /// Anything still to send: queued, in flight or retrying. With [dueBy],
+  /// only what can go out by then, not a retry backing off past it.
+  Future<bool> hasUnsentOps({int? dueBy}) async {
+    const unsent = "status IN ('pending', 'in_flight', 'retrying')";
+    final rows = await db.query(
+      'outbound_ops',
+      columns: const ['op_id'],
+      where: dueBy == null
+          ? unsent
+          : "$unsent AND (status = 'in_flight' OR next_retry_at <= ?)",
+      whereArgs: [if (dueBy != null) dueBy],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   /// Do we hold a local row for [channelId]? Used on the derived-DM
   /// paths (trim 4), where "the channel exists" is a purely local
   /// question — the server keeps no row for a DM to ask.

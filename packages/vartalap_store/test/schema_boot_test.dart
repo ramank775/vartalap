@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -41,6 +43,29 @@ void main() {
       final store = await ChatStore.open(path: '${dir.path}/wal_probe.db');
       final journal = await store.db.rawQuery('PRAGMA journal_mode');
       expect(journal.single.values.first, 'wal');
+      await store.close();
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  });
+
+  // The app and a background engine (push wake, send job) each open
+  // their own connection to the account's file: a write that meets the
+  // other's lock waits for it instead of failing "database is locked".
+  test('a write waits out another connection\'s lock', () async {
+    final dir = await Directory.systemTemp.createTemp('vartalap_lock');
+    try {
+      final path = '${dir.path}/lock_probe.db';
+      final store = await ChatStore.open(path: path);
+      // its own isolate, as the other engine is
+      final events = ReceivePort();
+      final steps = StreamIterator(events);
+      await Isolate.spawn(_holdWriteLock, (events.sendPort, path));
+      await steps.moveNext(); // locked
+
+      await store.db.execute("DELETE FROM channels WHERE channel_id = 'y'");
+      await steps.moveNext(); // released
+      events.close();
       await store.close();
     } finally {
       dir.deleteSync(recursive: true);
@@ -350,3 +375,18 @@ const _v4OutboundOps = '''
     target_channel_id TEXT
   )
 ''';
+
+/// Takes the write lock on [args]' file, says so, holds it 300 ms.
+Future<void> _holdWriteLock((SendPort, String) args) async {
+  final (port, path) = args;
+  sqfliteFfiInit();
+  final db = await databaseFactoryFfi.openDatabase(path,
+      options: OpenDatabaseOptions(singleInstance: false));
+  await db.execute('BEGIN IMMEDIATE');
+  await db.execute("DELETE FROM channels WHERE channel_id = 'x'");
+  port.send(null);
+  await Future<void>.delayed(const Duration(milliseconds: 300));
+  await db.execute('COMMIT');
+  await db.close();
+  port.send(null);
+}

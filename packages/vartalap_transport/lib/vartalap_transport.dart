@@ -36,6 +36,7 @@ export 'src/device_keys.dart'
         E2eeDeviceBundle,
         E2eeKeyPublication,
         E2eeKeyClaim;
+export 'src/ops_transport.dart' show OpsTransport;
 export 'src/rest_transport.dart' show RestTransport, classifyHttpStatus;
 export 'src/transport.dart'
     show FramedOp, OutboundFrame, Transport, TransportState;

@@ -8,6 +8,41 @@ import 'package:vartalap_store/vartalap_store.dart';
 /// Covers the UI-facing reactive-query methods added to [ChatStore]
 /// for the v3 scaffold (SPIKE_A_SCHEMA.md §13.1, §13.2, §10).
 void main() {
+  test('hasUnsentOps: queued, in flight or retrying; dueBy leaves out a '
+      'retry backing off past it', () async {
+    final store = await ChatStore.open(path: inMemoryDatabasePath);
+    addTearDown(store.close);
+    expect(await store.hasUnsentOps(), isFalse);
+    await store.enqueueOutboundOp(OutboundOpRow(
+      opId: 'op-1',
+      transport: OpTransport.ws,
+      kind: OpKind.chatPayload,
+      restMethod: null,
+      restPath: null,
+      resourceId: 'c-1',
+      payload: const [1],
+      status: OpStatus.pending,
+      attempts: 0,
+      nextRetryAt: 0,
+      dispatchedAt: null,
+      lastError: null,
+      acknowledgedAt: null,
+      createdAt: 0,
+      targetMessageId: null,
+      targetChannelId: 'c-1',
+    ));
+    expect(await store.hasUnsentOps(dueBy: 0), isTrue);
+
+    await store.markOpRetrying(opId: 'op-1', nextRetryAt: 5000, reason: 'x');
+    expect(await store.hasUnsentOps(), isTrue);
+    expect(await store.hasUnsentOps(dueBy: 4999), isFalse);
+    expect(await store.hasUnsentOps(dueBy: 5000), isTrue);
+
+    await store.markOpDeadLetter(
+        opId: 'op-1', reason: 'x', messageId: null, nowMs: 1);
+    expect(await store.hasUnsentOps(), isFalse);
+  });
+
   group('ChannelListEntry.title (AUTH_CONTRACT §2.4)', () {
     Future<ChatStore> dmWith({
       String? contactBookName,

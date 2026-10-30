@@ -12,6 +12,7 @@ library vartalap.main;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -20,7 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart' show SentryFlutter;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/config/sentry_config.dart';
@@ -47,6 +48,8 @@ import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
+import 'package:workmanager/workmanager.dart' hide BackoffPolicy;
+import 'package:workmanager/workmanager.dart' as wm show BackoffPolicy;
 
 final ConfigStore configStore = ConfigStore();
 
@@ -83,6 +86,18 @@ void main(List<String> args) async {
   }
 }
 
+/// The WorkManager job [AppServices.scheduleSend] queues: runs once there
+/// is network, sends what was left over https, and stays queued (with
+/// WorkManager's backoff) while anything is.
+@pragma('vm:entry-point')
+void sendQueuedJob() {
+  Workmanager().executeTask((task, _) async {
+    DartPluginRegistrant.ensureInitialized();
+    final services = await initializeApp(background: true);
+    return services.sendQueued(scheduleRest: false);
+  });
+}
+
 /// Bundle of long-lived services wired up at app boot. Passed to the
 /// root widget through an InheritedWidget ([AppServicesProvider]) so
 /// screens can pull out just the pieces they need.
@@ -91,6 +106,10 @@ class AppServices {
   final AuthService authService;
   final WsTransport wsTransport;
   final RestTransport restTransport;
+
+  /// What the account's chat ops go out on: [wsTransport], or in a
+  /// background engine, which has no socket, [OpsTransport].
+  final Transport opTransport;
   final PushService pushService;
   final MessageNotifications notifications;
   final bool consentAccepted;
@@ -144,13 +163,14 @@ class AppServices {
     required this.authService,
     required this.wsTransport,
     required this.restTransport,
+    Transport? opTransport,
     required this.pushService,
     required this.notifications,
     required this.consentAccepted,
     required this.pushPromptSeen,
     required this.dbDir,
     this.openDb = _openDb,
-  });
+  }) : opTransport = opTransport ?? wsTransport;
 
   static Future<ChatStore> _openDb(String path) => ChatStore.open(path: path);
 
@@ -181,14 +201,14 @@ class AppServices {
             .claimDeviceKeys(user, deviceId: device, generation: generation),
       ),
       store: store,
-      ws: wsTransport,
+      ws: opTransport,
       selfUserId: userId,
     );
     // Trim 4: derived DM ops name their peer on the wire, which is
     // relative to the signed-in user.
     final scheduler = SyncScheduler(
       store: store,
-      wsTransport: wsTransport,
+      wsTransport: opTransport,
       restTransport: restTransport,
       backoff: ExponentialJitterBackoff(),
       clock: Clock.system,
@@ -290,6 +310,56 @@ class AppServices {
   /// Returns how many frames the server handed over.
   Future<int> pullPendingSync() =>
       pullPendingPages(restTransport, wsTransport, inboundReceiver);
+
+  /// A background engine's sends: the delivery receipts for what it
+  /// pulled, then the queue, until nothing is due or [within] runs out.
+  /// True when nothing is left; otherwise, with [scheduleRest], the rest
+  /// waits for [scheduleSend].
+  Future<bool> sendQueued({
+    Duration within = const Duration(seconds: 20),
+    bool scheduleRest = true,
+  }) async {
+    final store = this.store;
+    final scheduler = this.scheduler;
+    if (store == null || scheduler == null) return true;
+    try {
+      await chatService.queueDeliveryReceiptsNow();
+      scheduler.tickSoon();
+      final deadline = DateTime.now().add(within);
+      // ponytail: polls every 250 ms; give the scheduler a "drained"
+      // signal if this ever has to react faster.
+      while (DateTime.now().isBefore(deadline) &&
+          await store.hasUnsentOps(
+              dueBy: DateTime.now().millisecondsSinceEpoch)) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      if (!await store.hasUnsentOps()) return true;
+    } catch (e) {
+      debugPrint('Background send failed: $e');
+    }
+    if (scheduleRest) await scheduleSend();
+    return false;
+  }
+
+  /// Queue [sendQueuedJob] for once there is network. [delay] lets a
+  /// live app's own socket finish first. Kept if already queued.
+  Future<void> scheduleSend({Duration delay = Duration.zero}) async {
+    try {
+      await Workmanager().registerOneOffTask(
+        _sendJob,
+        _sendJob,
+        initialDelay: delay,
+        constraints: Constraints(networkType: NetworkType.connected),
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+        backoffPolicy: wm.BackoffPolicy.exponential,
+      );
+    } catch (e) {
+      // No WorkManager (desktop, tests): sends wait for the app.
+      debugPrint('Send job not scheduled: $e');
+    }
+  }
+
+  static const _sendJob = 'send-queued';
 
   /// Stop any previous receiver and construct + start a fresh one
   /// bound to [userIdHex]. Called on every login so the new session's
@@ -448,6 +518,11 @@ Future<AppServices> initializeApp({bool background = false}) async {
   // the app's own for this device (the server keeps one per device),
   // each replacing the other about once a second.
   if (!background) await wsTransport.start();
+  try {
+    await Workmanager().initialize(sendQueuedJob);
+  } catch (e) {
+    debugPrint('WorkManager init failed: $e');
+  }
 
   // The account's store comes and goes with sign-in ([AppServices.store]).
   late final AppServices services;
@@ -467,6 +542,10 @@ Future<AppServices> initializeApp({bool background = false}) async {
     authService: authService,
     wsTransport: wsTransport,
     restTransport: restTransport,
+    opTransport: background
+        ? OpsTransport(
+            wsEndpoint: wsUrl, auth: authClient, httpClient: httpClient)
+        : null,
     pushService: pushService,
     notifications: notifications,
     consentAccepted: consentAccepted,
@@ -487,7 +566,12 @@ Future<AppServices> initializeApp({bool background = false}) async {
   pushService.onWake = () async {
     if (!background) await wsTransport.start();
     await accountOpened.future;
-    return services.pullPendingSync();
+    final pulled = await services.pullPendingSync();
+    // A wake's own engine has no socket: the delivery receipts for what
+    // came, and anything else queued, go over https, without holding up
+    // the notifications.
+    if (background) unawaited(services.sendQueued());
+    return pulled;
   };
   // AUTH_CONTRACT §5.1 — deregister while the accesskey still works.
   authService.onBeforeLogout = () async {
@@ -747,8 +831,22 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// Chat notifications stay until their chat is read.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final services = widget.services;
     if (state == AppLifecycleState.resumed) {
-      unawaited(widget.services.notifications.cancelWake());
+      unawaited(services.notifications.cancelWake());
+      // the socket sends again
+      unawaited(Workmanager()
+          .cancelByUniqueName(AppServices._sendJob)
+          .catchError((Object _) {}));
+    } else {
+      // Leaving with something unsent: it goes once there is network,
+      // whether or not the app is still alive by then. Not only on
+      // `paused`: swiped away from Recents, the app only got `inactive`.
+      unawaited(() async {
+        if (await services.store?.hasUnsentOps() ?? false) {
+          await services.scheduleSend(delay: const Duration(seconds: 15));
+        }
+      }());
     }
   }
 
