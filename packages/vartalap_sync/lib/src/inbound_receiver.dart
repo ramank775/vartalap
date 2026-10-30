@@ -655,6 +655,12 @@ class InboundReceiver {
   /// authorship filter is the §6a.3 gate — a receipt never touches a
   /// third party's rows, and our own echo (sender == us) is ignored.
   /// Our un-ACKed rows have no stamp yet and are never matched.
+  ///
+  /// Decision 202: the marker is kept per member, and a message flips
+  /// only once every current member who was in when it was stamped is
+  /// past it, as WhatsApp does in groups. A DM's one peer is its own
+  /// "every member". ponytail: a member leaving doesn't re-check; the
+  /// next receipt does.
   Future<void> _handleReceipt(
     pb.Envelope env,
     pb.ChatPayload chat,
@@ -662,13 +668,29 @@ class InboundReceiver {
   ) async {
     final marker = chat.markerServerTimestampMs.toInt();
     if (env.senderUserId != localUserId && marker > 0) {
+      final read = state == MessageState.read;
+      // A read is also a delivery.
+      await store.db.rawUpdate(
+        'UPDATE channel_members '
+        'SET delivered_up_to = MAX(COALESCE(delivered_up_to, 0), ?)'
+        '${read ? ', read_up_to = MAX(COALESCE(read_up_to, 0), ?)' : ''} '
+        'WHERE channel_id = ? AND user_id = ?',
+        [marker, if (read) marker, env.channelId, env.senderUserId],
+      );
+      final upTo = read ? 'read_up_to' : 'delivered_up_to';
       final rows = await store.db.rawQuery(
         '''
-        SELECT message_id FROM messages
+        SELECT message_id FROM messages m
         WHERE channel_id = ? AND author_user_id = ?
           AND server_timestamp_ms <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM channel_members cm
+            WHERE cm.channel_id = m.channel_id AND cm.user_id != ?
+              AND cm.removed_at IS NULL
+              AND cm.joined_at <= m.server_timestamp_ms
+              AND COALESCE(cm.$upTo, 0) < m.server_timestamp_ms)
         ''',
-        [env.channelId, localUserId, marker],
+        [env.channelId, localUserId, marker, localUserId],
       );
       for (final row in rows) {
         await store.applyMessageStateChange(

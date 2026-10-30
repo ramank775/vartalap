@@ -426,6 +426,75 @@ void main() {
     },
   );
 
+  test(
+    'in a group, a message turns delivered or read only once every member '
+    'it went to has, and a member out of the group when it was sent is '
+    'not waited for',
+    () async {
+      const group = 'c-grp-ticks';
+      const fourth = '0a9a9a9a9';
+      await store.insertChannel(
+          channelId: group, kind: 'group', ownerUserId: _selfUserId,
+          createdAt: 1);
+      for (final u in [_selfUserId, _peerUserId, _thirdUserId, fourth]) {
+        await store.insertChannelMember(
+            channelId: group, userId: u, role: 'member', joinedAt: 1);
+      }
+      // The fourth member was out between 160 and 180.
+      await store.removeChannelMember(
+          channelId: group, userId: fourth, removedAtMs: 160);
+      await store.upsertChannelMember(
+          channelId: group, userId: fourth, role: '', joinedAt: 180);
+      for (final ts in [100, 170, 200]) {
+        await store.db.insert('messages', {
+          'message_id': 'own-$ts',
+          'channel_id': group,
+          'author_user_id': _selfUserId,
+          'client_timestamp_ms': ts,
+          'server_timestamp_ms': ts,
+          'message_state': MessageState.sent.wire,
+          'state_updated_at': 1,
+        });
+      }
+      var n = 0;
+      Future<void> receipt(String from, pb.ChatPayloadType type) async {
+        n++;
+        pushes.add(_makeEnvelope(
+          channelId: group,
+          opId: 'op-r$n',
+          senderUserId: from,
+          payload: _chatPayload(
+              type: type, messageId: 'm-x', markerServerTimestampMs: 250),
+          serverTimestampMs: 400 + n,
+        ));
+        await _pumpQueue();
+      }
+
+      Future<List<MessageState>> states() async => [
+            for (final ts in [100, 170, 200])
+              (await store.fetchMessage('own-$ts'))!.state,
+          ];
+
+      await receipt(_peerUserId, pb.ChatPayloadType.TYPE_READ_RECEIPT);
+      expect(await states(), List.filled(3, MessageState.sent),
+          reason: 'the third member has not got them');
+
+      await receipt(_thirdUserId, pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT);
+      expect(await states(), [
+        MessageState.delivered,
+        MessageState.delivered,
+        MessageState.sent, // the fourth member was back by 200
+      ]);
+
+      await receipt(_thirdUserId, pb.ChatPayloadType.TYPE_READ_RECEIPT);
+      expect(await states(),
+          [MessageState.read, MessageState.read, MessageState.sent]);
+
+      await receipt(fourth, pb.ChatPayloadType.TYPE_READ_RECEIPT);
+      expect(await states(), List.filled(3, MessageState.read));
+    },
+  );
+
   // --- ServerEventPayload (§10.2) -----------------------------------------
 
   test(

@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 5;
+const int schemaVersion = 6;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -60,6 +60,8 @@ const List<String> ddl = [
     role         TEXT NOT NULL,
     joined_at    INTEGER NOT NULL,
     removed_at   INTEGER,
+    delivered_up_to INTEGER,
+    read_up_to   INTEGER,
     PRIMARY KEY (channel_id, user_id)
   )
   ''',
@@ -292,4 +294,11 @@ const List<String> migrateV4ToV5 = [
   'ALTER TABLE outbound_ops ADD COLUMN sealed_payload BLOB',
   'ALTER TABLE outbound_ops ADD COLUMN peer TEXT',
   'ALTER TABLE outbound_ops ADD COLUMN retry_of TEXT',
+];
+
+/// v5 → v6 (decision 202): each member's receipt markers, so a group
+/// message turns delivered or read only once every member it went to has.
+const List<String> migrateV5ToV6 = [
+  'ALTER TABLE channel_members ADD COLUMN delivered_up_to INTEGER',
+  'ALTER TABLE channel_members ADD COLUMN read_up_to INTEGER',
 ];

@@ -82,21 +82,29 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
     // The bar is primary in light mode, surface in dark.
     final onBar =
         Theme.of(context).appBarTheme.foregroundColor ?? scheme.onSurface;
+    // Under "New group"; from Group info the title already says it.
+    final hint = _picked.isNotEmpty
+        ? '${_picked.length} selected'
+        : widget.title == 'Add members'
+            ? null
+            : 'Add members';
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.title),
-            Text(
-              _picked.isEmpty ? 'Add members' : '${_picked.length} selected',
-              style: TextStyle(
-                fontSize: 13,
-                color: onBar.withValues(alpha: 0.85),
+        title: hint == null
+            ? Text(widget.title)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.title),
+                  Text(
+                    hint,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: onBar.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
       body: FutureBuilder<List<ContactRow>>(
         future: _contacts,

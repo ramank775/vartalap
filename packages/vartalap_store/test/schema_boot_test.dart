@@ -221,6 +221,40 @@ void main() {
     ]);
   });
 
+  test('a v5 database migrates to v6: members keep their rows and gain '
+      'receipt markers (decision 202)', () async {
+    final dir = await Directory.systemTemp.createTemp('vartalap_v5');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/v5.db';
+    sqfliteFfiInit();
+    final v5 = await databaseFactoryFfi.openDatabase(path,
+        options: OpenDatabaseOptions(
+          version: 5,
+          onCreate: (db, _) => db.execute('''
+            CREATE TABLE channel_members (
+              channel_id TEXT NOT NULL, user_id TEXT NOT NULL,
+              role TEXT NOT NULL, joined_at INTEGER NOT NULL,
+              removed_at INTEGER, PRIMARY KEY (channel_id, user_id))'''),
+        ));
+    await v5.insert('channel_members',
+        {'channel_id': 'g1', 'user_id': 'u1', 'role': 'member', 'joined_at': 5});
+    await v5.close();
+
+    final store = await ChatStore.open(path: path);
+    addTearDown(store.close);
+    expect(await store.db.query('channel_members'), [
+      {
+        'channel_id': 'g1',
+        'user_id': 'u1',
+        'role': 'member',
+        'joined_at': 5,
+        'removed_at': null,
+        'delivered_up_to': null,
+        'read_up_to': null,
+      }
+    ]);
+  });
+
   test('the sync pointer starts where it is first put, never moves back, '
       'and lives with the database file', () async {
     final dir = await Directory.systemTemp.createTemp('vartalap_pointer');

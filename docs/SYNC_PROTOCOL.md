@@ -675,6 +675,14 @@ late delivery receipt does not undo read). It does not need to hold
 message, and in any channel it may still be in transit. Its own
 messages with no Ack yet have no timestamp and are never flipped.
 
+The recipient keeps each member's newest delivered and read marker
+(decision 202). A message flips only once every current member who
+was in the channel when it was stamped is at or past it, as in
+WhatsApp: in a group, one member reading leaves it grey. A member
+added back after leaving joins at the re-add, so what was sent while
+they were out does not wait for them. A DM has one peer, so its
+receipt alone decides.
+
 ---
 
 ## 7. Idempotency and dedup

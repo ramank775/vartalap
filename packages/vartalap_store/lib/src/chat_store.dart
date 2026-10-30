@@ -139,11 +139,18 @@ class ChatStore {
             }
           }
           // A table [ddl] has yet to create gets the column from it.
-          if (from < 5 &&
-              (await db.query('sqlite_master',
-                      where: "type = 'table' AND name = 'outbound_ops'"))
-                  .isNotEmpty) {
+          Future<bool> has(String table) async => (await db.query(
+                  'sqlite_master',
+                  where: "type = 'table' AND name = ?",
+                  whereArgs: [table]))
+              .isNotEmpty;
+          if (from < 5 && await has('outbound_ops')) {
             for (final stmt in migrateV4ToV5) {
+              await db.execute(stmt);
+            }
+          }
+          if (from < 6 && await has('channel_members')) {
+            for (final stmt in migrateV5ToV6) {
               await db.execute(stmt);
             }
           }
@@ -1446,7 +1453,9 @@ class ChatStore {
   /// `ChannelMemberAdded{members:[user], role}`, so the projection has
   /// to overwrite the role of a row it already has (plain
   /// [insertChannelMember] is INSERT OR IGNORE and would drop it).
-  /// Also clears `removed_at`, so a re-add resurrects the row.
+  /// Also clears `removed_at`, so a re-add resurrects the row, joining
+  /// at [joinedAt]: what was sent while the member was out never
+  /// reached them, and its ticks don't wait for them (decision 202).
   ///
   /// An empty [role] means the announce carried none: a new row lands as
   /// `member` and an existing row keeps whatever role it holds.
@@ -1468,6 +1477,9 @@ class ChatStore {
         'ON CONFLICT(channel_id, user_id) DO UPDATE SET '
         "  role = CASE WHEN ? = '' THEN channel_members.role "
         '              ELSE excluded.role END, '
+        '  joined_at = CASE WHEN channel_members.removed_at IS NULL '
+        '              THEN channel_members.joined_at '
+        '              ELSE excluded.joined_at END, '
         '  removed_at = NULL',
         [channelId, userId, role.isEmpty ? 'member' : role, joinedAt, role],
       );
