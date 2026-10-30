@@ -15,6 +15,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/config/sentry_config.dart';
+import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/screens/qr/qr.dart';
@@ -180,6 +181,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )),
               ),
             ),
+          ValueListenableBuilder<BackgroundAccess?>(
+            valueListenable: backgroundAccess,
+            builder: (context, access, _) => access == null
+                ? const SizedBox.shrink()
+                : _Row(
+                    icon: Icons.battery_saver_outlined,
+                    title: 'Background activity',
+                    subtitle: access.allowed
+                        ? 'Allowed'
+                        : 'Restricted, messages may arrive late',
+                    onTap: access.allowed
+                        ? () {}
+                        : () => askBackgroundAccess(context),
+                  ),
+          ),
           _Row(
             icon: Icons.help_outline,
             title: 'Help',

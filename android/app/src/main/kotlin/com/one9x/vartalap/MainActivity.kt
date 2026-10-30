@@ -1,13 +1,17 @@
 package com.one9x.vartalap
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.location.LocationManager
+import android.net.Uri
 import android.os.CancellationSignal
+import android.os.PowerManager
 import android.provider.CalendarContract
 import android.provider.ContactsContract
+import android.provider.Settings
 import android.telephony.TelephonyManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -41,6 +45,34 @@ class MainActivity: FlutterActivity() {
                     } catch (e: PackageManager.NameNotFoundException) {
                         null
                     })
+                    else -> result.notImplemented()
+                }
+            }
+        // Left out of battery optimization, so the message check and the
+        // queued sends run on time. "ask": the system dialog where the
+        // build declares the permission (foss), else the app's settings
+        // page, where the user picks Unrestricted.
+        MethodChannel(messenger, "vartalap/battery")
+            .setMethodCallHandler { call, result ->
+                val direct = checkSelfPermission(
+                    Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+                when (call.method) {
+                    "state" -> result.success(mapOf(
+                        "allowed" to (getSystemService(POWER_SERVICE) as PowerManager)
+                            .isIgnoringBatteryOptimizations(packageName),
+                        "direct" to direct
+                    ))
+                    "ask" -> {
+                        val action = if (direct)
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                        else Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                        result.success(try {
+                            startActivity(Intent(action, Uri.parse("package:$packageName"))); true
+                        } catch (e: ActivityNotFoundException) {
+                            false
+                        })
+                    }
                     else -> result.notImplemented()
                 }
             }

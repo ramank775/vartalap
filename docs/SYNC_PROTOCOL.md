@@ -1457,6 +1457,13 @@ keeps one per device. That engine sends instead over `POST /wss/ops`
 was queued. No client-initiated request to the push service other
 than registration.
 
+Push is the fast path, not the only one: the app also pulls from a
+periodic background job, every 15 minutes while push is off or failing
+and hourly behind working push, in case it quietly stops (a killed
+distributor). Same pull, same notifications, then the queued sends.
+Android stretches that interval while the phone sleeps unless the app
+is left out of battery optimization, which the app asks for.
+
 ---
 
 ## 13. WebSocket re-authentication

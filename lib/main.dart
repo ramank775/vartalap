@@ -12,7 +12,8 @@ library vartalap.main;
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show DartPluginRegistrant;
+import 'dart:isolate';
+import 'dart:ui' show DartPluginRegistrant, IsolateNameServer;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -25,6 +26,7 @@ import 'package:sentry_flutter/sentry_flutter.dart' show SentryFlutter;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/config/sentry_config.dart';
+import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
@@ -86,17 +88,35 @@ void main(List<String> args) async {
   }
 }
 
-/// The WorkManager job [AppServices.scheduleSend] queues: runs once there
-/// is network, sends what was left over https, and stays queued (with
-/// WorkManager's backoff) while anything is.
+/// The WorkManager jobs. [AppServices.scheduleSend]'s runs once there is
+/// network, sends what was left over https, and stays queued (with
+/// WorkManager's backoff) while anything is. [AppServices.schedulePoll]'s
+/// is the periodic check for messages (decision 201).
 @pragma('vm:entry-point')
-void sendQueuedJob() {
+void backgroundJob() {
   Workmanager().executeTask((task, _) async {
     DartPluginRegistrant.ensureInitialized();
+    // The app on screen has its socket, and says itself what came.
+    if (IsolateNameServer.lookupPortByName(_onScreenPort) != null) return true;
     final services = await initializeApp(background: true);
-    return services.sendQueued(scheduleRest: false);
+    if (task != AppServices._pollJob) {
+      return services.sendQueued(scheduleRest: false);
+    }
+    if (services.store == null) {
+      // Signed out (or locked): nothing to check until the app is back.
+      await Workmanager().cancelByUniqueName(AppServices._pollJob);
+      return true;
+    }
+    await services.pullPendingSync();
+    await services.notifications.showUnread();
+    await services.sendQueued();
+    return true;
   });
 }
+
+/// Registered while the app is on screen, so a job in a second engine of
+/// the same process leaves the work to it.
+const _onScreenPort = 'vartalap.on_screen';
 
 /// Bundle of long-lived services wired up at app boot. Passed to the
 /// root widget through an InheritedWidget ([AppServicesProvider]) so
@@ -341,7 +361,7 @@ class AppServices {
     return false;
   }
 
-  /// Queue [sendQueuedJob] for once there is network. [delay] lets a
+  /// Queue [backgroundJob]'s send for once there is network. [delay] lets a
   /// live app's own socket finish first. Kept if already queued.
   Future<void> scheduleSend({Duration delay = Duration.zero}) async {
     try {
@@ -360,6 +380,28 @@ class AppServices {
   }
 
   static const _sendJob = 'send-queued';
+
+  /// The periodic check for messages (decision 201): every 15 minutes
+  /// while push is not working, hourly behind it in case it quietly
+  /// stops. Android stretches both while the phone sleeps, unless the app
+  /// is left out of battery optimization ([askBackgroundAccess]).
+  Future<void> schedulePoll({required bool pushWorks}) async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _pollJob,
+        _pollJob,
+        frequency: pushWorks
+            ? const Duration(hours: 1)
+            : const Duration(minutes: 15),
+        constraints: Constraints(networkType: NetworkType.connected),
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
+      );
+    } catch (e) {
+      debugPrint('Message check not scheduled: $e');
+    }
+  }
+
+  static const _pollJob = 'check-messages';
 
   /// Stop any previous receiver and construct + start a fresh one
   /// bound to [userIdHex]. Called on every login so the new session's
@@ -519,7 +561,7 @@ Future<AppServices> initializeApp({bool background = false}) async {
   // each replacing the other about once a second.
   if (!background) await wsTransport.start();
   try {
-    await Workmanager().initialize(sendQueuedJob);
+    await Workmanager().initialize(backgroundJob);
   } catch (e) {
     debugPrint('WorkManager init failed: $e');
   }
@@ -577,12 +619,29 @@ Future<AppServices> initializeApp({bool background = false}) async {
   authService.onBeforeLogout = () async {
     await notifications.cancelAll();
     await pushService.deregister();
+    // the message check and any queued send were this account's
+    await Workmanager().cancelAll().catchError((Object _) {});
   };
   try {
     await pushService.start(reconcile: !background);
   } catch (e) {
     // No distributor plugin (desktop, tests) — push is simply off.
     debugPrint('Push init failed: $e');
+  }
+  if (!background) {
+    unawaited(refreshBackgroundAccess());
+    // Decision 201: the message check keeps pace with push.
+    void poll() {
+      final state = pushService.state.value;
+      if (state == PushState.unknown || authClient.currentUserId == null) {
+        return;
+      }
+      unawaited(
+          services.schedulePoll(pushWorks: state == PushState.registered));
+    }
+
+    pushService.state.addListener(poll);
+    poll();
   }
 
   // If we already have a signed-in session (restoreSession populated
@@ -697,6 +756,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _markOnScreen(true);
     // Cold start: Flutter hands the link over as the initial route.
     final initial = WidgetsBinding.instance.platformDispatcher.defaultRouteName;
     if (parseUsernameLink(initial) != null) _pendingLink = initial;
@@ -828,11 +888,26 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   }
 
   /// Back on screen: the generic "New activity" has said its piece.
+  final _onScreen = ReceivePort();
+
+  void _markOnScreen(bool onScreen) {
+    IsolateNameServer.removePortNameMapping(_onScreenPort);
+    if (onScreen) {
+      IsolateNameServer.registerPortWithName(
+          _onScreen.sendPort, _onScreenPort);
+    }
+  }
+
   /// Chat notifications stay until their chat is read.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final services = widget.services;
+    // Still on screen while inactive (the shade pulled down, Recents).
+    _markOnScreen(state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive);
     if (state == AppLifecycleState.resumed) {
+      // the user may have changed it in Settings meanwhile
+      unawaited(refreshBackgroundAccess());
       unawaited(services.notifications.cancelWake());
       // the socket sends again
       unawaited(Workmanager()
@@ -986,6 +1061,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _markOnScreen(false);
+    _onScreen.close();
     widget.services.cryptoLocked.removeListener(_onCryptoLocked);
     _authSub.cancel();
     _usernameSub.cancel();

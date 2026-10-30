@@ -22,6 +22,7 @@ import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/screens/starred/starred.dart';
+import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/update/app_update.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -131,6 +132,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         context, wsTransport, chatColors, channels),
             body: Column(children: [
               AppUpdateBanner(appBuild: widget.config.appBuild),
+              BackgroundAccessBanner(
+                  push: AppServicesProvider.maybeOf(context)?.pushService),
               Expanded(child: Builder(builder: (context) {
                 if (snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData) {

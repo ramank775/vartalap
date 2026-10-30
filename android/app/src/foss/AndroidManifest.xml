@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- With no Google push to wake it, the foss build asks to be left out
+         of battery optimization with the system dialog. The gms build does
+         not declare this (Play allows it only for apps that cannot use
+         FCM); it opens the app's settings instead. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+</manifest>
