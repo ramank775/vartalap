@@ -1773,12 +1773,13 @@ class ISmsSender {
 
 Implementations ship under `auth-provider/sms-sender/`:
 
-- `twilio-sms-sender.js` (commercial, per-SMS cost)
 - `sms-gate-app-sms-sender.js` (FOSS, old-phone-as-gateway via HTTP)
-- `mock-sms-sender.js` (logs code to server stdout; used by dev and
+- `telegram-sms-sender.js` (testing without a SIM: each code goes to the
+  operator's Telegram chat, who passes it on; decision 203)
+- `mock-sms-sender.js` (keeps codes in memory; used by dev and
   the integration-test stub)
 
-Picked via `--otp-sms-sender=<code>` flag on `profile-ms`. Default
+Picked via `--sms-sender=<code>` flag on `profile-ms`. Default
 `mock` in dev config; production picks one based on the operator's
 gateway choice.
 
