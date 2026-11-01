@@ -88,8 +88,8 @@ jobs:
       - name: Build the dev ${{ matrix.push }} release APK
         run: |
           flutter build apk --release --flavor dev${{ matrix.push == 'foss' && 'Foss' || 'Gms' }} \
-            --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.org' }} \
-            --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.org/wss' }} \
+            --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.com' }} \
+            --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.com/wss' }} \
             --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
       # Release plan §5: the shipped classes.dex is the release-time half of
       # the degoogle gate. foss: no Firebase, Play services or embedded FCM

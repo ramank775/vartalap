@@ -21,12 +21,12 @@ class ConfigStore {
 
   static const String apiUrl = String.fromEnvironment(
     'API_URL',
-    defaultValue: 'https://vartalapapp.one9x.org',
+    defaultValue: 'https://vartalapapp.one9x.com',
   );
 
   static const String wsUrl = String.fromEnvironment(
     'WS_URL',
-    defaultValue: 'wss://vartalapapp.one9x.org/wss',
+    defaultValue: 'wss://vartalapapp.one9x.com/wss',
   );
 
   static const String privacyPolicyUrl = String.fromEnvironment(
