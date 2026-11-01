@@ -384,6 +384,58 @@ void main() {
       await scheduler.stop();
       await store.close();
     });
+
+    test('looks up only unknown numbers, a miss again after its cooldown',
+        () async {
+      final store = await ChatStore.open(path: inMemoryDatabasePath);
+      final clock = FakeClock(4000000);
+      final scheduler = SyncScheduler(
+        store: store,
+        wsTransport: _StubTransport(),
+        restTransport: _StubTransport(connected: false),
+        backoff: const FixedBackoff(Duration(milliseconds: 10)),
+        clock: clock,
+      );
+      await scheduler.start();
+      final phones = [
+        for (var i = 0; i < kContactLookupBatch + 10; i++) '+91${7000000000 + i}'
+      ];
+      final hashOf = sha256.convert(utf8.encode(phones[0])).toString();
+      final fakeAuth = _FakeAuthClient(matches: [
+        ContactMatch(phoneHash: hashOf, userId: 'u-a', username: 'a'),
+      ]);
+      final chat = ChatService(
+        store: store,
+        scheduler: scheduler,
+        authClient: fakeAuth,
+        wsTransport: _unconnectedWs(),
+        uuidGen: Uuid7Gen(userIdBits: 0xABCDEF012),
+        clock: clock,
+      );
+
+      final first = await chat.discoverContacts(
+          normalizedPhones: phones,
+          contactBookNamesByPhone: {phones[0]: 'Asha'});
+      expect(fakeAuth.batchSizes, [kContactLookupBatch, 10]);
+      expect(first.single.contactBookName, 'Asha');
+
+      // Inside the cooldown nothing is sent; a rename still shows.
+      clock.advance(const Duration(minutes: 14));
+      final renamed = await chat.discoverContacts(
+          normalizedPhones: phones,
+          contactBookNamesByPhone: {phones[0]: 'Asha Iyer'});
+      expect(fakeAuth.batchSizes, hasLength(2));
+      expect(renamed.single.contactBookName, 'Asha Iyer');
+
+      // After it, every miss again, never the known number.
+      clock.advance(const Duration(minutes: 2));
+      await chat.discoverContacts(normalizedPhones: phones);
+      expect(fakeAuth.batchSizes.skip(2), [kContactLookupBatch, 9]);
+      expect(fakeAuth.lastHashes, isNot(contains(hashOf)));
+
+      await scheduler.stop();
+      await store.close();
+    });
   });
 }
 
@@ -392,6 +444,7 @@ class _FakeAuthClient extends AuthClient {
   final List<ContactMatch> matches;
   int lookupCallCount = 0;
   List<String>? lastHashes;
+  final List<int> batchSizes = [];
 
   _FakeAuthClient({
     this.throwOnLookup = false,
@@ -402,6 +455,7 @@ class _FakeAuthClient extends AuthClient {
   Future<List<ContactMatch>> lookupContacts(List<String> phoneHashes) async {
     lookupCallCount += 1;
     lastHashes = List<String>.from(phoneHashes);
+    batchSizes.add(phoneHashes.length);
     if (throwOnLookup) {
       throw StateError('lookupContacts should not have been called');
     }

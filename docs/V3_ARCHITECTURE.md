@@ -268,8 +268,8 @@ The contract now covers (per AUTH_CONTRACT.md v1.0):
 - **WebSocket auth:** `Sec-WebSocket-Protocol: accesskey.<token>`
   pre-upgrade validation, close code 4001 (expired) / 4002
   (revoked) / 4003 (phone rebind) (AUTH_CONTRACT §6).
-- **Contact discovery:** SHA-256 hashed phone lookup, 500/day/user
-  (AUTH_CONTRACT §7).
+- **Contact discovery:** SHA-256 hashed phone lookup, 5,000 per
+  request, unknown numbers only (AUTH_CONTRACT §7, decision 208).
 - **Logout / account deletion:** including phone-rebind
   (AUTH_CONTRACT §8-9).
 - **Rate limits and error envelope:** structured
@@ -327,9 +327,10 @@ load-bearing claims:
   Account recovery on lost-phone is manual (out-of-band email to
   admin) for v3.0.
 - Contact discovery (AUTH_CONTRACT §7) uses SHA-256 hashed phone
-  lookup with a 500/day/user quota. Hashing is a soft privacy
-  guarantee against casual log/breach exposure; the rate limit is
-  the actual defense. PSI is deferred to v4.
+  lookup, 5,000 hashes per request with no daily budget (decision
+  208). Hashing is a soft privacy guarantee against casual log/breach
+  exposure; the OTP cost of an account is the only brake on scraping.
+  PSI is deferred to v4.
 - Enumeration resistance: an attacker scraping phone hashes gets at
   most `(username, user_id)` for a phone *right now*. Username
   can change, so this is not a stable historical handle. The
@@ -767,8 +768,8 @@ open questions remain.
 8. ~~What's the v3 launch criterion?~~ **Resolved: v2 golden path on Android
    without Firebase, plus opt-in Sentry. See decision 9.**
 9. ~~**Contact-discovery privacy protocol.**~~ **Resolved: SHA-256
-   hashed phone lookup with 500/day/user, 100/request, 5,000/day/IP
-   quotas. PSI deferred to v4. See AUTH_CONTRACT.md §7.**
+   hashed phone lookup, 5,000/request, no daily budget (decision
+   208). PSI deferred to v4. See AUTH_CONTRACT.md §7.**
 10. ~~**Username creation flow at first OTP.**~~ ~~**Resolved:
     username is optional, NOT picked at OTP. The OTP flow is
     purely phone-ownership proof. Users set/change/clear username

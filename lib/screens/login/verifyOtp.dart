@@ -308,8 +308,12 @@ class _OtpInputState extends State<_OtpInput> {
           ),
         ),
         // Visual digit boxes painted on top; tap routes focus to the field.
+        // Back or the keyboard's own hide key closes the keyboard but
+        // leaves the field focused, so requestFocus alone does nothing.
         GestureDetector(
-          onTap: () => _focusNode.requestFocus(),
+          onTap: () => _focusNode.hasFocus
+              ? SystemChannels.textInput.invokeMethod<void>('TextInput.show')
+              : _focusNode.requestFocus(),
           behavior: HitTestBehavior.opaque,
           child: boxes,
         ),

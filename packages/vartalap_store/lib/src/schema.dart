@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 6;
+const int schemaVersion = 7;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -263,6 +263,16 @@ const List<String> ddl = [
   CREATE TABLE IF NOT EXISTS sync_state (
     id                INTEGER PRIMARY KEY CHECK (id = 1),
     newest_handled_ms INTEGER NOT NULL
+  )
+  ''',
+
+  // AUTH_CONTRACT §7.4 (decision 208) — address-book numbers a lookup
+  // found no account for, and when, so each is asked about again only
+  // after its cooling period. v7 adds it through [ddl].
+  '''
+  CREATE TABLE IF NOT EXISTS phone_lookup_misses (
+    phone_hash TEXT PRIMARY KEY,
+    checked_ms INTEGER NOT NULL
   )
   ''',
 ];

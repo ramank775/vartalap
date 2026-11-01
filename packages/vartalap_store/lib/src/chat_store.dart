@@ -1387,6 +1387,36 @@ class ChatStore {
     _notify(const {'contacts'});
   }
 
+  /// AUTH_CONTRACT §7.4: hashes a lookup found no account for since
+  /// [sinceMs], still cooling down.
+  Future<Set<String>> recentLookupMisses(int sinceMs) async {
+    final rows = await db.query('phone_lookup_misses',
+        columns: ['phone_hash'], where: 'checked_ms > ?', whereArgs: [sinceMs]);
+    return {for (final r in rows) r['phone_hash'] as String};
+  }
+
+  /// Records [hashes] as checked at [nowMs] and not on Vartalap.
+  Future<void> recordLookupMisses(Iterable<String> hashes, int nowMs) async {
+    final batch = db.batch();
+    for (final h in hashes) {
+      batch.insert('phone_lookup_misses', {'phone_hash': h, 'checked_ms': nowMs},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Address-book names for contacts already matched by phone hash
+  /// (hash → name), so a renamed entry shows without a lookup.
+  Future<void> setContactBookNamesByPhoneHash(Map<String, String> names) async {
+    final batch = db.batch();
+    names.forEach((hash, name) => batch.rawUpdate(
+        'UPDATE contacts SET contact_book_name = ? '
+        'WHERE phone_hash = ? AND contact_book_name IS NOT ?',
+        [name, hash, name]));
+    final changed = await batch.commit();
+    if (changed.any((n) => n != 0)) _notify(const {'contacts'});
+  }
+
   /// All contacts, sorted by display name.
   Future<List<ContactRow>> fetchContacts() async {
     final rows = await db.query(

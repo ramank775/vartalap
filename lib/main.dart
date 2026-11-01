@@ -40,6 +40,7 @@ import 'package:vartalap/screens/update/app_update.dart';
 import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/device_contacts.dart';
 import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap/services/message_crypto.dart';
 import 'package:vartalap/services/notifications.dart';
@@ -660,6 +661,11 @@ Future<AppServices> initializeApp({bool background = false}) async {
       // at OTP-verify on a fresh install). Server never auto-pushes. A
       // wake's engine leaves it to the wake's own pull.
       if (!background) unawaited(services.pullPendingSync());
+      // Decision 208: new joiners in the address book show on start.
+      if (!background && authService.username != null) {
+        unawaited(syncDeviceContacts(services.chatService)
+            .catchError((Object _) {}));
+      }
     }
   } finally {
     accountOpened.complete();
@@ -790,6 +796,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       if (u != null) {
         unawaited(widget.services.pushService.refresh());
         unawaited(widget.services.publishKeys());
+        unawaited(syncDeviceContacts(widget.services.chatService)
+            .catchError((Object _) {}));
       }
     });
     _authSub = widget.services.authService.authStateChange.listen((loggedIn) {

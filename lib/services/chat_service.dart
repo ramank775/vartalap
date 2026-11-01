@@ -15,6 +15,7 @@ library vartalap.services.chat_service;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show min;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -99,6 +100,13 @@ Uint8List _encodeReceipt(
       messageId: marker.messageId,
       markerServerTimestampMs: fixnum.Int64(marker.serverTimestampMs),
     ).writeToBuffer();
+
+/// AUTH_CONTRACT §7.2: the most phone hashes one lookup may carry.
+const int kContactLookupBatch = 5000;
+
+/// Decision 208: how long a number found not on Vartalap waits before
+/// it is looked up again.
+const Duration kContactLookupCooldown = Duration(minutes: 15);
 
 class ChatService {
   /// Seals typing indicators (decision 188). Set by `main.dart`.
@@ -578,19 +586,40 @@ class ChatService {
       if (name != null && name.isNotEmpty) hashByName[h] = name;
       return h;
     }).toList();
-    final matches = await _authClient.lookupContacts(hashes);
     final now = _clock.nowMs();
-    for (final m in matches) {
-      await _store.upsertContact(
-        userId: m.userId,
-        username: m.username,
-        // AUTH_CONTRACT §7.2: a phone-hash match reveals user_id and
-        // username, nothing else. Seeding display_name from the handle
-        // would mask the §2.4 `@username` rung of the resolver.
-        phoneHash: m.phoneHash,
-        contactBookName: hashByName[m.phoneHash],
-        nowMs: now,
-      );
+    // Decision 208: only numbers not yet known to be on Vartalap, and a
+    // miss only once its cooling period is over.
+    final known = {
+      for (final c in await _store.fetchContacts())
+        if (c.phoneHash != null) c.phoneHash!,
+    };
+    await _store.setContactBookNamesByPhoneHash({
+      for (final e in hashByName.entries)
+        if (known.contains(e.key)) e.key: e.value,
+    });
+    final cooling = await _store.recentLookupMisses(
+        now - kContactLookupCooldown.inMilliseconds);
+    final unknown =
+        hashes.toSet().difference(known).difference(cooling).toList();
+    for (var i = 0; i < unknown.length; i += kContactLookupBatch) {
+      final batch =
+          unknown.sublist(i, min(i + kContactLookupBatch, unknown.length));
+      final matches = await _authClient.lookupContacts(batch);
+      for (final m in matches) {
+        await _store.upsertContact(
+          userId: m.userId,
+          username: m.username,
+          // AUTH_CONTRACT §7.2: a phone-hash match reveals user_id and
+          // username, nothing else. Seeding display_name from the handle
+          // would mask the §2.4 `@username` rung of the resolver.
+          phoneHash: m.phoneHash,
+          contactBookName: hashByName[m.phoneHash],
+          nowMs: now,
+        );
+      }
+      final found = {for (final m in matches) m.phoneHash};
+      await _store.recordLookupMisses(
+          batch.where((h) => !found.contains(h)), now);
     }
     return _store.fetchContacts();
   }

@@ -14,7 +14,6 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_contacts/flutter_contacts.dart' hide PermissionStatus;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
@@ -22,8 +21,8 @@ import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/qr/qr.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/device_contacts.dart';
 import 'package:vartalap/theme/theme.dart';
-import 'package:vartalap/utils/phone_number.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/utils/username.dart';
 import 'package:vartalap_store/vartalap_store.dart';
@@ -177,7 +176,7 @@ class _ContactsTabState extends State<_ContactsTab>
   }
 
   Future<List<ContactRow>> _fetchAndDiscover() async {
-    final (phones, names) = await _readDeviceContacts();
+    final (phones, names) = await readDeviceContacts();
     _phoneByHash
       ..clear()
       ..addEntries(phones
@@ -206,40 +205,6 @@ class _ContactsTabState extends State<_ContactsTab>
       }
       return false;
     }).toList();
-  }
-
-  /// Walks the device address book once and returns:
-  ///   * `phones` — every readable normalized E.164 phone (input to the
-  ///     hashed lookup).
-  ///   * `names` — phone → contact-book label, only when the address
-  ///     book actually has a non-empty name. The name wins display
-  ///     priority over username/userId per AUTH_CONTRACT §2.4 — without
-  ///     this map, the UI falls back to whatever the server returned
-  ///     (username) and unfortunately to user_id when even that is
-  ///     missing.
-  Future<(List<String>, Map<String, String>)> _readDeviceContacts() async {
-    final contacts = await FlutterContacts.getAll(
-      properties: {ContactProperty.phone, ContactProperty.name},
-    );
-    final phones = <String>{};
-    final names = <String, String>{};
-    // Local numbers (no +) take the user's own country, not a fixed +91.
-    final countryCode = '+${(await defaultCountry()).dialCode}';
-    for (final c in contacts) {
-      final dn = c.displayName?.trim() ?? '';
-      final fn = c.name?.first?.trim() ?? '';
-      final label = dn.isNotEmpty ? dn : (fn.isNotEmpty ? fn : null);
-      for (final p in c.phones) {
-        final raw = (p.normalizedNumber?.isNotEmpty ?? false)
-            ? p.normalizedNumber!
-            : p.number;
-        final normalized = normalizePhoneNumber(raw, countryCode: countryCode);
-        if (normalized == null) continue;
-        phones.add(normalized);
-        if (label != null) names.putIfAbsent(normalized, () => label);
-      }
-    }
-    return (phones.toList(), names);
   }
 
   Future<void> _onContactTap(ContactRow contact) async {

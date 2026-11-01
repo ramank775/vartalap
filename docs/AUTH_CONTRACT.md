@@ -1108,7 +1108,7 @@ Look up a batch of phone hashes.
 
 | Field | Type | Required | Constraint |
 |---|---|---|---|
-| `phoneHashes` | array of strings | yes | SHA-256 hex (lowercase, 64 chars). 1-100 entries. Server rejects > 100 with `BATCH_TOO_LARGE`. |
+| `phoneHashes` | array of strings | yes | SHA-256 hex (lowercase, 64 chars). 1-5,000 entries. Server rejects > 5,000 with `BATCH_TOO_LARGE`. |
 
 **Hashing input.** The client MUST hash the canonical E.164
 representation: leading `+`, country code, subscriber number, no
@@ -1169,20 +1169,23 @@ detail view) — it is not the primary display name.
 
 ### 7.4 Quotas
 
-| Scope | Limit | Window | Purpose |
-|---|---|---|---|
-| Per user | 500 hashes/day | rolling 24h, summed across all `phoneHashes` array entries | Prevents a single account from enumerating the user-base. |
-| Per request | 100 hashes | per request | Caps response size and per-request CPU. |
-| Per IP | 5,000 hashes/day | rolling 24h | Defense against multi-account scripting. |
+Decision 208: at most 5,000 hashes per request, and no daily budget.
+A per-day count blocks a real 2,000+ contact phonebook and delays
+people who just joined, so the limits sit in the client instead:
 
-On breach: HTTP `429 RATE_LIMITED` with `retryAfterSec` (§11).
+- The client looks up only numbers it does not already know to be on
+  Vartalap (no contact row with that `phone_hash`). Known numbers are
+  never sent again.
+- A number the lookup did not match cools down for 15 minutes before
+  it is sent again.
+- The client looks up at app start (when contacts permission is
+  already granted) and whenever Contacts opens, so someone who just
+  joined shows on the next start. More than 5,000 unknown numbers go
+  in several requests.
 
-**The 500/day per-user budget** is the user-facing constraint. A
-typical user with a 500-contact phonebook consumes the daily budget
-in one full sync; subsequent syncs hit the cache. The client MUST
-implement local caching: a `(phoneHash → user_id \| null)` table
-with a TTL of 7 days. Negative results (`null`) are cached for 24h
-to avoid re-querying every app launch.
+Nothing on the server limits how many distinct numbers an account
+checks; signing up needs a phone number and an OTP. Revisit with a
+server-side limit if scraping shows up.
 
 ### 7.5 `GET /v3.0/users/<user_id>`
 
@@ -1605,7 +1608,7 @@ RATE_LIMITED`.
 
 ### 10.5 Contact discovery limits
 
-See §7.4. (500 hashes/day/user, 100 per request, 5,000/day/IP.)
+See §7.4. (5,000 hashes per request, no daily budget; decision 208.)
 
 ### 10.6 Profile update limits
 
@@ -1684,7 +1687,7 @@ Every error response, on every endpoint, uses this shape:
 | 400 | `INVALID_PUSH_ENDPOINT` | push topic | Endpoint not https, too long, has userinfo, or resolves to a non-public address (§5.1) |
 | 400 | `INVALID_PUSH_KEYS` | push topic | `p256dh` / `auth` missing or malformed (§5.1) |
 | 400 | `MALFORMED_REQUEST` | all | missing/extra fields, malformed JSON |
-| 400 | `BATCH_TOO_LARGE` | contact lookup | > 100 hashes |
+| 400 | `BATCH_TOO_LARGE` | contact lookup | > 5,000 hashes |
 | 400 | `validation_failed` | all | catch-all schema rejection (lowercase intentionally; aligns with `SYNC_PROTOCOL.md` §8.4) |
 | 401 | `MISSING_ACCESSKEY` | all authenticated | no Bearer header / no subprotocol |
 | 401 | `INVALID_ACCESSKEY` | all authenticated | accesskey doesn't resolve, expired, or revoked |
