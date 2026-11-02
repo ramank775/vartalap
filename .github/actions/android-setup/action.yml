@@ -12,6 +12,9 @@ runs:
         channel: "stable"
         flutter-version: ${{ inputs.flutter-version }}
         cache: true
+        # Its own key: the cache saved after a build holds the Android engine
+        # files, which the test job's Flutter cache never downloads.
+        cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:-android"
     - uses: actions/setup-java@v6
       with:
         distribution: "temurin"

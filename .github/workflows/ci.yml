@@ -63,10 +63,10 @@ jobs:
       - uses: actions/checkout@v7
       - run: bash scripts/degoogle_gate.sh
 
-  # DECISIONS 121, 209: foss (no Google code) and gms (adds Firebase
-  # Messaging) each get their own dex check. One job builds both, so the
-  # second build reuses the first one's warm Gradle and NDK; arm64 only,
-  # since the gate reads dex, not native code.
+  # DECISIONS 121, 209: the foss build (F-Droid, GitHub: APKs, never a
+  # bundle) must hold no Google code; this proves it on every push. The gms
+  # side is the Play bundle, checked by the play-bundle job on each v* tag.
+  # arm64 only: the gate reads dex, not native code.
   apk:
     if: github.ref_type != 'tag'
     runs-on: ubuntu-26.04
@@ -90,22 +90,20 @@ jobs:
           keyAlias=ciupload
           storeFile=${{ github.workspace }}/ci-release.jks
           EOF
-      # Release plan §5: the shipped classes.dex is the release-time half of
-      # the degoogle gate. foss: no Firebase, Play services or embedded FCM
-      # distributor classes; gms: Firebase Messaging, no embedded distributor.
-      - name: Build the dev APKs and check their classes (degoogle gate)
+      - name: Build the dev foss APK
         run: |
-          for push in foss gms; do
-            flutter build apk --release --flavor dev${push^} --target-platform android-arm64 \
-              --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.com' }} \
-              --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.com/wss' }} \
-              --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
-            bash scripts/degoogle_gate.sh apk build/app/outputs/flutter-apk/app-dev$push-release.apk $push
-          done
+          flutter build apk --release --flavor devFoss --target-platform android-arm64 \
+            --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.com' }} \
+            --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.com/wss' }} \
+            --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
+      # Release plan §5: the shipped classes.dex is the release-time half of
+      # the degoogle gate: no Firebase, Play services or embedded FCM classes.
+      - name: Verify the APK's classes (degoogle gate)
+        run: bash scripts/degoogle_gate.sh apk build/app/outputs/flutter-apk/app-devfoss-release.apk foss
       - uses: actions/upload-artifact@v7
         with:
-          name: vartalap-dev-release-apks
-          path: build/app/outputs/flutter-apk/app-dev*-release.apk
+          name: vartalap-dev-foss-release-apk
+          path: build/app/outputs/flutter-apk/app-devfoss-release.apk
 
   # Decision 211: a v* tag builds the Play bundle, signed with the upload key
   # and carrying the Firebase config (decision 209). The secrets live in the
