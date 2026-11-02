@@ -52,8 +52,8 @@ jobs:
 
   apk:
     runs-on: ubuntu-latest
-    # DECISIONS 121: foss (no Google code) and gms (adds the embedded FCM
-    # distributor) are separate APKs; each gets its own dex check.
+    # DECISIONS 121, 209: foss (no Google code) and gms (adds Firebase
+    # Messaging) are separate APKs; each gets its own dex check.
     strategy:
       matrix:
         push: [foss, gms]
@@ -93,7 +93,7 @@ jobs:
             --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
       # Release plan §5: the shipped classes.dex is the release-time half of
       # the degoogle gate. foss: no Firebase, Play services or embedded FCM
-      # distributor classes; gms: no Firebase or Play services classes.
+      # distributor classes; gms: Firebase Messaging, no embedded distributor.
       - name: Verify the APK's classes (degoogle gate)
         run: bash scripts/degoogle_gate.sh apk build/app/outputs/flutter-apk/app-dev${{ matrix.push }}-release.apk ${{ matrix.push }}
       - uses: actions/upload-artifact@v7

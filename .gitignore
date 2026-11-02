@@ -63,3 +63,6 @@ tools/.mock_state.json.tmp
 
 # Gradle output under android/ (root /build/ rule does not reach it)
 android/build/
+
+# Decision 209: the Play build's Firebase config, generated from google-services.json
+android/app/src/prodGms/res/values/firebase.xml
