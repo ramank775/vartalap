@@ -15,7 +15,7 @@ env:
 
 jobs:
   analyze-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -45,13 +45,13 @@ jobs:
         run: (cd tools && dart analyze)
 
   degoogle:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - run: bash scripts/degoogle_gate.sh
 
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # DECISIONS 121, 209: foss (no Google code) and gms (adds Firebase
     # Messaging) are separate APKs; each gets its own dex check.
     strategy:
