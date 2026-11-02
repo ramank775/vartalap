@@ -13,11 +13,20 @@ on:
       - "v3.0"
       - "master"
 
+# A newer push to the same branch or pull request makes an older run moot.
+# Tag runs are never cancelled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 env:
   FLUTTER_VERSION: "3.47.5"
 
 jobs:
+  # A v* tag points at a commit its branch push already tested and built,
+  # so a tag run only checks the sources and builds the Play bundle.
   analyze-test:
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -25,6 +34,7 @@ jobs:
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
       - run: flutter pub get
       # Nested pub workspaces (packages/*, tools/) resolve their own deps.
       # `flutter analyze` walks the whole tree, so it needs these fetched
@@ -53,29 +63,21 @@ jobs:
       - uses: actions/checkout@v7
       - run: bash scripts/degoogle_gate.sh
 
+  # DECISIONS 121, 209: foss (no Google code) and gms (adds Firebase
+  # Messaging) each get their own dex check. One job builds both, so the
+  # second build reuses the first one's warm Gradle and NDK; arm64 only,
+  # since the gate reads dex, not native code.
   apk:
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-26.04
-    # DECISIONS 121, 209: foss (no Google code) and gms (adds Firebase
-    # Messaging) are separate APKs; each gets its own dex check.
-    strategy:
-      matrix:
-        push: [foss, gms]
     steps:
       - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: ./.github/actions/android-setup
         with:
-          channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
-      - uses: actions/setup-java@v6
-        with:
-          distribution: "temurin"
-          java-version: "17"
-      - run: flutter pub get
-      # ponytail: no release signing secrets configured yet. Generate a
-      # throwaway debug keystore so `--release` (which android/app/build.gradle
-      # always points at signingConfigs.release) has something to sign with.
-      # Swap for a real secrets-backed keystore + key.properties when this
-      # app actually ships to a store.
+      # Dev builds only: a throwaway key, so `--release` (which
+      # android/app/build.gradle always signs with signingConfigs.release)
+      # has something to sign with. Releases are the play-bundle job's.
       - name: Generate throwaway signing key
         run: |
           keytool -genkeypair -v -keystore ci-release.jks -alias ciupload \
@@ -88,41 +90,35 @@ jobs:
           keyAlias=ciupload
           storeFile=${{ github.workspace }}/ci-release.jks
           EOF
-      - name: Build the dev ${{ matrix.push }} release APK
-        run: |
-          flutter build apk --release --flavor dev${{ matrix.push == 'foss' && 'Foss' || 'Gms' }} \
-            --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.com' }} \
-            --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.com/wss' }} \
-            --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
       # Release plan §5: the shipped classes.dex is the release-time half of
       # the degoogle gate. foss: no Firebase, Play services or embedded FCM
       # distributor classes; gms: Firebase Messaging, no embedded distributor.
-      - name: Verify the APK's classes (degoogle gate)
-        run: bash scripts/degoogle_gate.sh apk build/app/outputs/flutter-apk/app-dev${{ matrix.push }}-release.apk ${{ matrix.push }}
+      - name: Build the dev APKs and check their classes (degoogle gate)
+        run: |
+          for push in foss gms; do
+            flutter build apk --release --flavor dev${push^} --target-platform android-arm64 \
+              --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.com' }} \
+              --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.com/wss' }} \
+              --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
+            bash scripts/degoogle_gate.sh apk build/app/outputs/flutter-apk/app-dev$push-release.apk $push
+          done
       - uses: actions/upload-artifact@v7
         with:
-          name: vartalap-dev-${{ matrix.push }}-release-apk
-          path: build/app/outputs/flutter-apk/app-dev${{ matrix.push }}-release.apk
+          name: vartalap-dev-release-apks
+          path: build/app/outputs/flutter-apk/app-dev*-release.apk
 
   # Decision 211: a v* tag builds the Play bundle, signed with the upload key
   # and carrying the Firebase config (decision 209). The secrets live in the
   # `release` environment, which only v* tags may deploy to.
   play-bundle:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [analyze-test, degoogle, apk]
     runs-on: ubuntu-26.04
     environment: release
     steps:
       - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: ./.github/actions/android-setup
         with:
-          channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
-      - uses: actions/setup-java@v6
-        with:
-          distribution: "temurin"
-          java-version: "17"
-      - run: flutter pub get
       - name: Upload key and Firebase config
         env:
           KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
@@ -143,10 +139,12 @@ jobs:
       - name: Build the Play bundle
         run: flutter build appbundle --release --flavor prodGms
       # Play refuses a bundle signed with any other key; fail here instead.
-      - name: Signed with the upload key
+      - name: Signed with the upload key, and its classes (degoogle gate)
         run: |
-          keytool -printcert -jarfile build/app/outputs/bundle/prodGmsRelease/app-prod-gms-release.aab \
+          AAB=build/app/outputs/bundle/prodGmsRelease/app-prod-gms-release.aab
+          keytool -printcert -jarfile "$AAB" \
             | grep -q "SHA256: ${{ vars.UPLOAD_CERT_SHA256 || '40:AF:41:D1:F2:49:5A:62:A9:71:F3:82:84:D2:9E:39:69:62:A1:86:E7:75:9A:83:E4:09:91:07:8B:57:EF:A7' }}"
+          bash scripts/degoogle_gate.sh apk "$AAB" gms
       - uses: actions/upload-artifact@v7
         with:
           name: vartalap-${{ github.ref_name }}-play-bundle

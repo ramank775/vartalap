@@ -12,7 +12,7 @@
 # the failure.
 #
 #   scripts/degoogle_gate.sh                     source/config checks (pre-merge)
-#   scripts/degoogle_gate.sh apk <file> foss|gms the built APK's dex (release)
+#   scripts/degoogle_gate.sh apk <file> foss|gms the built APK's or AAB's dex
 
 set -e
 
@@ -39,7 +39,8 @@ if [ "${1:-}" = "apk" ]; then
     VARIANT="${3:?usage: degoogle_gate.sh apk <file.apk> foss|gms}"
     DEX_DIR="$(mktemp -d)"
     trap 'rm -rf "$DEX_DIR"' EXIT
-    unzip -q -o -j "$APK" 'classes*.dex' -d "$DEX_DIR"
+    # an APK keeps its dex at the root, an AAB under base/dex/
+    unzip -q -o -j "$APK" '*classes*.dex' -d "$DEX_DIR"
     FORBIDDEN='Lcom/google/firebase/|Lcom/google/android/gms/'
     EMBEDDED='Lorg/unifiedpush/android/embedded_fcm_distributor/'
     case "$VARIANT" in
