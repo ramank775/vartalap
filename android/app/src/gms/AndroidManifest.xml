@@ -3,4 +3,19 @@
     <queries>
         <package android:name="com.google.android.gms" />
     </queries>
+    <application>
+        <!-- Decision 120: Google push only once the user picks it, so no
+             token is minted at start. getToken() still works. -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
+        <!-- Decision 209: the FCM wake. -->
+        <service
+            android:name=".FcmWakeService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+    </application>
 </manifest>

@@ -1,11 +1,13 @@
 /// Push wake path — UnifiedPush with whichever distributor the user
 /// picked: any push app (ntfy, NextPush, Sunup, a self-hosted ntfy, …)
-/// or, in gms builds, the embedded FCM distributor that talks to Google
-/// Play services (V3_ARCHITECTURE.md decision 6, DECISIONS 119-121).
+/// or, in gms builds, Firebase Cloud Messaging (V3_ARCHITECTURE.md
+/// decision 6, DECISIONS 119-121, 209).
 ///
-/// Every endpoint is a Web Push endpoint: the server encrypts to this
-/// device's keys and signs with its VAPID key (AUTH_CONTRACT §5); the
-/// connector decrypts. The plaintext is a content-free wake
+/// A push app's endpoint is a Web Push endpoint: the server encrypts to
+/// this device's keys and signs with its VAPID key (AUTH_CONTRACT §5);
+/// the connector decrypts. Google push registers the FCM token instead,
+/// and FcmWakeService hands its message to the same `onMessage`. Either
+/// way the message is a content-free wake
 /// (SYNC_PROTOCOL.md §12.1), so everything this service can do on a
 /// message is: pull `/sync/pending`, nudge the WS back up, and hand the
 /// result to `MessageNotifications.afterWake`, which renders whatever
@@ -24,7 +26,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:unifiedpush/unifiedpush.dart';
@@ -35,8 +36,11 @@ import 'package:vartalap_transport/vartalap_transport.dart';
 /// Per device, like the onboarding flag, so it survives logout.
 const String kPushChoiceKey = 'push_choice';
 
-/// Google Play services, through the embedded FCM distributor (gms only).
+/// Google Play services, through Firebase Cloud Messaging (gms only).
 const String kPushChoiceGoogle = 'google';
+
+/// How a held FCM token is told apart from a Web Push endpoint url.
+const String kFcmPrefix = 'fcm:';
 
 /// "Not now": messages arrive only while the app is open.
 const String kPushChoiceNone = 'none';
@@ -109,17 +113,20 @@ abstract class UnifiedPushApi {
     required void Function(String reason) onRegistrationFailed,
   });
 
-  /// Installed push apps by package — not the embedded Google one.
+  /// Installed push apps by package.
   Future<List<String>> getDistributors();
 
   /// A gms build on a phone with Play services.
   Future<bool> googleAvailable();
 
+  /// This install's FCM token (decision 209), or null when there is none.
+  Future<String?> googleToken();
+
   /// A push app's name, or null if the system won't say.
   Future<String?> label(String distributor);
 
-  /// [choice] is [kPushChoiceGoogle] or a package from [getDistributors].
-  Future<void> saveDistributor(String choice);
+  /// [distributor] is a package from [getDistributors].
+  Future<void> saveDistributor(String distributor);
 
   Future<void> register({required String vapid});
 
@@ -133,10 +140,6 @@ class PluginUnifiedPush implements UnifiedPushApi {
   /// MainActivity's channel; the Google check lives only in the gms
   /// source set, the foss one always answers false.
   static const MethodChannel _channel = MethodChannel('vartalap/push');
-
-  /// In gms builds the embedded FCM distributor answers as this app.
-  static Future<String> _self() async =>
-      (await PackageInfo.fromPlatform()).packageName;
 
   @override
   Future<void> initialize({
@@ -157,26 +160,22 @@ class PluginUnifiedPush implements UnifiedPushApi {
   }
 
   @override
-  Future<List<String>> getDistributors() async {
-    final self = await _self();
-    return [
-      for (final d in await UnifiedPush.getDistributors())
-        if (d != self) d,
-    ];
-  }
+  Future<List<String>> getDistributors() => UnifiedPush.getDistributors();
 
   @override
   Future<bool> googleAvailable() async =>
       await _channel.invokeMethod<bool>('googleAvailable') ?? false;
 
   @override
+  Future<String?> googleToken() => _channel.invokeMethod<String>('googleToken');
+
+  @override
   Future<String?> label(String distributor) =>
       _channel.invokeMethod<String>('appLabel', distributor);
 
   @override
-  Future<void> saveDistributor(String choice) async =>
-      UnifiedPush.saveDistributor(
-          choice == kPushChoiceGoogle ? await _self() : choice);
+  Future<void> saveDistributor(String distributor) async =>
+      UnifiedPush.saveDistributor(distributor);
 
   @override
   Future<void> register({required String vapid}) =>
@@ -333,6 +332,17 @@ class PushService {
       await prefs.setString(kPushChoiceKey, resolved);
       await _requestNotificationPermission();
     }
+    if (resolved == kPushChoiceGoogle) {
+      // Decision 209: Firebase's own token; no distributor, no VAPID.
+      state.value = PushState.unknown;
+      final token = await _push.googleToken();
+      if (token == null) {
+        state.value = PushState.failed;
+        return;
+      }
+      await _hold('$kFcmPrefix$token', '', '');
+      return;
+    }
     final vapid = await _vapidKey();
     if (vapid == null) {
       state.value = PushState.failed;
@@ -383,6 +393,11 @@ class PushService {
       state.value = PushState.failed;
       return;
     }
+    await _hold(url, p256dh, auth);
+  }
+
+  /// Keep the endpoint (an `fcm:` token for Google push) and post it.
+  Future<void> _hold(String url, String p256dh, String auth) async {
     _endpoint = (url: url, p256dh: p256dh, auth: auth);
     await _storage.write(
       key: keyEndpoint,
@@ -453,8 +468,13 @@ class PushService {
       return;
     }
     try {
-      await _authClient.registerPushTopic(
-          endpoint: ep.url, p256dh: ep.p256dh, auth: ep.auth);
+      if (ep.url.startsWith(kFcmPrefix)) {
+        await _authClient.registerPushTopic(
+            endpoint: null, fcmToken: ep.url.substring(kFcmPrefix.length));
+      } else {
+        await _authClient.registerPushTopic(
+            endpoint: ep.url, p256dh: ep.p256dh, auth: ep.auth);
+      }
       await _storage.write(key: keyRegisteredEndpoint, value: marker);
       state.value = PushState.registered;
     } catch (e) {

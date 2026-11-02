@@ -101,8 +101,8 @@ android {
             dimension "push"
         }
 
-        // Adds only the embedded FCM distributor, for opt-in Google push
-        // (GitHub, Play Store). DECISIONS 121.
+        // Adds only Firebase Cloud Messaging, for opt-in Google push
+        // (GitHub, Play Store). DECISIONS 121, 209.
         gms {
             dimension "push"
         }
@@ -131,9 +131,9 @@ configurations.all {
 }
 
 dependencies {
-    // UnifiedPush distributor that registers with Play services over IPC
-    // (no Firebase SDK). The app's own package then shows up as a
-    // distributor; PushService offers it as "Google Play services".
-    gmsImplementation 'org.unifiedpush.android:embedded-fcm-distributor:3.1.0'
+    // Decision 209: Google push is native Firebase Cloud Messaging, so the
+    // server sends a data-only, high-priority FCM message. PushService
+    // offers it as "Google Play services"; foss builds keep only UnifiedPush.
+    gmsImplementation 'com.google.firebase:firebase-messaging:25.1.3'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
 }

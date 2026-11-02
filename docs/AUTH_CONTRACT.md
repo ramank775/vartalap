@@ -890,6 +890,17 @@ not an ntfy topic.)
 | `p256dh` | string | when `endpoint` set | The device's ECDH public key from the UnifiedPush connector: uncompressed P-256 point, base64url, 65 bytes decoded. Else `400 INVALID_PUSH_KEYS`. |
 | `auth` | string | when `endpoint` set | The 16-byte auth secret, base64url. Else `400 INVALID_PUSH_KEYS`. |
 
+**Google push (decision 209).** A gms build that uses Google push sends
+`{ "fcmToken": "<FCM registration token>" }` instead: exactly one of
+`endpoint` and `fcmToken`, else `400 validation_failed`. The token is
+`[A-Za-z0-9_:-]`, 32-4096 chars. It replaces the registration like an
+endpoint does, and the server wakes it with an FCM HTTP v1 message:
+data only (`{ "t": "wake" }`), `android.priority: HIGH`, TTL 24 h,
+signed in as the Firebase project's service account. FCM answering 404
+(`UNREGISTERED`) deletes the registration, as a 404/410 does for Web
+Push. The SSRF rules below do not apply: the request always goes to
+`fcm.googleapis.com`.
+
 **Success response `200 OK`:**
 ```json
 { "status": true }

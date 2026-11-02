@@ -369,17 +369,21 @@ class AuthClient implements AuthTokenProvider {
   }
 
   /// `POST /v3.0/push/topic` — AUTH_CONTRACT §5.1. Registers the Web
-  /// Push [endpoint] with the device's [p256dh] / [auth] keys; a null
-  /// [endpoint] deregisters this `(user_id, deviceId)` and sends no keys.
+  /// Push [endpoint] with the device's [p256dh] / [auth] keys, or a gms
+  /// build's [fcmToken] (decision 209); neither deregisters this
+  /// `(user_id, deviceId)`.
   Future<void> registerPushTopic({
     required String? endpoint,
     String? p256dh,
     String? auth,
+    String? fcmToken,
   }) async {
     final resp = await _post('/v3.0/push/topic',
-        body: endpoint == null
-            ? {'endpoint': null}
-            : {'endpoint': endpoint, 'p256dh': p256dh, 'auth': auth},
+        body: fcmToken != null
+            ? {'fcmToken': fcmToken}
+            : endpoint == null
+                ? {'endpoint': null}
+                : {'endpoint': endpoint, 'p256dh': p256dh, 'auth': auth},
         headers: _authHeaders());
     _assertOk(resp, 'registerPushTopic');
   }

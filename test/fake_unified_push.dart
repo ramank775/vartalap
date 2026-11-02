@@ -17,6 +17,9 @@ class FakeUnifiedPush implements UnifiedPushApi {
   List<String> distributors;
   final Map<String, String> labels;
   String? savedDistributor;
+
+  /// What [googleToken] answers.
+  String? fcmToken = 'fcm-token-1';
   final List<String> registerVapids = [];
   int unregisterCalls = 0;
 
@@ -50,11 +53,14 @@ class FakeUnifiedPush implements UnifiedPushApi {
   Future<bool> googleAvailable() async => google;
 
   @override
+  Future<String?> googleToken() async => fcmToken;
+
+  @override
   Future<String?> label(String distributor) async => labels[distributor];
 
   @override
-  Future<void> saveDistributor(String choice) async =>
-      savedDistributor = choice;
+  Future<void> saveDistributor(String distributor) async =>
+      savedDistributor = distributor;
 
   @override
   Future<void> register({required String vapid}) async =>
@@ -109,10 +115,12 @@ class FakePushAuthClient extends AuthClient {
     required String? endpoint,
     String? p256dh,
     String? auth,
+    String? fcmToken,
   }) async {
     if (throwOnRegister) {
       throw StateError('simulated push/topic rejection');
     }
+    if (fcmToken != null) return posts.add({'fcmToken': fcmToken});
     posts.add(endpoint == null
         ? {'endpoint': null}
         : {'endpoint': endpoint, 'p256dh': p256dh, 'auth': auth});

@@ -6,4 +6,7 @@ import android.content.Context
 object GooglePush {
     @Suppress("UNUSED_PARAMETER")
     fun available(context: Context): Boolean = false
+
+    @Suppress("UNUSED_PARAMETER")
+    fun token(context: Context, done: (String?) -> Unit) = done(null)
 }

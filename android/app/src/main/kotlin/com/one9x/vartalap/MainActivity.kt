@@ -38,6 +38,7 @@ class MainActivity: FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "googleAvailable" -> result.success(GooglePush.available(this))
+                    "googleToken" -> GooglePush.token(this) { result.success(it) }
                     "appLabel" -> result.success(try {
                         packageManager.getApplicationLabel(
                             packageManager.getApplicationInfo(call.arguments as String, 0)

@@ -68,36 +68,42 @@ void main() {
   group('PushService', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    test('Google on offer → ask; choosing it registers with the VAPID key '
-        'and posts endpoint + keys', () async {
+    test('Google on offer → ask; choosing it posts the FCM token, no '
+        'distributor and no VAPID (decision 209)', () async {
       final f = _Fixture(google: true, distributors: const [_ntfy]);
       await f.service.start();
 
       expect(f.service.state.value, PushState.choiceNeeded);
-      expect(f.push.registerVapids, isEmpty);
       expect(f.permissionRequests, 0, reason: 'nothing chosen yet');
 
       await f.service.choose(kPushChoiceGoogle);
 
       expect(f.permissionRequests, 1, reason: 'asked after the choice');
-      expect(f.push.savedDistributor, kPushChoiceGoogle);
-      expect(f.push.registerVapids, [vapidA],
-          reason: 'AUTH_CONTRACT §5.0: the server key goes to register');
-      expect(f.client.posts, isEmpty, reason: 'no endpoint yet');
-
-      await f.push.emitEndpoint('https://fcm.googleapis.com/fcm/send/t1');
-
+      expect(f.push.savedDistributor, isNull);
+      expect(f.push.registerVapids, isEmpty);
       expect(f.client.posts, [
-        {
-          'endpoint': 'https://fcm.googleapis.com/fcm/send/t1',
-          'p256dh': 'p256dh-1',
-          'auth': 'auth-1',
-        }
+        {'fcmToken': 'fcm-token-1'}
       ]);
       expect(f.service.state.value, PushState.registered);
       expect(f.service.choiceLabel, 'Google Play services');
       expect((await SharedPreferences.getInstance()).getString(kPushChoiceKey),
           kPushChoiceGoogle);
+
+      // Same token on the next start: nothing re-posted. A new one is.
+      await f.newService().start();
+      expect(f.client.posts, hasLength(1));
+      f.push.fcmToken = 'fcm-token-2';
+      await f.newService().start();
+      expect(f.client.posts.last, {'fcmToken': 'fcm-token-2'});
+    });
+
+    test('no FCM token to be had → failed, nothing posted', () async {
+      final f = _Fixture(google: true)..push.fcmToken = null;
+      await f.service.start();
+      await f.service.choose(kPushChoiceGoogle);
+
+      expect(f.service.state.value, PushState.failed);
+      expect(f.client.posts, isEmpty);
     });
 
     test('one push app and no Google → used silently, and remembered',
@@ -233,11 +239,7 @@ void main() {
       await f.service.choose(kPushChoiceGoogle);
 
       expect(f.push.unregisterCalls, 1);
-      expect(f.push.savedDistributor, kPushChoiceGoogle);
-      expect(f.service.endpoint, isNull);
-      await f.push.emitEndpoint('https://fcm.googleapis.com/fcm/send/t2');
-      expect(f.client.posts.last['endpoint'],
-          'https://fcm.googleapis.com/fcm/send/t2');
+      expect(f.client.posts.last, {'fcmToken': 'fcm-token-1'});
     });
 
     test('"Not now" deregisters, sticks, and asks for nothing', () async {
