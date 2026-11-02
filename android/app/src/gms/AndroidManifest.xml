@@ -4,8 +4,8 @@
         <package android:name="com.google.android.gms" />
     </queries>
     <application>
-        <!-- Decision 120: Google push only once the user picks it, so no
-             token is minted at start. getToken() still works. -->
+        <!-- No token before sign-in, or for someone on a push app or
+             "Not now" (decisions 120, 210). getToken() still works. -->
         <meta-data
             android:name="firebase_messaging_auto_init_enabled"
             android:value="false" />

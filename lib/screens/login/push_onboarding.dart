@@ -3,8 +3,9 @@
 /// get one — and "Not now". Nothing is pre-selected.
 ///
 /// First-run onboarding shows it once after the username step, while
-/// there is a question to ask ([PushState.choiceNeeded]); "Not now" is a
-/// real answer. Settings → Push notifications opens the same screen to
+/// there is a question to ask ([PushState.choiceNeeded]): never where
+/// Google is on offer, which is then the default (decision 210). "Not
+/// now" is a real answer. Settings → Push notifications opens the same screen to
 /// change the answer.
 library vartalap.screens.login.push_onboarding;
 

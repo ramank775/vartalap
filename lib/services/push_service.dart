@@ -47,10 +47,9 @@ const String kPushChoiceNone = 'none';
 
 /// Which push method to use, or null when the user has to be asked.
 ///
-/// A saved choice wins while it still works. Without one the app picks
-/// only when there is nothing to ask: Google is not on offer and exactly
-/// one push app is installed. Google is never picked for the user
-/// (DECISIONS 120).
+/// A saved choice wins while it still works. Without one, Google is the
+/// default wherever it is on offer (decision 210); else the one push
+/// app, if exactly one is installed. Settings changes it.
 String? resolvePushChoice({
   required String? saved,
   required bool googleAvailable,
@@ -61,7 +60,8 @@ String? resolvePushChoice({
       distributors.contains(saved)) {
     return saved;
   }
-  if (!googleAvailable && distributors.length == 1) {
+  if (googleAvailable) return kPushChoiceGoogle;
+  if (distributors.length == 1) {
     return distributors.single;
   }
   return null;
@@ -288,11 +288,13 @@ class PushService {
     }
     await _requestNotificationPermission();
     if (previous != null && previous != kPushChoiceNone && previous != choice) {
-      // Switching: the old distributor's registration goes; the new
-      // endpoint replaces it on the server (AUTH_CONTRACT §5.1).
-      try {
-        await _push.unregister();
-      } catch (_) {/* distributor gone */}
+      // Switching: the old distributor's registration goes (Google has
+      // none); the new endpoint replaces it on the server (§5.1).
+      if (previous != kPushChoiceGoogle) {
+        try {
+          await _push.unregister();
+        } catch (_) {/* distributor gone */}
+      }
       await _forgetEndpoint();
     }
     await refresh();
@@ -326,9 +328,9 @@ class PushService {
       return;
     }
     if (resolved != saved) {
-      // Picked for the user — the one push app, no Google question.
-      // Remember it like a choice, and ask for the grant the chooser
-      // would have asked for.
+      // Picked for the user — Google, or the one push app. Remember it
+      // like a choice, and ask for the grant the chooser would have
+      // asked for.
       await prefs.setString(kPushChoiceKey, resolved);
       await _requestNotificationPermission();
     }

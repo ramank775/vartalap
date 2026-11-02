@@ -137,8 +137,9 @@ void main() {
 
     expect(done, 1);
     expect(permissionRequests, 1);
-    expect(distributor.savedDistributor, kPushChoiceGoogle);
-    expect(distributor.registerVapids, [vapidA]);
+    // Decision 209: Google is FCM, not a UnifiedPush distributor.
+    expect(distributor.savedDistributor, isNull);
+    expect(distributor.registerVapids, isEmpty);
     expect((await SharedPreferences.getInstance()).getString(kPushChoiceKey),
         kPushChoiceGoogle);
   });

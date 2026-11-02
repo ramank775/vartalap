@@ -24,17 +24,20 @@ void main() {
         resolvePushChoice(
             saved: saved, googleAvailable: google, distributors: apps);
 
-    test('nothing saved: ask unless there is exactly one way and no Google',
-        () {
+    test('nothing saved: Google wherever it is on offer (decision 210), '
+        'else the one push app, else ask', () {
       // googleAvailable x number of push apps.
       expect(resolve(null, false, []), isNull, reason: 'install prompt');
       expect(resolve(null, false, [_ntfy]), _ntfy, reason: 'silent');
       expect(resolve(null, false, [_ntfy, _nextPush]), isNull,
           reason: 'pick one');
-      expect(resolve(null, true, []), isNull,
-          reason: 'Google is never picked for the user');
-      expect(resolve(null, true, [_ntfy]), isNull, reason: 'must ask');
-      expect(resolve(null, true, [_ntfy, _nextPush]), isNull);
+      for (final apps in [
+        <String>[],
+        [_ntfy],
+        [_ntfy, _nextPush],
+      ]) {
+        expect(resolve(null, true, apps), kPushChoiceGoogle);
+      }
     });
 
     test('a saved choice wins while it still works', () {
@@ -57,7 +60,7 @@ void main() {
       // The push app was uninstalled.
       expect(resolve(_nextPush, false, [_ntfy]), _ntfy);
       expect(resolve(_nextPush, false, []), isNull);
-      expect(resolve(_nextPush, true, [_ntfy]), isNull);
+      expect(resolve(_nextPush, true, [_ntfy]), kPushChoiceGoogle);
       // Google went away (Play services disabled, or a foss build).
       expect(resolve(kPushChoiceGoogle, false, [_ntfy]), _ntfy);
       expect(resolve(kPushChoiceGoogle, false, []), isNull);
@@ -68,17 +71,12 @@ void main() {
   group('PushService', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    test('Google on offer → ask; choosing it posts the FCM token, no '
-        'distributor and no VAPID (decision 209)', () async {
+    test('Google on offer → used without asking: posts the FCM token, no '
+        'distributor and no VAPID (decisions 209, 210)', () async {
       final f = _Fixture(google: true, distributors: const [_ntfy]);
       await f.service.start();
 
-      expect(f.service.state.value, PushState.choiceNeeded);
-      expect(f.permissionRequests, 0, reason: 'nothing chosen yet');
-
-      await f.service.choose(kPushChoiceGoogle);
-
-      expect(f.permissionRequests, 1, reason: 'asked after the choice');
+      expect(f.permissionRequests, 1, reason: 'the grant the chooser asks');
       expect(f.push.savedDistributor, isNull);
       expect(f.push.registerVapids, isEmpty);
       expect(f.client.posts, [
@@ -92,6 +90,7 @@ void main() {
       // Same token on the next start: nothing re-posted. A new one is.
       await f.newService().start();
       expect(f.client.posts, hasLength(1));
+      expect(f.permissionRequests, 1, reason: 'asked once');
       f.push.fcmToken = 'fcm-token-2';
       await f.newService().start();
       expect(f.client.posts.last, {'fcmToken': 'fcm-token-2'});
@@ -234,7 +233,9 @@ void main() {
       final f = _Fixture(google: true, distributors: const [_ntfy]);
       await f.service.start();
       await f.service.choose(_ntfy);
+      expect(f.push.unregisterCalls, 0, reason: 'Google has no distributor');
       await f.push.emitEndpoint('https://ntfy.sh/upAbC');
+      expect(f.client.posts.last['endpoint'], 'https://ntfy.sh/upAbC');
 
       await f.service.choose(kPushChoiceGoogle);
 
@@ -243,7 +244,7 @@ void main() {
     });
 
     test('"Not now" deregisters, sticks, and asks for nothing', () async {
-      final f = _Fixture(google: true, distributors: const [_ntfy]);
+      final f = _Fixture(distributors: const [_ntfy, _nextPush]);
       await f.service.start();
 
       await f.service.choose(kPushChoiceNone);
