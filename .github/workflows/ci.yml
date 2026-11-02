@@ -5,6 +5,9 @@ on:
     branches:
       - "v3.0"
       - "master"
+    # a v* tag also builds the signed Play bundle (job `play-bundle`)
+    tags:
+      - "v*"
   pull_request:
     branches:
       - "v3.0"
@@ -100,3 +103,51 @@ jobs:
         with:
           name: vartalap-dev-${{ matrix.push }}-release-apk
           path: build/app/outputs/flutter-apk/app-dev${{ matrix.push }}-release.apk
+
+  # Decision 211: a v* tag builds the Play bundle, signed with the upload key
+  # and carrying the Firebase config (decision 209). The secrets live in the
+  # `release` environment, which only v* tags may deploy to.
+  play-bundle:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [analyze-test, degoogle, apk]
+    runs-on: ubuntu-26.04
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+      - uses: actions/setup-java@v6
+        with:
+          distribution: "temurin"
+          java-version: "17"
+      - run: flutter pub get
+      - name: Upload key and Firebase config
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          FIREBASE: ${{ secrets.FIREBASE_ANDROID_CONFIG }}
+        run: |
+          printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=$RUNNER_TEMP/upload.jks
+          EOF
+          printf '%s' "$FIREBASE" | base64 -d > "$RUNNER_TEMP/google-services.json"
+          python3 scripts/firebase_config.py "$RUNNER_TEMP/google-services.json"
+      - name: Build the Play bundle
+        run: flutter build appbundle --release --flavor prodGms
+      # Play refuses a bundle signed with any other key; fail here instead.
+      - name: Signed with the upload key
+        run: |
+          keytool -printcert -jarfile build/app/outputs/bundle/prodGmsRelease/app-prod-gms-release.aab \
+            | grep -q "SHA256: ${{ vars.UPLOAD_CERT_SHA256 || '40:AF:41:D1:F2:49:5A:62:A9:71:F3:82:84:D2:9E:39:69:62:A1:86:E7:75:9A:83:E4:09:91:07:8B:57:EF:A7' }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vartalap-${{ github.ref_name }}-play-bundle
+          path: build/app/outputs/bundle/prodGmsRelease/app-prod-gms-release.aab

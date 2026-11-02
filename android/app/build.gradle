@@ -117,15 +117,15 @@ flutter {
 }
 
 // Decision 209: Google push needs the Firebase config, which is not in git
-// (see .gitignore). A Play release without it would build fine and never
-// offer Google push, so refuse to build one.
+// (scripts/firebase_config.py writes it). A Play release without it would
+// build fine and never offer Google push, so refuse to build one.
 tasks.configureEach { task ->
     if (task.name == 'preProdGmsReleaseBuild') {
         task.doFirst {
             if (!file('src/prodGms/res/values/firebase.xml').exists()) {
                 throw new GradleException(
-                    'src/prodGms/res/values/firebase.xml is missing: generate it from ' +
-                    'the Android config file in the Firebase console (decision 209)')
+                    'src/prodGms/res/values/firebase.xml is missing: run ' +
+                    'scripts/firebase_config.py on the Firebase Android config (decision 209)')
             }
         }
     }
