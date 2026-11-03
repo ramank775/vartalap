@@ -2,7 +2,7 @@ name: "ci"
 
 # Decision 213: nothing runs on pushes to the working branch (v3.0).
 # A pull request or a push to master is checked; a v* tag is checked and
-# then released (decision 211).
+# released in one job (decisions 211, 216).
 on:
   push:
     branches:
@@ -25,41 +25,28 @@ env:
 
 jobs:
   check:
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
-      # DECISIONS 121, 209: no Google code outside the gms flavour.
-      - run: bash scripts/degoogle_gate.sh
+      # Cached per pull request: later pushes to it reuse the SDK.
       - uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
-      # The nested pub workspaces (packages/*, tools/) resolve their own
-      # dependencies; `flutter analyze` walks the whole tree and needs them.
-      - name: pub get
-        run: |
-          flutter pub get
-          for d in packages/*/ tools/; do (cd "$d" && dart pub get); done
-      - run: flutter analyze
-      - name: flutter test (not test/integration, which needs a live server)
-        run: flutter test $(find test -name '*_test.dart' ! -path 'test/integration/*')
-      - name: dart test in packages/*
-        run: |
-          for d in packages/*/; do
-            [ -d "$d/test" ] || continue  # vartalap_proto is generated code
-            (cd "$d" && dart test)
-          done
-      - run: (cd tools && dart analyze)
+      - uses: ./.github/actions/check
 
-  # Decision 211: a v* tag, once checked, builds what gets published, both
-  # signed with the upload key: the Play bundle (prodGms, with the Firebase
-  # config of decision 209) and the foss APK (prodFoss: GitHub, F-Droid).
-  # The secrets live in the `release` environment, which only v* tags may
-  # deploy to.
+  # A v* tag: set up once, check, then build what gets published, both signed
+  # with the upload key: the Play bundle (prodGms, with the Firebase config of
+  # decision 209) and the foss APK (prodFoss: GitHub, F-Droid). The secrets
+  # live in the `release` environment, which only v* tags may deploy to.
+  #
+  # No caches: GitHub shows a tag run only its own caches and the default
+  # branch's (master, which runs nothing), so what one tag saved, the next
+  # could never restore. Gradle installs the NDK itself.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: check
     runs-on: ubuntu-26.04
     environment: release
     env:
@@ -73,23 +60,11 @@ jobs:
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-          # Its own cache: after a build it also holds the Android engine
-          # files, which the check job never downloads.
-          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:-android"
       - uses: actions/setup-java@v6
         with:
           distribution: "temurin"
           java-version: "17"
-          cache: "gradle"
-      # The runner image has no NDK r28: ~1 GB per run unless cached.
-      - name: NDK path
-        id: ndk
-        run: echo "path=$ANDROID_HOME/ndk/$(sed -n 's/.*ndkVersion "\(.*\)".*/\1/p' android/app/build.gradle)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.ndk.outputs.path }}
-          key: ndk-${{ runner.os }}-${{ steps.ndk.outputs.path }}
+      - uses: ./.github/actions/check
       - name: Upload key and Firebase config
         env:
           KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
@@ -107,7 +82,6 @@ jobs:
           EOF
           printf '%s' "$FIREBASE" | base64 -d > "$RUNNER_TEMP/google-services.json"
           python3 scripts/firebase_config.py "$RUNNER_TEMP/google-services.json"
-      - run: flutter pub get
       - run: flutter build appbundle --release --flavor prodGms
       - run: flutter build apk --release --flavor prodFoss
       - name: Signed with the upload key; Google code only in the bundle

@@ -1,0 +1,30 @@
+name: "Check"
+description: "The degoogle source gate, analyze and every test (not test/integration). Expects Flutter on the PATH."
+runs:
+  using: "composite"
+  steps:
+    # DECISIONS 121, 209: no Google code outside the gms flavour.
+    - shell: bash
+      run: bash scripts/degoogle_gate.sh
+    # The nested pub workspaces (packages/*, tools/) resolve their own
+    # dependencies; `flutter analyze` walks the whole tree and needs them.
+    - name: pub get
+      shell: bash
+      run: |
+        flutter pub get
+        for d in packages/*/ tools/; do (cd "$d" && dart pub get); done
+    - shell: bash
+      run: flutter analyze
+    # On the Dart VM of the runner: no Android build, no NDK.
+    - name: flutter test (not test/integration, which needs a live server)
+      shell: bash
+      run: flutter test $(find test -name '*_test.dart' ! -path 'test/integration/*')
+    - name: dart test in packages/*
+      shell: bash
+      run: |
+        for d in packages/*/; do
+          [ -d "$d/test" ] || continue  # vartalap_proto is generated code
+          (cd "$d" && dart test)
+        done
+    - shell: bash
+      run: (cd tools && dart analyze)
