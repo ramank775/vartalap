@@ -12,6 +12,14 @@ subprojects {
 subprojects {
     project.evaluationDependsOn(':app')
 }
+// flutter_zxing pins no NDK, so AGP would install its own default NDK just
+// to compile it (a ~1 GB download per CI run). Plugins that pin none build
+// with the app's NDK instead.
+subprojects {
+    plugins.withId('com.android.library') {
+        android.ndkVersion = project(':app').android.ndkVersion
+    }
+}
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
