@@ -5,8 +5,6 @@ import android.util.Log
 import android.os.Looper
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.embedding.engine.dart.DartExecutor
 import org.unifiedpush.flutter.connector.Call
 import org.unifiedpush.flutter.connector.PLUGIN_ARG_INSTANCE
 import org.unifiedpush.flutter.connector.PLUGIN_ARG_MESSAGE_CONTENT
@@ -28,19 +26,7 @@ class FcmWakeService : FirebaseMessagingService() {
         Log.i("VartalapPush", "wake: priority ${message.priority} sent as " +
             "${message.originalPriority}, ${System.currentTimeMillis() - message.sentTime} ms after send")
         Handler(Looper.getMainLooper()).post {
-            // A new engine registers its plugins, and the Plugin it makes
-            // becomes Plugin.calls. The app's own engine has one, but once
-            // that engine is gone (the process lives on) its Plugin stays
-            // in Plugin.calls with nobody collecting, and the wake would be
-            // lost: a fresh engine then too.
-            // ponytail: a wake while an engine is still starting up makes a
-            // second one; a static handle on ours would reuse it.
-            if ((Plugin.calls?.subscriptionCount?.value ?: 0) == 0) {
-                FlutterEngine(applicationContext).dartExecutor.executeDartEntrypoint(
-                    DartExecutor.DartEntrypoint.createDefault(),
-                    listOf("--unifiedpush-bg")
-                )
-            }
+            PushInbox.point(applicationContext)
             Plugin.calls?.tryEmit(
                 Call(
                     PLUGIN_CALL_MESSAGE,

@@ -22,8 +22,14 @@ import androidx.core.location.LocationManagerCompat
 import java.io.File
 
 class MainActivity: FlutterActivity() {
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (PushInbox.app === flutterEngine) PushInbox.app = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        PushInbox.app = flutterEngine
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         // SIM country for the phone screen's default country; needs no permission.
         MethodChannel(messenger, "vartalap/sim")
