@@ -43,6 +43,11 @@ android {
         jvmTarget = '17'
     }
 
+    // AGP 9 turns these off by default; the flavors set app_name with resValue.
+    buildFeatures {
+        resValues true
+    }
+
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
     }
