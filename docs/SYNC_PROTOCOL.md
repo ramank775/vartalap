@@ -269,6 +269,8 @@ Envelope {
   uint64 client_timestamp_ms
   bytes  payload            // opaque to server
   bool   ephemeral          // typing and friends; no ack, no queue
+  bool   silent             // queued, but wakes no offline device
+                            // (§12.1); set on all but new messages
   string peer               // the other participant, iff channel_id
                             // matches ^d[0-9a-f]{31}$ (§11.3);
                             // absent for groups. Echoed unchanged on
@@ -1423,6 +1425,12 @@ registered Web Push endpoint (AUTH_CONTRACT §5). A close the client
 sent itself needs no wake: it pulls from its pointer when it comes
 back.
 
+- Never for a `silent` envelope (decision 212): only a new message or
+  forward wakes. Senders mark everything else silent (receipts, edits,
+  deletes, reactions, group keys) and the server marks its own events
+  silent, because none of them shows a notification, and a push
+  service downgrades an app whose high-priority wakes end without one.
+  A silent envelope reaches an offline device on its next pull.
 - Plaintext `{"t":"wake"}`, encrypted to the device (RFC 8291) and
   signed with the server's VAPID key (RFC 8292). MUST NOT contain
   message content.

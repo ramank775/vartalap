@@ -41,6 +41,7 @@ class Envelope extends $pb.GeneratedMessage {
     $core.bool? ephemeral,
     $core.String? peer,
     $core.int? ttlSec,
+    $core.bool? silent,
     $core.String? senderUserId,
     $fixnum.Int64? serverTimestampMs,
     $core.String? senderDeviceId,
@@ -53,6 +54,7 @@ class Envelope extends $pb.GeneratedMessage {
     if (ephemeral != null) result.ephemeral = ephemeral;
     if (peer != null) result.peer = peer;
     if (ttlSec != null) result.ttlSec = ttlSec;
+    if (silent != null) result.silent = silent;
     if (senderUserId != null) result.senderUserId = senderUserId;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
     if (senderDeviceId != null) result.senderDeviceId = senderDeviceId;
@@ -82,6 +84,7 @@ class Envelope extends $pb.GeneratedMessage {
     ..aOB(6, _omitFieldNames ? '' : 'ephemeral')
     ..aOS(7, _omitFieldNames ? '' : 'peer')
     ..aI(8, _omitFieldNames ? '' : 'ttlSec', fieldType: $pb.PbFieldType.OU3)
+    ..aOB(9, _omitFieldNames ? '' : 'silent')
     ..aOS(20, _omitFieldNames ? '' : 'senderUserId')
     ..a<$fixnum.Int64>(
         21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
@@ -232,16 +235,32 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   void clearTtlSec() => $_clearField(8);
 
+  /// No push wake for this envelope (decision 212): it is stored and
+  /// fanned out as usual, but a recipient that is offline gets it on its
+  /// next pull instead of being woken for it. Senders set it on whatever
+  /// shows no notification (receipts, edits, deletes, reactions, keys),
+  /// so the push service never sees high-priority wakes that end without
+  /// one and downgrades the app's real ones. The server sets it on its
+  /// own events. Echoed unchanged on fanout.
+  @$pb.TagNumber(9)
+  $core.bool get silent => $_getBF(7);
+  @$pb.TagNumber(9)
+  set silent($core.bool value) => $_setBool(7, value);
+  @$pb.TagNumber(9)
+  $core.bool hasSilent() => $_has(7);
+  @$pb.TagNumber(9)
+  void clearSilent() => $_clearField(9);
+
   /// The authenticated sender's user_id (9 lowercase hex chars). Server
   /// derives from session, not from any client-supplied field. Recipients
   /// use this for sender attribution; see SYNC_PROTOCOL.md §10.1 for the
   /// display-name resolution rule (contact-book → username → phone).
   @$pb.TagNumber(20)
-  $core.String get senderUserId => $_getSZ(7);
+  $core.String get senderUserId => $_getSZ(8);
   @$pb.TagNumber(20)
-  set senderUserId($core.String value) => $_setString(7, value);
+  set senderUserId($core.String value) => $_setString(8, value);
   @$pb.TagNumber(20)
-  $core.bool hasSenderUserId() => $_has(7);
+  $core.bool hasSenderUserId() => $_has(8);
   @$pb.TagNumber(20)
   void clearSenderUserId() => $_clearField(20);
 
@@ -250,22 +269,22 @@ class Envelope extends $pb.GeneratedMessage {
   /// (server_timestamp_ms, op_id) — op_id is a UUIDv7, so ties break
   /// the same way on every device (SYNC_PROTOCOL.md §6).
   @$pb.TagNumber(21)
-  $fixnum.Int64 get serverTimestampMs => $_getI64(8);
+  $fixnum.Int64 get serverTimestampMs => $_getI64(9);
   @$pb.TagNumber(21)
-  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(8, value);
+  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(9, value);
   @$pb.TagNumber(21)
-  $core.bool hasServerTimestampMs() => $_has(8);
+  $core.bool hasServerTimestampMs() => $_has(9);
   @$pb.TagNumber(21)
   void clearServerTimestampMs() => $_clearField(21);
 
   /// Authenticated sending installation, overwritten from the session.
   /// Empty on server-authored events. Selects the sender's E2EE device keys.
   @$pb.TagNumber(23)
-  $core.String get senderDeviceId => $_getSZ(9);
+  $core.String get senderDeviceId => $_getSZ(10);
   @$pb.TagNumber(23)
-  set senderDeviceId($core.String value) => $_setString(9, value);
+  set senderDeviceId($core.String value) => $_setString(10, value);
   @$pb.TagNumber(23)
-  $core.bool hasSenderDeviceId() => $_has(9);
+  $core.bool hasSenderDeviceId() => $_has(10);
   @$pb.TagNumber(23)
   void clearSenderDeviceId() => $_clearField(23);
 }

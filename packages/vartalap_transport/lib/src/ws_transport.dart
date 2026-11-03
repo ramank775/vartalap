@@ -468,6 +468,7 @@ pb.WsEnvelope opFrame(OutboundFrame frame) => pb.WsEnvelope(
                 : null,
             payload: op.payload,
             peer: frame.peer,
+            silent: op.silent ? true : null,
           ),
       ]),
     );

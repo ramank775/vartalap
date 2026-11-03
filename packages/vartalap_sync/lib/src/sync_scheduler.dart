@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
@@ -318,6 +319,7 @@ class SyncScheduler {
           clientTimestampMs: clock.nowMs(),
           restMethod: op.restMethod,
           restPath: op.restPath,
+          silent: silentOp(op),
         ),
       ],
     );
@@ -493,5 +495,22 @@ class SyncScheduler {
       messageId: op.targetMessageId,
       nowMs: clock.nowMs(),
     );
+  }
+}
+
+/// Decision 212: only a new message shows its recipient a notification,
+/// so every other op (a receipt, edit, delete, reaction) asks the server
+/// not to wake an offline phone for it. A high-priority push that ends
+/// without a notification gets the app's pushes downgraded.
+bool silentOp(OutboundOpRow op) {
+  if (op.kind != OpKind.chatPayload) return true;
+  try {
+    final type = pb.ChatPayload.fromBuffer(op.payload).type;
+    return type == pb.ChatPayloadType.TYPE_READ_RECEIPT ||
+        type == pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT;
+  } catch (_) {
+    // Not a ChatPayload: a key resend request, which does need its
+    // sender awake to answer.
+    return false;
   }
 }

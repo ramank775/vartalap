@@ -41,12 +41,17 @@ class FramedOp {
   final String? restMethod;
   final String? restPath;
 
+  /// `Envelope.silent` (decision 212): the server wakes no offline
+  /// recipient for it. Set on every op that shows them no notification.
+  final bool silent;
+
   const FramedOp({
     required this.opId,
     required this.payload,
     this.clientTimestampMs,
     this.restMethod,
     this.restPath,
+    this.silent = false,
   });
 }
 

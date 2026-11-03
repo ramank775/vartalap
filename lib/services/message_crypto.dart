@@ -149,7 +149,12 @@ class MessageCrypto {
         resourceId: channelId,
         peer: member,
         ops: [
-          FramedOp(opId: opId, payload: sealed, clientTimestampMs: clock.nowMs())
+          // The group op it goes ahead of does the waking (decision 212).
+          FramedOp(
+              opId: opId,
+              payload: sealed,
+              clientTimestampMs: clock.nowMs(),
+              silent: true)
         ],
       ));
 
