@@ -63,7 +63,7 @@ void main() {
           ops: [FramedOp(opId: 'op-1', payload: const [1], silent: silent)],
         )).ops.envelopes.single;
 
-    expect(sent(true).silent, isTrue);
-    expect(sent(false).hasSilent(), isFalse);
+    expect(sent(true).flags, 1);
+    expect(sent(false).hasFlags(), isFalse);
   });
 }

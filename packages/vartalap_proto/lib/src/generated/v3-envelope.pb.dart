@@ -41,7 +41,7 @@ class Envelope extends $pb.GeneratedMessage {
     $core.bool? ephemeral,
     $core.String? peer,
     $core.int? ttlSec,
-    $core.bool? silent,
+    $core.int? flags,
     $core.String? senderUserId,
     $fixnum.Int64? serverTimestampMs,
     $core.String? senderDeviceId,
@@ -54,7 +54,7 @@ class Envelope extends $pb.GeneratedMessage {
     if (ephemeral != null) result.ephemeral = ephemeral;
     if (peer != null) result.peer = peer;
     if (ttlSec != null) result.ttlSec = ttlSec;
-    if (silent != null) result.silent = silent;
+    if (flags != null) result.flags = flags;
     if (senderUserId != null) result.senderUserId = senderUserId;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
     if (senderDeviceId != null) result.senderDeviceId = senderDeviceId;
@@ -84,7 +84,7 @@ class Envelope extends $pb.GeneratedMessage {
     ..aOB(6, _omitFieldNames ? '' : 'ephemeral')
     ..aOS(7, _omitFieldNames ? '' : 'peer')
     ..aI(8, _omitFieldNames ? '' : 'ttlSec', fieldType: $pb.PbFieldType.OU3)
-    ..aOB(9, _omitFieldNames ? '' : 'silent')
+    ..aI(9, _omitFieldNames ? '' : 'flags', fieldType: $pb.PbFieldType.OU3)
     ..aOS(20, _omitFieldNames ? '' : 'senderUserId')
     ..a<$fixnum.Int64>(
         21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
@@ -235,21 +235,22 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   void clearTtlSec() => $_clearField(8);
 
-  /// No push wake for this envelope (decision 212): it is stored and
-  /// fanned out as usual, but a recipient that is offline gets it on its
-  /// next pull instead of being woken for it. Senders set it on whatever
-  /// shows no notification (receipts, edits, deletes, reactions, keys),
-  /// so the push service never sees high-priority wakes that end without
-  /// one and downgrades the app's real ones. The server sets it on its
-  /// own events. Echoed unchanged on fanout.
+  /// Handling flags, one bit each (decisions 212, 215). Unknown bits are
+  /// kept and echoed, so a newer sender's flags survive an older server.
+  /// Echoed unchanged on fanout.
+  ///   bit 0 (1) SILENT: no push wake. Stored and fanned out as usual, but
+  ///         an offline recipient gets it on its next pull instead of
+  ///         being woken for it. Senders set it on whatever shows no
+  ///         notification (receipts, edits, deletes, reactions, keys); the
+  ///         server sets it on its own events.
   @$pb.TagNumber(9)
-  $core.bool get silent => $_getBF(7);
+  $core.int get flags => $_getIZ(7);
   @$pb.TagNumber(9)
-  set silent($core.bool value) => $_setBool(7, value);
+  set flags($core.int value) => $_setUnsignedInt32(7, value);
   @$pb.TagNumber(9)
-  $core.bool hasSilent() => $_has(7);
+  $core.bool hasFlags() => $_has(7);
   @$pb.TagNumber(9)
-  void clearSilent() => $_clearField(9);
+  void clearFlags() => $_clearField(9);
 
   /// The authenticated sender's user_id (9 lowercase hex chars). Server
   /// derives from session, not from any client-supplied field. Recipients

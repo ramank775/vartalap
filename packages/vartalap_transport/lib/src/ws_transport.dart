@@ -456,6 +456,9 @@ class WsTransport implements Transport {
 /// carry op_id / channel_id / client_timestamp_ms / payload.
 /// sender_user_id and server_timestamp_ms are absent (server stamps on
 /// fanout).
+/// `Envelope.flags` bit 0: no push wake (decisions 212, 215).
+const int kEnvelopeFlagSilent = 1;
+
 pb.WsEnvelope opFrame(OutboundFrame frame) => pb.WsEnvelope(
       type: pb.WsType.WS_OP,
       ops: pb.EnvelopeBatch(envelopes: [
@@ -468,7 +471,7 @@ pb.WsEnvelope opFrame(OutboundFrame frame) => pb.WsEnvelope(
                 : null,
             payload: op.payload,
             peer: frame.peer,
-            silent: op.silent ? true : null,
+            flags: op.silent ? kEnvelopeFlagSilent : null,
           ),
       ]),
     );
