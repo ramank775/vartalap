@@ -82,7 +82,7 @@ void backgroundJob() {
     DartPluginRegistrant.ensureInitialized();
     // The app on screen has its socket, and says itself what came.
     if (IsolateNameServer.lookupPortByName(_onScreenPort) != null) return true;
-    final services = await initializeApp(background: true);
+    final services = await initializeApp(background: true, pushEvents: false);
     if (task != AppServices._pollJob) {
       return services.sendQueued(scheduleRest: false);
     }
@@ -493,7 +493,14 @@ Future<int> pullPendingPages(
 }
 
 /// [background]: the engine a distributor starts to deliver a wake.
-Future<AppServices> initializeApp({bool background = false}) async {
+/// [pushEvents]: false for a WorkManager job, which pulls on its own and
+/// must not take the push plugin's inbox: the plugin hands it to whichever
+/// engine initialized last, and WorkManager destroys a job's engine when
+/// the job ends, so every wake after it would be lost (PushInbox.kt).
+Future<AppServices> initializeApp({
+  bool background = false,
+  bool pushEvents = true,
+}) async {
   await configStore.init();
 
   // --- config / secure-storage bootstrapping --------------------------------
@@ -607,7 +614,7 @@ Future<AppServices> initializeApp({bool background = false}) async {
     await Workmanager().cancelAll().catchError((Object _) {});
   };
   try {
-    await pushService.start(reconcile: !background);
+    if (pushEvents) await pushService.start(reconcile: !background);
   } catch (e) {
     // No distributor plugin (desktop, tests) — push is simply off.
     debugPrint('Push init failed: $e');

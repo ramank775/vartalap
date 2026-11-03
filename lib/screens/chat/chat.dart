@@ -1006,10 +1006,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
           height = size?.$2 ?? 0;
         }
       } else {
-        final result = await FilePicker.platform.pickFiles(
+        final picked = await FilePicker.pickFile(
           type: choice == 'audio' ? FileType.audio : FileType.any,
         );
-        sourcePath = result?.files.single.path;
+        sourcePath = picked?.path;
         if (sourcePath == null) return;
       }
     } on PlatformException catch (e) {
@@ -1081,9 +1081,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       return;
     }
     try {
-      final id = await FlutterContacts.native.showPicker();
-      if (id == null) return;
-      final contact = await FlutterContacts.get(id, properties: {
+      final contact = await FlutterContacts.native.showPicker(properties: {
         ContactProperty.name,
         ContactProperty.phone,
         ContactProperty.email,

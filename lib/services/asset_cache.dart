@@ -199,7 +199,7 @@ Future<bool> openAttachment(
       'mime': mime.isEmpty ? '*/*' : mime,
     });
     if (opened != true) {
-      await FilePicker.platform.saveFile(fileName: safe, bytes: bytes);
+      await FilePicker.saveFile(fileName: safe, bytes: bytes, mimeType: mime.isEmpty ? 'application/octet-stream' : mime);
     }
     return true;
   } catch (_) {

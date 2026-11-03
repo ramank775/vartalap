@@ -3,6 +3,7 @@ package com.one9x.vartalap
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import org.unifiedpush.android.connector.FailedReason
@@ -12,65 +13,72 @@ import org.unifiedpush.flutter.connector.Plugin
 import org.unifiedpush.flutter.connector.UnifiedPushService
 
 /**
- * Where a push wake (FCM or a UnifiedPush app) is delivered: the push
- * plugin's inbox (`Plugin.calls`) of an engine that is alive.
+ * Every push event (FCM or a UnifiedPush app) goes into the push plugin's
+ * one inbox, `Plugin.calls`, read by the engine whose Dart side
+ * initialized the plugin last (unifiedpush_android 3.5.0). Once that
+ * engine is gone (the app's, after its activity finishes) nobody reads it,
+ * and the plugin starts a new engine only for the first event of a
+ * process. So before each event: if nobody reads the inbox, start our wake
+ * engine; the inbox replays what it holds once that engine initializes.
  *
- * The plugin (unifiedpush_android 3.4.0) keeps only the inbox of the engine
- * that registered it last, and every engine registers it, a WorkManager
- * job's too. WorkManager destroys that engine when the job ends, so every
- * wake after the hourly message check went to an inbox nobody read, until
- * the process died. Instead: the app's own engine while it is up, else one
- * wake engine of ours, started once and kept.
+ * A WorkManager job's engine never initializes push (`initializeApp`
+ * `pushEvents: false`), so it never takes the inbox.
  */
 object PushInbox {
-    /** MainActivity's engine, while it lives. */
-    @Volatile
-    var app: FlutterEngine? = null
     private var wake: FlutterEngine? = null
+    private var wakeStartedAt = 0L
 
-    /** Point `Plugin.calls` at a live engine's inbox. Main thread only. */
-    fun point(context: Context) {
-        val engine = app ?: wake ?: FlutterEngine(context.applicationContext).apply {
+    /** Main thread only. */
+    fun ensureReader(context: Context) {
+        if (Plugin.calls.subscriptionCount.value > 0) return
+        val now = SystemClock.elapsedRealtime()
+        // ponytail: a wake engine still starting reads nothing yet; 30 s for
+        // its Dart side to initialize before it counts as gone.
+        if (wake != null && now - wakeStartedAt < 30_000) return
+        // An earlier wake engine that lost the inbox to the app's engine,
+        // since gone: it reads nothing and never will again.
+        wake?.destroy()
+        wake = FlutterEngine(context.applicationContext).apply {
             localizationPlugin.sendLocalesToFlutter(context.resources.configuration)
             dartExecutor.executeDartEntrypoint(
                 DartExecutor.DartEntrypoint.createDefault(),
                 listOf("--unifiedpush-bg")
             )
-        }.also { wake = it }
-        Plugin.calls = (engine.plugins.get(Plugin::class.java) as Plugin).calls
+        }
+        wakeStartedAt = now
     }
 }
 
 /**
- * The plugin's service for UnifiedPush apps (foss builds), re-pointing the
- * inbox before each event it forwards (see [PushInbox]). Replaces the
- * plugin's own in AndroidManifest.xml.
+ * The plugin's service for UnifiedPush apps (foss builds), making sure the
+ * inbox has a reader before each event it forwards (see [PushInbox]).
+ * Replaces the plugin's own in AndroidManifest.xml.
  */
 class WakePushService : UnifiedPushService() {
     override fun onCreate() {
-        PushInbox.point(this)
+        PushInbox.ensureReader(this)
         super.onCreate()
     }
 
-    private fun pointed(forward: () -> Unit) {
+    private fun withReader(forward: () -> Unit) {
         Handler(Looper.getMainLooper()).post {
-            PushInbox.point(this)
+            PushInbox.ensureReader(this)
             forward()
         }
     }
 
     override fun onMessage(message: PushMessage, instance: String) =
-        pointed { super.onMessage(message, instance) }
+        withReader { super.onMessage(message, instance) }
 
     override fun onNewEndpoint(endpoint: PushEndpoint, instance: String) =
-        pointed { super.onNewEndpoint(endpoint, instance) }
+        withReader { super.onNewEndpoint(endpoint, instance) }
 
     override fun onRegistrationFailed(reason: FailedReason, instance: String) =
-        pointed { super.onRegistrationFailed(reason, instance) }
+        withReader { super.onRegistrationFailed(reason, instance) }
 
     override fun onUnregistered(instance: String) =
-        pointed { super.onUnregistered(instance) }
+        withReader { super.onUnregistered(instance) }
 
     override fun onTempUnavailable(instance: String) =
-        pointed { super.onTempUnavailable(instance) }
+        withReader { super.onTempUnavailable(instance) }
 }

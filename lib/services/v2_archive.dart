@@ -66,7 +66,7 @@ Future<void> saveV2Chats(BuildContext context) async {
     } finally {
       await db.close();
     }
-    final saved = await FilePicker.platform.saveFile(
+    final saved = await FilePicker.saveFile(
       dialogTitle: 'Save your v2 chats',
       fileName: 'vartalap-v2-chats.db',
       bytes: await snapshot.readAsBytes(),

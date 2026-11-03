@@ -26,8 +26,8 @@ class FcmWakeService : FirebaseMessagingService() {
         Log.i("VartalapPush", "wake: priority ${message.priority} sent as " +
             "${message.originalPriority}, ${System.currentTimeMillis() - message.sentTime} ms after send")
         Handler(Looper.getMainLooper()).post {
-            PushInbox.point(applicationContext)
-            Plugin.calls?.tryEmit(
+            PushInbox.ensureReader(applicationContext)
+            Plugin.calls.tryEmit(
                 Call(
                     PLUGIN_CALL_MESSAGE,
                     mapOf(

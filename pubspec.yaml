@@ -24,24 +24,24 @@ dependencies:
   flutter:
     sdk: flutter
 
-  flutter_contacts: ^2.0.2
+  flutter_contacts: ^2.6.0
   permission_handler: ^12.0.1
   flutter_secure_storage: ^10.0.0
   http: ^1.1.0
-  package_info_plus: ^9.0.1
+  package_info_plus: ^10.2.2
   url_launcher: ^6.1.12
   crypto: ^3.0.3
   pointycastle: ^4.0.0
-  shared_preferences: ^2.2.2
+  shared_preferences: ^2.5.6
   path_provider: ^2.1.2
   sqflite_common_ffi: ^2.3.0
   qr_flutter: ^4.1.0
   connectivity_plus: ^7.1.1
-  image_picker: ^1.1.2
+  image_picker: ^1.2.4
   # Direct only to switch on the Android system photo picker (main.dart).
-  image_picker_android: ^0.8.13
+  image_picker_android: ^0.8.13+25
   image_picker_platform_interface: ^2.10.0
-  file_picker: ^10.1.9
+  file_picker: ^13.3.2
 
   vartalap_proto:
     path: packages/vartalap_proto
@@ -56,20 +56,15 @@ dependencies:
   intl: ^0.20.2
   unifiedpush: ^6.2.0
   flutter_local_notifications: ^22.3.1
-  # Pinned: unifiedpush_android 3.5.0 ships a build.gradle.kts that uses
-  # the `kotlin { compilerOptions }` DSL without applying the Kotlin
-  # plugin to its own project, which fails to compile under Flutter's
-  # plugin loader. 3.4.0 is the same connector with a working Groovy
-  # build file. Unpin when upstream fixes the build script.
-  # PushInbox.kt also relies on 3.4.0's per-plugin inbox (`Plugin.calls`);
-  # 3.5.0 replaces it with one shared flow, so moving up means redoing it.
-  unifiedpush_android: 3.4.0
+  # Pinned: PushInbox.kt works with this version's shared inbox
+  # (`Plugin.calls`, one flow for every engine); check it on any upgrade.
+  unifiedpush_android: 3.5.0
   record: ^7.1.2
   just_audio: ^0.10.6
   flutter_zxing: ^3.1.0
   libsignal_protocol_dart: 0.8.2
   # Sends what was left unsent once there is network, app closed or not.
-  workmanager: ^0.9.0+3
+  workmanager: ^0.10.10
 
 dev_dependencies:
   flutter_test:
