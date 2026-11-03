@@ -1,11 +1,12 @@
 name: "ci"
 
+# Decision 213: nothing runs on pushes to the working branch (v3.0).
+# A pull request or a push to master is checked; a v* tag is checked and
+# then released (decision 211).
 on:
   push:
     branches:
       - "master"
-    # The working branch (v3.0) runs nothing on push: a v* tag runs it
-    # all, and also builds the signed Play bundle (job `play-bundle`).
     tags:
       - "v*"
   pull_request:
@@ -23,8 +24,49 @@ env:
   FLUTTER_VERSION: "3.47.9"
 
 jobs:
-  analyze-test:
+  check:
     runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      # DECISIONS 121, 209: no Google code outside the gms flavour.
+      - run: bash scripts/degoogle_gate.sh
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      # The nested pub workspaces (packages/*, tools/) resolve their own
+      # dependencies; `flutter analyze` walks the whole tree and needs them.
+      - name: pub get
+        run: |
+          flutter pub get
+          for d in packages/*/ tools/; do (cd "$d" && dart pub get); done
+      - run: flutter analyze
+      - name: flutter test (not test/integration, which needs a live server)
+        run: flutter test $(find test -name '*_test.dart' ! -path 'test/integration/*')
+      - name: dart test in packages/*
+        run: |
+          for d in packages/*/; do
+            [ -d "$d/test" ] || continue  # vartalap_proto is generated code
+            (cd "$d" && dart test)
+          done
+      - run: (cd tools && dart analyze)
+
+  # Decision 211: a v* tag, once checked, builds what gets published, both
+  # signed with the upload key: the Play bundle (prodGms, with the Firebase
+  # config of decision 209) and the foss APK (prodFoss: GitHub, F-Droid).
+  # The secrets live in the `release` environment, which only v* tags may
+  # deploy to.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: check
+    runs-on: ubuntu-26.04
+    environment: release
+    env:
+      AAB: build/app/outputs/bundle/prodGmsRelease/app-prod-gms-release.aab
+      APK: build/app/outputs/flutter-apk/app-prodfoss-release.apk
+      # The upload key's certificate; Play refuses a bundle signed with any other.
+      UPLOAD_CERT_SHA256: ${{ vars.UPLOAD_CERT_SHA256 || '40:AF:41:D1:F2:49:5A:62:A9:71:F3:82:84:D2:9E:39:69:62:A1:86:E7:75:9A:83:E4:09:91:07:8B:57:EF:A7' }}
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -32,87 +74,22 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
-      - run: flutter pub get
-      # Nested pub workspaces (packages/*, tools/) resolve their own deps.
-      # `flutter analyze` walks the whole tree, so it needs these fetched
-      # first or it reports every `package:test` import as unresolved.
-      - name: pub get in packages/* and tools/
-        run: |
-          for d in packages/*/ tools/; do
-            (cd "$d" && dart pub get)
-          done
-      - run: flutter analyze
-      - name: flutter test (excluding test/integration, needs a live server)
-        run: flutter test $(find test -name '*_test.dart' ! -path 'test/integration/*')
-      - name: dart test in packages/*
-        run: |
-          for d in packages/*/; do
-            [ -d "$d/test" ] || continue  # vartalap_proto is generated code with no tests
-            echo "== dart test: $d =="
-            (cd "$d" && dart test)
-          done
-      - name: dart analyze tools/
-        run: (cd tools && dart analyze)
-
-  degoogle:
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-      - run: bash scripts/degoogle_gate.sh
-
-  # DECISIONS 121, 209: the foss build (F-Droid, GitHub: APKs, never a
-  # bundle) must hold no Google code; this proves it on every run. The gms
-  # side is the Play bundle, checked by the play-bundle job on each v* tag.
-  # arm64 only: the gate reads dex, not native code.
-  apk:
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/android-setup
+          # Its own cache: after a build it also holds the Android engine
+          # files, which the check job never downloads.
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:-android"
+      - uses: actions/setup-java@v6
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-      # Dev builds only: a throwaway key, so `--release` (which
-      # android/app/build.gradle always signs with signingConfigs.release)
-      # has something to sign with. Releases are the play-bundle job's.
-      - name: Generate throwaway signing key
-        run: |
-          keytool -genkeypair -v -keystore ci-release.jks -alias ciupload \
-            -keyalg RSA -keysize 2048 -validity 1 \
-            -storepass ci-throwaway -keypass ci-throwaway \
-            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
-          cat > android/key.properties <<EOF
-          storePassword=ci-throwaway
-          keyPassword=ci-throwaway
-          keyAlias=ciupload
-          storeFile=${{ github.workspace }}/ci-release.jks
-          EOF
-      - name: Build the dev foss APK
-        run: |
-          flutter build apk --release --flavor devFoss --target-platform android-arm64 \
-            --dart-define=API_URL=${{ vars.API_URL || 'https://vartalapapp.one9x.com' }} \
-            --dart-define=WS_URL=${{ vars.WS_URL || 'wss://vartalapapp.one9x.com/wss' }} \
-            --dart-define=SENTRY_DSN=${{ vars.SENTRY_DSN || '' }}
-      # Release plan §5: the shipped classes.dex is the release-time half of
-      # the degoogle gate: no Firebase, Play services or embedded FCM classes.
-      - name: Verify the APK's classes (degoogle gate)
-        run: bash scripts/degoogle_gate.sh apk build/app/outputs/flutter-apk/app-devfoss-release.apk foss
-      - uses: actions/upload-artifact@v7
+          distribution: "temurin"
+          java-version: "17"
+          cache: "gradle"
+      # The runner image has no NDK r28: ~1 GB per run unless cached.
+      - name: NDK path
+        id: ndk
+        run: echo "path=$ANDROID_HOME/ndk/$(sed -n 's/.*ndkVersion "\(.*\)".*/\1/p' android/app/build.gradle)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
         with:
-          name: vartalap-dev-foss-release-apk
-          path: build/app/outputs/flutter-apk/app-devfoss-release.apk
-
-  # Decision 211: a v* tag builds the Play bundle, signed with the upload key
-  # and carrying the Firebase config (decision 209). The secrets live in the
-  # `release` environment, which only v* tags may deploy to.
-  play-bundle:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-26.04
-    environment: release
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/android-setup
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
+          path: ${{ steps.ndk.outputs.path }}
+          key: ndk-${{ runner.os }}-${{ steps.ndk.outputs.path }}
       - name: Upload key and Firebase config
         env:
           KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
@@ -130,16 +107,20 @@ jobs:
           EOF
           printf '%s' "$FIREBASE" | base64 -d > "$RUNNER_TEMP/google-services.json"
           python3 scripts/firebase_config.py "$RUNNER_TEMP/google-services.json"
-      - name: Build the Play bundle
-        run: flutter build appbundle --release --flavor prodGms
-      # Play refuses a bundle signed with any other key; fail here instead.
-      - name: Signed with the upload key, and its classes (degoogle gate)
+      - run: flutter pub get
+      - run: flutter build appbundle --release --flavor prodGms
+      - run: flutter build apk --release --flavor prodFoss
+      - name: Signed with the upload key; Google code only in the bundle
         run: |
-          AAB=build/app/outputs/bundle/prodGmsRelease/app-prod-gms-release.aab
-          keytool -printcert -jarfile "$AAB" \
-            | grep -q "SHA256: ${{ vars.UPLOAD_CERT_SHA256 || '40:AF:41:D1:F2:49:5A:62:A9:71:F3:82:84:D2:9E:39:69:62:A1:86:E7:75:9A:83:E4:09:91:07:8B:57:EF:A7' }}"
+          keytool -printcert -jarfile "$AAB" | grep -q "SHA256: $UPLOAD_CERT_SHA256"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          "$apksigner" verify --print-certs "$APK" \
+            | grep -q "SHA-256 digest: $(echo "$UPLOAD_CERT_SHA256" | tr -d : | tr A-F a-f)"
           bash scripts/degoogle_gate.sh apk "$AAB" gms
+          bash scripts/degoogle_gate.sh apk "$APK" foss
       - uses: actions/upload-artifact@v7
         with:
-          name: vartalap-${{ github.ref_name }}-play-bundle
-          path: build/app/outputs/bundle/prodGmsRelease/app-prod-gms-release.aab
+          name: vartalap-${{ github.ref_name }}
+          path: |
+            ${{ env.AAB }}
+            ${{ env.APK }}
