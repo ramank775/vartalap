@@ -39,16 +39,6 @@ class ConfigStore {
     defaultValue: '',
   );
 
-  /// Compiled-in per docs/V3_ARCHITECTURE.md decision 8: the DSN is baked
-  /// into the build but Sentry is never initialized until the user opts
-  /// in from Settings. Empty by default — no official self-hosted/GlitchTip
-  /// endpoint is provisioned yet, so opting in without a `SENTRY_DSN`
-  /// build define or a Settings DSN override is a no-op (no events sent).
-  static const String sentryDsn = String.fromEnvironment(
-    'SENTRY_DSN',
-    defaultValue: '',
-  );
-
   // --- Runtime state (needs async init) ----------------------------------
 
   PackageInfo packageInfo = PackageInfo(

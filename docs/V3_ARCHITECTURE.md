@@ -51,7 +51,7 @@ returns: no Firebase SDKs, no google-services plugin, no
 - iOS `GeneratedPluginRegistrant.m` Firebase imports — regenerated clean via
   `flutter clean && pod install` after pubspec removal.
 - Phone OTP is self-hosted via chat-server (see decision 7).
-- Crash reporting: Sentry (self-hosted / opt-in, see decision 8).
+- Crash reporting: none in the app since DECISIONS 214 (Sentry removed; see decision 8).
 - Push: decision deferred to v3-blocker spike (see decision 6).
 
 Because v3 is a greenfield launch, **there is no parallel-run migration
@@ -346,6 +346,11 @@ first launch.
 ---
 
 ### 8. Crash reporting — opt-in, self-hosted-capable
+**Superseded (DECISIONS 214, 2026-11-03): Sentry is removed from the app.**
+No DSN was ever provisioned, and `sentry_flutter` 10 needs Android 8.0.
+Play Console vitals covers Play installs; a better option is a post-launch
+todo. The original decision follows.
+
 Sentry via `sentry_flutter`. User opts in via a settings toggle, default OFF.
 DSN is configured at build time but Sentry is **not initialized** until the
 user flips the opt-in toggle. This resolves the Codex P2 contradiction
@@ -362,7 +367,8 @@ before consent, visible indicator when enabled.
 
 ### 9. v3 launch criterion
 v3 ships when the **v2 golden path works on Android without Firebase, plus
-opt-in Sentry.** Everything else is v3.1.
+opt-in Sentry.** Everything else is v3.1. (Sentry and step 6 dropped by
+DECISIONS 214.)
 
 The v2 golden path is:
 1. Fresh install → OTP signup → home screen

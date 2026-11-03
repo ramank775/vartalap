@@ -22,10 +22,8 @@ import 'package:flutter/services.dart';
 import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:sentry_flutter/sentry_flutter.dart' show SentryFlutter;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/config/sentry_config.dart';
 import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
@@ -71,22 +69,7 @@ void main(List<String> args) async {
   final services = await initializeApp(background: background);
   if (background) return;
 
-  // Decision 8 (docs/V3_ARCHITECTURE.md): Sentry is only initialized when
-  // the user has already opted in from Settings. Off (the default) means
-  // nothing is initialized here and no events can ever be sent — the
-  // toggle itself starts/stops the SDK at runtime for the already-running
-  // app (see lib/config/sentry_config.dart).
-  final prefs = await SharedPreferences.getInstance();
-  final sentryOptIn = prefs.getBool(kSentryOptInPrefKey) ?? false;
-  final sentryDsn = sentryOptIn ? await effectiveSentryDsn() : '';
-  if (sentryOptIn && sentryDsn.isNotEmpty) {
-    await SentryFlutter.init(
-      (options) => options.dsn = sentryDsn,
-      appRunner: () => runApp(App(services: services)),
-    );
-  } else {
-    runApp(App(services: services));
-  }
+  runApp(App(services: services));
 }
 
 /// The WorkManager jobs. [AppServices.scheduleSend]'s runs once there is

@@ -1,5 +1,5 @@
 /// Settings, WhatsApp's layout (decision 154): your profile on top, then
-/// one row per area — Account, Privacy, Chats, Notifications, Help —
+/// one row per area — Account, Chats, Notifications, Help —
 /// each opening its own page.
 library vartalap.screens.settings;
 
@@ -14,7 +14,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
-import 'package:vartalap/config/sentry_config.dart';
 import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/profile/profile.dart';
@@ -28,8 +27,6 @@ import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
-export 'package:vartalap/config/sentry_config.dart'
-    show kSentryOptInPrefKey, kSentryDsnOverridePrefKey;
 
 const String kThemeModePrefKey = 'theme_mode';
 
@@ -144,12 +141,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Account',
             subtitle: 'Log out, delete account',
             onTap: () => _open(_AccountPage(authService: auth)),
-          ),
-          _Row(
-            icon: Icons.lock_outline,
-            title: 'Privacy',
-            subtitle: 'Crash reports',
-            onTap: () => _open(const _PrivacyPage()),
           ),
           _Row(
             icon: Icons.chat_outlined,
@@ -417,110 +408,6 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           style: TextButton.styleFrom(foregroundColor: error),
           child: const Text('Delete'),
         ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Privacy — crash reports
-// ---------------------------------------------------------------------------
-
-class _PrivacyPage extends StatefulWidget {
-  const _PrivacyPage();
-
-  @override
-  State<_PrivacyPage> createState() => _PrivacyPageState();
-}
-
-class _PrivacyPageState extends State<_PrivacyPage> {
-  bool _sentryOptIn = false;
-  final TextEditingController _dsnController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    SharedPreferences.getInstance().then((prefs) {
-      if (!mounted) return;
-      setState(() {
-        _sentryOptIn = prefs.getBool(kSentryOptInPrefKey) ?? false;
-        _dsnController.text = prefs.getString(kSentryDsnOverridePrefKey) ?? '';
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _dsnController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _setSentryOptIn(bool value) async {
-    await setSentryEnabled(value);
-    if (!mounted) return;
-    setState(() => _sentryOptIn = value);
-  }
-
-  Future<void> _setDsnOverride(String value) async {
-    final prefs = await SharedPreferences.getInstance();
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      await prefs.remove(kSentryDsnOverridePrefKey);
-    } else {
-      await prefs.setString(kSentryDsnOverridePrefKey, trimmed);
-    }
-    // Re-init with the new DSN if already opted in so the override takes
-    // effect without a restart.
-    if (_sentryOptIn) await setSentryEnabled(true);
-  }
-
-  Future<void> _sendTestEvent() async {
-    final messenger = ScaffoldMessenger.of(context);
-    await sendTestEvent();
-    if (!mounted) return;
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Test event sent to Sentry.')),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return _Page(
-      title: 'Privacy',
-      children: [
-        SwitchListTile(
-          secondary:
-              Icon(Icons.bug_report_outlined, color: scheme.onSurfaceVariant),
-          title: const Text('Crash reporting (Sentry)'),
-          subtitle: const Text(
-            'Send anonymous crash reports to help improve the app. '
-            'Disabled by default.',
-          ),
-          value: _sentryOptIn,
-          onChanged: _setSentryOptIn,
-        ),
-        if (_sentryOptIn) ...[
-          ListTile(
-            leading: Icon(Icons.send_outlined, color: scheme.onSurfaceVariant),
-            title: const Text('Send test event'),
-            subtitle: const Text(
-              'Confirms the configured Sentry backend is receiving events.',
-            ),
-            onTap: _sendTestEvent,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(kSpaceMd, 0, kSpaceMd, kSpaceMd),
-            child: TextField(
-              controller: _dsnController,
-              decoration: const InputDecoration(
-                labelText: 'DSN override (advanced)',
-                helperText: 'Leave blank to use the built-in DSN.',
-              ),
-              onSubmitted: _setDsnOverride,
-            ),
-          ),
-        ],
       ],
     );
   }

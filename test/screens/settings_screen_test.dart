@@ -18,7 +18,7 @@ void main() {
     VartalapTheme.themeMode = ThemeMode.system;
   });
 
-  /// [page] opens that area's row (Account, Privacy, Chats, Help).
+  /// [page] opens that area's row (Account, Chats, Help).
   Future<void> pumpSettings(
     WidgetTester tester, {
     required AuthService authService,
@@ -47,7 +47,7 @@ void main() {
     // No display name yet: the header falls back to the handle.
     expect(find.text('@alice_k'), findsOneWidget);
     expect(find.text('Hey there, I am using Vartalap'), findsOneWidget);
-    for (final row in ['Account', 'Privacy', 'Chats', 'Help']) {
+    for (final row in ['Account', 'Chats', 'Help']) {
       expect(find.text(row), findsOneWidget, reason: row);
     }
     expect(find.text('Appearance'), findsNothing);
@@ -56,68 +56,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Version'), findsOneWidget);
     expect(find.text('Open source licenses'), findsOneWidget);
-  });
-
-  testWidgets('Sentry toggle defaults off; flipping persists true',
-      (tester) async {
-    final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth, page: 'Privacy');
-
-    final switchFinder = find.byType(SwitchListTile);
-    expect(switchFinder, findsOneWidget);
-    expect(tester.widget<SwitchListTile>(switchFinder).value, isFalse);
-
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool(kSentryOptInPrefKey), isNull);
-
-    await tester.tap(switchFinder);
-    await tester.pumpAndSettle();
-
-    expect(tester.widget<SwitchListTile>(switchFinder).value, isTrue);
-    final prefs2 = await SharedPreferences.getInstance();
-    expect(prefs2.getBool(kSentryOptInPrefKey), isTrue);
-  });
-
-  testWidgets(
-      'Send test event tile and DSN override field appear only once opted in',
-      (tester) async {
-    final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth, page: 'Privacy');
-
-    expect(find.text('Send test event'), findsNothing);
-    expect(find.text('DSN override (advanced)'), findsNothing);
-
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Send test event'), findsOneWidget);
-    expect(find.text('DSN override (advanced)'), findsOneWidget);
-
-    // Flipping back off hides them again.
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Send test event'), findsNothing);
-    expect(find.text('DSN override (advanced)'), findsNothing);
-  });
-
-  testWidgets('DSN override persists to prefs on submit', (tester) async {
-    final auth = _FakeAuthService();
-    await pumpSettings(tester, authService: auth, page: 'Privacy');
-
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.widgetWithText(TextField, 'DSN override (advanced)'),
-      'https://example.invalid/1',
-    );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
-
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(kSentryDsnOverridePrefKey),
-        'https://example.invalid/1');
   });
 
   testWidgets(
