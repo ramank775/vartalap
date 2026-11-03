@@ -3,9 +3,9 @@ name: "ci"
 on:
   push:
     branches:
-      - "v3.0"
       - "master"
-    # a v* tag also builds the signed Play bundle (job `play-bundle`)
+    # The working branch (v3.0) runs nothing on push: a v* tag runs it
+    # all, and also builds the signed Play bundle (job `play-bundle`).
     tags:
       - "v*"
   pull_request:
@@ -23,10 +23,7 @@ env:
   FLUTTER_VERSION: "3.47.5"
 
 jobs:
-  # A v* tag points at a commit its branch push already tested and built,
-  # so a tag run only checks the sources and builds the Play bundle.
   analyze-test:
-    if: github.ref_type != 'tag'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -64,11 +61,10 @@ jobs:
       - run: bash scripts/degoogle_gate.sh
 
   # DECISIONS 121, 209: the foss build (F-Droid, GitHub: APKs, never a
-  # bundle) must hold no Google code; this proves it on every push. The gms
+  # bundle) must hold no Google code; this proves it on every run. The gms
   # side is the Play bundle, checked by the play-bundle job on each v* tag.
   # arm64 only: the gate reads dex, not native code.
   apk:
-    if: github.ref_type != 'tag'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
