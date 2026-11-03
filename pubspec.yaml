@@ -62,6 +62,8 @@ dependencies:
   # plugin to its own project, which fails to compile under Flutter's
   # plugin loader. 3.4.0 is the same connector with a working Groovy
   # build file. Unpin when upstream fixes the build script.
+  # PushInbox.kt also relies on 3.4.0's per-plugin inbox (`Plugin.calls`);
+  # 3.5.0 replaces it with one shared flow, so moving up means redoing it.
   unifiedpush_android: 3.4.0
   record: ^7.1.2
   just_audio: ^0.10.6
