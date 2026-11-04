@@ -7,6 +7,8 @@ import 'package:test/test.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
+import 'package:vartalap_transport/vartalap_transport.dart'
+    show InboundEnvelope, uuidBytes, uuidText;
 
 const _channelId = 'c-inbound-1';
 const _selfUserId = '0abcdef12';
@@ -15,7 +17,7 @@ const _thirdUserId = '0a1b2c3d4';
 
 void main() {
   late ChatStore store;
-  late StreamController<pb.Envelope> pushes;
+  late StreamController<InboundEnvelope> pushes;
   late InboundReceiver receiver;
   late FakeClock clock;
 
@@ -27,7 +29,7 @@ void main() {
       ownerUserId: _selfUserId,
       createdAt: 1,
     );
-    pushes = StreamController<pb.Envelope>.broadcast();
+    pushes = StreamController<InboundEnvelope>.broadcast();
     clock = FakeClock(1000);
     receiver = InboundReceiver(
       store: store,
@@ -62,7 +64,7 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-        messageId: 'm-1',
+        messageId: _mid('m-1'),
         body: 'hi there',
       ),
       serverTimestampMs: 5000,
@@ -73,7 +75,7 @@ void main() {
     expect(entries.single.lastMessageAuthor, _peerUserId);
     expect(entries.single.unreadCount, 1);
 
-    final row = await store.fetchMessage('m-1');
+    final row = await store.fetchMessage(_mid('m-1'));
     expect(row, isNotNull);
     expect(row!.body, 'hi there');
     expect(row.state, MessageState.sent);
@@ -86,13 +88,13 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-        messageId: 'm-dup',
+        messageId: _mid('m-dup'),
         body: 'once',
       ),
       serverTimestampMs: 6000,
     );
     pushes.add(env);
-    await _settle(store, 'm-dup', present: true);
+    await _settle(store, _mid('m-dup'), present: true);
 
     pushes.add(env);
     await _pumpQueue();
@@ -101,7 +103,7 @@ void main() {
     // still 1 (not bumped twice).
     final rows = await store.db.rawQuery(
       'SELECT COUNT(*) c FROM messages WHERE message_id = ?',
-      ['m-dup'],
+      [_mid('m-dup')],
     );
     expect(rows.single['c'], 1);
     final seen = await store.db.rawQuery(
@@ -128,12 +130,12 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: 'm-gate',
+          messageId: _mid('m-gate'),
           body: 'original',
         ),
         serverTimestampMs: 7000,
       ));
-      await _settle(store, 'm-gate', present: true);
+      await _settle(store, _mid('m-gate'), present: true);
 
       // Attempt an update from _thirdUserId — gate should reject.
       pushes.add(_makeEnvelope(
@@ -141,14 +143,14 @@ void main() {
         senderUserId: _thirdUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
-          messageId: 'm-gate',
+          messageId: _mid('m-gate'),
           body: 'hijacked',
         ),
         serverTimestampMs: 7100,
       ));
       await _pumpQueue();
 
-      final row = await store.fetchMessage('m-gate');
+      final row = await store.fetchMessage(_mid('m-gate'));
       expect(row!.body, 'original',
           reason: 'non-author update must be silently dropped');
       expect(row.isEdited, isFalse);
@@ -170,19 +172,19 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-        messageId: 'm-del',
+        messageId: _mid('m-del'),
         body: 'soon to die',
       ),
       serverTimestampMs: 8000,
     ));
-    await _settle(store, 'm-del', present: true);
+    await _settle(store, _mid('m-del'), present: true);
 
     pushes.add(_makeEnvelope(
       opId: 'op-del',
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
-        messageId: 'm-del',
+        messageId: _mid('m-del'),
       ),
       serverTimestampMs: 8100,
     ));
@@ -194,7 +196,7 @@ void main() {
         'messages',
         columns: const ['tombstoned', 'body'],
         where: 'message_id = ?',
-        whereArgs: ['m-del'],
+        whereArgs: [_mid('m-del')],
       );
       if ((r.single['tombstoned'] as int) == 1) {
         expect(r.single['body'], isNull);
@@ -204,14 +206,90 @@ void main() {
     fail('message was not tombstoned within timeout');
   });
 
+  test('decision 218: a message id that is not 16 bytes is malformed, '
+      'dropped', () async {
+    pushes.add(_makeEnvelope(
+      opId: 'op-short-id',
+      senderUserId: _peerUserId,
+      payload: pb.ChatPayload(
+        version: 1,
+        type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+        messageId: List.filled(15, 7),
+        body: 'short id',
+      ).writeToBuffer(),
+      serverTimestampMs: 500,
+    ));
+    await _pumpQueue();
+    expect(await store.db.query('messages', where: "body = 'short id'"),
+        isEmpty);
+  });
+
+  test(
+    'decision 218: a group receipt over 1:1 ticks our messages in that group '
+    'once every member is past them (decision 202), and makes no chat',
+    () async {
+      const group = '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0218';
+      await store.insertChannel(
+          channelId: group, kind: 'group', ownerUserId: _selfUserId,
+          createdAt: 1);
+      for (final u in [_selfUserId, _peerUserId, _thirdUserId]) {
+        await store.insertChannelMember(
+            channelId: group, userId: u, role: 'member', joinedAt: 1);
+      }
+      await store.db.insert('messages', {
+        'message_id': 'own-100',
+        'channel_id': group,
+        'author_user_id': _selfUserId,
+        'client_timestamp_ms': 100,
+        'server_timestamp_ms': 100,
+        'message_state': MessageState.sent.wire,
+        'state_updated_at': 1,
+      });
+      var n = 0;
+      Future<MessageState> receipt(String from, pb.ChatPayloadType type) async {
+        n++;
+        pushes.add(_makeEnvelope(
+          channelId: dmChannelId(_selfUserId, from),
+          opId: 'op-g$n',
+          senderUserId: from,
+          payload: pb.ChatPayload(
+            version: 1,
+            type: type,
+            markerServerTimestampMs: fixnum.Int64(150),
+            groupId: uuidBytes(group),
+          ).writeToBuffer(),
+          serverTimestampMs: 400 + n,
+        ));
+        await _pumpQueue();
+        return (await store.fetchMessage('own-100'))!.state;
+      }
+
+      expect(await receipt(_peerUserId, pb.ChatPayloadType.TYPE_READ_RECEIPT),
+          MessageState.sent,
+          reason: 'the third member has not got it yet');
+      expect(
+          await receipt(
+              _thirdUserId, pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT),
+          MessageState.delivered);
+      expect(
+          await receipt(_thirdUserId, pb.ChatPayloadType.TYPE_READ_RECEIPT),
+          MessageState.read);
+      for (final peer in [_peerUserId, _thirdUserId]) {
+        expect(await store.channelExists(dmChannelId(_selfUserId, peer)),
+            isFalse,
+            reason: 'a group receipt rides the 1:1 channel, it is no chat');
+      }
+    },
+  );
+
   // --- Out-of-order arrival (SYNC_PROTOCOL §6b) --------------------------
 
   Future<String?> bodyOf(String id) async =>
-      (await store.fetchMessage(id))?.body;
+      (await store.fetchMessage(_mid(id)))?.body;
   Future<int> parked() async => (await store.db
           .rawQuery('SELECT COUNT(*) c FROM pending_ops'))
       .single['c'] as int;
-  pb.Envelope create(String id, String body, int ts,
+  InboundEnvelope create(String id, String body, int ts,
           {String sender = _peerUserId}) =>
       _makeEnvelope(
         opId: 'op-create-$id',
@@ -231,19 +309,19 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
-        messageId: 'm-late',
+        messageId: _mid('m-late'),
         body: 'edited',
       ),
       serverTimestampMs: 9100,
     ));
     await _pumpQueue();
-    expect(await store.fetchMessage('m-late'), isNull);
+    expect(await store.fetchMessage(_mid('m-late')), isNull);
     expect(await parked(), 1, reason: 'kept, not dropped');
     expect(await store.hasSeenOpId(_channelId, 'op-early-edit'), isTrue);
 
-    pushes.add(create('m-late', 'original', 9000));
-    await _settle(store, 'm-late', present: true);
-    final row = await store.fetchMessage('m-late');
+    pushes.add(create(_mid('m-late'), 'original', 9000));
+    await _settle(store, _mid('m-late'), present: true);
+    final row = await store.fetchMessage(_mid('m-late'));
     expect(row!.body, 'edited');
     expect(row.isEdited, isTrue);
     expect(row.lastEditMs, 9100);
@@ -263,16 +341,16 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
-        messageId: 'm-gone',
+        messageId: _mid('m-gone'),
       ),
       serverTimestampMs: 9100,
     ));
     await _pumpQueue();
-    pushes.add(create('m-gone', 'never shown', 9000));
-    await _settle(store, 'm-gone', present: true);
+    pushes.add(create(_mid('m-gone'), 'never shown', 9000));
+    await _settle(store, _mid('m-gone'), present: true);
     await _pumpQueue();
 
-    final row = await store.fetchMessage('m-gone');
+    final row = await store.fetchMessage(_mid('m-gone'));
     expect(row!.tombstoned, isTrue);
     expect(row.body, isNull);
     expect(bodiesSeen, isNot(contains('never shown')),
@@ -286,17 +364,17 @@ void main() {
       senderUserId: _thirdUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_REACTION_ADD,
-        messageId: 'm-react',
+        messageId: _mid('m-react'),
         emoji: 'thumbsup',
       ),
       serverTimestampMs: 9100,
     ));
     await _pumpQueue();
-    pushes.add(create('m-react', 'react to me', 9000));
-    await _settle(store, 'm-react', present: true);
+    pushes.add(create(_mid('m-react'), 'react to me', 9000));
+    await _settle(store, _mid('m-react'), present: true);
 
     final reactions = await store.db.query('reactions',
-        where: 'message_id = ?', whereArgs: ['m-react']);
+        where: 'message_id = ?', whereArgs: [_mid('m-react')]);
     expect(reactions.map((r) => '${r['user_id']}:${r['emoji']}'),
         ['$_thirdUserId:thumbsup'],
         reason: 'anyone may react, so no authorship gate here');
@@ -309,7 +387,7 @@ void main() {
       senderUserId: _thirdUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
-        messageId: 'm-guarded',
+        messageId: _mid('m-guarded'),
         body: 'hijacked',
       ),
       serverTimestampMs: 9100,
@@ -319,15 +397,15 @@ void main() {
       senderUserId: _thirdUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
-        messageId: 'm-guarded',
+        messageId: _mid('m-guarded'),
       ),
       serverTimestampMs: 9200,
     ));
     await _pumpQueue();
-    pushes.add(create('m-guarded', 'original', 9000));
-    await _settle(store, 'm-guarded', present: true);
+    pushes.add(create(_mid('m-guarded'), 'original', 9000));
+    await _settle(store, _mid('m-guarded'), present: true);
 
-    final row = await store.fetchMessage('m-guarded');
+    final row = await store.fetchMessage(_mid('m-guarded'));
     expect(row!.body, 'original', reason: '§6a.3 authorship gate');
     expect(row.isEdited, isFalse);
     expect(row.tombstoned, isFalse);
@@ -342,7 +420,7 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
-        messageId: 'm-twice',
+        messageId: _mid('m-twice'),
         body: 'final',
       ),
       serverTimestampMs: 9300,
@@ -352,15 +430,15 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
-        messageId: 'm-twice',
+        messageId: _mid('m-twice'),
         body: 'intermediate',
       ),
       serverTimestampMs: 9200,
     ));
     await _pumpQueue();
-    pushes.add(create('m-twice', 'original', 9000));
-    await _settle(store, 'm-twice', present: true);
-    expect(await bodyOf('m-twice'), 'final');
+    pushes.add(create(_mid('m-twice'), 'original', 9000));
+    await _settle(store, _mid('m-twice'), present: true);
+    expect(await bodyOf(_mid('m-twice')), 'final');
   });
 
   test(
@@ -394,7 +472,7 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_READ_RECEIPT,
-          messageId: 'm-not-here',
+          messageId: _mid('m-not-here'),
           markerServerTimestampMs: 250,
         ),
         serverTimestampMs: 400,
@@ -414,7 +492,7 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT,
-          messageId: 'm-not-here-either',
+          messageId: _mid('m-not-here-either'),
           markerServerTimestampMs: 300,
         ),
         serverTimestampMs: 410,
@@ -464,7 +542,7 @@ void main() {
           opId: 'op-r$n',
           senderUserId: from,
           payload: _chatPayload(
-              type: type, messageId: 'm-x', markerServerTimestampMs: 250),
+              type: type, messageId: _mid('m-x'), markerServerTimestampMs: 250),
           serverTimestampMs: 400 + n,
         ));
         await _pumpQueue();
@@ -1108,7 +1186,7 @@ void main() {
     'and its messages apply',
     () async {
       final asked = <String>[];
-      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final localPushes = StreamController<InboundEnvelope>.broadcast();
       final withResolver = InboundReceiver(
         store: store,
         pushes: localPushes.stream,
@@ -1147,7 +1225,7 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: 'm-late-1',
+          messageId: _mid('m-late-1'),
           body: 'welcome',
         ),
         serverTimestampMs: 910,
@@ -1167,7 +1245,7 @@ void main() {
       });
       final events = await _groupEvents(store, grp);
       expect(events.single.kind, GroupEventKind.added);
-      expect((await store.fetchMessage('m-late-1'))!.body, 'welcome');
+      expect((await store.fetchMessage(_mid('m-late-1')))!.body, 'welcome');
     },
   );
 
@@ -1188,7 +1266,7 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: 'm-h',
+          messageId: _mid('m-h'),
           body: 'hi',
         ),
         serverTimestampMs: 7000,
@@ -1210,7 +1288,7 @@ void main() {
           senderUserId: _peerUserId,
           payload: _chatPayload(
             type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-            messageId: 'm-h-gate',
+            messageId: _mid('m-h-gate'),
             body: 'not ours',
           ),
           serverTimestampMs: 7002,
@@ -1222,12 +1300,12 @@ void main() {
           senderUserId: _peerUserId,
           payload: _chatPayload(
             type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-            messageId: 'm-h-no-group',
+            messageId: _mid('m-h-no-group'),
             body: 'nowhere to go',
           ),
           serverTimestampMs: 7003,
         ))
-        ..add(pb.Envelope(
+        ..add(InboundEnvelope(
           opId: 'op-h-typing',
           channelId: _channelId,
           senderUserId: _peerUserId,
@@ -1243,7 +1321,7 @@ void main() {
           senderUserId: _peerUserId,
           payload: _chatPayload(
             type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-            messageId: 'm-h-older',
+            messageId: _mid('m-h-older'),
             body: 'late',
           ),
           serverTimestampMs: 6999,
@@ -1258,7 +1336,7 @@ void main() {
         'op-h-no-group',
         'op-h-older',
       ]);
-      expect((await store.fetchMessage('m-h'))!.body, 'hi');
+      expect((await store.fetchMessage(_mid('m-h')))!.body, 'hi');
       expect(receiver.syncPointer, 7003, reason: 'never backwards');
       expect(await store.syncPointer(), 7003);
     },
@@ -1269,7 +1347,7 @@ void main() {
     'for the rest of the run; a pull that gets through releases it',
     () async {
       var offline = true;
-      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final localPushes = StreamController<InboundEnvelope>.broadcast();
       final withResolver = InboundReceiver(
         store: store,
         pushes: localPushes.stream,
@@ -1299,7 +1377,7 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: 'm-needs-group',
+          messageId: _mid('m-needs-group'),
           body: 'later',
         ),
         serverTimestampMs: 950,
@@ -1309,7 +1387,7 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: 'm-after-failure',
+          messageId: _mid('m-after-failure'),
           body: 'fine',
         ),
         serverTimestampMs: 960,
@@ -1319,7 +1397,7 @@ void main() {
         ..add(after);
       await withResolver.drainPending();
       expect(handled, ['op-after-failure']);
-      expect(await store.fetchMessage('m-needs-group'), isNull);
+      expect(await store.fetchMessage(_mid('m-needs-group')), isNull);
       expect(await store.hasSeenOpId('c-grp-offline', 'op-needs-group'),
           isFalse);
       expect(withResolver.syncPointer, 900,
@@ -1334,7 +1412,7 @@ void main() {
         ..add(after);
       await withResolver.drainPending();
       await withResolver.advanceSyncPointer(960, release: token);
-      expect((await store.fetchMessage('m-needs-group'))!.body, 'later');
+      expect((await store.fetchMessage(_mid('m-needs-group')))!.body, 'later');
       expect(withResolver.syncPointer, 960);
 
       // Caught up again: a live frame moves it on its own.
@@ -1343,7 +1421,7 @@ void main() {
         senderUserId: _peerUserId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: 'm-live',
+          messageId: _mid('m-live'),
           body: 'live',
         ),
         serverTimestampMs: 970,
@@ -1357,7 +1435,7 @@ void main() {
   test('a fresh receiver starts from the pointer in the account database, '
       'and holds it until a pull has caught up', () async {
     await store.setSyncPointer(77);
-    final localPushes = StreamController<pb.Envelope>.broadcast();
+    final localPushes = StreamController<InboundEnvelope>.broadcast();
     final fresh = InboundReceiver(
       store: store,
       pushes: localPushes.stream,
@@ -1374,13 +1452,13 @@ void main() {
       senderUserId: _peerUserId,
       payload: _chatPayload(
         type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-        messageId: 'm-before-pull',
+        messageId: _mid('m-before-pull'),
         body: 'early',
       ),
       serverTimestampMs: 990,
     ));
     await fresh.drainPending();
-    expect((await store.fetchMessage('m-before-pull'))!.body, 'early');
+    expect((await store.fetchMessage(_mid('m-before-pull')))!.body, 'early');
     expect(fresh.syncPointer, 77,
         reason: 'what lies between 77 and 990 is unknown until a pull');
   });
@@ -1392,7 +1470,7 @@ void main() {
     'resolveProfile',
     () async {
       final resolveCalls = <String>[];
-      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final localPushes = StreamController<InboundEnvelope>.broadcast();
       final withResolver = InboundReceiver(
         store: store,
         pushes: localPushes.stream,
@@ -1432,7 +1510,7 @@ void main() {
   test(
     'resolveProfile failure leaves no contact row and does not throw',
     () async {
-      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final localPushes = StreamController<InboundEnvelope>.broadcast();
       final withResolver = InboundReceiver(
         store: store,
         pushes: localPushes.stream,
@@ -1480,12 +1558,12 @@ void main() {
         senderUserId: strangerId,
         payload: _chatPayload(
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: 'm-after-fail',
+          messageId: _mid('m-after-fail'),
           body: 'still alive',
         ),
         serverTimestampMs: 2200,
       ));
-      await _settle(store, 'm-after-fail', present: true);
+      await _settle(store, _mid('m-after-fail'), present: true);
     },
   );
 
@@ -1495,7 +1573,7 @@ void main() {
     () async {
       var callCount = 0;
       final gate = Completer<void>();
-      final localPushes = StreamController<pb.Envelope>.broadcast();
+      final localPushes = StreamController<InboundEnvelope>.broadcast();
       final withResolver = InboundReceiver(
         store: store,
         pushes: localPushes.stream,
@@ -1584,21 +1662,30 @@ Future<void> _pumpQueue() async {
   }
 }
 
-pb.Envelope _makeEnvelope({
+InboundEnvelope _makeEnvelope({
   required String opId,
   required String senderUserId,
   required List<int> payload,
   required int serverTimestampMs,
   String channelId = _channelId,
-}) {
-  return pb.Envelope(
-    opId: opId,
-    channelId: channelId,
-    clientTimestampMs: fixnum.Int64(serverTimestampMs - 10),
-    payload: payload,
-    senderUserId: senderUserId,
-    serverTimestampMs: fixnum.Int64(serverTimestampMs),
-  );
+}) =>
+    InboundEnvelope(
+      opId: opId,
+      channelId: channelId,
+      payload: payload,
+      senderUserId: senderUserId,
+      serverTimestampMs: serverTimestampMs,
+    );
+
+/// A test's message label as the UUID its ChatPayload carries (decision
+/// 218: message ids travel as 16 bytes); a UUID stays as it is.
+String _mid(String label) {
+  if (label.length == 36) return label;
+  final b = Uint8List(16);
+  for (var i = 0; i < label.length; i++) {
+    b[i % 16] = (b[i % 16] * 31 + label.codeUnitAt(i)) & 0xff;
+  }
+  return uuidText(b);
 }
 
 /// Build a ServerEventPayload-bearing payload by serializing the proto
@@ -1772,7 +1859,7 @@ Future<void> _settleOpSeen(
 
 List<int> _chatPayload({
   required pb.ChatPayloadType type,
-  required String messageId,
+  String? messageId,
   String? body,
   String? emoji,
   int? markerServerTimestampMs,
@@ -1780,7 +1867,7 @@ List<int> _chatPayload({
   final chat = pb.ChatPayload(
     version: 1,
     type: type,
-    messageId: messageId,
+    messageId: messageId == null ? null : uuidBytes(_mid(messageId)),
     body: body,
     contentType: body == null ? null : 'text/plain',
     emoji: emoji,
