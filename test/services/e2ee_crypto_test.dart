@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -41,6 +40,23 @@ class _Directory {
   }
 }
 
+/// A group's id: 16 bytes on the wire (decision 218).
+const _group = '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0001';
+
+/// [env] with one thing changed, as a server or a thief could.
+InboundEnvelope _moved(InboundEnvelope env,
+        {String? opId, String? channelId, String? peer, bool? ephemeral}) =>
+    InboundEnvelope(
+      opId: opId ?? env.opId,
+      channelId: channelId ?? env.channelId,
+      senderUserId: env.senderUserId,
+      senderDeviceId: env.senderDeviceId,
+      peer: peer ?? env.peer,
+      payload: env.payload,
+      ephemeral: ephemeral ?? env.ephemeral,
+      serverTimestampMs: env.serverTimestampMs,
+    );
+
 class _Phone {
   final String userId;
   final String deviceId;
@@ -77,25 +93,26 @@ class _Phone {
   }
 
   /// Seal [text] for [to] and hand back the envelope the server would push.
-  Future<pb.Envelope> send(_Phone to, String text, {String opId = 'op-1'}) async {
+  Future<InboundEnvelope> send(_Phone to, String text,
+      {String opId = 'op-1'}) async {
     final sealed = await crypto.sealDm(
       opId: opId,
       channelId: 'dm-channel',
       peer: to.userId,
       payload: Uint8List.fromList(utf8.encode(text)),
     );
-    return pb.Envelope(
+    return InboundEnvelope(
       opId: opId,
       channelId: 'dm-channel',
-      payload: sealed,
+      payload: sealed!,
       senderUserId: userId,
       senderDeviceId: deviceId,
       peer: to.userId,
-      serverTimestampMs: fixnum.Int64(1),
+      serverTimestampMs: 1,
     );
   }
 
-  Future<String> open(pb.Envelope env) async =>
+  Future<String> open(InboundEnvelope env) async =>
       utf8.decode((await crypto.open(env)).payload);
 }
 
@@ -113,7 +130,7 @@ void main() {
 
   test('first message claims a prekey; replies ride the session', () async {
     final first = await alice.send(bob, 'hi bob');
-    expect(first.payload.sublist(0, 3), [kSealedMarker, 1, 1]);
+    expect(first.payload.sublist(0, 3), [kSealedMarker, kSealedVersion, 1]);
     expect(await bob.open(first), 'hi bob');
     final reply = await bob.send(alice, 'hi alice', opId: 'op-2');
     expect(reply.payload[2], 2, reason: 'bob learned the session from alice');
@@ -126,10 +143,10 @@ void main() {
       'leaves the ratchet where it was', () async {
     final env = await alice.send(bob, 'hi');
     for (final moved in [
-      pb.Envelope.fromBuffer(env.writeToBuffer())..channelId = 'other-channel',
-      pb.Envelope.fromBuffer(env.writeToBuffer())..opId = 'op-9',
-      pb.Envelope.fromBuffer(env.writeToBuffer())..peer = 'c0ffee003',
-      pb.Envelope.fromBuffer(env.writeToBuffer())..ephemeral = true,
+      _moved(env, channelId: 'other-channel'),
+      _moved(env, opId: 'op-9'),
+      _moved(env, peer: 'c0ffee003'),
+      _moved(env, ephemeral: true),
     ]) {
       await expectLater(bob.open(moved), throwsA(isA<E2eeUndecryptable>()));
     }
@@ -147,7 +164,7 @@ void main() {
 
   test('plaintext is refused; a peer without keys waits; typing needs a '
       'session', () async {
-    final plain = pb.Envelope(
+    final plain = InboundEnvelope(
       opId: 'op-1',
       channelId: 'dm-channel',
       payload: pb.ChatPayload(version: 1, body: 'hi').writeToBuffer(),
@@ -209,21 +226,21 @@ void main() {
 
     /// Alice seals for [members]; the key hand-outs come back as the
     /// envelopes the server would push on each member's 1:1 channel.
-    Future<(pb.Envelope, Map<String, pb.Envelope>)> groupSend(
+    Future<(InboundEnvelope, Map<String, InboundEnvelope>)> groupSend(
         String text, Set<String> members,
         {String opId = 'g-op', bool onlyIfDistributed = false}) async {
-      final keys = <String, pb.Envelope>{};
+      final keys = <String, InboundEnvelope>{};
       var n = 0;
       final sealed = await alice.crypto.sealGroup(
         opId: opId,
-        channelId: 'g-1',
+        channelId: _group,
         members: members,
         payload: Uint8List.fromList(utf8.encode(text)),
         dmChannel: (m) => 'dm-$m',
         newOpId: () => '$opId-key-${n++}',
         onlyIfDistributed: onlyIfDistributed,
         sendKey: (member, channel, keyOpId, bytes) async {
-          keys[member] = pb.Envelope(
+          keys[member] = InboundEnvelope(
             opId: keyOpId,
             channelId: channel,
             payload: bytes,
@@ -234,10 +251,10 @@ void main() {
         },
       );
       return (
-        pb.Envelope(
+        InboundEnvelope(
           opId: opId,
-          channelId: 'g-1',
-          payload: sealed,
+          channelId: _group,
+          payload: sealed ?? const [],
           senderUserId: alice.userId,
           senderDeviceId: alice.deviceId,
         ),
@@ -249,7 +266,7 @@ void main() {
         'harmless', () async {
       final (message, keys) = await groupSend('hello all', {bob.userId, carol.userId});
       expect(keys.keys, unorderedEquals([bob.userId, carol.userId]));
-      expect(message.payload.sublist(0, 3), [kSealedMarker, 1, 3]);
+      expect(message.payload.sublist(0, 3), [kSealedMarker, kSealedVersion, 3]);
       for (final p in [bob, carol]) {
         expect((await p.crypto.open(keys[p.userId]!)).payload, isEmpty,
             reason: 'a key hand-out has nothing to apply');

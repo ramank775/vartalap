@@ -276,91 +276,93 @@ void main() {
     });
   });
 
-  group('authenticated operation framing', () {
-    final context = E2eeOperationContext(
-        opId: 'op',
-        channelId: 'channel',
-        senderUserId: 'alice',
-        senderDeviceId: 'phone',
-        peer: 'bob',
-        ttlSec: 30);
+  group('authenticated operation framing (sealed v2, decision 218)', () {
+    E2eeOperationContext ctx({
+      String opId = '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0001',
+      String channelId = 'dfb52701fdba81ed569700bb933fc0eb',
+      String senderUserId = '0a11ce001',
+      String senderDeviceId = '0190aaaa-bbbb-4ccc-8ddd-eeeeffff00aa',
+      bool ephemeral = false,
+      String peer = '0b0b00002',
+      int ttlSec = 30,
+    }) =>
+        E2eeOperationContext(
+            opId: opId,
+            channelId: channelId,
+            senderUserId: senderUserId,
+            senderDeviceId: senderDeviceId,
+            ephemeral: ephemeral,
+            peer: peer,
+            ttlSec: ttlSec);
+    final context = ctx();
     final payload = Uint8List.fromList([0, 8, 255, 240]);
+    const retryOf = '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0000';
 
-    test('round-trips binary payload without timestamps', () {
-      expect(
-          context
-              .decodeAuthenticatedPlaintext(context.encodePlaintext(payload)),
-          payload);
+    test('round-trips binary payload without timestamps, in 18 bytes of '
+        'header', () {
+      final sealed = context.encodePlaintext(payload);
+      expect(sealed.length, 18 + payload.length);
+      expect(sealed[0], 2, reason: 'the version byte');
+      expect(sealed.sublist(18), payload, reason: 'the payload raw');
+      expect(context.decodeAuthenticatedPlaintext(sealed), payload);
     });
 
     test('carries the op a re-send replaces, authenticated with the rest', () {
-      final opened = context.decodeAuthenticated(
-          context.encodePlaintext(payload, retryOf: 'op-0'));
-      expect([opened.payload, opened.retryOf], [payload, 'op-0']);
+      final framed = context.encodePlaintext(payload, retryOf: retryOf);
+      expect(framed.length, 18 + 16 + payload.length);
+      final opened = context.decodeAuthenticated(framed);
+      expect([opened.payload, opened.retryOf], [payload, retryOf]);
       expect(
           context.decodeAuthenticated(context.encodePlaintext(payload)).retryOf,
           '');
     });
 
     test('rejects each mismatched context field and version', () {
-      final original =
-          jsonDecode(utf8.decode(context.encodePlaintext(payload))) as List;
-      for (var i = 0; i < 8; i++) {
-        final modified = [...original];
-        modified[i] = switch (original[i]) {
-          int value => value + 1,
-          bool value => !value,
-          _ => 'changed',
-        };
-        expect(
-            () => context.decodeAuthenticatedPlaintext(
-                Uint8List.fromList(utf8.encode(jsonEncode(modified)))),
-            throwsA(isA<FormatException>()),
-            reason: 'field $i');
-      }
-    });
-
-    test('rejects malformed shapes, types and noncanonical payloads', () {
-      final original =
-          jsonDecode(utf8.decode(context.encodePlaintext(payload))) as List;
-      final malformed = [
-        {},
-        [...original, 'extra'],
-        original.sublist(1),
-        [...original]..[0] = 1.0,
-        [...original]..[5] = 0,
-        [...original]..[7] = 30.0,
-        [...original]..[8] = 1,
-        [...original]..[9] = 'AAj_8A==',
-        [...original]..[9] = 1,
-      ];
-      for (final value in malformed) {
-        expect(
-            () => context.decodeAuthenticatedPlaintext(
-                Uint8List.fromList(utf8.encode(jsonEncode(value)))),
+      final sealed = context.encodePlaintext(payload, retryOf: retryOf);
+      for (final other in [
+        ctx(opId: '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0009'),
+        ctx(channelId: '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0002'),
+        ctx(senderUserId: '0c0ffee03'),
+        ctx(senderDeviceId: '0190aaaa-bbbb-4ccc-8ddd-eeeeffff00bb'),
+        ctx(ephemeral: true),
+        ctx(peer: '0c0ffee03'),
+        ctx(ttlSec: 31),
+      ]) {
+        expect(() => other.decodeAuthenticatedPlaintext(sealed),
             throwsA(isA<FormatException>()));
       }
+      // Moving bytes between adjacent fields changes the tag too: each
+      // is length-prefixed.
       expect(
-          () => context.decodeAuthenticatedPlaintext(Uint8List.fromList([255])),
+          () => ctx(senderUserId: '0a11ce00', senderDeviceId: '1-')
+              .decodeAuthenticatedPlaintext(
+                  ctx(senderUserId: '0a11ce001', senderDeviceId: '-')
+                      .encodePlaintext(payload)),
           throwsA(isA<FormatException>()));
+      expect(
+          () => context.decodeAuthenticatedPlaintext(
+              Uint8List.fromList(sealed)..[0] = 1),
+          throwsA(isA<FormatException>()),
+          reason: 'v1 is not read');
+    });
+
+    test('rejects malformed frames', () {
+      final sealed = context.encodePlaintext(payload, retryOf: retryOf);
+      for (final bad in [
+        Uint8List.fromList([255]),
+        sealed.sublist(0, 17),
+        Uint8List.fromList(sealed)..[17] = 5, // a retry length of 5
+        sealed.sublist(0, 30), // shorter than the retry it names
+        Uint8List.fromList(sealed)..[3] ^= 1, // the tag
+      ]) {
+        expect(() => context.decodeAuthenticatedPlaintext(bad),
+            throwsA(isA<FormatException>()));
+      }
     });
 
     test('invalid key and required context fail before persistence', () {
-      expect(
-          () => E2eeOperationContext(
-              opId: '',
-              channelId: 'channel',
-              senderUserId: 'alice',
-              senderDeviceId: 'phone'),
-          throwsArgumentError);
-      expect(
-          () => E2eeOperationContext(
-              opId: 'op',
-              channelId: 'channel',
-              senderUserId: 'alice',
-              senderDeviceId: 'phone',
-              ttlSec: 0x100000000),
-          throwsArgumentError);
+      expect(() => ctx(opId: ''), throwsArgumentError);
+      expect(() => ctx(ttlSec: 0x100000000), throwsArgumentError);
     });
   });
 }
