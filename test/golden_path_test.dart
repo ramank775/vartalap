@@ -58,11 +58,11 @@ String attachmentMessageId = '';
 const Duration budget = Duration(seconds: 10);
 
 /// A send the server accepted. `sent` OR any later lifecycle state:
-/// the mock fans a `MessageStateChanged{DELIVERED}` to the author
-/// immediately after the ACK (SYNC_PROTOCOL §10.2, mock_server
-/// `_handleWsOp`), and SPIKE_A_SCHEMA §5.1 makes the lifecycle
-/// monotonic, so `applyAckSuccess` must not pull the row back down to
-/// `sent`. `rejected` is deliberately excluded.
+/// the simulated recipient's phone sends its delivery receipt as soon
+/// as it opens the message (decision 218, mock_server `_peerReceive`),
+/// and SPIKE_A_SCHEMA §5.1 makes the lifecycle monotonic, so
+/// `applyAckSuccess` must not pull the row back down to `sent`.
+/// `rejected` is deliberately excluded.
 final Matcher isAcked = isIn(const [
   MessageState.sent,
   MessageState.delivered,
