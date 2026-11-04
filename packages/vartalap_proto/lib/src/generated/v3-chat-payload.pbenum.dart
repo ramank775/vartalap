@@ -50,12 +50,13 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static const ChatPayloadType TYPE_MESSAGE_FORWARD =
       ChatPayloadType._(6, _omitEnumNames ? '' : 'TYPE_MESSAGE_FORWARD');
 
-  /// Sender has read this channel up to and including `message_id`.
-  /// Recipients flip their OWN authored messages at or before that
-  /// marker to "read" — authorship gating per SYNC_PROTOCOL.md §6a.3
-  /// means a receipt never touches a third party's rows. The marker is
-  /// `marker_server_timestamp_ms`. Rides a normal (non-ephemeral) WS
-  /// op, so it is ACKed like any other.
+  /// Sender has read this channel up to and including the message
+  /// stamped `marker_server_timestamp_ms`. Recipients flip their OWN
+  /// authored messages at or before that marker to "read" — authorship
+  /// gating per SYNC_PROTOCOL.md §6a.3 means a receipt never touches a
+  /// third party's rows. In a group it goes to each author over 1:1
+  /// with `group_id` set. Rides a normal (non-ephemeral) WS op, so it
+  /// is ACKed like any other.
   static const ChatPayloadType TYPE_READ_RECEIPT =
       ChatPayloadType._(7, _omitEnumNames ? '' : 'TYPE_READ_RECEIPT');
 
@@ -66,13 +67,15 @@ class ChatPayloadType extends $pb.ProtobufEnum {
       ChatPayloadType._(8, _omitEnumNames ? '' : 'TYPE_TYPING');
 
   /// Sender's device has stored this channel's messages up to and
-  /// including `message_id` (marker: `marker_server_timestamp_ms`).
+  /// including the one stamped `marker_server_timestamp_ms`.
   /// Recipients flip their OWN authored messages at or before that
   /// marker to "delivered" (grey double tick), never back from
   /// "read". Same authorship gating and transport as
   /// TYPE_READ_RECEIPT; sent once per burst of inbound
-  /// messages per channel, not once per message. In a group the first
-  /// member's receipt flips the tick, as with read.
+  /// messages per channel, not once per message, and skipped when a
+  /// read receipt covering it goes out first. In a group, as with read,
+  /// it goes to each author over 1:1 and a message flips once every
+  /// member is past it (decision 202).
   static const ChatPayloadType TYPE_DELIVERY_RECEIPT =
       ChatPayloadType._(9, _omitEnumNames ? '' : 'TYPE_DELIVERY_RECEIPT');
 

@@ -35,11 +35,12 @@ class ChatPayload extends $pb.GeneratedMessage {
   factory ChatPayload({
     $core.int? version,
     ChatPayloadType? type,
-    $core.String? messageId,
+    $core.List<$core.int>? messageId,
+    $core.List<$core.int>? groupId,
     $core.String? body,
     $core.String? contentType,
     $core.Iterable<Attachment>? attachments,
-    $core.String? replyToMessageId,
+    $core.List<$core.int>? replyToMessageId,
     $core.String? emoji,
     ForwardSource? forwardSource,
     $core.bool? isTyping,
@@ -50,6 +51,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (version != null) result.version = version;
     if (type != null) result.type = type;
     if (messageId != null) result.messageId = messageId;
+    if (groupId != null) result.groupId = groupId;
     if (body != null) result.body = body;
     if (contentType != null) result.contentType = contentType;
     if (attachments != null) result.attachments.addAll(attachments);
@@ -80,12 +82,16 @@ class ChatPayload extends $pb.GeneratedMessage {
     ..aI(1, _omitFieldNames ? '' : 'version', fieldType: $pb.PbFieldType.OU3)
     ..aE<ChatPayloadType>(2, _omitFieldNames ? '' : 'type',
         enumValues: ChatPayloadType.values)
-    ..aOS(3, _omitFieldNames ? '' : 'messageId')
+    ..a<$core.List<$core.int>>(
+        4, _omitFieldNames ? '' : 'messageId', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        5, _omitFieldNames ? '' : 'groupId', $pb.PbFieldType.OY)
     ..aOS(10, _omitFieldNames ? '' : 'body')
     ..aOS(11, _omitFieldNames ? '' : 'contentType')
     ..pPM<Attachment>(12, _omitFieldNames ? '' : 'attachments',
         subBuilder: Attachment.create)
-    ..aOS(20, _omitFieldNames ? '' : 'replyToMessageId')
+    ..a<$core.List<$core.int>>(
+        21, _omitFieldNames ? '' : 'replyToMessageId', $pb.PbFieldType.OY)
     ..aOS(30, _omitFieldNames ? '' : 'emoji')
     ..aOM<ForwardSource>(40, _omitFieldNames ? '' : 'forwardSource',
         subBuilder: ForwardSource.create)
@@ -140,98 +146,116 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearType() => $_clearField(2);
 
-  /// The message this payload acts on. For TYPE_MESSAGE_CREATE and
-  /// TYPE_MESSAGE_FORWARD, this is the new message's id (client-
-  /// generated UUIDv7). For UPDATE / DELETE / REACTION_*, this is
-  /// the existing message being targeted. For TYPE_READ_RECEIPT it is
-  /// the read-up-to marker: the newest message the sender has read; for
-  /// TYPE_DELIVERY_RECEIPT, the newest one their device has stored.
-  /// Unused (empty) for TYPE_TYPING.
-  @$pb.TagNumber(3)
-  $core.String get messageId => $_getSZ(2);
-  @$pb.TagNumber(3)
-  set messageId($core.String value) => $_setString(2, value);
-  @$pb.TagNumber(3)
+  /// The message this payload acts on, its UUIDv7 as 16 bytes. For
+  /// TYPE_MESSAGE_CREATE and TYPE_MESSAGE_FORWARD, this is the new
+  /// message's id (client-generated). For UPDATE / DELETE / REACTION_*,
+  /// this is the existing message being targeted. Unused (empty) for
+  /// TYPE_TYPING and for receipts, which carry only
+  /// `marker_server_timestamp_ms`.
+  @$pb.TagNumber(4)
+  $core.List<$core.int> get messageId => $_getN(2);
+  @$pb.TagNumber(4)
+  set messageId($core.List<$core.int> value) => $_setBytes(2, value);
+  @$pb.TagNumber(4)
   $core.bool hasMessageId() => $_has(2);
-  @$pb.TagNumber(3)
-  void clearMessageId() => $_clearField(3);
+  @$pb.TagNumber(4)
+  void clearMessageId() => $_clearField(4);
+
+  /// For TYPE_READ_RECEIPT, TYPE_DELIVERY_RECEIPT sent over a 1:1
+  /// channel on behalf of a group (decision 218): the group's channel
+  /// id, 16 bytes. A group receipt goes only to the members whose
+  /// messages it acknowledges, each over their 1:1 channel; the author
+  /// applies it to their own messages in this group. Empty for a DM's
+  /// own receipt.
+  @$pb.TagNumber(5)
+  $core.List<$core.int> get groupId => $_getN(3);
+  @$pb.TagNumber(5)
+  set groupId($core.List<$core.int> value) => $_setBytes(3, value);
+  @$pb.TagNumber(5)
+  $core.bool hasGroupId() => $_has(3);
+  @$pb.TagNumber(5)
+  void clearGroupId() => $_clearField(5);
 
   /// For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_UPDATE, TYPE_MESSAGE_FORWARD.
   @$pb.TagNumber(10)
-  $core.String get body => $_getSZ(3);
+  $core.String get body => $_getSZ(4);
   @$pb.TagNumber(10)
-  set body($core.String value) => $_setString(3, value);
+  set body($core.String value) => $_setString(4, value);
   @$pb.TagNumber(10)
-  $core.bool hasBody() => $_has(3);
+  $core.bool hasBody() => $_has(4);
   @$pb.TagNumber(10)
   void clearBody() => $_clearField(10);
 
   @$pb.TagNumber(11)
-  $core.String get contentType => $_getSZ(4);
+  $core.String get contentType => $_getSZ(5);
   @$pb.TagNumber(11)
-  set contentType($core.String value) => $_setString(4, value);
+  set contentType($core.String value) => $_setString(5, value);
   @$pb.TagNumber(11)
-  $core.bool hasContentType() => $_has(4);
+  $core.bool hasContentType() => $_has(5);
   @$pb.TagNumber(11)
   void clearContentType() => $_clearField(11);
 
+  /// With attachments: the first one's type, except
+  /// "audio/x-vartalap-voice" for a voice note recorded in the app (the
+  /// attachment keeps its own audio type); any other audio/* is an audio
+  /// file. Without: "text/vcard", "text/x-geo" and "text/calendar" mark
+  /// contact, location and event messages, standard text in `body`.
   @$pb.TagNumber(12)
-  $pb.PbList<Attachment> get attachments => $_getList(5);
+  $pb.PbList<Attachment> get attachments => $_getList(6);
 
-  /// For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_FORWARD.
-  @$pb.TagNumber(20)
-  $core.String get replyToMessageId => $_getSZ(6);
-  @$pb.TagNumber(20)
-  set replyToMessageId($core.String value) => $_setString(6, value);
-  @$pb.TagNumber(20)
-  $core.bool hasReplyToMessageId() => $_has(6);
-  @$pb.TagNumber(20)
-  void clearReplyToMessageId() => $_clearField(20);
+  /// For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_FORWARD: the quoted
+  /// message's id, 16 bytes.
+  @$pb.TagNumber(21)
+  $core.List<$core.int> get replyToMessageId => $_getN(7);
+  @$pb.TagNumber(21)
+  set replyToMessageId($core.List<$core.int> value) => $_setBytes(7, value);
+  @$pb.TagNumber(21)
+  $core.bool hasReplyToMessageId() => $_has(7);
+  @$pb.TagNumber(21)
+  void clearReplyToMessageId() => $_clearField(21);
 
   /// For TYPE_REACTION_ADD, TYPE_REACTION_REMOVE.
   @$pb.TagNumber(30)
-  $core.String get emoji => $_getSZ(7);
+  $core.String get emoji => $_getSZ(8);
   @$pb.TagNumber(30)
-  set emoji($core.String value) => $_setString(7, value);
+  set emoji($core.String value) => $_setString(8, value);
   @$pb.TagNumber(30)
-  $core.bool hasEmoji() => $_has(7);
+  $core.bool hasEmoji() => $_has(8);
   @$pb.TagNumber(30)
   void clearEmoji() => $_clearField(30);
 
   /// For TYPE_MESSAGE_FORWARD.
   @$pb.TagNumber(40)
-  ForwardSource get forwardSource => $_getN(8);
+  ForwardSource get forwardSource => $_getN(9);
   @$pb.TagNumber(40)
   set forwardSource(ForwardSource value) => $_setField(40, value);
   @$pb.TagNumber(40)
-  $core.bool hasForwardSource() => $_has(8);
+  $core.bool hasForwardSource() => $_has(9);
   @$pb.TagNumber(40)
   void clearForwardSource() => $_clearField(40);
   @$pb.TagNumber(40)
-  ForwardSource ensureForwardSource() => $_ensure(8);
+  ForwardSource ensureForwardSource() => $_ensure(9);
 
   /// For TYPE_TYPING. False means "stopped typing".
   @$pb.TagNumber(50)
-  $core.bool get isTyping => $_getBF(9);
+  $core.bool get isTyping => $_getBF(10);
   @$pb.TagNumber(50)
-  set isTyping($core.bool value) => $_setBool(9, value);
+  set isTyping($core.bool value) => $_setBool(10, value);
   @$pb.TagNumber(50)
-  $core.bool hasIsTyping() => $_has(9);
+  $core.bool hasIsTyping() => $_has(10);
   @$pb.TagNumber(50)
   void clearIsTyping() => $_clearField(50);
 
   /// For TYPE_READ_RECEIPT, TYPE_DELIVERY_RECEIPT. The server timestamp
-  /// of `message_id`, the newest peer message being acknowledged.
-  /// Recipients flip their OWN messages with server_timestamp_ms <= this
-  /// value, so the receipt works even when they do not hold
-  /// `message_id` (another member's message in a group, or one still in
-  /// transit).
+  /// of the newest peer message being acknowledged. Recipients flip
+  /// their OWN messages with server_timestamp_ms <= this value, so the
+  /// receipt needs no message id and works for one still in transit.
   @$pb.TagNumber(60)
-  $fixnum.Int64 get markerServerTimestampMs => $_getI64(10);
+  $fixnum.Int64 get markerServerTimestampMs => $_getI64(11);
   @$pb.TagNumber(60)
-  set markerServerTimestampMs($fixnum.Int64 value) => $_setInt64(10, value);
+  set markerServerTimestampMs($fixnum.Int64 value) => $_setInt64(11, value);
   @$pb.TagNumber(60)
-  $core.bool hasMarkerServerTimestampMs() => $_has(10);
+  $core.bool hasMarkerServerTimestampMs() => $_has(11);
   @$pb.TagNumber(60)
   void clearMarkerServerTimestampMs() => $_clearField(60);
 
@@ -240,7 +264,7 @@ class ChatPayload extends $pb.GeneratedMessage {
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(11);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(12);
 }
 
 class Attachment extends $pb.GeneratedMessage {

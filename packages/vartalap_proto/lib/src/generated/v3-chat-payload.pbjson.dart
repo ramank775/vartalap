@@ -53,7 +53,8 @@ const ChatPayload$json = {
       '6': '.vartalap.v3.payload.ChatPayloadType',
       '10': 'type'
     },
-    {'1': 'message_id', '3': 3, '4': 1, '5': 9, '10': 'messageId'},
+    {'1': 'message_id', '3': 4, '4': 1, '5': 12, '10': 'messageId'},
+    {'1': 'group_id', '3': 5, '4': 1, '5': 12, '10': 'groupId'},
     {'1': 'body', '3': 10, '4': 1, '5': 9, '10': 'body'},
     {'1': 'content_type', '3': 11, '4': 1, '5': 9, '10': 'contentType'},
     {
@@ -66,9 +67,9 @@ const ChatPayload$json = {
     },
     {
       '1': 'reply_to_message_id',
-      '3': 20,
+      '3': 21,
       '4': 1,
-      '5': 9,
+      '5': 12,
       '10': 'replyToMessageId'
     },
     {'1': 'emoji', '3': 30, '4': 1, '5': 9, '10': 'emoji'},
@@ -98,6 +99,10 @@ const ChatPayload$json = {
     },
   ],
   '3': [ChatPayload_MetaEntry$json],
+  '9': [
+    {'1': 3, '2': 4},
+    {'1': 20, '2': 21},
+  ],
 };
 
 @$core.Deprecated('Use chatPayloadDescriptor instead')
@@ -114,15 +119,16 @@ const ChatPayload_MetaEntry$json = {
 final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'CgtDaGF0UGF5bG9hZBIYCgd2ZXJzaW9uGAEgASgNUgd2ZXJzaW9uEjgKBHR5cGUYAiABKA4yJC'
     '52YXJ0YWxhcC52My5wYXlsb2FkLkNoYXRQYXlsb2FkVHlwZVIEdHlwZRIdCgptZXNzYWdlX2lk'
-    'GAMgASgJUgltZXNzYWdlSWQSEgoEYm9keRgKIAEoCVIEYm9keRIhCgxjb250ZW50X3R5cGUYCy'
-    'ABKAlSC2NvbnRlbnRUeXBlEkEKC2F0dGFjaG1lbnRzGAwgAygLMh8udmFydGFsYXAudjMucGF5'
-    'bG9hZC5BdHRhY2htZW50UgthdHRhY2htZW50cxItChNyZXBseV90b19tZXNzYWdlX2lkGBQgAS'
-    'gJUhByZXBseVRvTWVzc2FnZUlkEhQKBWVtb2ppGB4gASgJUgVlbW9qaRJJCg5mb3J3YXJkX3Nv'
-    'dXJjZRgoIAEoCzIiLnZhcnRhbGFwLnYzLnBheWxvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZF'
-    'NvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlzVHlwaW5nEjsKGm1hcmtlcl9zZXJ2ZXJfdGlt'
-    'ZXN0YW1wX21zGDwgASgEUhdtYXJrZXJTZXJ2ZXJUaW1lc3RhbXBNcxI+CgRtZXRhGGQgAygLMi'
-    'oudmFydGFsYXAudjMucGF5bG9hZC5DaGF0UGF5bG9hZC5NZXRhRW50cnlSBG1ldGEaNwoJTWV0'
-    'YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5EhQKBXZhbHVlGAIgASgJUgV2YWx1ZToCOAE=');
+    'GAQgASgMUgltZXNzYWdlSWQSGQoIZ3JvdXBfaWQYBSABKAxSB2dyb3VwSWQSEgoEYm9keRgKIA'
+    'EoCVIEYm9keRIhCgxjb250ZW50X3R5cGUYCyABKAlSC2NvbnRlbnRUeXBlEkEKC2F0dGFjaG1l'
+    'bnRzGAwgAygLMh8udmFydGFsYXAudjMucGF5bG9hZC5BdHRhY2htZW50UgthdHRhY2htZW50cx'
+    'ItChNyZXBseV90b19tZXNzYWdlX2lkGBUgASgMUhByZXBseVRvTWVzc2FnZUlkEhQKBWVtb2pp'
+    'GB4gASgJUgVlbW9qaRJJCg5mb3J3YXJkX3NvdXJjZRgoIAEoCzIiLnZhcnRhbGFwLnYzLnBheW'
+    'xvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZFNvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlz'
+    'VHlwaW5nEjsKGm1hcmtlcl9zZXJ2ZXJfdGltZXN0YW1wX21zGDwgASgEUhdtYXJrZXJTZXJ2ZX'
+    'JUaW1lc3RhbXBNcxI+CgRtZXRhGGQgAygLMioudmFydGFsYXAudjMucGF5bG9hZC5DaGF0UGF5'
+    'bG9hZC5NZXRhRW50cnlSBG1ldGEaNwoJTWV0YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5EhQKBX'
+    'ZhbHVlGAIgASgJUgV2YWx1ZToCOAFKBAgDEARKBAgUEBU=');
 
 @$core.Deprecated('Use attachmentDescriptor instead')
 const Attachment$json = {
