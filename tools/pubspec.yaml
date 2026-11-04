@@ -13,6 +13,8 @@ dependencies:
     path: ../packages/vartalap_transport
   vartalap_crypto:
     path: ../packages/vartalap_crypto
+  vartalap_sync:
+    path: ../packages/vartalap_sync
   sqflite_common_ffi: ^2.3.0
   fixnum: ^1.1.0
   crypto: ^3.0.3

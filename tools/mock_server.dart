@@ -25,6 +25,15 @@ import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
+import 'package:vartalap_sync/vartalap_sync.dart' show Uuid7Gen;
+import 'package:vartalap_transport/vartalap_transport.dart'
+    show
+        FrameClass,
+        InboundEnvelope,
+        userIdText,
+        uuidBytes,
+        uuidText,
+        wireEnvelope;
 
 import 'mock_peers.dart';
 
@@ -455,11 +464,12 @@ class MockState {
   /// fanout's later recipients joining its record.
   void recordFanout(String userId, Uint8List frame, {String? senderDevice}) {
     final push = pb.WsEnvelope.fromBuffer(frame).push;
+    final opId = uuidText(push.opId);
     fanouts
         .putIfAbsent(
-          push.opId,
+          opId,
           () => FanoutRecord(
-            opId: push.opId,
+            opId: opId,
             serverTimestampMs: push.serverTimestampMs.toInt(),
             expiresAtMs: push.serverTimestampMs.toInt() +
                 min(push.ttlSec == 0 ? kMaxTtlSec : push.ttlSec, kMaxTtlSec) *
@@ -733,16 +743,16 @@ class MockServer {
 
   /// What the simulated users received, opened as their phone would, in
   /// arrival order: a test's view of "did the other side get it". Test hook.
-  final List<({String userId, pb.Envelope env, Uint8List payload})>
+  final List<({String userId, InboundEnvelope env, Uint8List payload})>
       peerOpened = [];
 
   /// Re-send requests the simulated users received. Test hook.
-  final List<({String userId, pb.Envelope env})> peerResendRequests = [];
+  final List<({String userId, InboundEnvelope env})> peerResendRequests = [];
 
   /// While set, simulated users hold their answers to re-send requests
   /// until [releaseResends], so a test can see the placeholder first.
   bool holdResends = false;
-  final _heldResends = <(String, E2eeCrypto, pb.Envelope)>[];
+  final _heldResends = <(String, E2eeCrypto, InboundEnvelope)>[];
 
   Future<void> releaseResends() async {
     holdResends = false;
@@ -852,6 +862,22 @@ class MockServer {
   int _stamp() => _lastStamp =
       max(DateTime.now().millisecondsSinceEpoch, _lastStamp + 1);
 
+  /// A simulated user's op ids, UUIDv7 with their user bits as their
+  /// phone mints them: a recipient reads the sender off the op id
+  /// (decision 218).
+  final Map<String, Uuid7Gen> _opIdGens = {};
+  String _opIdFor(String userId) => (_opIdGens[userId] ??=
+          Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(userId)))
+      .next(nowMs: DateTime.now().millisecondsSinceEpoch);
+
+  /// A server event's op id. ponytail: minted with the actor's user bits
+  /// so the app can say who did it ("Asha added Ravi"), which the wire
+  /// otherwise lost with `sender_user_id` (decision 218); the proto
+  /// comment says random, pending the lead's call. Random (v4, no
+  /// sender) without an actor.
+  String _serverOpId(String actor) =>
+      _isWellFormedUserId(actor) ? _opIdFor(actor) : state.generateUuid();
+
   /// message_id → server timestamp of every create / forward the mock
   /// has fanned out: what a peer's client would put in a receipt's
   /// `marker_server_timestamp_ms` (it saw the same stamp on fanout).
@@ -931,7 +957,7 @@ class MockServer {
         pb.ChatPayload(
           version: 1,
           type: pb.ChatPayloadType.TYPE_MESSAGE_UPDATE,
-          messageId: messageId,
+          messageId: uuidBytes(messageId),
           body: body,
           contentType: 'text/plain',
         ),
@@ -951,7 +977,7 @@ class MockServer {
         pb.ChatPayload(
           version: 1,
           type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
-          messageId: messageId,
+          messageId: uuidBytes(messageId),
         ),
         serverTimestampMs: serverTimestampMs,
       ));
@@ -974,7 +1000,7 @@ class MockServer {
           type: add
               ? pb.ChatPayloadType.TYPE_REACTION_ADD
               : pb.ChatPayloadType.TYPE_REACTION_REMOVE,
-          messageId: messageId,
+          messageId: uuidBytes(messageId),
           emoji: emoji,
         ),
         serverTimestampMs: serverTimestampMs,
@@ -1026,16 +1052,29 @@ class MockServer {
       throw StateError('no server timestamp known for $messageId; '
           'pass markerServerTimestampMs');
     }
-    return _fanoutPeerChatPayload(
-      channelId,
-      senderUserId,
-      pb.ChatPayload(
-        version: 1,
-        type: type,
-        messageId: messageId,
-        markerServerTimestampMs: fixnum.Int64(marker),
-      ),
+    final group = !isMockDmChannelId(channelId);
+    final receipt = pb.ChatPayload(
+      version: 1,
+      type: type,
+      markerServerTimestampMs: fixnum.Int64(marker),
+      groupId: group ? uuidBytes(channelId) : null,
     );
+    if (!group) {
+      return (
+        messageId: messageId,
+        opId: _fanoutPeerChatPayload(channelId, senderUserId, receipt).opId,
+      );
+    }
+    // Decision 218: a group's receipt goes over 1:1 to the members whose
+    // messages it acknowledges. The mock does not track authors, so it
+    // goes to every other member.
+    var opId = '';
+    for (final member in _recipientsFor(channelId, senderUserId)) {
+      opId = _fanoutPeerChatPayload(
+              mockDmChannelId(senderUserId, member), senderUserId, receipt)
+          .opId;
+    }
+    return (messageId: messageId, opId: opId);
   }
 
   /// Inject a peer typing indicator as an `ephemeral=true` WS_PUSH —
@@ -1046,7 +1085,7 @@ class MockServer {
     String senderUserId = seedPeerUserId,
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final opId = state.generateUuid();
+    final opId = _opIdFor(senderUserId);
     final recipients = _recipientsFor(channelId, senderUserId);
     final plain = pb.ChatPayload(
       version: 1,
@@ -1063,15 +1102,13 @@ class MockServer {
               ephemeral: true);
       if (bytes == null) return;
       _fanoutEphemeral(
-        pb.Envelope(
+        wireEnvelope(
           opId: opId,
           channelId: channelId,
-          clientTimestampMs: fixnum.Int64(now),
           payload: bytes,
           ephemeral: true,
           peer: peer,
         ),
-        senderUserId,
         recipients,
         now,
         senderDeviceId: MockPeers.deviceId,
@@ -1197,7 +1234,9 @@ class MockServer {
   bool _payloadIsWellFormed(List<int> payload) {
     if (payload.isEmpty) return false;
     // Decision 188: end-to-end encrypted, opaque like on the real server.
-    if (payload.length > 3 && payload[0] == kSealedMarker && payload[1] == 1) {
+    if (payload.length > 3 &&
+        payload[0] == kSealedMarker &&
+        payload[1] == kSealedVersion) {
       return true;
     }
     try {
@@ -1964,8 +2003,9 @@ class MockServer {
     }
   }
 
-  // §10.6 client-triggered pull. Returns base64 of the raw WS_PUSH
-  // WsEnvelope frames for this user stamped at or after `since`
+  // §10.6 client-triggered pull. Returns a protobuf `PendingPage`
+  // (decision 218) of the envelopes the WS_PUSH frames for this user
+  // carried, stamped at or after `since`
   // (inclusive — several can share a millisecond; omitted = 0), but the
   // ones this device sent, ordered by (server_timestamp_ms, op_id), at
   // most 500, and `more` when there are frames past them. Read only;
@@ -1986,10 +2026,19 @@ class MockServer {
       return;
     }
     final records = state.timeline(session, since);
-    final frames = records.take(500).map((r) => base64Encode(r.frame)).toList();
+    final page = pb.PendingPage(
+      envelopes: [
+        for (final r in records.take(500)) pb.WsEnvelope.fromBuffer(r.frame).push
+      ],
+      more: records.length > 500,
+    );
     _log('Sync pull: device=${session.deviceKey} since=$since '
-        'returned=${frames.length} of ${records.length} frame(s)');
-    _respondJson(req, 200, {'frames': frames, 'more': records.length > 500});
+        'returned=${page.envelopes.length} of ${records.length} frame(s)');
+    req.response
+      ..statusCode = 200
+      ..headers.contentType = ContentType('application', 'x-protobuf')
+      ..add(page.writeToBuffer());
+    await req.response.close();
   }
 
   // ---------------------------------------------------------------------------
@@ -2440,7 +2489,7 @@ class MockServer {
       final rejects = [
         for (final env in wsEnv.ops.envelopes)
           pb.Ack(
-            opId: env.opId,
+            opId: env.opId, // as sent
             outcome: pb.AckOutcome.ACK_PERMANENT,
             reason: 'validation_failed',
           )
@@ -2481,9 +2530,36 @@ class MockServer {
 
   pb.Ack? _processEnvelope(
       String senderUserId, String senderDeviceId, pb.Envelope env, WebSocket senderSocket) {
-    final channelId = env.channelId;
-    final opId = env.opId;
     final now = _stamp();
+
+    // Decision 218: ids are bytes on the wire; text from here on. A DM
+    // names its `peer` and no channel (the gateway derives it), a group
+    // its `channel_id` and no peer; anything else, or an id of the wrong
+    // length, is malformed.
+    final String opId;
+    final String channelId;
+    final String peer;
+    try {
+      opId = uuidText(env.opId);
+      final dm = env.peer.isNotEmpty;
+      if (dm == env.channelId.isNotEmpty) throw const FormatException('shape');
+      peer = dm ? userIdText(env.peer) : '';
+      channelId =
+          dm ? mockDmChannelId(senderUserId, peer) : uuidText(env.channelId);
+    } on FormatException {
+      _log('WS reject: malformed envelope from $senderUserId');
+      envelopes.add(RecordedEnvelope(
+        opId: '',
+        channelId: '',
+        payload: Uint8List.fromList(env.payload),
+        rejectReason: 'validation_failed',
+      ));
+      return pb.Ack(
+        opId: env.opId,
+        outcome: pb.AckOutcome.ACK_PERMANENT,
+        reason: 'validation_failed',
+      );
+    }
 
     pb.Ack reject(String reason) {
       _log('WS reject: opId=$opId reason=$reason from $senderUserId');
@@ -2496,7 +2572,7 @@ class MockServer {
         rejectReason: reason,
       ));
       return pb.Ack(
-        opId: opId,
+        opId: env.opId,
         outcome: pb.AckOutcome.ACK_PERMANENT,
         reason: reason,
       );
@@ -2511,31 +2587,31 @@ class MockServer {
             'success=${stored.success}');
         return stored.success
             ? pb.Ack(
-                opId: opId,
+                opId: env.opId,
                 outcome: pb.AckOutcome.ACK_SUCCESS,
                 serverTimestampMs:
                     fixnum.Int64(stored.serverTimestampMs ?? now),
               )
             : pb.Ack(
-                opId: opId,
+                opId: env.opId,
                 outcome: pb.AckOutcome.ACK_PERMANENT,
                 reason: stored.reason,
               );
       }
     }
 
-    // §6a.3 step 2 — op_id user_id bits must match the session.
+    // §6a.3 step 2 — op_id user_id bits must match the session: they are
+    // what every recipient reads the sender from (decision 218).
     if (strict) {
       final prefix = _checkOpIdPrefix(senderUserId, opId);
       if (prefix != null) return reject(prefix);
     }
 
-    // Trim 4 — a `d`-prefixed channel has no row and no membership.
-    // Membership IS the derivation: `peer` names the other side and the
-    // server recomputes `dm_chan(sender, peer)` from the authenticated
-    // session. A third party cannot produce a `peer` that derives to
-    // someone else's DM id, so there is nothing to squat and nothing to
-    // look up.
+    // Trim 4 — a DM has no row and no membership. Membership IS the
+    // derivation: `peer` names the other side and the channel above was
+    // computed from it and the authenticated session, so there is no DM
+    // id a sender could name that is someone else's (decision 218: the
+    // id is not even sent).
     //
     // Trim 12 — the recipient set is users; what is skipped is the
     // sending DEVICE, not the sending user, so a sender's own other
@@ -2543,14 +2619,7 @@ class MockServer {
     // unobservable; it is written this way so it stays right if the cap
     // is ever lifted.
     final Set<String> recipients;
-    if (isMockDmChannelId(channelId)) {
-      final peer = env.peer;
-      if (peer.isEmpty || !_isWellFormedUserId(peer)) {
-        return reject('validation_failed');
-      }
-      if (mockDmChannelId(senderUserId, peer) != channelId) {
-        return reject('forbidden');
-      }
+    if (peer.isNotEmpty) {
       recipients = {peer, senderUserId};
     } else {
       final channel = state.channels[channelId];
@@ -2568,6 +2637,12 @@ class MockServer {
       return reject('validation_failed');
     }
 
+    // What every recipient gets: the sender's envelope as it came, plus
+    // the server's stamp and the sending device (decision 218).
+    final pushEnv = pb.Envelope.fromBuffer(env.writeToBuffer())
+      ..serverTimestampMs = fixnum.Int64(now)
+      ..senderDeviceId = uuidBytes(senderDeviceId);
+
     // Ephemeral envelopes bypass dedup, the fanout store, ACK
     // emission, and any of the post-fanout receipts. Fan to currently-
     // connected members live and drop the rest. See v3-envelope.proto.
@@ -2578,23 +2653,11 @@ class MockServer {
         payload: Uint8List.fromList(env.payload),
         rejectReason: null,
       ));
-      _fanoutEphemeral(env, senderUserId, recipients, now,
+      _fanoutEphemeral(env, recipients, now,
           senderDeviceId: senderDeviceId,
           exceptSocket: senderSocket);
       for (final memberId in recipients) {
-        _peerReceive(
-            memberId,
-            pb.Envelope(
-              opId: opId,
-              channelId: channelId,
-              payload: env.payload,
-              ephemeral: true,
-              senderUserId: senderUserId,
-              senderDeviceId: senderDeviceId,
-              peer: env.peer,
-              ttlSec: env.ttlSec,
-              serverTimestampMs: fixnum.Int64(now),
-            ));
+        _peerReceive(memberId, InboundEnvelope.fromWire(pushEnv));
       }
       if (demoMode &&
           senderUserId != seedPeerUserId &&
@@ -2638,75 +2701,18 @@ class MockServer {
     _log('WS op: opId=$opId channel=$channelId sender=$senderUserId ts=$now');
 
     // Fanout WS_PUSH to other channel members
-    final pushEnv = pb.Envelope(
-      opId: opId,
-      channelId: channelId,
-      clientTimestampMs: env.clientTimestampMs,
-      payload: env.payload,
-      senderUserId: senderUserId,
-      senderDeviceId: senderDeviceId,
-      serverTimestampMs: fixnum.Int64(now),
-      // Echoed unchanged; from the recipient's side the other
-      // participant is `sender_user_id`, so nothing reads it.
-      peer: env.peer.isEmpty ? null : env.peer,
-      ttlSec: env.ttlSec,
-    );
-
-    final pushFrame = pb.WsEnvelope(
-      type: pb.WsType.WS_PUSH,
-      push: pushEnv,
-    );
-    final pushBytes = pushFrame.writeToBuffer();
-
+    final pushBytes =
+        pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv).writeToBuffer();
     for (final memberId in recipients) {
       _sendToUser(memberId, pushBytes, exceptSocket: senderSocket);
-      _peerReceive(memberId, pushEnv);
+      _peerReceive(memberId, InboundEnvelope.fromWire(pushEnv));
     }
 
-    // Send a MessageStateChanged{DELIVERED} back to the author so the
-    // local row flips from single tick to double. Only if there was at
-    // least one other channel member (otherwise nothing was delivered).
-    // `_isMessageCreate` is what keeps receipts/edits/reactions out:
-    // re-announcing their lifecycle would loop a receipt back at the
-    // reader and produce an "Echo: <binary>" garbage reply.
-    if (recipients.difference({senderUserId}).isNotEmpty &&
-        _isMessageCreate(env.payload)) {
-      final messageId = _extractMessageId(env.payload);
-      if (messageId != null) {
-        _enqueueMessageStateChanged(
-          recipientUserId: senderUserId,
-          channelId: channelId,
-          messageId: messageId,
-          newState: pb.MessageStateValue.MESSAGE_STATE_DELIVERED,
-        );
-      } else {
-        _log('Skipping delivered receipt: no message_id extractable from '
-            'payload (opId=$opId, ${env.payload.length} bytes)');
-      }
-    }
-
-    // Seed peer auto-reply (and auto-mark-read so the author's tick
-    // goes blue without needing a second human device).
-    if (_isMessageCreate(env.payload) &&
-        demoMode &&
-        senderUserId != seedPeerUserId &&
-        recipients.contains(seedPeerUserId)) {
-      _scheduleSeedPeerReply(channelId, senderUserId, env.payload);
-      final readId = _extractMessageId(env.payload);
-      if (readId != null) {
-        _timer(const Duration(milliseconds: 1500), () {
-          _enqueueMessageStateChanged(
-            recipientUserId: senderUserId,
-            channelId: channelId,
-            messageId: readId,
-            newState: pb.MessageStateValue.MESSAGE_STATE_READ,
-          );
-        });
-      }
-    }
+    // Ticks come from the recipients' phones, as receipts (decision 218):
+    // a simulated user's from [_peerReceive], once it opens the message.
 
     return pb.Ack(
-      opId: opId,
+      opId: env.opId,
       outcome: pb.AckOutcome.ACK_SUCCESS,
       serverTimestampMs: fixnum.Int64(now),
     );
@@ -2788,13 +2794,12 @@ class MockServer {
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
 
     final now = _stamp();
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(creatorUserId),
       channelId: channelId,
-      clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: creatorUserId,
-      serverTimestampMs: fixnum.Int64(now),
+      flags: FrameClass.event.flags,
+      serverTimestampMs: now,
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2834,13 +2839,12 @@ class MockServer {
       ),
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(actorUserId),
       channelId: channelId,
-      clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: actorUserId, // the real server names the actor
-      serverTimestampMs: fixnum.Int64(now),
+      flags: FrameClass.event.flags,
+      serverTimestampMs: now,
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2873,13 +2877,12 @@ class MockServer {
       ),
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(actorUserId),
       channelId: channelId,
-      clientTimestampMs: fixnum.Int64(removedAtMs),
       payload: payload,
-      senderUserId: actorUserId, // the real server names the actor
-      serverTimestampMs: fixnum.Int64(_stamp()),
+      flags: FrameClass.event.flags,
+      serverTimestampMs: _stamp(),
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2935,13 +2938,12 @@ class MockServer {
         )
         .channelId;
 
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(''),
       channelId: channelId,
-      clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: '', // server-authored
-      serverTimestampMs: fixnum.Int64(now),
+      flags: FrameClass.event.flags,
+      serverTimestampMs: now,
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -2979,13 +2981,12 @@ class MockServer {
         )
         .channelId;
 
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(''),
       channelId: channelId,
-      clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: '',
-      serverTimestampMs: fixnum.Int64(now),
+      flags: FrameClass.event.flags,
+      serverTimestampMs: now,
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -3023,13 +3024,12 @@ class MockServer {
       channelEdited: body,
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(actorUserId),
       channelId: channelId,
-      clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: actorUserId, // the real server names the actor
-      serverTimestampMs: fixnum.Int64(now),
+      flags: FrameClass.event.flags,
+      serverTimestampMs: now,
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -3056,13 +3056,12 @@ class MockServer {
       ),
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(''),
       channelId: channelId,
-      clientTimestampMs: fixnum.Int64(now),
       payload: payload,
-      senderUserId: '', // server-authored
-      serverTimestampMs: fixnum.Int64(now),
+      flags: FrameClass.event.flags,
+      serverTimestampMs: now,
     );
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
@@ -3090,68 +3089,19 @@ class MockServer {
         'body="$body"');
   }
 
-  // Build a WS_PUSH WsEnvelope carrying a MessageStateChanged
-  // ServerEventPayload and fan it to the recipient — i.e. the original
-  // message author. Used to flip the author's tick from sent →
-  // delivered (and later read).
-  void _enqueueMessageStateChanged({
-    required String recipientUserId,
-    required String channelId,
-    required String messageId,
-    required pb.MessageStateValue newState,
-  }) {
-    final now = _stamp();
-    final sep = pb.ServerEventPayload(
-      version: 1,
-      type: pb.ServerEventType.MESSAGE_STATE_CHANGED,
-      messageStateChanged: pb.MessageStateChanged(
-        channelId: channelId,
-        messageId: messageId,
-        newState: newState,
-        changedAtMs: fixnum.Int64(now),
-      ),
-    );
-    final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
-    final pushEnv = pb.Envelope(
-      opId: state.generateUuid(),
-      channelId: channelId,
-      clientTimestampMs: fixnum.Int64(now),
-      payload: payload,
-      senderUserId: '', // server-authored
-      serverTimestampMs: fixnum.Int64(now),
-    );
-    final pushFrame = pb.WsEnvelope(
-      type: pb.WsType.WS_PUSH,
-      push: pushEnv,
-    );
-    _sendToUser(recipientUserId, pushFrame.writeToBuffer());
-    _log('Sent MessageStateChanged{${newState.name}} '
-        'to=$recipientUserId channel=$channelId message=$messageId');
-  }
-
   // Fan an `ephemeral=true` envelope to currently-connected channel
   // members. Never stored, never produces an ACK, never
   // records op_id_seen — pure best-effort signal.
   void _fanoutEphemeral(
     pb.Envelope env,
-    String senderUserId,
     Set<String> recipients,
     int now, {
     required String senderDeviceId,
     WebSocket? exceptSocket,
   }) {
-    final pushEnv = pb.Envelope(
-      opId: env.opId,
-      channelId: env.channelId,
-      clientTimestampMs: env.clientTimestampMs,
-      payload: env.payload,
-      ephemeral: true,
-      senderUserId: senderUserId,
-      senderDeviceId: senderDeviceId,
-      peer: env.peer,
-      ttlSec: env.ttlSec,
-      serverTimestampMs: fixnum.Int64(now),
-    );
+    final pushEnv = pb.Envelope.fromBuffer(env.writeToBuffer())
+      ..serverTimestampMs = fixnum.Int64(now)
+      ..senderDeviceId = uuidBytes(senderDeviceId);
     final pushFrame = pb.WsEnvelope(
       type: pb.WsType.WS_PUSH,
       push: pushEnv,
@@ -3195,20 +3145,17 @@ class MockServer {
         type: pb.ChatPayloadType.TYPE_TYPING,
         isTyping: isTyping,
       ).writeToBuffer();
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final pushEnv = pb.Envelope(
-        opId: state.generateUuid(),
+      final channel = state.channels[channelId];
+      if (channel == null) return;
+      final pushEnv = wireEnvelope(
+        opId: _opIdFor(seedPeerUserId),
         channelId: channelId,
-        clientTimestampMs: fixnum.Int64(now),
         payload: replyBytes,
         ephemeral: true,
-        senderUserId: seedPeerUserId,
-        serverTimestampMs: fixnum.Int64(now),
+        serverTimestampMs: DateTime.now().millisecondsSinceEpoch,
       );
       final frame = pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv);
       final bytes = frame.writeToBuffer();
-      final channel = state.channels[channelId];
-      if (channel == null) return;
       for (final memberId in channel.members) {
         if (memberId == seedPeerUserId) continue;
         final sockets = state.wsConnections[memberId];
@@ -3262,7 +3209,7 @@ class MockServer {
     if (payload[0] == 0x53) return null;
     try {
       final chat = pb.ChatPayload.fromBuffer(payload);
-      if (chat.messageId.isNotEmpty) return chat.messageId;
+      if (chat.messageId.isNotEmpty) return uuidText(chat.messageId);
     } catch (_) {
       // Not a ChatPayload — nothing to receipt.
     }
@@ -3306,7 +3253,7 @@ class MockServer {
         pb.ChatPayload(
           version: 1,
           type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-          messageId: messageId ?? state.generateUuid(),
+          messageId: uuidBytes(messageId ?? state.generateUuid()),
           body: body,
           contentType: 'text/plain',
         ),
@@ -3331,9 +3278,10 @@ class MockServer {
       String? opId,
       String retryOf = ''}) {
     final recipients = _recipientsFor(channelId, senderUserId);
-    final messageId = payload.messageId;
+    final messageId =
+        payload.messageId.isEmpty ? '' : uuidText(payload.messageId);
     final plain = payload.writeToBuffer();
-    opId ??= state.generateUuid();
+    opId ??= _opIdFor(senderUserId);
     // Sealed like a phone's send (decision 188), in order, on a chain:
     // [settled] waits for it.
     _peerSends = _peerSends.then((_) async {
@@ -3350,22 +3298,20 @@ class MockServer {
       // would: a pull meets the key first.
       final now = serverTimestampMs ?? _stamp();
       _recordStamp(plain, now);
-      final pushEnv = pb.Envelope(
-        opId: opId,
+      final pushEnv = wireEnvelope(
+        opId: opId!,
         channelId: channelId,
-        clientTimestampMs: fixnum.Int64(now),
         payload: bytes,
-        senderUserId: senderUserId,
         senderDeviceId: MockPeers.deviceId,
         peer: peer,
-        serverTimestampMs: fixnum.Int64(now),
-        ttlSec: ttlSec == 0 ? null : ttlSec,
+        serverTimestampMs: now,
+        ttlSec: ttlSec,
       );
       final pushBytes =
           pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv).writeToBuffer();
       for (final memberId in recipients) {
         _sendToUser(memberId, pushBytes);
-        _peerReceive(memberId, pushEnv);
+        _peerReceive(memberId, InboundEnvelope.fromWire(pushEnv));
       }
     }).catchError((Object e) => _log('Peer send failed: $e'));
     _log('Peer ${payload.type.name}: channel=$channelId '
@@ -3407,16 +3353,21 @@ class MockServer {
   /// once, from its sent log, sealed afresh under a new op id that names
   /// the one the requester could not open.
   Future<void> _answerResend(
-      String userId, E2eeCrypto crypto, pb.Envelope env) async {
-    final ask = jsonDecode(utf8.decode(env.payload.sublist(3))) as Map;
-    final sent = await crypto.takeForResend('${ask['op']}');
-    if (sent == null || sent['ch'] != ask['ch']) return;
+      String userId, E2eeCrypto crypto, InboundEnvelope env) async {
+    // Decision 218: the op id, then a group op's channel; a DM op's is
+    // the DM the request rode.
+    final ask = env.payload.sublist(3);
+    final opId = uuidText(ask.sublist(0, 16));
+    final channelId =
+        ask.length == 32 ? uuidText(ask.sublist(16)) : env.channelId;
+    final sent = await crypto.takeForResend(opId);
+    if (sent == null || sent['ch'] != channelId) return;
     await crypto.resetSession(env.senderUserId, env.senderDeviceId);
     _fanoutPeerChatPayload(
-      '${ask['ch']}',
+      channelId,
       userId,
       pb.ChatPayload.fromBuffer(base64.decode(sent['payload'] as String)),
-      retryOf: '${ask['op']}',
+      retryOf: opId,
     );
   }
 
@@ -3437,22 +3388,19 @@ class MockServer {
       ttlSec: ttlSec,
       ephemeral: ephemeral,
       dmChannel: (member) => mockDmChannelId(sender, member),
-      newOpId: state.generateUuid,
+      newOpId: () => _opIdFor(sender),
       sendKey: (member, keyChannel, keyOpId, sealed) async {
-        final now = _stamp();
-        final env = pb.Envelope(
+        final env = wireEnvelope(
           opId: keyOpId,
           channelId: keyChannel,
-          clientTimestampMs: fixnum.Int64(now),
           payload: sealed,
-          senderUserId: sender,
           senderDeviceId: MockPeers.deviceId,
           peer: member,
-          serverTimestampMs: fixnum.Int64(now),
+          serverTimestampMs: _stamp(),
         );
         _sendToUser(member,
             pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: env).writeToBuffer());
-        _peerReceive(member, env);
+        _peerReceive(member, InboundEnvelope.fromWire(env));
       },
     );
   }
@@ -3461,7 +3409,7 @@ class MockServer {
   /// a group payload is read as it came. Lands in [peerOpened]; for a
   /// sealed message the conveniences the mock used to read off the wire
   /// (stamps, the author's double tick, the demo echo) run from here.
-  void _peerReceive(String userId, pb.Envelope env) {
+  void _peerReceive(String userId, InboundEnvelope env) {
     if (!peers.isPeer(userId) || userId == env.senderUserId) return;
     _peerReceives = _peerReceives.then((_) async {
       final sealed = env.payload.isNotEmpty && env.payload[0] == kSealedMarker;
@@ -3482,21 +3430,38 @@ class MockServer {
       if (plain.isEmpty) return; // a group key, taken
       peerOpened.add((userId: userId, env: env, payload: plain));
       if (!sealed || env.ephemeral || !_isMessageCreate(plain)) return;
-      final now = env.serverTimestampMs.toInt();
-      _recordStamp(plain, now);
-      final messageId = _extractMessageId(plain);
-      if (messageId != null && !peers.isPeer(env.senderUserId)) {
-        _enqueueMessageStateChanged(
-          recipientUserId: env.senderUserId,
-          channelId: env.channelId,
-          messageId: messageId,
-          newState: pb.MessageStateValue.MESSAGE_STATE_DELIVERED,
-        );
+      _recordStamp(plain, env.serverTimestampMs);
+      if (!peers.isPeer(env.senderUserId)) {
+        // The author's ticks come from this phone, as the app sends them
+        // (decision 218); in the demo it reads at once, too.
+        _peerReceipt(userId, env, pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT);
+        if (demoMode && userId == seedPeerUserId) {
+          _timer(const Duration(milliseconds: 1500), () {
+            _peerReceipt(userId, env, pb.ChatPayloadType.TYPE_READ_RECEIPT);
+          });
+        }
       }
       if (demoMode && userId == seedPeerUserId) {
         _scheduleSeedPeerReply(env.channelId, env.senderUserId, plain);
       }
     }).catchError((Object e) => _log('Peer $userId could not open: $e'));
+  }
+
+  /// [userId]'s phone acknowledging [env] and everything before it: on
+  /// their DM, or for a group over 1:1 to its author, naming the group.
+  void _peerReceipt(
+      String userId, InboundEnvelope env, pb.ChatPayloadType type) {
+    final group = !isMockDmChannelId(env.channelId);
+    _fanoutPeerChatPayload(
+      group ? mockDmChannelId(userId, env.senderUserId) : env.channelId,
+      userId,
+      pb.ChatPayload(
+        version: 1,
+        type: type,
+        markerServerTimestampMs: fixnum.Int64(env.serverTimestampMs),
+        groupId: group ? uuidBytes(env.channelId) : null,
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------

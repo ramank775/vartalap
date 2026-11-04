@@ -279,6 +279,20 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  vartalap_store:
+    dependency: transitive
+    description:
+      path: "../packages/vartalap_store"
+      relative: true
+    source: path
+    version: "0.1.0"
+  vartalap_sync:
+    dependency: "direct main"
+    description:
+      path: "../packages/vartalap_sync"
+      relative: true
+    source: path
+    version: "0.1.0"
   vartalap_transport:
     dependency: "direct main"
     description:

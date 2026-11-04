@@ -68,8 +68,9 @@ Map<String, dynamic>? claimKeys(KeyDirectory directory, String userId,
 }
 
 class MockPeers {
-  /// Every simulated user's one device.
-  static const deviceId = 'mock-peer';
+  /// Every simulated user's one device (a UUID: 16 bytes on the wire,
+  /// decision 218).
+  static const deviceId = '0000beef-0000-4000-8000-00000000beef';
 
   final KeyDirectory directory;
   final String Function() newId;
