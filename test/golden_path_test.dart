@@ -440,7 +440,8 @@ void main() {
       );
 
       // §10.2 ChannelCreated fanout: a channel somebody else created.
-      peerCreatedChannelId = 'peer-created-${DateTime.now().millisecondsSinceEpoch}';
+      // A group id is a UUID: 16 bytes on the wire (decision 218).
+      peerCreatedChannelId = h.mock.state.generateUuid();
       h.mock.ensureChannel(
         channelId: peerCreatedChannelId,
         kind: 'group',
@@ -505,6 +506,39 @@ void main() {
               e.channelId == dmChannelId(userIdA, extraMemberId)),
           isNotEmpty,
           reason: 'The added member got the group key on their 1:1 channel.');
+
+      // Decision 218: each member's phone acknowledges over its 1:1
+      // channel with us, naming the group, and the tick turns once every
+      // member is past it (decision 202).
+      await h.waitForAsync(() async =>
+          (await h.store.fetchMessage(groupMsg!.messageId))?.state ==
+          MessageState.delivered);
+      expect((await h.store.fetchMessage(groupMsg!.messageId))?.state,
+          MessageState.delivered);
+
+      // And ours go only to the author, over 1:1, naming the group.
+      h.peerInbox();
+      final fromPeer = await h.mock
+          .injectPeerMessage(channelId: groupChannelId, body: 'from the peer');
+      await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT,
+          messageId: fromPeer.messageId));
+      final ours = h.mock.peerOpened.lastWhere((o) =>
+          o.userId == peerUserId &&
+          pb.ChatPayload.fromBuffer(o.payload).type ==
+              pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT);
+      expect(
+          [
+            ours.env.channelId,
+            uuidText(pb.ChatPayload.fromBuffer(ours.payload).groupId),
+          ],
+          [dmChannelId(userIdA, peerUserId), groupChannelId]);
+      expect(
+          h.mock.peerOpened.where((o) =>
+              o.userId == extraMemberId &&
+              pb.ChatPayload.fromBuffer(o.payload).type ==
+                  pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT),
+          isEmpty,
+          reason: 'the other member wrote nothing it acknowledges');
     });
 
     // ---- 6b -------------------------------------------------------------
@@ -888,14 +922,12 @@ void main() {
       );
       expect(
         h.peerInboxSeen
-            .where((p) =>
-                p.type == pb.ChatPayloadType.TYPE_READ_RECEIPT &&
-                p.messageId == unread.messageId)
-            .map((p) => p.markerServerTimestampMs.toInt()),
-        everyElement(h.mock.messageStamps[unread.messageId]),
-        reason: 'v3-chat-payload.proto field 60: the receipt carries the '
-            "marker message's server timestamp, so a recipient that does "
-            'not hold that message can still apply it.',
+            .where((p) => p.type == pb.ChatPayloadType.TYPE_READ_RECEIPT)
+            .map((p) => [p.hasMessageId(), p.hasGroupId()]),
+        everyElement([false, false]),
+        reason: 'decision 218: a DM receipt carries only its marker, the '
+            "message's server timestamp, so a recipient that does not hold "
+            'that message can still apply it.',
       );
       expect(
         h.mock.envelopes.where((e) =>
@@ -935,9 +967,12 @@ void main() {
         channelId: dmChannel,
         messageId: d2!.messageId,
       );
-      await h.waitForAsync(() async =>
-          (await h.store.fetchMessage(d1!.messageId))?.state ==
-          MessageState.delivered);
+      // The peer's phone also sends its own receipts as each lands
+      // (decision 218): wait for the marker to reach both.
+      await h.waitForAsync(() async => [
+            for (final d in [d1!, d2])
+              (await h.store.fetchMessage(d.messageId))?.state
+          ].every((s) => s == MessageState.delivered));
       expect(
         [
           (await h.store.fetchMessage(d1!.messageId))?.state,
@@ -987,6 +1022,7 @@ void main() {
       h.ws.sendEphemeral(
         opId: forgedOpId,
         channelId: dmChannel,
+        peer: peerUserId,
         payload: Uint8List.fromList([
           0x53,
           ...pb.ServerEventPayload(
@@ -1015,9 +1051,9 @@ void main() {
       // first, stamped after their creates, the way a stateless server
       // with a slow create path would.
       final t = DateTime.now().millisecondsSinceEpoch;
-      final edited = 'golden-early-edit-$t';
-      final deleted = 'golden-early-delete-$t';
-      final reacted = 'golden-early-react-$t';
+      final edited = h.mock.state.generateUuid();
+      final deleted = h.mock.state.generateUuid();
+      final reacted = h.mock.state.generateUuid();
       await h.mock.injectPeerEdit(
           channelId: dmChannel,
           messageId: edited,
@@ -1186,7 +1222,7 @@ void main() {
             messageId: attachmentMessageId,
           ));
       final seen = h.peerInboxSeen
-          .where((p) => p.messageId == attachmentMessageId)
+          .where((p) => _idOf(p) == attachmentMessageId)
           .single;
       expect(
         seen.attachments.single.url,
@@ -1234,7 +1270,7 @@ void main() {
           ));
       final update = h.peerInboxSeen.lastWhere((p) =>
           p.type == pb.ChatPayloadType.TYPE_MESSAGE_UPDATE &&
-          p.messageId == attachmentMessageId);
+          _idOf(p) == attachmentMessageId);
       expect(update.body, 'holiday!');
       expect(update.contentType, 'image/png');
       expect(update.attachments.single.url, stored.url);
@@ -1301,7 +1337,7 @@ void main() {
       await h.waitFor(() => h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
           messageId: id));
       expect(
-        h.peerInboxSeen.lastWhere((p) => p.messageId == id).contentType,
+        h.peerInboxSeen.lastWhere((p) => _idOf(p) == id).contentType,
         kVoiceNoteType,
         reason: 'The peer tells a voice note from an audio file by it.',
       );
@@ -1317,7 +1353,7 @@ void main() {
       // fanout the shared group it now needs.
       final editorId = h.authService.currentUserId!;
       h.mock.ensureChannel(
-        channelId: 'g-profile-fanout',
+        channelId: h.mock.state.generateUuid(),
         kind: 'group',
         ownerUserId: editorId,
         members: [editorId, peerUserId],
@@ -1493,8 +1529,7 @@ void main() {
     test('14. the owner of somebody else\'s group leaves → the successor is '
         're-announced and the local channel owner follows', () async {
       final selfId = h.authService.currentUserId!;
-      succeededChannelId =
-          'succession-${DateTime.now().millisecondsSinceEpoch}';
+      succeededChannelId = h.mock.state.generateUuid();
       h.mock.ensureChannel(
         channelId: succeededChannelId,
         kind: 'group',
@@ -1611,7 +1646,7 @@ void main() {
     test('17. added to a group this device has never seen → GET '
         '/v3.0/channels/{id} → the roster lands with its roles', () async {
       final selfId = h.authService.currentUserId!;
-      final channelId = 'late-join-${DateTime.now().millisecondsSinceEpoch}';
+      final channelId = h.mock.state.generateUuid();
       h.mock.ensureChannel(
         channelId: channelId,
         kind: 'group',
@@ -1649,7 +1684,7 @@ void main() {
     test('18. a group the server has and this device lost is adopted at '
         'login (§15.6)', () async {
       final selfId = h.authService.currentUserId!;
-      final channelId = 'adopted-${DateTime.now().millisecondsSinceEpoch}';
+      final channelId = h.mock.state.generateUuid();
       h.mock.ensureChannel(
         channelId: channelId,
         kind: 'group',
@@ -1749,7 +1784,7 @@ void main() {
     test('21. a pulled frame that fails to apply keeps the pointer before it '
         'and comes back on the next pull (§10.6)', () async {
       final selfId = h.authService.currentUserId!;
-      final channelId = 'unfetched-${DateTime.now().millisecondsSinceEpoch}';
+      final channelId = h.mock.state.generateUuid();
       h.mock.ensureChannel(
         channelId: channelId,
         kind: 'group',
@@ -1877,7 +1912,7 @@ void main() {
       await h.waitFor(() => h.mock.peerResendRequests.isNotEmpty);
       final ask = h.mock.peerResendRequests.last.env;
       expect([ask.channelId, ask.payload.sublist(0, 3)],
-          [channelId, [kSealedMarker, 1, 5]]);
+          [channelId, [kSealedMarker, kSealedVersion, 5]]);
 
       // The sender re-sent it; it lands where the placeholder was.
       await h.mock.releaseResends();
@@ -2221,9 +2256,14 @@ class _Harness {
     String? body,
   }) {
     peerInbox();
+    // Decision 218: a message id is 16 bytes; a receipt carries none, only
+    // its marker, the message's stamp.
+    bool names(pb.ChatPayload p, String id) => p.messageId.isEmpty
+        ? p.markerServerTimestampMs.toInt() == mock.messageStamps[id]
+        : uuidText(p.messageId) == id;
     return peerInboxSeen.any((p) =>
         p.type == type &&
-        (messageId == null || p.messageId == messageId) &&
+        (messageId == null || names(p, messageId)) &&
         (body == null || p.body == body));
   }
 
@@ -2360,6 +2400,10 @@ Future<ContactProfile?> _resolveContactProfile(
 
 /// The ChatPayload type inside [e], as the seed peer's phone opened it:
 /// the wire carries only ciphertext (decision 188).
+/// [p]'s message id in text form (decision 218: 16 bytes inside).
+String _idOf(pb.ChatPayload p) =>
+    p.messageId.isEmpty ? '' : uuidText(p.messageId);
+
 pb.ChatPayloadType? _openedType(_Harness h, RecordedEnvelope e) {
   for (final o in h.mock.peerOpened) {
     if (o.env.opId != e.opId) continue;
