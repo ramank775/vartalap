@@ -47,7 +47,9 @@ Uint8List _encodeChatPayload({
       type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
       messageId: uuidBytes(messageId),
       body: body,
-      contentType: contentType,
+      // Plain text is the proto's default: not sent (decision 218), and a
+      // receiver stores none, which reads as text.
+      contentType: contentType == 'text/plain' ? null : contentType,
       replyToMessageId:
           replyToMessageId == null ? null : uuidBytes(replyToMessageId),
     ).writeToBuffer();
@@ -69,7 +71,7 @@ Uint8List _encodeChatOp({
       type: type,
       messageId: uuidBytes(messageId),
       body: body,
-      contentType: contentType ?? (body == null ? null : 'text/plain'),
+      contentType: contentType == 'text/plain' ? null : contentType,
       attachments: attachments,
       emoji: emoji,
     ).writeToBuffer();
