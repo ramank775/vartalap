@@ -295,6 +295,19 @@ class SyncScheduler {
         (isDmChannelId(op.resourceId) && selfUserId != null
             ? await store.dmPeer(op.resourceId, selfUserId!)
             : null);
+    // Decision 218: a DM's id is never sent; the server derives it from
+    // the sender and the peer, so the refusal it gave an id that does not
+    // derive (Trim 4) is given here, before the peer gets an op sealed
+    // for a channel it would never open it on.
+    if (peer != null &&
+        selfUserId != null &&
+        isDmChannelId(op.resourceId) &&
+        dmChannelId(selfUserId!, peer) != op.resourceId) {
+      await _onAck(AckFrame(
+          opId: op.opId,
+          outcome: const AckPermanentReject(reason: 'forbidden')));
+      return;
+    }
 
     var payload = op.payload;
     final seal = this.seal;

@@ -547,9 +547,11 @@ void main() {
     final (a, b) = await pair();
 
     // A well-formed DM id belonging to somebody else's pair. A's ops on
-    // it carry peer=B, and dm_chan(A, B) is not this id, so the server
-    // has everything it needs to refuse without owning a single row.
-    // This is the squatting case decision 89 worried about, answered.
+    // it carry peer=B, and dm_chan(A, B) is not this id. The server never
+    // sees the id (decision 218: it derives the channel from the sender
+    // and the peer), so A's phone gives the refusal it used to: the op
+    // cannot be sealed for a channel B would never open it on. This is
+    // the squatting case decision 89 worried about, answered.
     final forged = dmChannelId(b.userId, '000000009');
     await a.seedDm(forged, b.userId);
     await a.chat.sendMessage(
@@ -561,14 +563,14 @@ void main() {
     expect(
       (await a.lastOpOn(forged))?.lastError,
       'forbidden',
-      reason: 'the server recomputes dm_chan(sender, peer) and rejects the '
-          'mismatch. There is nothing to squat: the id has no row to '
+      reason: 'dm_chan(sender, peer) is recomputed and the mismatch '
+          'refused. There is nothing to squat: the id has no row to '
           'pre-create. ${await a.opDebug(forged)}',
     );
     expect(await b.bodiesIn(forged), isEmpty);
 
     // And a `peer` that is not a user_id at all is malformed, not wrong.
-    final malformed = dmChannelId(a.userId, '000000008');
+    final malformed = dmChannelId(a.userId, 'not-a-user');
     await a.seedDm(malformed, 'not-a-user');
     await a.chat.sendMessage(
       channelId: malformed,
