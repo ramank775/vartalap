@@ -68,13 +68,14 @@ behavior is mandated.
   transaction as event append.
 - **tombstone** — A local-only projection marker that a resource has
   been deleted/edited, pending server confirmation. See §9.
-- **server-stamped fields** — `sender_user_id`, `sender_device_id` and
+- **server-stamped fields** — `sender_device_id` and
   `server_timestamp_ms` on the Envelope. Absent on client→server,
   populated by the server before fanout. `server_timestamp_ms` is the
-  ordering key (§6). `sender_device_id` (field 23) is overwritten from
-  the authenticated session for stored and ephemeral client operations;
-  it is empty for server-authored events. It identifies the installation
-  whose public keys the receiver uses for E2EE.
+  ordering key (§6). `sender_device_id` (field 13) is set from the
+  authenticated session for stored and ephemeral client operations;
+  it is absent on server-authored events. It identifies the installation
+  whose public keys the receiver uses for E2EE. The sender's `user_id`
+  is not on the wire at all: it is the `op_id`'s user bits (§3).
 - **best-effort server cache** — State the server keeps only to save
   work (the dedup window, §7.1; rate-limit counters, §14). It may be
   in-process or Redis and may be lost on any restart; correctness never
@@ -117,7 +118,21 @@ Mismatch → `AckPermanentReject { reason: "prefix_mismatch" }`. Catches
 tampering and accidental cross-user send-buffer bleed. (The reason
 code retains the historical name `prefix_mismatch` even though the
 field is now `user_id`; renaming would break wire-stable error code
-contracts.)
+contracts.) Because the server checks them, a receiver reads the
+sender from these bits (decision 218), and the first 48 bits of the
+UUIDv7 are the sender's clock in ms.
+
+**Wire form (decision 218).** Ids are raw bytes on the wire and
+nowhere else; stores, logs and dedup keys keep the text forms, and
+each end converts at its edge, refusing a wrong length:
+
+| Id | Text form | Wire form |
+|---|---|---|
+| `op_id` | UUID text, lowercase, dashed | 16 bytes |
+| `user_id` (`peer`) | 9 lowercase hex | 5 bytes, big-endian (`'0' + id`) |
+| `device_id` | UUID text | 16 bytes |
+| group `channel_id` | UUID text | 16 bytes |
+| DM `channel_id` | `d` + 31 hex (§11.3) | never sent; derived |
 
 ---
 
@@ -216,9 +231,8 @@ Sec-WebSocket-Protocol: accesskey.<accesskey-uuid>
    the subprotocol back in the response header.
 5. Associate the connection with `(user_id, deviceId)` server-side.
    All envelopes on this connection are authenticated as that
-   `user_id`. Envelopes MUST NOT carry `sender_user_id` from the
-   client — server derives from connection identity and stamps it on
-   fanout.
+   `user_id`. No envelope names its sender: the `op_id`'s user bits
+   do, checked against this identity (§3).
 
 > **Hardening note.** The current chat-server WS handshake validates
 > auth via `x-user` / `x-accesskey` headers plus an nginx subrequest.
@@ -263,26 +277,37 @@ EnvelopeBatch {
 }
 
 Envelope {
-  string op_id              // UUIDv7
-  string channel_id         // routing target
-  // field 3 (resource_seq) is retired and reserved
-  uint64 client_timestamp_ms
+  bytes  op_id              // UUIDv7, 16 bytes; its user bits name the
+                            // sender (§3)
+  bytes  channel_id         // a group's id, 16 bytes; absent on a DM
+  bytes  peer               // a DM's other participant, 5 bytes;
+                            // absent on a group. The server derives
+                            // the DM's channel from (sender, peer)
+                            // (§11.3). Echoed unchanged on fanout.
   bytes  payload            // opaque to server
   bool   ephemeral          // typing and friends; no ack, no queue
-  uint32 flags              // bit set; bit 0 SILENT: queued, but
-                            // wakes no offline device (§12.1), set
-                            // on all but new messages. Unknown bits
-                            // are kept and echoed.
-  string peer               // the other participant, iff channel_id
-                            // matches ^d[0-9a-f]{31}$ (§11.3);
-                            // absent for groups. Echoed unchanged on
-                            // fanout.
   uint32 ttl_sec            // how long the server keeps it on the
                             // timeline (§10.6); 0 = the 30-day max.
                             // Echoed unchanged on fanout.
-  // sender_user_id, sender_device_id, server_timestamp_ms absent on client→server
+  uint32 flags              // bit 0 SILENT: no wake whatever the
+                            // class (unused today); bits 1-3 the
+                            // class, (flags >> 1) & 7: 0 MESSAGE,
+                            // 1 MUTATION, 2 RECEIPT, 3 KEY, 4 RESEND,
+                            // 5 EVENT (server only). Unknown bits
+                            // are kept and echoed.
+  // server_timestamp_ms, sender_device_id absent on client→server
+  // fields 1-4, 7, 20, 22, 23 (the text-era ids, client_timestamp_ms,
+  // sender_user_id) are retired and reserved (decision 218)
 }
 ```
+
+A DM is `peer` set and `channel_id` absent, a group the reverse;
+anything else, or an id of the wrong length, is `validation_failed`.
+Default values are never encoded. The client sets the class on every
+op: MESSAGE for a new message or forward, MUTATION for an edit,
+delete or reaction, RECEIPT for delivered/read, KEY for a group-key
+hand-out, RESEND for a resend request (§6a.7). The server keeps a
+RECEIPT for min(`ttl_sec`, 7 days) and the rest as `ttl_sec` says.
 
 **Max batch size: 20 envelopes per WS_OP frame.** Matches the
 scheduler's `MAX_BATCH_SIZE` in `SPIKE_B_SYNC.md` §5a. Server MUST
@@ -299,12 +324,12 @@ multiple `WS_ACK` frames.
 AckBatch { repeated Ack acks }
 
 Ack {
-  string op_id
+  bytes  op_id               // the op's 16 bytes, as sent
   AckOutcome outcome         // SUCCESS | TRANSIENT | PERMANENT | AUTH_FAILURE
   string reason              // server-defined code (§8)
   uint64 retry_after_ms      // for TRANSIENT and rate_limited
   uint64 server_timestamp_ms // populated on SUCCESS; the ordering key
-  // field 6 (delivery_sequence) is retired and reserved
+  // fields 1 (text op_id) and 6 (delivery_sequence) are retired
 }
 ```
 
@@ -400,7 +425,7 @@ and unlike the op_id it survives a manual re-send.
 1. Order every channel by the key above on every device: the sender
    takes `server_timestamp_ms` for its own message from the Ack, a
    recipient from the fanout Envelope. Never by arrival order, never
-   by `client_timestamp_ms` (advisory).
+   by the sender's clock (the `op_id`'s first 48 bits, advisory).
 2. Sort its own messages that have no Ack yet after everything else,
    by client time. They have no server timestamp to sort by.
 3. Leave a message where its CREATE put it: an edit, delete or
@@ -512,10 +537,10 @@ When a recipient receives a `WS_PUSH` envelope, it:
    is not held yet, the op is kept until M arrives and judged then
    (§6b.1):
    - `TYPE_MESSAGE_UPDATE` for `message_id=M`: apply only if local
-     log shows M was authored by `Envelope.sender_user_id` AND M is
-     not tombstoned. Otherwise silently drop.
+     log shows M was authored by the envelope's sender (its `op_id`'s
+     user bits, §3) AND M is not tombstoned. Otherwise silently drop.
    - `TYPE_MESSAGE_DELETE` for `message_id=M`: apply only if local
-     log shows M was authored by `Envelope.sender_user_id`.
+     log shows M was authored by the envelope's sender.
      Otherwise silently drop.
    - `TYPE_REACTION_ADD` for `message_id=M`: apply only if M is not
      tombstoned. Otherwise silently drop.
@@ -586,29 +611,35 @@ fallback; a phone refuses a client payload that does not open. Server
 events (`0x53`, §10.2) stay server-authored and readable by clients.
 
 ```
-payload = 0x45 | version (1) | kind | body
+payload = 0x45 | version (2) | kind | body
 kind 1  first 1:1 message to a phone   body = Signal PreKeySignalMessage
 kind 2  1:1 message                    body = Signal SignalMessage
 kind 3  group message                  body = Sender Key message (one for
                                         every member, stored once)
-kind 5  re-send request (not sealed)   body = JSON {"op": op_id, "ch": channel_id}
+kind 5  re-send request (not sealed)   body = op_id (16 bytes), then for a
+                                        group's op its channel_id (16);
+                                        a DM's op is on the DM it rides
 ```
 
-Inside the ciphertext is a JSON header that repeats `op_id`, `channel_id`,
-the sender's user and device, `ephemeral`, `peer` and `ttl_sec`, the op it
-re-sends (`retry_of`, empty for none) and then the ChatPayload bytes. A
-receiver compares the header with the envelope, so a valid ciphertext moved
-onto another op, channel or sender does not open. Server timestamps are not
-in it: the server stamps after encryption.
+Sealed format v2 (decision 218; v1 is not read). Inside the ciphertext
+is `2`, a 16-byte tag, the op it re-sends (a length byte, 0 or 16, then
+that `op_id`) and then the ChatPayload bytes. The tag is the first 16
+bytes of SHA-256 over `op_id`, `channel_id`, the sender's user and
+device, `ephemeral`, `peer` and `ttl_sec` (text forms, each after its
+4-byte length). A receiver computes it from the envelope and refuses a
+mismatch, so a valid ciphertext moved onto another op, channel or
+sender does not open. Server timestamps are not in it: the server
+stamps after encryption.
 
 - **Keys.** Each phone publishes its identity, signed prekey (rotated every
   30 days) and one-time prekeys (AUTH_CONTRACT §17). One active phone per
   account (§18), so a DM is one pairwise ciphertext. Addressing stays
   `(user_id, device_id)` for linked devices later.
 - **Groups.** A sender's Sender Key reaches each member first as a sealed
-  op on their derived 1:1 channel (plaintext marker `0x4B` inside), ahead
-  of the group op on the same socket; it never makes a chat appear. A
-  member who left rotates the key.
+  op (class KEY) on their derived 1:1 channel (plaintext `0x4B`, the
+  group's 16-byte id, the distribution message), ahead of the group op on
+  the same socket; it never makes a chat appear. A member who left
+  rotates the key.
 - **Trust.** WhatsApp style: a contact's new key is accepted, never blocks
   sending, and puts "X's security code changed" in every chat with them.
   Chat info shows the 60-digit safety number to compare.
@@ -669,15 +700,25 @@ predates the user joining the group, or the user cleared the chat).
 ### 6b.2 Receipts carry a timestamp marker
 
 `TYPE_READ_RECEIPT` and `TYPE_DELIVERY_RECEIPT` are up-to markers.
-`message_id` names the newest peer message acknowledged, and
-`marker_server_timestamp_ms` (ChatPayload field 60) carries that
-message's `server_timestamp_ms`. The recipient flips its OWN messages
-(authorship gate, §6a.3) whose `server_timestamp_ms` is at or before
-the marker, to read or delivered, and never moves a row backwards (a
-late delivery receipt does not undo read). It does not need to hold
-`message_id`: in a group the marker is often another member's
-message, and in any channel it may still be in transit. Its own
-messages with no Ack yet have no timestamp and are never flipped.
+They carry no `message_id` (decision 218), only
+`marker_server_timestamp_ms` (ChatPayload field 60): the
+`server_timestamp_ms` of the newest peer message acknowledged. The
+recipient flips its OWN messages (authorship gate, §6a.3) whose
+`server_timestamp_ms` is at or before the marker, to read or
+delivered, and never moves a row backwards (a late delivery receipt
+does not undo read). It needs no message in hand: in a group the
+marker is often another member's message, and in any channel it may
+still be in transit. Its own messages with no Ack yet have no
+timestamp and are never flipped.
+
+A DM's receipt goes on the DM. A group's goes only to the members it
+acknowledges (decision 218): over the 1:1 channel to each member who
+authored a message after the last receipt of that kind sent for the
+group, up to the marker, with `group_id` (field 5) naming the group;
+the author applies it to its own messages there. A delivered receipt
+is skipped when a read receipt covering the same or a newer marker
+went out first (a chat read within the delivery debounce sends only
+the read).
 
 The recipient keeps each member's newest delivered and read marker
 (decision 202). A message flips only once every current member who
@@ -894,26 +935,23 @@ server-stamped fields populated:
 WsEnvelope {
   type: WS_PUSH
   body.push: Envelope {
-    op_id:                <sender's op_id>
-    channel_id:           <sender's channel_id>
-    client_timestamp_ms:  <sender's value>
+    op_id:                <sender's op_id; its user bits, the sender>
+    channel_id:           <a group's, as sent; absent on a DM>
+    peer:                 <a DM's, as sent; absent on a group>
     payload:              <sender's opaque bytes>
-    sender_user_id:       <server-stamped, authenticated sender's user_id>
+    ephemeral, ttl_sec, flags: <as sent, only when not the default>
     sender_device_id:     <server-stamped, authenticated installation id>
     server_timestamp_ms:  <server-stamped; the ordering key, §6>
   }
 }
 ```
 
-The recipient resolves `sender_user_id` to a display name per
-AUTH_CONTRACT §2.4 (contact-book name first, then `username` from a
-cached `GET /v3.0/users/<sender_user_id>` lookup, then phone, then
+The recipient reads the sender from the `op_id`'s user bits, which
+the server checked against the session (§3), and a DM's channel as
+`dm_chan(sender, peer)` (§11.3). It resolves the sender to a display
+name per AUTH_CONTRACT §2.4 (contact-book name first, then `username`
+from a cached `GET /v3.0/users/<user_id>` lookup, then phone, then
 empty placeholder).
-
-The recipient MUST verify `op_id` user_id bits match
-`sender_user_id` for tamper detection. On mismatch, drop silently
-and log (this should be impossible — server stamps both — but
-defends against compromised intermediaries).
 
 ### 10.2 REST-write fanout (the bridge)
 
@@ -985,6 +1023,12 @@ distinguishes by inspecting the first byte of `payload` and routing
 to the right decoder. Server-event payloads bypass the §6a.4
 recipient-side authorization (they are server-authored and
 authoritative).
+
+On the wire (decision 218) a server event rides a group's
+`channel_id` (DMs have no row, so none rides one), carries class
+EVENT in `flags` and no `sender_device_id`. Its `op_id` is the
+server's own: a receiver reads an actor from its user bits only when
+it is a UUIDv7 minted with them, and otherwise has no sender for it.
 
 ### 10.3 Fanout rules
 
@@ -1087,17 +1131,18 @@ before `t`.
 **Query:** `since=<server_timestamp_ms>`, the device's pointer;
 absent or 0 reads everything kept.
 
-**Success 200:**
-```json
-{ "frames": ["<base64 WsEnvelope bytes>", "..."], "more": false }
+**Success 200:** `application/x-protobuf`, a `PendingPage`
+(`proto/v3-envelope.proto`, decision 218):
+```
+PendingPage { repeated Envelope envelopes; bool more }
 ```
 
 The caller's timeline from `since` on: every unexpired frame naming
 the calling user with `server_timestamp_ms >= since`, ordered by
 (`server_timestamp_ms`, `op_id`), at most 500, leaving out what the
 calling device sent itself (the user's other devices do get it).
-Each entry is a base64-encoded `WsEnvelope` (`proto/v3-envelope.proto`)
-with `type = WS_PUSH`. `more` is true when frames wait past this page.
+Each envelope is exactly what a `WS_PUSH` carries. `more` is true when
+frames wait past this page.
 `since` is **inclusive**: several envelopes can share a millisecond,
 so the frames at the pointer's own millisecond come back on every
 pull and §7.2 dedup absorbs them. `400` if `since` is not a
@@ -1170,7 +1215,6 @@ All REST writes carry these standard fields in the body:
 ```json
 {
   "op_id": "01f00000-7000-8000-8abc-...",
-  "client_timestamp_ms": 1744675200000,
   ... endpoint-specific fields ...
 }
 ```
@@ -1178,9 +1222,9 @@ All REST writes carry these standard fields in the body:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `op_id` | string (UUIDv7) | yes | Dedup key. Same enforcement as WS envelopes (§7.1, prefix bits per §3). |
-| `client_timestamp_ms` | integer | no | Advisory. |
 
-`resource_seq` is retired (§6); clients do not send it.
+`resource_seq` is retired (§6) and `client_timestamp_ms` too (decision
+218: the `op_id` carries the client's clock); clients send neither.
 
 Endpoint-specific fields are documented per endpoint in
 AUTH_CONTRACT.md (auth, profile, push) and in this section (channel
@@ -1241,8 +1285,9 @@ Consequences, stated:
   degrade to an empty list rather than a spinner.
 - There is no `ChannelCreated` (§10.2) for a DM. The first envelope on
   a derived id is the introduction; recipients materialize the channel
-  from it after checking the id derives from themselves and
-  `sender_user_id`.
+  from it after checking the id derives from themselves and the
+  sender (the `op_id`'s user bits; decision 218: the id itself is
+  never sent, both ends derive it).
 - `ProfileEdited` / `UsernameChanged` (§10.2) reach group co-members
   only — the server has no DM row telling it two users are in contact,
   so a DM-only peer's name, handle and avatar would otherwise go stale
@@ -1427,12 +1472,13 @@ registered Web Push endpoint (AUTH_CONTRACT §5). A close the client
 sent itself needs no wake: it pulls from its pointer when it comes
 back.
 
-- Never for an envelope with the SILENT flag (decisions 212, 215): only a new message or
-  forward wakes. Senders mark everything else silent (receipts, edits,
-  deletes, reactions, group keys) and the server marks its own events
-  SILENT, because none of them shows a notification, and a push
-  service downgrades an app whose high-priority wakes end without one.
-  A silent envelope reaches an offline device on its next pull.
+- Only for an envelope of class MESSAGE (a new message or forward) or
+  RESEND (a phone asking for a re-send, which needs its sender awake)
+  without the SILENT bit (decisions 212, 215, 218; `flags`, §5.4).
+  MUTATION, RECEIPT, KEY and the server's own EVENT never wake: none
+  of them shows a notification, and a push service downgrades an app
+  whose high-priority wakes end without one. They reach an offline
+  device on its next pull.
 - Plaintext `{"t":"wake"}`, encrypted to the device (RFC 8291) and
   signed with the server's VAPID key (RFC 8292). MUST NOT contain
   message content.
