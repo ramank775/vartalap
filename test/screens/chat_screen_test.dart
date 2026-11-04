@@ -30,6 +30,12 @@ import '../fake_asset_cache.dart';
 const String channelId = 'c-1';
 const String localUserId = 'aaaaaaaaa';
 const String peerUserId = 'bbbbbbbbb';
+
+// The messages an action names: UUIDs, 16 bytes in a payload (decision
+// 218).
+const String mMine = '0190aaaa-0000-7000-8000-00000000a001';
+const String mMine2 = '0190aaaa-0000-7000-8000-00000000a002';
+const String mPeer = '0190aaaa-0000-7000-8000-00000000b001';
 /// The production value. The commit timer is an ordinary Dart timer, so
 /// a widget test can reach the other side of it by pumping the fake
 /// clock — no reason to shorten the window under test.
@@ -87,8 +93,8 @@ void main() {
         ownerUserId: localUserId,
         createdAt: 1000,
       );
-      await _insert(store, 'm-mine', localUserId, 'my own message', 1);
-      await _insert(store, 'm-peer', peerUserId, 'their message', 2);
+      await _insert(store, mMine, localUserId, 'my own message', 1);
+      await _insert(store, mPeer, peerUserId, 'their message', 2);
       await seed?.call();
     });
     addTearDown(() async {
@@ -248,7 +254,7 @@ void main() {
       'one UNDO brings them all back', (tester) async {
     await pumpChat(tester);
     await q(tester,
-        () => _insert(store, 'm-mine-2', localUserId, 'my second message', 3));
+        () => _insert(store, mMine2, localUserId, 'my second message', 3));
     await settle(tester);
     final opsBefore = (await ops(tester)).length;
 
@@ -261,7 +267,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('2 messages deleted'), findsOneWidget);
-    for (final id in ['m-mine', 'm-mine-2']) {
+    for (final id in [mMine, mMine2]) {
       expect((await q(tester, () => store.fetchMessage(id)))?.tombstoned,
           isTrue);
     }
@@ -270,7 +276,7 @@ void main() {
 
     await tester.tap(find.text('UNDO'));
     await settle(tester);
-    for (final id in ['m-mine', 'm-mine-2']) {
+    for (final id in [mMine, mMine2]) {
       expect((await q(tester, () => store.fetchMessage(id)))?.tombstoned,
           isFalse);
     }
@@ -313,7 +319,7 @@ void main() {
       reason: 'docs/proto/v3-chat-payload.proto: a reaction rides the same '
           'opaque ChatPayload as everything else.',
     );
-    expect(_payload(added).messageId, 'm-peer');
+    expect(uuidText(_payload(added).messageId), mPeer);
 
     // The chip is rendered, and tapping it toggles our own reaction off.
     await settle(tester);
@@ -342,7 +348,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.check_rounded));
     await settle(tester);
 
-    final row = await q(tester, () => store.fetchMessage('m-mine'));
+    final row = await q(tester, () => store.fetchMessage(mMine));
     expect(row?.body, 'my corrected message');
     expect(row?.isEdited, isTrue);
     await settle(tester);
@@ -368,7 +374,7 @@ void main() {
 
     expect(find.text('Editing message'), findsNothing);
     expect((await ops(tester)).length, before);
-    expect((await q(tester, () => store.fetchMessage('m-mine')))?.isEdited,
+    expect((await q(tester, () => store.fetchMessage(mMine)))?.isEdited,
         isFalse);
   });
 
@@ -390,7 +396,7 @@ void main() {
     expect(find.textContaining('This message was deleted'), findsOneWidget);
     expect(find.text('Message deleted'), findsOneWidget);
     expect(
-      (await q(tester, () => store.fetchMessage('m-mine')))?.tombstoned,
+      (await q(tester, () => store.fetchMessage(mMine)))?.tombstoned,
       isTrue,
     );
     expect(
@@ -403,7 +409,7 @@ void main() {
     await tester.tap(find.text('UNDO'));
     await settle(tester);
 
-    final restored = await q(tester, () => store.fetchMessage('m-mine'));
+    final restored = await q(tester, () => store.fetchMessage(mMine));
     expect(restored?.tombstoned, isFalse);
     expect(restored?.body, 'my own message');
     expect(
@@ -431,10 +437,10 @@ void main() {
     final after = await ops(tester);
     expect(after, hasLength(opsBefore + 1));
     expect(after.last['kind'], OpKind.messageDelete);
-    expect(after.last['target_message_id'], 'm-mine');
+    expect(after.last['target_message_id'], mMine);
     expect(_payload(after.last).type, pb.ChatPayloadType.TYPE_MESSAGE_DELETE);
     expect(
-      (await q(tester, () => store.fetchMessage('m-mine')))?.tombstoned,
+      (await q(tester, () => store.fetchMessage(mMine)))?.tombstoned,
       isTrue,
     );
   });
