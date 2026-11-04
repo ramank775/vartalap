@@ -289,12 +289,12 @@ Envelope {
   uint32 ttl_sec            // how long the server keeps it on the
                             // timeline (§10.6); 0 = the 30-day max.
                             // Echoed unchanged on fanout.
-  uint32 flags              // bit 0 SILENT: no wake whatever the
-                            // class (unused today); bits 1-3 the
-                            // class, (flags >> 1) & 7: 0 MESSAGE,
-                            // 1 MUTATION, 2 RECEIPT, 3 KEY, 4 RESEND,
-                            // 5 EVENT (server only). Unknown bits
-                            // are kept and echoed.
+  uint32 flags              // bit 0 SILENT: no wake (§12.1); bits
+                            // 1-4 the class, (flags >> 1) & 15:
+                            // 0 MESSAGE, 1 MUTATION, 2 RECEIPT, 3 KEY,
+                            // 4 RESEND, 5 EVENT (server only), 6-15
+                            // free. Unknown bits are kept and echoed.
+  // field 15 is kept for the traceability content hash (decision 219)
   // server_timestamp_ms, sender_device_id absent on client→server
   // fields 1-4, 7, 20, 22, 23 (the text-era ids, client_timestamp_ms,
   // sender_user_id) are retired and reserved (decision 218)
@@ -1472,12 +1472,13 @@ registered Web Push endpoint (AUTH_CONTRACT §5). A close the client
 sent itself needs no wake: it pulls from its pointer when it comes
 back.
 
-- Only for an envelope of class MESSAGE (a new message or forward) or
-  RESEND (a phone asking for a re-send, which needs its sender awake)
-  without the SILENT bit (decisions 212, 215, 218; `flags`, §5.4).
-  MUTATION, RECEIPT, KEY and the server's own EVENT never wake: none
-  of them shows a notification, and a push service downgrades an app
-  whose high-priority wakes end without one. They reach an offline
+- Only for an envelope without the SILENT bit (decisions 212, 215,
+  218, 220; `flags`, §5.4). The sender sets it on whatever shows no
+  notification: the app on MUTATION, RECEIPT and KEY, the server on its
+  own EVENT; a MESSAGE or RESEND (a phone asking for a re-send, which
+  needs its sender awake) goes without it. A new kind of frame needs no
+  server change. A push service downgrades an app whose high-priority
+  wakes end without a notification. SILENT frames reach an offline
   device on its next pull.
 - Plaintext `{"t":"wake"}`, encrypted to the device (RFC 8291) and
   signed with the server's VAPID key (RFC 8292). MUST NOT contain

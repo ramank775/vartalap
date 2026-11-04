@@ -68,11 +68,11 @@ void main() {
           ],
         )).ops.envelopes.single;
 
+    // Decision 220: what shows no notification goes SILENT (bit 0).
     expect(sent(FrameClass.message).hasFlags(), isFalse);
-    expect(sent(FrameClass.mutation).flags, 1 << 1);
-    expect(sent(FrameClass.receipt).flags, 2 << 1);
-    expect(sent(FrameClass.key).flags, 3 << 1);
-    expect(sent(FrameClass.resend).flags, 4 << 1);
-    expect(sent(FrameClass.resend).flags & 1, 0, reason: 'no SILENT bit today');
+    expect(sent(FrameClass.mutation).flags, (1 << 1) | 1);
+    expect(sent(FrameClass.receipt).flags, (2 << 1) | 1);
+    expect(sent(FrameClass.key).flags, (3 << 1) | 1);
+    expect(sent(FrameClass.resend).flags, 4 << 1, reason: 'a resend wakes');
   });
 }

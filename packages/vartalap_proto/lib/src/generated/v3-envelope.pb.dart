@@ -140,17 +140,22 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   void clearTtlSec() => $_clearField(8);
 
-  /// Handling bits (decisions 212, 215, 218). Unknown bits are kept and
-  /// echoed. Echoed unchanged on fanout.
-  ///   bit 0 (1)       SILENT: no push wake, whatever the class.
-  ///   bits 1-3 (2-14) CLASS, (flags >> 1) & 7:
-  ///     0 MESSAGE   a new message or forward: wakes
-  ///     1 MUTATION  edit, delete, reaction: no wake
-  ///     2 RECEIPT   delivered/read: no wake, kept 7 days
-  ///     3 KEY       a group-key handoff: no wake
-  ///     4 RESEND    "send me that again": wakes
-  ///     5 EVENT     server-authored (set by the server only): no wake
-  ///   A frame with no flags is a MESSAGE.
+  /// Handling bits (decisions 212, 215, 218, 220). Unknown bits are kept
+  /// and echoed. Echoed unchanged on fanout.
+  ///   bit 0 (1)        SILENT: no push wake. The sender sets it on what
+  ///                    shows no notification; the server wakes for every
+  ///                    other stored frame, so a new kind of frame needs no
+  ///                    server change.
+  ///   bits 1-4 (2-30)  CLASS, (flags >> 1) & 15: what the frame is, for
+  ///                    the server's storage and (later) the invite gate:
+  ///     0 MESSAGE   a new message or forward
+  ///     1 MUTATION  edit, delete, reaction (sent SILENT)
+  ///     2 RECEIPT   delivered/read (sent SILENT); kept 7 days
+  ///     3 KEY       a group-key handoff (sent SILENT)
+  ///     4 RESEND    "send me that again"
+  ///     5 EVENT     server-authored, set by the server only (SILENT)
+  ///     6-15        free, for kinds to come (timeline, live location)
+  ///   A frame with no flags is a MESSAGE that wakes.
   @$pb.TagNumber(9)
   $core.int get flags => $_getIZ(3);
   @$pb.TagNumber(9)

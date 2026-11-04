@@ -44,6 +44,7 @@ export 'src/transport.dart'
 export 'src/wire.dart'
     show
         FrameClass,
+        kEnvelopeFlagSilent,
         InboundEnvelope,
         opIdUserId,
         userIdBytes,

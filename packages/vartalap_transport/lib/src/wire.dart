@@ -68,10 +68,14 @@ Uint8List _bytes(String hex) => Uint8List.fromList([
 String _hex(List<int> bytes) =>
     bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
-/// `Envelope.flags` bits 1-3, `(flags >> 1) & 7` (decision 218): what an
-/// op is, which tells the server whether to wake an offline phone (a
-/// [message] or [resend] does), how long to keep it (a [receipt]: 7
-/// days) and what to serve first. [event] is the server's own.
+/// `Envelope.flags` bit 0 (decision 220): no push wake. The app sets it
+/// on what shows the recipient no notification.
+const int kEnvelopeFlagSilent = 1;
+
+/// `Envelope.flags` bits 1-4, `(flags >> 1) & 15` (decisions 218, 220):
+/// what an op is, which tells the server how long to keep it (a
+/// [receipt]: 7 days). [event] is the server's own. Classes 6-15 are free
+/// for kinds to come.
 enum FrameClass {
   message,
   mutation,
@@ -80,7 +84,11 @@ enum FrameClass {
   resend,
   event;
 
-  int get flags => index << 1;
+  /// A new message, or a resend request (its sender must answer), shows
+  /// a notification or needs the phone awake; the rest do not.
+  bool get wakes => this == message || this == resend;
+
+  int get flags => (index << 1) | (wakes ? 0 : kEnvelopeFlagSilent);
 }
 
 /// The wire envelope for text ids. A DM ([peer] set) sends no channel:

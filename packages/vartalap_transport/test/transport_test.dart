@@ -89,7 +89,7 @@ void main() {
       expect(server.lastEnvelope!.opId, uuidBytes(_opId(1)));
       expect(server.lastEnvelope!.channelId, uuidBytes(_group));
       expect(server.lastEnvelope!.hasPeer(), isFalse);
-      expect(server.lastEnvelope!.flags, 4);
+      expect(server.lastEnvelope!.flags, 5, reason: 'RECEIPT, SILENT');
       expect(server.lastEnvelope!.payload, const [1, 2, 3]);
     });
 
@@ -870,7 +870,8 @@ void _wireTests() {
           flags: FrameClass.key.flags);
       expect(group.hasPeer(), isFalse);
       expect(group.channelId, uuidBytes(_group));
-      expect((group.flags >> 1) & 7, 3);
+      expect((group.flags >> 1) & 15, 3);
+      expect(group.flags & kEnvelopeFlagSilent, 1, reason: 'a key shows no notification');
     });
 
     test('inbound: the sender is the op id\'s bits, a DM\'s channel is '
