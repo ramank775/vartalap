@@ -16,6 +16,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -435,6 +436,131 @@ void main() {
 
       await scheduler.stop();
       await store.close();
+    });
+  });
+
+  group('receipts (decision 218)', () {
+    const self = '0a11ce001';
+    const bob = '0b0b00002';
+    const carol = '0c0ffee03';
+    const group = '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0001';
+    final dm = dmChannelId(self, bob);
+    late ChatStore store;
+    late SyncScheduler scheduler;
+    late ChatService chat;
+    var seen = 0;
+
+    setUp(() async {
+      seen = 0;
+      store = await ChatStore.open(path: inMemoryDatabasePath);
+      // Nothing dispatches: the queued receipts stay to be read.
+      scheduler = SyncScheduler(
+        store: store,
+        wsTransport: _StubTransport(connected: false),
+        restTransport: _StubTransport(connected: false),
+        backoff: const FixedBackoff(Duration(milliseconds: 10)),
+        clock: FakeClock(5000),
+      );
+      await scheduler.start();
+      chat = ChatService(
+        store: store,
+        scheduler: scheduler,
+        authClient: AuthClient(baseUrl: Uri.parse('http://localhost'))
+          ..restoreSession(accesskey: 'a', userId: self),
+        wsTransport: _unconnectedWs(),
+        uuidGen: Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(self)),
+        clock: FakeClock(5000),
+      );
+      for (final (channel, kind, members) in [
+        (group, 'group', [self, bob, carol]),
+        (dm, 'one_to_one', [self, bob]),
+      ]) {
+        await store.insertChannel(
+            channelId: channel, kind: kind, ownerUserId: self, createdAt: 1);
+        for (final m in members) {
+          await store.insertChannelMember(
+              channelId: channel, userId: m, role: 'member', joinedAt: 1);
+        }
+      }
+    });
+
+    tearDown(() async {
+      await scheduler.stop();
+      await store.close();
+    });
+
+    Future<void> peerMessage(String channel, String author, int ts) =>
+        store.db.insert('messages', {
+          'message_id': 'm-$channel-$ts',
+          'channel_id': channel,
+          'author_user_id': author,
+          'client_timestamp_ms': ts,
+          'server_timestamp_ms': ts,
+          'message_state': MessageState.sent.wire,
+          'state_updated_at': 1,
+        });
+
+    /// The receipts queued since the last call: where each goes, and what
+    /// it says.
+    Future<List<String>> queued() async {
+      final rows = await store.db.query('outbound_ops', orderBy: 'rowid');
+      final out = [
+        for (final r in rows.skip(seen))
+          if (pb.ChatPayload.fromBuffer(r['payload'] as List<int>)
+              case final p)
+            '${p.type == pb.ChatPayloadType.TYPE_READ_RECEIPT ? 'read' : 'delivered'}'
+                '@${p.markerServerTimestampMs} to ${r['peer'] ?? r['resource_id']}'
+                '${p.groupId.isEmpty ? '' : ' for ${uuidText(p.groupId)}'}'
+                '${p.hasMessageId() ? ' with an id' : ''}'
+      ];
+      seen = rows.length;
+      return out;
+    }
+
+    test('a group receipt goes over 1:1 to each member it acknowledges, '
+        'once', () async {
+      await peerMessage(group, bob, 100);
+      await peerMessage(group, carol, 200);
+      await chat.markRead(group);
+      expect(
+          await queued(),
+          unorderedEquals(
+              ['read@200 to $bob for $group', 'read@200 to $carol for $group']));
+      expect(
+          (await store.db.query('outbound_ops', where: 'peer = ?',
+                  whereArgs: [bob]))
+              .single['resource_id'],
+          dm,
+          reason: 'over their 1:1 channel');
+
+      await peerMessage(group, bob, 300);
+      await chat.markRead(group);
+      expect(await queued(), ['read@300 to $bob for $group'],
+          reason: 'carol wrote nothing since the last one');
+      await chat.markRead(group);
+      expect(await queued(), isEmpty, reason: 'nothing new to acknowledge');
+    });
+
+    test('a delivered receipt a read one already covered is skipped',
+        () async {
+      final stored = StreamController<String>();
+      chat.bindDeliverySource(stored.stream);
+      addTearDown(stored.close);
+
+      await peerMessage(dm, bob, 100);
+      stored.add(dm);
+      await pumpEventQueue();
+      await chat.markRead(dm); // the chat is open: read within the debounce
+      await chat.queueDeliveryReceiptsNow();
+      expect(await queued(), ['read@100 to $dm']);
+
+      await peerMessage(dm, bob, 200);
+      stored.add(dm);
+      await pumpEventQueue();
+      await chat.queueDeliveryReceiptsNow();
+      expect(await queued(), ['delivered@200 to $dm'],
+          reason: 'newer than the read, so it goes');
+      chat.bindDeliverySource(null);
     });
   });
 }
