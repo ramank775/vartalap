@@ -178,11 +178,15 @@ void main() {
                 .next(nowMs: DateTime.now().millisecondsSinceEpoch);
         // 0x53 || a minimal ServerEventPayload{version:1}. The gateway
         // looks at exactly one byte of `payload`, so the rest is filler.
-        a.ws.sendEphemeral(
+        // A DM frame names its peer (decision 218), so this one reaches
+        // the 0x53 check rather than failing for the missing peer.
+        final sent = a.ws.sendEphemeral(
           opId: forgedOpId,
           channelId: dmChannel,
+          peer: b.userId,
           payload: Uint8List.fromList(const [0x53, 0x08, 0x01]),
         );
+        expect(sent, isTrue, reason: 'the frame went out');
 
         await a.waitFor(() => acks.any((f) => f.opId == forgedOpId));
         final ack =
