@@ -12,7 +12,10 @@ library vartalap_sync;
 export 'src/backoff.dart'
     show BackoffPolicy, ExponentialJitterBackoff, FixedBackoff;
 export 'src/clock.dart' show Clock, FakeClock;
-export 'src/dm_channel_id.dart' show dmChannelId, isDmChannelId;
+// Trim 4's DM id moved to the transport, which derives it on every
+// inbound DM (decision 218).
+export 'package:vartalap_transport/vartalap_transport.dart'
+    show dmChannelId, isDmChannelId;
 export 'src/failure_watch.dart' show watchFailures;
 export 'src/inbound_receiver.dart'
     show

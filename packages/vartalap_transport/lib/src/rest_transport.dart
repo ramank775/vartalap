@@ -7,13 +7,15 @@ import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'ack.dart';
 import 'auth_token_provider.dart';
 import 'transport.dart';
+import 'wire.dart';
 
 /// REST adapter per SPIKE_B_SYNC.md §7a (REST side) and
 /// SYNC_PROTOCOL.md §11.
 ///
 /// - One HTTPS request per op (no batching — §11.5).
-/// - Bearer auth; body is the op payload augmented with `op_id` and
-///   `client_timestamp_ms` at frame time (SYNC_PROTOCOL.md §11.2).
+/// - Bearer auth; body is the op payload augmented with `op_id`
+///   (SYNC_PROTOCOL.md §11.2; its UUIDv7 carries the client's clock,
+///   decision 218).
 /// - HTTP status → [AckOutcome] per §8.1:
 ///     2xx → [AckSuccess]
 ///     401 → [AckAuthFailure]
@@ -104,8 +106,8 @@ class RestTransport implements Transport {
       throw StateError('RestTransport.send: no accesskey');
     }
 
-    // §11.2 — every REST write body carries op_id and
-    // client_timestamp_ms merged with the endpoint-specific payload.
+    // §11.2 — every REST write body carries op_id merged with the
+    // endpoint-specific payload.
     // The scheduler persists payload as JSON bytes. Empty payload (e.g.
     // DELETE) is fine — we just send the standard fields.
     Map<String, dynamic> body;
@@ -127,9 +129,6 @@ class RestTransport implements Transport {
       }
     }
     body['op_id'] = op.opId;
-    if (op.clientTimestampMs != null) {
-      body['client_timestamp_ms'] = op.clientTimestampMs;
-    }
 
     final uri = baseUrl.resolve(path);
     final headers = <String, String>{
@@ -226,16 +225,17 @@ class RestTransport implements Transport {
   }
 
   /// Client-triggered sync pull (§10.6). Hits `GET
-  /// /v3.0/sync/pending?since=` and returns one page of the `WS_PUSH`
-  /// envelopes for us stamped at or after [since] (inclusive: several
-  /// can share a millisecond), oldest first, plus the server's `more`
-  /// (frames past this page). Reading removes nothing; the caller keeps
+  /// /v3.0/sync/pending?since=` and returns one page of the envelopes
+  /// for us stamped at or after [since] (inclusive: several can share a
+  /// millisecond), oldest first, plus the server's `more` (frames past
+  /// this page). The body is a protobuf `PendingPage` (decision 218);
+  /// the envelopes come back in text form, a malformed one dropped. Reading removes nothing; the caller keeps
   /// [since]. Caller is responsible
   /// for feeding each returned envelope into the inbound apply pipeline
   /// (typically via [WsTransport.injectPush]). Returns null on transport
   /// failure or non-2xx so callers can fail open and retry on next tick
   /// — and so they never mistake "could not ask" for "nothing new".
-  Future<({List<pb.Envelope> envelopes, bool more})?> pullPendingSync({
+  Future<({List<InboundEnvelope> envelopes, bool more})?> pullPendingSync({
     int since = 0,
   }) async {
     if (_disposed) return null;
@@ -246,40 +246,25 @@ class RestTransport implements Transport {
     try {
       resp = await _client.get(uri, headers: {
         'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
+        'Accept': 'application/x-protobuf',
       });
     } catch (_) {
       return null;
     }
     if (resp.statusCode != 200) return null;
-    Map<String, dynamic> body;
+    final pb.PendingPage page;
     try {
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map<String, dynamic>) return null;
-      body = decoded;
+      page = pb.PendingPage.fromBuffer(resp.bodyBytes);
     } catch (_) {
       return null;
     }
-    final framesB64 = body['frames'];
-    if (framesB64 is! List) return null;
-    final out = <pb.Envelope>[];
-    for (final entry in framesB64) {
-      if (entry is! String) continue;
-      List<int> bytes;
-      try {
-        bytes = base64Decode(entry);
-      } catch (_) {
-        continue;
-      }
-      try {
-        final wsEnv = pb.WsEnvelope.fromBuffer(bytes);
-        if (wsEnv.type != pb.WsType.WS_PUSH || !wsEnv.hasPush()) continue;
-        out.add(wsEnv.push);
-      } catch (_) {
-        continue;
-      }
-    }
-    return (envelopes: out, more: body['more'] == true);
+    return (
+      envelopes: [
+        for (final env in page.envelopes)
+          if (inboundOrNull(env) case final inbound?) inbound,
+      ],
+      more: page.more,
+    );
   }
 }
 

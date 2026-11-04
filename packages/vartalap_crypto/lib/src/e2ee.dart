@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:vartalap_transport/vartalap_transport.dart'
+    show uuidBytes, uuidText;
 
 /// Private Signal records, encrypted with a per-account secure-storage key
 /// (its lifecycle is in `e2ee_account.dart`; this file stays plain Dart so
@@ -171,6 +173,13 @@ bool _equal(List<int> first, List<int> second) {
 /// Header binding INSIDE Signal's authenticated plaintext, not a wire cipher.
 /// Decode only after Signal authentication and inside the ratchet transaction.
 /// The server's timestamps are deliberately excluded because it changes them.
+///
+/// Sealed format v2 (decision 218): the plaintext is a version byte (2), a
+/// 16-byte tag over this context, the op it re-sends (a length byte, 0 or
+/// 16, then that op id), then the payload raw. The context itself never
+/// travels: each side computes the tag from the envelope it holds, so a
+/// copied or modified header fails as it did in v1, for 18 bytes instead
+/// of a JSON line.
 class E2eeOperationContext {
   final String opId;
   final String channelId;
@@ -197,22 +206,36 @@ class E2eeOperationContext {
     }
   }
 
-  List<Object> get _header => [
-        1,
-        opId,
-        channelId,
-        senderUserId,
-        senderDeviceId,
-        ephemeral,
-        peer,
-        ttlSec,
-      ];
+  static const int _version = 2;
+
+  /// The first 16 bytes of SHA-256 over every field, text form, each after
+  /// its 4-byte big-endian length: one encoding per context.
+  Uint8List get _tag {
+    final input = BytesBuilder(copy: false);
+    for (final field in [
+      opId,
+      channelId,
+      senderUserId,
+      senderDeviceId,
+      ephemeral ? '1' : '0',
+      peer,
+      '$ttlSec',
+    ]) {
+      final bytes = utf8.encode(field);
+      input
+        ..add((ByteData(4)..setUint32(0, bytes.length)).buffer.asUint8List())
+        ..add(bytes);
+    }
+    return SHA256Digest().process(input.toBytes()).sublist(0, 16);
+  }
 
   /// [retryOf]: the op this one re-sends for a phone that could not
   /// decrypt it (decision 188), authenticated with the rest.
-  Uint8List encodePlaintext(Uint8List payload, {String retryOf = ''}) =>
-      Uint8List.fromList(utf8.encode(
-          jsonEncode([..._header, retryOf, base64.encode(payload)])));
+  Uint8List encodePlaintext(Uint8List payload, {String retryOf = ''}) {
+    final retry = retryOf.isEmpty ? Uint8List(0) : uuidBytes(retryOf);
+    return Uint8List.fromList(
+        [_version, ..._tag, retry.length, ...retry, ...payload]);
+  }
 
   /// Rejects unknown versions, malformed frames and copied/modified headers.
   /// Authentication/context failures must escape the caller's transaction.
@@ -222,26 +245,19 @@ class E2eeOperationContext {
   /// [decodeAuthenticatedPlaintext] and the op it re-sends ('' for none).
   ({Uint8List payload, String retryOf}) decodeAuthenticated(
       Uint8List plaintext) {
-    final decoded = jsonDecode(utf8.decode(plaintext));
-    if (decoded is! List ||
-        decoded.length != 10 ||
-        decoded[0] is! int ||
-        decoded[5] is! bool ||
-        decoded[7] is! int ||
-        decoded[9] is! String ||
-        [1, 2, 3, 4, 6, 8].any((i) => decoded[i] is! String)) {
+    if (plaintext.length < 18 || plaintext[0] != _version) {
       throw const FormatException('Invalid authenticated operation frame');
     }
-    final expected = _header;
-    for (var i = 0; i < expected.length; i++) {
-      if (decoded[i] != expected[i]) {
-        throw const FormatException('Authenticated operation context mismatch');
-      }
+    if (!_equal(plaintext.sublist(1, 17), _tag)) {
+      throw const FormatException('Authenticated operation context mismatch');
     }
-    final payload = base64.decode(decoded[9] as String);
-    if (base64.encode(payload) != decoded[9]) {
-      throw const FormatException('Noncanonical authenticated payload');
+    final retry = plaintext[17];
+    if ((retry != 0 && retry != 16) || plaintext.length < 18 + retry) {
+      throw const FormatException('Invalid authenticated operation frame');
     }
-    return (payload: payload, retryOf: decoded[8] as String);
+    return (
+      payload: plaintext.sublist(18 + retry),
+      retryOf: retry == 0 ? '' : uuidText(plaintext.sublist(18, 34)),
+    );
   }
 }

@@ -1,4 +1,5 @@
 import 'ack.dart';
+import 'wire.dart' show FrameClass;
 
 /// Transport state per SPIKE_B_SYNC.md §7.
 enum TransportState { connected, connecting, disconnected }
@@ -14,9 +15,9 @@ class OutboundFrame {
 
   /// Trim 4 — the other participant's `user_id` when [resourceId] is a
   /// derived DM channel (`"d"`-prefixed); null for groups. Stamped on
-  /// every envelope in the frame as `Envelope.peer`; the server
-  /// recomputes `dm_chan(sender, peer)` from it instead of reading a
-  /// channel row, so an op on a DM without it is `validation_failed`.
+  /// every envelope in the frame as `Envelope.peer`, in place of the
+  /// channel (decision 218): the server recomputes `dm_chan(sender,
+  /// peer)` from it instead of reading a channel row.
   final String? peer;
 
   const OutboundFrame({
@@ -30,7 +31,6 @@ class OutboundFrame {
 class FramedOp {
   final String opId;
   final List<int> payload;
-  final int? clientTimestampMs;
 
   /// REST-only. Populated by the scheduler for ops whose transport is
   /// [OpTransport.rest]. `RestTransport.send` uses these to issue the
@@ -41,18 +41,16 @@ class FramedOp {
   final String? restMethod;
   final String? restPath;
 
-  /// Sent as `Envelope.flags` bit 0, SILENT (decisions 212, 215): the
-  /// server wakes no offline recipient for it. Set on every op that shows
-  /// them no notification.
-  final bool silent;
+  /// Sent in `Envelope.flags` (decision 218): only a message or a
+  /// resend request wakes an offline recipient.
+  final FrameClass frameClass;
 
   const FramedOp({
     required this.opId,
     required this.payload,
-    this.clientTimestampMs,
     this.restMethod,
     this.restPath,
-    this.silent = false,
+    this.frameClass = FrameClass.message,
   });
 }
 

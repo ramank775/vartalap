@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
+import 'package:vartalap_transport/vartalap_transport.dart'
+    show InboundEnvelope, dmChannelId, isDmChannelId, uuidText;
 
 import 'clock.dart';
-import 'dm_channel_id.dart';
 
 /// Public-profile fields needed to backfill a `contacts` row for a peer
 /// we've never discovered (decision 79) — a subset of `GET
@@ -67,7 +67,7 @@ class TypingEvent {
 /// Inbound WS_PUSH receiver per SYNC_PROTOCOL.md §10.5 and
 /// SPIKE_A_SCHEMA.md §5.4.
 ///
-/// Consumes a stream of [pb.Envelope]s (from `WsTransport.pushes`),
+/// Consumes a stream of [InboundEnvelope]s (from `WsTransport.pushes`),
 /// dedups against [ChatStore.hasSeenOpId], routes by `payload[0]`
 /// (0x53 → ServerEventPayload, else → ChatPayload), and applies the
 /// payload to the local projections via the inbound writer methods on
@@ -91,7 +91,7 @@ typedef OpenedPayload = ({List<int> payload, String retryOf});
 
 class InboundReceiver {
   final ChatStore store;
-  final Stream<pb.Envelope> pushes;
+  final Stream<InboundEnvelope> pushes;
   final String localUserId;
   final Clock clock;
 
@@ -114,16 +114,16 @@ class InboundReceiver {
   /// "Waiting for this message" row and an [undecryptable] call. A throw
   /// (the database) leaves the frame unhandled, the pull pointer before
   /// it. Unset: payloads are read as they are.
-  final Future<OpenedPayload?> Function(pb.Envelope env)? open;
+  final Future<OpenedPayload?> Function(InboundEnvelope env)? open;
 
   /// After an undecryptable op's placeholder is stored: ask its sender to
   /// re-send it.
-  final Future<void> Function(pb.Envelope env)? undecryptable;
+  final Future<void> Function(InboundEnvelope env)? undecryptable;
 
   /// After a stored op applied, so [open] can drop what it staged for it.
-  final Future<void> Function(pb.Envelope env)? applied;
+  final Future<void> Function(InboundEnvelope env)? applied;
 
-  StreamSubscription<pb.Envelope>? _sub;
+  StreamSubscription<InboundEnvelope>? _sub;
   bool _running = false;
 
   final Set<Future<void>> _inFlight = <Future<void>>{};
@@ -216,7 +216,7 @@ class InboundReceiver {
               _handledCtrl.add(env.opId);
             }
             if (!_pointerHeld) {
-              await _moveSyncPointer(env.serverTimestampMs.toInt());
+              await _moveSyncPointer(env.serverTimestampMs);
             }
           }).catchError(
             (Object e) {
@@ -318,7 +318,7 @@ class InboundReceiver {
         }),
       );
 
-  Future<void> _apply(pb.Envelope env) async {
+  Future<void> _apply(InboundEnvelope env) async {
     if (!_running) return;
     final channelId = env.channelId;
     final opId = env.opId;
@@ -365,7 +365,8 @@ class InboundReceiver {
     final open = this.open;
     List<int> plain = payload;
     var retryOf = '';
-    if (isDmChannelId(channelId)) {
+    final dm = isDmChannelId(channelId);
+    if (dm) {
       final sender = env.senderUserId;
       if (sender.isEmpty || dmChannelId(localUserId, sender) != channelId) {
         // ignore: avoid_print
@@ -387,7 +388,6 @@ class InboundReceiver {
         if (opened.payload.isEmpty) return;
         (payload: plain, :retryOf) = opened;
       }
-      await _ensureDmChannel(channelId, sender, env);
     } else if (!await store.channelExists(channelId) &&
         !await _fetchGroup(channelId)) {
       // A group we were added to whose event never reached us, and the
@@ -399,7 +399,7 @@ class InboundReceiver {
       return;
     }
 
-    if (open != null && !isDmChannelId(channelId)) {
+    if (open != null && !dm) {
       final opened = await open(env);
       if (!_running) return;
       if (opened == null) {
@@ -409,6 +409,33 @@ class InboundReceiver {
       if (opened.payload.isEmpty) return;
       (payload: plain, :retryOf) = opened;
     }
+    pb.ChatPayload chat;
+    String messageId;
+    String? replyTo;
+    try {
+      chat = pb.ChatPayload.fromBuffer(plain);
+      // Decision 218: ids travel as 16 bytes; text from here on.
+      messageId = chat.messageId.isEmpty ? '' : uuidText(chat.messageId);
+      replyTo = chat.hasReplyToMessageId()
+          ? uuidText(chat.replyToMessageId)
+          : null;
+    } catch (e) {
+      // ignore: avoid_print
+      print(
+        'InboundReceiver: malformed ChatPayload '
+        'channel=$channelId op_id=$opId: $e',
+      );
+      return;
+    }
+    if (dm) {
+      // A group's receipt comes to its authors over 1:1 (decision 218):
+      // it makes no chat here.
+      if (chat.groupId.isNotEmpty) {
+        await _groupReceipt(env, chat);
+        return;
+      }
+      await _ensureDmChannel(channelId, env.senderUserId, env);
+    }
     // The re-send of an op this phone could not decrypt takes its place,
     // in the chat too: it applies at the placeholder's server time.
     if (retryOf.isNotEmpty) {
@@ -417,22 +444,8 @@ class InboundReceiver {
       if (placeholder != null) {
         await store.removeMessage(placeholderId);
         final at = placeholder.serverTimestampMs;
-        if (at != null) {
-          env = pb.Envelope.fromBuffer(env.writeToBuffer())
-            ..serverTimestampMs = fixnum.Int64(at);
-        }
+        if (at != null) env = env.at(at);
       }
-    }
-    pb.ChatPayload chat;
-    try {
-      chat = pb.ChatPayload.fromBuffer(plain);
-    } catch (e) {
-      // ignore: avoid_print
-      print(
-        'InboundReceiver: malformed ChatPayload '
-        'channel=$channelId op_id=$opId: $e',
-      );
-      return;
     }
 
     switch (chat.type) {
@@ -442,7 +455,7 @@ class InboundReceiver {
           localUserId: localUserId,
           channelId: channelId,
           opId: opId,
-          messageId: chat.messageId,
+          messageId: messageId,
           senderUserId: env.senderUserId,
           body: chat.hasBody() ? chat.body : null,
           contentType: chat.hasContentType() ? chat.contentType : null,
@@ -459,10 +472,9 @@ class InboundReceiver {
           forwardSource: chat.hasForwardSource()
               ? Uint8List.fromList(chat.forwardSource.writeToBuffer())
               : null,
-          replyToMessageId:
-              chat.hasReplyToMessageId() ? chat.replyToMessageId : null,
-          clientTimestampMs: env.clientTimestampMs.toInt(),
-          serverTimestampMs: env.serverTimestampMs.toInt(),
+          replyToMessageId: replyTo,
+          clientTimestampMs: env.clientTimestampMs,
+          serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
         );
         if (env.senderUserId != localUserId && !_peerMessageCtrl.isClosed) {
@@ -472,7 +484,7 @@ class InboundReceiver {
         await store.applyInboundMessageUpdate(
           channelId: channelId,
           opId: opId,
-          messageId: chat.messageId,
+          messageId: messageId,
           senderUserId: env.senderUserId,
           body: chat.hasBody() ? chat.body : null,
           contentType: chat.hasContentType() ? chat.contentType : null,
@@ -482,42 +494,42 @@ class InboundReceiver {
                   pb.ChatPayload(attachments: chat.attachments)
                       .writeToBuffer(),
                 ),
-          serverTimestampMs: env.serverTimestampMs.toInt(),
+          serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_MESSAGE_DELETE:
         await store.applyInboundMessageDelete(
           channelId: channelId,
           opId: opId,
-          messageId: chat.messageId,
+          messageId: messageId,
           senderUserId: env.senderUserId,
-          serverTimestampMs: env.serverTimestampMs.toInt(),
+          serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_REACTION_ADD:
         await store.applyInboundReactionAdd(
           channelId: channelId,
           opId: opId,
-          messageId: chat.messageId,
+          messageId: messageId,
           senderUserId: env.senderUserId,
           emoji: chat.emoji,
-          serverTimestampMs: env.serverTimestampMs.toInt(),
+          serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_REACTION_REMOVE:
         await store.applyInboundReactionRemove(
           channelId: channelId,
           opId: opId,
-          messageId: chat.messageId,
+          messageId: messageId,
           senderUserId: env.senderUserId,
           emoji: chat.emoji,
-          serverTimestampMs: env.serverTimestampMs.toInt(),
+          serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_READ_RECEIPT:
-        await _handleReceipt(env, chat, MessageState.read);
+        await _handleReceipt(env, chat, MessageState.read, channelId);
       case pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT:
-        await _handleReceipt(env, chat, MessageState.delivered);
+        await _handleReceipt(env, chat, MessageState.delivered, channelId);
       case pb.ChatPayloadType.TYPE_TYPING:
         // Typing must ride `ephemeral=true`; on the persistent path it
         // would be a stale indicator by the time it applied. Drop it,
@@ -544,7 +556,7 @@ class InboundReceiver {
   /// Decision 188: an op that will never open here shows as "Waiting for
   /// this message" in its place, recorded as handled so the pointer moves
   /// on, and its sender is asked to re-send it.
-  Future<void> _placeholder(pb.Envelope env) async {
+  Future<void> _placeholder(InboundEnvelope env) async {
     // ignore: avoid_print
     print('InboundReceiver: cannot decrypt channel=${env.channelId} '
         'op_id=${env.opId}; asking for a re-send');
@@ -559,8 +571,8 @@ class InboundReceiver {
       attachments: null,
       forwardSource: null,
       replyToMessageId: null,
-      clientTimestampMs: env.clientTimestampMs.toInt(),
-      serverTimestampMs: env.serverTimestampMs.toInt(),
+      clientTimestampMs: env.clientTimestampMs,
+      serverTimestampMs: env.serverTimestampMs,
       nowMs: clock.nowMs(),
     );
     await undecryptable?.call(env);
@@ -570,7 +582,7 @@ class InboundReceiver {
   /// and routes by `whichBody()`. Channel + membership lifecycle is
   /// applied here; the remaining variants fall through to a log stub
   /// (no `op_id_seen` so later clients can apply on re-fanout).
-  Future<void> _handleServerEvent(pb.Envelope env, List<int> bytes) async {
+  Future<void> _handleServerEvent(InboundEnvelope env, List<int> bytes) async {
     pb.ServerEventPayload sep;
     try {
       sep = pb.ServerEventPayload.fromBuffer(bytes);
@@ -613,7 +625,7 @@ class InboundReceiver {
   /// server-authored `ServerEventPayload{Typing}` is still accepted in
   /// case the gateway ever emits one. Anything else is a no-op
   /// (forward-compat for future presence / reaction bursts).
-  Future<void> _handleEphemeral(pb.Envelope env, List<int> payload) async {
+  Future<void> _handleEphemeral(InboundEnvelope env, List<int> payload) async {
     final bool? isTyping;
     try {
       if (payload[0] == 0x53) {
@@ -640,7 +652,7 @@ class InboundReceiver {
       channelId: env.channelId,
       userId: env.senderUserId,
       isTyping: isTyping,
-      emittedAtMs: env.clientTimestampMs.toInt(),
+      emittedAtMs: env.clientTimestampMs,
     ));
   }
 
@@ -661,10 +673,14 @@ class InboundReceiver {
   /// past it, as WhatsApp does in groups. A DM's one peer is its own
   /// "every member". ponytail: a member leaving doesn't re-check; the
   /// next receipt does.
+  ///
+  /// [channelId] is the channel acknowledged: the envelope's own, or the
+  /// group a receipt over 1:1 names ([_groupReceipt]).
   Future<void> _handleReceipt(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ChatPayload chat,
     MessageState state,
+    String channelId,
   ) async {
     final marker = chat.markerServerTimestampMs.toInt();
     if (env.senderUserId != localUserId && marker > 0) {
@@ -675,7 +691,7 @@ class InboundReceiver {
         'SET delivered_up_to = MAX(COALESCE(delivered_up_to, 0), ?)'
         '${read ? ', read_up_to = MAX(COALESCE(read_up_to, 0), ?)' : ''} '
         'WHERE channel_id = ? AND user_id = ?',
-        [marker, if (read) marker, env.channelId, env.senderUserId],
+        [marker, if (read) marker, channelId, env.senderUserId],
       );
       final upTo = read ? 'read_up_to' : 'delivered_up_to';
       final rows = await store.db.rawQuery(
@@ -690,17 +706,40 @@ class InboundReceiver {
               AND cm.joined_at <= m.server_timestamp_ms
               AND COALESCE(cm.$upTo, 0) < m.server_timestamp_ms)
         ''',
-        [env.channelId, localUserId, marker, localUserId],
+        [channelId, localUserId, marker, localUserId],
       );
       for (final row in rows) {
         await store.applyMessageStateChange(
           messageId: row['message_id'] as String,
           newState: state,
-          changedAtMs: env.serverTimestampMs.toInt(),
+          changedAtMs: env.serverTimestampMs,
         );
       }
     }
     await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
+  }
+
+  /// Decision 218: a member's receipt for a group reaches only the
+  /// members whose messages it acknowledges, each over their 1:1 channel,
+  /// naming the group in `group_id`. Applied to that group as if it had
+  /// come there; the per-member markers keep decision 202's ticks. The
+  /// sender's membership needs no check: the marker update only matches
+  /// its own row, and the flip only our own messages.
+  Future<void> _groupReceipt(InboundEnvelope env, pb.ChatPayload chat) async {
+    final state = switch (chat.type) {
+      pb.ChatPayloadType.TYPE_READ_RECEIPT => MessageState.read,
+      pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT => MessageState.delivered,
+      _ => null,
+    };
+    if (state == null) return;
+    final String group;
+    try {
+      group = uuidText(chat.groupId);
+    } on FormatException {
+      return;
+    }
+    await _handleReceipt(env, chat, state, group);
+    await applied?.call(env);
   }
 
   /// §10.2 MessageStateChanged. Flip the local row's `message_state`
@@ -708,7 +747,7 @@ class InboundReceiver {
   /// drops stale events on its own; we still record `op_id_seen` here
   /// so the server-side dedup invariant holds.
   Future<void> _handleMessageStateChanged(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.MessageStateChanged body,
   ) async {
     final mapped = _messageStateFromWire(body.newState);
@@ -734,7 +773,7 @@ class InboundReceiver {
   /// channel we share, so the contact row may not exist yet — the
   /// store creates it lazily.
   Future<void> _handleProfileEdited(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ProfileEdited body,
   ) async {
     final userId = body.userId;
@@ -758,7 +797,7 @@ class InboundReceiver {
   /// §10.2 UsernameChanged. Empty `new_username` means the user
   /// cleared their handle — store layer treats it as NULL.
   Future<void> _handleUsernameChanged(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.UsernameChanged body,
   ) async {
     final userId = body.userId;
@@ -777,7 +816,7 @@ class InboundReceiver {
   /// Out-of-order delivery (channel not yet local) is a no-op in the
   /// store; op_id_seen is still recorded so the dedup invariant holds.
   Future<void> _handleChannelEdited(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ChannelEdited body,
   ) async {
     final channelId = body.channelId;
@@ -810,7 +849,7 @@ class InboundReceiver {
   /// list drops it; membership rows stay so a re-create doesn't lose
   /// history.
   Future<void> _handleChannelDeleted(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ChannelDeleted body,
   ) async {
     final channelId = body.channelId;
@@ -842,11 +881,11 @@ class InboundReceiver {
   Future<void> _ensureDmChannel(
     String channelId,
     String senderUserId,
-    pb.Envelope env,
+    InboundEnvelope env,
   ) async {
     if (await store.channelExists(channelId)) return;
-    final createdAt = env.serverTimestampMs.toInt() != 0
-        ? env.serverTimestampMs.toInt()
+    final createdAt = env.serverTimestampMs != 0
+        ? env.serverTimestampMs
         : clock.nowMs();
     await store.insertChannel(
       channelId: channelId,
@@ -868,7 +907,7 @@ class InboundReceiver {
   /// §10.2 ChannelCreated. Materialize the channel + member roster on
   /// every recipient (creator included per the e0e6bfe contract).
   Future<void> _handleChannelCreated(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ChannelCreated body,
   ) async {
     final nowMs = clock.nowMs();
@@ -919,7 +958,7 @@ class InboundReceiver {
   /// (and lands a new row as `member`); `owner` also moves
   /// `channels.owner_user_id`.
   Future<void> _handleChannelMemberAdded(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ChannelMemberAdded body,
   ) async {
     final nowMs = clock.nowMs();
@@ -970,7 +1009,7 @@ class InboundReceiver {
   /// was the one removed, also tombstone the channel locally so it falls
   /// off the chat list (the user has been kicked).
   Future<void> _handleChannelMemberRemoved(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ChannelMemberRemoved body,
   ) async {
     final nowMs = clock.nowMs();
@@ -1003,14 +1042,14 @@ class InboundReceiver {
     await store.markOpIdSeen(env.channelId, env.opId, nowMs);
   }
 
-  int _eventAt(pb.Envelope env) => env.serverTimestampMs.toInt() != 0
-      ? env.serverTimestampMs.toInt()
+  int _eventAt(InboundEnvelope env) => env.serverTimestampMs != 0
+      ? env.serverTimestampMs
       : clock.nowMs();
 
   /// One [GroupEvent] line per server event (or two, told apart by
   /// [suffix]), keyed on the envelope so a re-fanout writes nothing.
   Future<void> _groupEvent(
-    pb.Envelope env,
+    InboundEnvelope env,
     GroupEvent event, {
     required int at,
     String suffix = '',
@@ -1129,7 +1168,7 @@ class InboundReceiver {
   /// Fallback log for ServerEventPayload variants we don't yet apply.
   /// op_id_seen is deliberately NOT recorded — see class docstring.
   void _logServerEventFallback(
-    pb.Envelope env,
+    InboundEnvelope env,
     pb.ServerEventPayload sep,
   ) {
     // ignore: avoid_print

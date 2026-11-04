@@ -3,14 +3,15 @@ import 'dart:typed_data';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' show Transaction;
 import 'package:vartalap_crypto/vartalap_crypto.dart';
-import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 /// A re-send request (decision 188): kind 5 after the 0x45 marker and
-/// version, then JSON `{"op": op id, "ch": channel id}`. Not encrypted: it
-/// carries only ids, and the session it would ride may be the broken one.
+/// version, then the op's id (16 bytes) and, for a group's op, the group's
+/// (16 more); a DM's op is on the DM the request rides (decision 218:
+/// binary, was JSON). Not encrypted: it carries only ids, and the session
+/// it would ride may be the broken one.
 const int _kindResendRequest = 5;
 
 /// The app's half of decision 188: which ops seal how, who a group's key
@@ -59,7 +60,7 @@ class MessageCrypto {
   static bool _isResendRequest(List<int> p) =>
       p.length > 3 &&
       p[0] == kSealedMarker &&
-      p[1] == 1 &&
+      p[1] == kSealedVersion &&
       p[2] == _kindResendRequest;
 
   /// [SyncScheduler.seal]: a DM op for its peer, a group op for every
@@ -150,16 +151,12 @@ class MessageCrypto {
         peer: member,
         ops: [
           // The group op it goes ahead of does the waking (decision 212).
-          FramedOp(
-              opId: opId,
-              payload: sealed,
-              clientTimestampMs: clock.nowMs(),
-              silent: true)
+          FramedOp(opId: opId, payload: sealed, frameClass: FrameClass.key)
         ],
       ));
 
   /// [InboundReceiver.open]: null for an op that will never open here.
-  Future<OpenedPayload?> open(pb.Envelope env) async {
+  Future<OpenedPayload?> open(InboundEnvelope env) async {
     if (_isResendRequest(env.payload)) {
       await _onResendRequest(env);
       return (payload: const <int>[], retryOf: '');
@@ -173,20 +170,21 @@ class MessageCrypto {
   }
 
   /// [InboundReceiver.applied].
-  Future<void> applied(pb.Envelope env) => crypto.applied(env);
+  Future<void> applied(InboundEnvelope env) => crypto.applied(env);
 
   /// [InboundReceiver.undecryptable]: ask the sender's phone, on our 1:1
   /// channel with them, to re-send [env].
-  Future<void> requestResend(pb.Envelope env) async {
+  Future<void> requestResend(InboundEnvelope env) async {
     final sender = env.senderUserId;
     await store.enqueueOutboundOp(_op(
       channelId: dmChannelId(selfUserId, sender),
       peer: sender,
       payload: [
         kSealedMarker,
-        1,
+        kSealedVersion,
         _kindResendRequest,
-        ...utf8.encode(jsonEncode({'op': env.opId, 'ch': env.channelId})),
+        ...uuidBytes(env.opId),
+        if (!isDmChannelId(env.channelId)) ...uuidBytes(env.channelId),
       ],
     ));
     tick?.call();
@@ -194,24 +192,21 @@ class MessageCrypto {
 
   /// [env]'s sender could not open one of ours: re-send it once, sealed
   /// afresh for its current phone, under a new op id that names the old.
-  Future<void> _onResendRequest(pb.Envelope env) async {
+  Future<void> _onResendRequest(InboundEnvelope env) async {
     final requester = env.senderUserId;
-    final Map<String, dynamic> ask;
-    try {
-      ask = jsonDecode(utf8.decode(env.payload.sublist(3)))
-          as Map<String, dynamic>;
-    } catch (_) {
-      return;
-    }
-    final channelId = '${ask['ch']}';
-    // Only for a recipient of the op: a member of the group, the DM's peer.
-    final group = !isDmChannelId(channelId);
+    final ask = env.payload.sublist(3);
+    if (ask.length != 16 && ask.length != 32) return;
+    final opId = uuidText(ask.sublist(0, 16));
+    final group = ask.length == 32;
+    final channelId = group ? uuidText(ask.sublist(16)) : env.channelId;
+    // Only for a recipient of the op: a member of the group, the DM's peer
+    // (whose request rides that DM, which the receiver checked derives
+    // from the two of us).
     if (group
         ? !(await _members(channelId)).contains(requester)
-        : channelId != dmChannelId(selfUserId, requester)) {
+        : !isDmChannelId(channelId)) {
       return;
     }
-    final opId = '${ask['op']}';
     final sent = await crypto.takeForResend(opId);
     if (sent == null || sent['ch'] != channelId) return;
     await crypto.resetSession(requester, env.senderDeviceId);

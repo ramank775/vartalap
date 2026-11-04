@@ -3,7 +3,6 @@ import 'dart:io' show WebSocketException;
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -12,6 +11,7 @@ import 'ack.dart';
 import 'app_build.dart';
 import 'auth_token_provider.dart';
 import 'transport.dart';
+import 'wire.dart';
 
 /// WS adapter per SPIKE_B_SYNC.md §7a (WS side) and SYNC_PROTOCOL.md
 /// §5.
@@ -33,7 +33,7 @@ class WsTransport implements Transport {
 
   final _ackCtrl = StreamController<AckFrame>.broadcast();
   final _stateCtrl = StreamController<TransportState>.broadcast();
-  final _pushCtrl = StreamController<pb.Envelope>.broadcast();
+  final _pushCtrl = StreamController<InboundEnvelope>.broadcast();
 
   /// Fires when the server sends a WS_REAUTH_REQUIRED frame. The auth
   /// layer subscribes and runs a session refresh; the WS will reconnect
@@ -62,7 +62,7 @@ class WsTransport implements Transport {
   /// in-flight ops are buffered too — the scheduler can't act on them
   /// until the projection catches up either.
   bool _buffering = false;
-  final List<pb.Envelope> _pushBuffer = [];
+  final List<InboundEnvelope> _pushBuffer = [];
   final List<AckFrame> _ackBuffer = [];
 
   /// Monotonic reconnect-attempt counter used for backoff pacing. Reset
@@ -96,14 +96,14 @@ class WsTransport implements Transport {
   /// Inbound chat-content fanout. `WS_PUSH` frames are surfaced here for
   /// the future inbound-receiver layer (step 9+). Not part of the
   /// `Transport` contract — the scheduler only consumes [acks].
-  Stream<pb.Envelope> get pushes => _pushCtrl.stream;
+  Stream<InboundEnvelope> get pushes => _pushCtrl.stream;
 
   /// Inject an envelope onto the [pushes] stream. Used by the
   /// client-triggered sync pull (REST `GET /v3.0/sync/pending`) to
   /// deliver server-queued frames through the same fanout pipeline as
   /// live WS_PUSH frames — `InboundReceiver` doesn't care which path
   /// the envelope arrived on; dedup is keyed on `op_id`.
-  void injectPush(pb.Envelope env) {
+  void injectPush(InboundEnvelope env) {
     if (_pushCtrl.isClosed) return;
     _pushCtrl.add(env);
   }
@@ -290,8 +290,15 @@ class WsTransport implements Transport {
     Uint8List bytes;
     try {
       bytes = opFrame(frame).writeToBuffer();
-    } catch (e) {
-      throw StateError('WsTransport.send: malformed envelope: $e');
+    } on FormatException {
+      // An id the wire cannot carry (decision 218): what the server would
+      // refuse, so the op fails rather than retrying forever.
+      for (final op in frame.ops) {
+        _emitAck(AckFrame(
+            opId: op.opId,
+            outcome: const AckPermanentReject(reason: 'validation_failed')));
+      }
+      return;
     }
 
     try {
@@ -318,28 +325,25 @@ class WsTransport implements Transport {
     required String opId,
     required String channelId,
     required Uint8List payload,
-    int? clientTimestampMs,
     String? peer,
   }) {
     final ch = _channel;
     if (ch == null || _state != TransportState.connected) return false;
 
-    final env = pb.Envelope(
-      opId: opId,
-      channelId: channelId,
-      clientTimestampMs:
-          clientTimestampMs != null ? fixnum.Int64(clientTimestampMs) : null,
-      payload: payload,
-      ephemeral: true,
-      // Trim 4: a DM has no channel row to check the sender against,
-      // so even a typing frame names its peer.
-      peer: peer,
-    );
-    final wsEnv = pb.WsEnvelope(
-      type: pb.WsType.WS_OP,
-      ops: pb.EnvelopeBatch(envelopes: [env]),
-    );
     try {
+      final wsEnv = pb.WsEnvelope(
+        type: pb.WsType.WS_OP,
+        ops: pb.EnvelopeBatch(envelopes: [
+          // Trim 4: a DM has no channel row to check the sender against,
+          // so even a typing frame names its peer.
+          wireEnvelope(
+              opId: opId,
+              channelId: channelId,
+              peer: peer,
+              payload: payload,
+              ephemeral: true),
+        ]),
+      );
       ch.sink.add(wsEnv.writeToBuffer());
       return true;
     } catch (_) {
@@ -370,7 +374,8 @@ class WsTransport implements Transport {
       case pb.WsType.WS_ACK:
         _handleAckBatch(wsEnv.acks);
       case pb.WsType.WS_PUSH:
-        _emitPush(wsEnv.push);
+        final env = inboundOrNull(wsEnv.push);
+        if (env != null) _emitPush(env);
       case pb.WsType.WS_REAUTH_REQUIRED:
         // Tell the auth layer to refresh, then close. The reconnect
         // schedule races with the refresh — if reconnect wins, the
@@ -396,13 +401,12 @@ class WsTransport implements Transport {
   }
 
   void _handleAckBatch(pb.AckBatch batch) {
-    for (final ack in batch.acks) {
-      final frame = AckFrame(opId: ack.opId, outcome: ackOutcomeOf(ack));
+    for (final frame in ackFrames(batch)) {
       _emitAck(frame);
     }
   }
 
-  void _emitPush(pb.Envelope env) {
+  void _emitPush(InboundEnvelope env) {
     if (_pushCtrl.isClosed) return;
     if (_buffering) {
       _pushBuffer.add(env);
@@ -428,7 +432,7 @@ class WsTransport implements Transport {
   void endSyncBuffer() {
     if (!_buffering) return;
     _buffering = false;
-    final pushes = List<pb.Envelope>.from(_pushBuffer);
+    final pushes = List<InboundEnvelope>.from(_pushBuffer);
     final acks = List<AckFrame>.from(_ackBuffer);
     _pushBuffer.clear();
     _ackBuffer.clear();
@@ -452,29 +456,33 @@ class WsTransport implements Transport {
 }
 
 /// The `WS_OP` for [frame]'s ops, on the socket or over https
-/// ([OpsTransport]). Per SYNC_PROTOCOL.md §5.4, client→server envelopes
-/// carry op_id / channel_id / client_timestamp_ms / payload.
-/// sender_user_id and server_timestamp_ms are absent (server stamps on
-/// fanout).
-/// `Envelope.flags` bit 0: no push wake (decisions 212, 215).
-const int kEnvelopeFlagSilent = 1;
-
+/// ([OpsTransport]). Per SYNC_PROTOCOL.md §5.4 a client envelope carries
+/// op_id, the group's channel_id or the DM's peer, payload and flags; the
+/// server derives the sender from the op id and stamps the rest on
+/// fanout (decision 218). Throws [FormatException] for an id the wire
+/// cannot carry.
 pb.WsEnvelope opFrame(OutboundFrame frame) => pb.WsEnvelope(
       type: pb.WsType.WS_OP,
       ops: pb.EnvelopeBatch(envelopes: [
         for (final op in frame.ops)
-          pb.Envelope(
+          wireEnvelope(
             opId: op.opId,
             channelId: frame.resourceId,
-            clientTimestampMs: op.clientTimestampMs != null
-                ? fixnum.Int64(op.clientTimestampMs!)
-                : null,
-            payload: op.payload,
             peer: frame.peer,
-            flags: op.silent ? kEnvelopeFlagSilent : null,
+            payload: op.payload,
+            flags: op.frameClass.flags,
           ),
       ]),
     );
+
+/// [batch]'s acks for the scheduler, op ids in text form. One whose op id
+/// is not 16 bytes answers nothing this phone sent: dropped.
+Iterable<AckFrame> ackFrames(pb.AckBatch batch) sync* {
+  for (final ack in batch.acks) {
+    if (ack.opId.length != 16) continue;
+    yield AckFrame(opId: uuidText(ack.opId), outcome: ackOutcomeOf(ack));
+  }
+}
 
 /// A server [pb.Ack] as the scheduler's [AckOutcome].
 AckOutcome ackOutcomeOf(pb.Ack ack) {

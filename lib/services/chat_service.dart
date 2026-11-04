@@ -45,10 +45,11 @@ Uint8List _encodeChatPayload({
     pb.ChatPayload(
       version: 1,
       type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-      messageId: messageId,
+      messageId: uuidBytes(messageId),
       body: body,
       contentType: contentType,
-      replyToMessageId: replyToMessageId,
+      replyToMessageId:
+          replyToMessageId == null ? null : uuidBytes(replyToMessageId),
     ).writeToBuffer();
 
 /// The other four ChatPayload types (SYNC_PROTOCOL §6a,
@@ -66,7 +67,7 @@ Uint8List _encodeChatOp({
     pb.ChatPayload(
       version: 1,
       type: type,
-      messageId: messageId,
+      messageId: uuidBytes(messageId),
       body: body,
       contentType: contentType ?? (body == null ? null : 'text/plain'),
       attachments: attachments,
@@ -85,20 +86,18 @@ Uint8List _encodeTyping({required bool isTyping}) => pb.ChatPayload(
     ).writeToBuffer();
 
 /// Build the WS_OP payload for an outbound read or delivery receipt — a
-/// `ChatPayload{TYPE_READ_RECEIPT | TYPE_DELIVERY_RECEIPT}` naming the
-/// up-to message and its server timestamp (decision 56). A normal,
-/// non-ephemeral op: it is ACKed like any other. The server fans the
-/// opaque bytes on; every recipient flips its OWN messages stamped at
-/// or before the marker timestamp.
-Uint8List _encodeReceipt(
-  pb.ChatPayloadType type,
-  ({String messageId, int serverTimestampMs}) marker,
-) =>
+/// `ChatPayload{TYPE_READ_RECEIPT | TYPE_DELIVERY_RECEIPT}` carrying only
+/// the up-to message's server timestamp (decisions 56, 218). A normal,
+/// non-ephemeral op: it is ACKed like any other. Every recipient flips
+/// its OWN messages stamped at or before the marker. [groupId]: a
+/// group's receipt, sent over 1:1 to one author.
+Uint8List _encodeReceipt(pb.ChatPayloadType type, int marker,
+        {String? groupId}) =>
     pb.ChatPayload(
       version: 1,
       type: type,
-      messageId: marker.messageId,
-      markerServerTimestampMs: fixnum.Int64(marker.serverTimestampMs),
+      markerServerTimestampMs: fixnum.Int64(marker),
+      groupId: groupId == null ? null : uuidBytes(groupId),
     ).writeToBuffer();
 
 /// AUTH_CONTRACT §7.2: the most phone hashes one lookup may carry.
@@ -457,8 +456,19 @@ class ChatService {
   /// Set by `main.dart`: a chat was read, so its notification goes.
   void Function(String channelId)? onRead;
 
-  /// Enqueues a read or delivery receipt naming the newest peer message
-  /// in [channelId]; no-op when logged out or there is none.
+  /// Enqueues a read or delivery receipt up to the newest peer message in
+  /// [channelId]; no-op when logged out or there is none.
+  ///
+  /// Decision 218: our own `channel_members` row keeps the last marker of
+  /// each kind we sent (decision 202's ticks never read our own row). A
+  /// delivered receipt it already covers is skipped, and a read one
+  /// covers delivery, so a chat read within the debounce sends only the
+  /// read. A DM's receipt goes to its peer; a group's goes over 1:1 to
+  /// each member who wrote in it since the last one of its kind: theirs
+  /// are the only ticks it moves.
+  /// ponytail: a message stamped before that last marker but stored after
+  /// it (a late pull) names no author; their next message's receipt
+  /// covers it.
   Future<void> _enqueueReceipt(
     String channelId,
     pb.ChatPayloadType type,
@@ -466,34 +476,71 @@ class ChatService {
     final now = _clock.nowMs();
     final localUserId = _authClient.currentUserId;
     if (localUserId == null) return;
-    final marker = await _store.latestPeerMessage(
+    final newest = await _store.latestPeerMessage(
       channelId: channelId,
       localUserId: localUserId,
     );
-    if (marker == null) return;
+    if (newest == null) return;
+    final marker = newest.serverTimestampMs;
+    final read = type == pb.ChatPayloadType.TYPE_READ_RECEIPT;
+    final self = await _store.db.query('channel_members',
+        columns: [read ? 'read_up_to' : 'delivered_up_to'],
+        where: 'channel_id = ? AND user_id = ?',
+        whereArgs: [channelId, localUserId]);
+    final last = self.firstOrNull?.values.single as int? ?? 0;
+    if (!read && last >= marker) return;
 
-    final opId = _uuidGen.next(nowMs: now);
-    final op = OutboundOpRow(
-      opId: opId,
-      transport: OpTransport.ws,
-      kind: OpKind.chatPayload,
-      restMethod: null,
-      restPath: null,
-      resourceId: channelId,
-      payload: _encodeReceipt(type, marker),
-      status: OpStatus.pending,
-      attempts: 0,
-      nextRetryAt: now,
-      dispatchedAt: null,
-      lastError: null,
-      acknowledgedAt: null,
-      createdAt: now,
-      // A receipt doesn't target a local message row — the ACK just
-      // deletes the op (scheduler's null-targetMessageId branch).
-      targetMessageId: null,
-      targetChannelId: channelId,
+    final group = !isDmChannelId(channelId);
+    final targets = !group
+        ? [(channelId, null)]
+        : [
+            for (final row in await _store.db.rawQuery(
+              '''
+              SELECT DISTINCT author_user_id FROM messages
+              WHERE channel_id = ? AND author_user_id != ?
+                AND server_timestamp_ms > ? AND server_timestamp_ms <= ?
+                AND tombstoned = 0
+                AND content_type IS NOT '$kGroupEventType'
+              ''',
+              [channelId, localUserId, last, marker],
+            ))
+              (
+                dmChannelId(localUserId, row['author_user_id'] as String),
+                row['author_user_id'] as String,
+              )
+          ];
+    for (final (channel, String? peer) in targets) {
+      await _store.enqueueOutboundOp(OutboundOpRow(
+        opId: _uuidGen.next(nowMs: now),
+        transport: OpTransport.ws,
+        kind: OpKind.chatPayload,
+        restMethod: null,
+        restPath: null,
+        resourceId: channel,
+        payload:
+            _encodeReceipt(type, marker, groupId: group ? channelId : null),
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: now,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: now,
+        // A receipt doesn't target a local message row — the ACK just
+        // deletes the op (scheduler's null-targetMessageId branch).
+        targetMessageId: null,
+        targetChannelId: channel,
+        peer: peer,
+      ));
+    }
+    // A read is also a delivery.
+    await _store.db.rawUpdate(
+      'UPDATE channel_members '
+      'SET delivered_up_to = MAX(COALESCE(delivered_up_to, 0), ?)'
+      '${read ? ', read_up_to = MAX(COALESCE(read_up_to, 0), ?)' : ''} '
+      'WHERE channel_id = ? AND user_id = ?',
+      [marker, if (read) marker, channelId, localUserId],
     );
-    await _store.enqueueOutboundOp(op);
     _scheduler.tickSoon();
   }
 
@@ -534,7 +581,6 @@ class ChatService {
         opId: opId,
         channelId: channelId,
         payload: sealed,
-        clientTimestampMs: now,
         peer: peer,
       );
     }()
@@ -1333,12 +1379,14 @@ class ChatService {
       pb.ChatPayload(
         version: 1,
         type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
-        messageId: messageId,
+        messageId: uuidBytes(messageId),
         body: spec['body'] as String? ?? '',
         contentType: _messageType(spec),
         attachments: pb.ChatPayload.fromBuffer(_encodeAttachments(spec, url))
             .attachments,
-        replyToMessageId: spec['replyTo'] as String?,
+        replyToMessageId: spec['replyTo'] == null
+            ? null
+            : uuidBytes(spec['replyTo'] as String),
       ).writeToBuffer();
 
   OutboundOpRow _uploadOp({

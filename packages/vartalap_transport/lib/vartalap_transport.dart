@@ -28,6 +28,7 @@ export 'src/auth_client.dart'
         SessionRefreshResult,
         UsernameAvailability;
 export 'src/auth_token_provider.dart' show AuthTokenProvider;
+export 'src/dm_channel_id.dart' show dmChannelId, isDmChannelId;
 export 'src/device_keys.dart'
     show
         E2eePreKey,
@@ -40,4 +41,14 @@ export 'src/ops_transport.dart' show OpsTransport;
 export 'src/rest_transport.dart' show RestTransport, classifyHttpStatus;
 export 'src/transport.dart'
     show FramedOp, OutboundFrame, Transport, TransportState;
+export 'src/wire.dart'
+    show
+        FrameClass,
+        InboundEnvelope,
+        opIdUserId,
+        userIdBytes,
+        userIdText,
+        uuidBytes,
+        uuidText,
+        wireEnvelope;
 export 'src/ws_transport.dart' show WsTransport;

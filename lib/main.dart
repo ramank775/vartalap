@@ -478,7 +478,7 @@ Future<int> pullPendingPages(
       if (handled.length < ids.length) break;
       final newest = page.envelopes.isEmpty
           ? since
-          : page.envelopes.last.serverTimestampMs.toInt();
+          : page.envelopes.last.serverTimestampMs;
       await receiver.advanceSyncPointer(newest,
           release: page.more ? null : token);
       // Never spin on a page that moved nothing. ponytail: more than a

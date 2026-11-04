@@ -6,7 +6,6 @@ import 'package:vartalap_transport/vartalap_transport.dart';
 
 import 'backoff.dart';
 import 'clock.dart';
-import 'dm_channel_id.dart';
 
 /// Outbound-op scheduler per SPIKE_B_SYNC.md §5.
 ///
@@ -316,10 +315,9 @@ class SyncScheduler {
         FramedOp(
           opId: op.opId,
           payload: payload,
-          clientTimestampMs: clock.nowMs(),
           restMethod: op.restMethod,
           restPath: op.restPath,
-          silent: silentOp(op),
+          frameClass: frameClassOf(op),
         ),
       ],
     );
@@ -498,19 +496,28 @@ class SyncScheduler {
   }
 }
 
-/// Decision 212: only a new message shows its recipient a notification,
-/// so every other op (a receipt, edit, delete, reaction) asks the server
-/// not to wake an offline phone for it. A high-priority push that ends
-/// without a notification gets the app's pushes downgraded.
-bool silentOp(OutboundOpRow op) {
-  if (op.kind != OpKind.chatPayload) return true;
+/// Decision 218: the `Envelope.flags` class of a queued op. Only a new
+/// message (or forward) and a resend request wake an offline phone
+/// (decision 212); a receipt is kept 7 days, not 30. Group-key hand-outs
+/// skip the queue and set [FrameClass.key] themselves.
+FrameClass frameClassOf(OutboundOpRow op) {
+  if (op.kind != OpKind.chatPayload) return FrameClass.mutation;
+  // Queued already sealed (0x45, decision 188): a resend request, which
+  // needs its sender awake to answer. A ChatPayload starts 0x08.
+  if (op.payload.isNotEmpty && op.payload[0] == 0x45) return FrameClass.resend;
   try {
-    final type = pb.ChatPayload.fromBuffer(op.payload).type;
-    return type == pb.ChatPayloadType.TYPE_READ_RECEIPT ||
-        type == pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT;
+    return switch (pb.ChatPayload.fromBuffer(op.payload).type) {
+      pb.ChatPayloadType.TYPE_READ_RECEIPT ||
+      pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT =>
+        FrameClass.receipt,
+      pb.ChatPayloadType.TYPE_MESSAGE_UPDATE ||
+      pb.ChatPayloadType.TYPE_MESSAGE_DELETE ||
+      pb.ChatPayloadType.TYPE_REACTION_ADD ||
+      pb.ChatPayloadType.TYPE_REACTION_REMOVE =>
+        FrameClass.mutation,
+      _ => FrameClass.message,
+    };
   } catch (_) {
-    // Not a ChatPayload: a key resend request, which does need its
-    // sender awake to answer.
-    return false;
+    return FrameClass.message;
   }
 }

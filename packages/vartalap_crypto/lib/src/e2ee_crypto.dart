@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 import 'e2ee.dart';
@@ -14,14 +13,19 @@ import 'signal_store.dart';
 /// version byte, a kind byte, then the Signal ciphertext. The server only
 /// ever sees these bytes; its own events keep their 0x53 marker.
 const int kSealedMarker = 0x45;
-const int _version = 1;
+
+/// Sealed format v2 (decision 218): a binary plaintext header
+/// ([E2eeOperationContext]). v1 is not read; the server timeline was
+/// wiped when it went.
+const int kSealedVersion = 2;
 const int _kindPreKey = 1; // first 1:1 message to a phone (X3DH)
 const int _kindSignal = 2; // 1:1 message on an established session
 const int _kindGroup = 3; // a group message, one Sender Key ciphertext
 
 /// First byte of a pairwise plaintext that hands over a Sender Key rather
 /// than carrying a ChatPayload (whose first byte is always its `version`
-/// tag, 0x08): JSON `{"g": group channel id, "k": base64 distribution}`.
+/// tag, 0x08), then the group's channel id (16 bytes) and the Sender Key
+/// distribution message (decision 218: binary, was JSON).
 const int _groupKeyMarker = 0x4B;
 
 /// The peer has no published phone yet (never opened the app since
@@ -169,7 +173,7 @@ class E2eeCrypto {
               .encrypt(context.encodePlaintext(payload, retryOf: retryOf));
       final sealed = Uint8List.fromList([
         kSealedMarker,
-        _version,
+        kSealedVersion,
         message.getType() == CiphertextMessage.prekeyType
             ? _kindPreKey
             : _kindSignal,
@@ -243,10 +247,8 @@ class E2eeCrypto {
               peer: member,
               payload: Uint8List.fromList([
                 _groupKeyMarker,
-                ...utf8.encode(jsonEncode({
-                  'g': channelId,
-                  'k': base64.encode(distribution.serialize()),
-                })),
+                ...uuidBytes(channelId),
+                ...distribution.serialize(),
               ]),
             );
             await sendKey(member, keyChannel, keyOpId, sealed!);
@@ -270,7 +272,7 @@ class E2eeCrypto {
           final ciphertext = await GroupCipher(SignalStores(records), self)
               .encrypt(context.encodePlaintext(payload, retryOf: retryOf));
           final sealed = Uint8List.fromList(
-              [kSealedMarker, _version, _kindGroup, ...ciphertext]);
+              [kSealedMarker, kSealedVersion, _kindGroup, ...ciphertext]);
           await persist?.call(txn, sealed);
           return sealed;
         });
@@ -304,7 +306,7 @@ class E2eeCrypto {
     );
   }
 
-  static String _inboxKey(pb.Envelope env) =>
+  static String _inboxKey(InboundEnvelope env) =>
       '${env.channelId}/${env.senderUserId}/${env.senderDeviceId}/${env.opId}';
 
   /// The ChatPayload bytes sealed in [env]. Throws on anything that is not
@@ -318,7 +320,7 @@ class E2eeCrypto {
   /// a re-delivery opens empty again without touching the ratchet.
   /// Throws [E2eeUndecryptable] for an op that will never open here; any
   /// other failure (the database) may pass, so the op stays unhandled.
-  Future<({Uint8List payload, String retryOf})> open(pb.Envelope env) =>
+  Future<({Uint8List payload, String retryOf})> open(InboundEnvelope env) =>
       _serial(() async {
         final context = E2eeOperationContext(
           opId: env.opId,
@@ -346,9 +348,9 @@ class E2eeCrypto {
       });
 
   Future<(({Uint8List payload, String retryOf}), Set<String>)> _open(
-      pb.Envelope env, E2eeOperationContext context) async {
+      InboundEnvelope env, E2eeOperationContext context) async {
     final p = env.payload;
-    if (p.length < 4 || p[0] != kSealedMarker || p[1] != _version) {
+    if (p.length < 4 || p[0] != kSealedMarker || p[1] != kSealedVersion) {
       throw const FormatException('Not an end-to-end encrypted payload');
     }
     final kind = p[2];
@@ -377,12 +379,10 @@ class E2eeCrypto {
       if (kind != _kindGroup &&
           payload.isNotEmpty &&
           payload[0] == _groupKeyMarker) {
-        final key =
-            jsonDecode(utf8.decode(payload.sublist(1))) as Map<String, dynamic>;
         await GroupSessionBuilder(stores).process(
-            SenderKeyName(key['g'] as String, sender),
+            SenderKeyName(uuidText(payload.sublist(1, 17)), sender),
             SenderKeyDistributionMessageWrapper.fromSerialized(
-                base64.decode(key['k'] as String)));
+                payload.sublist(17)));
         await records.write('keys_taken', _inboxKey(env), Uint8List(1));
         return ((payload: Uint8List(0), retryOf: ''), stores.changedIdentities);
       }
@@ -463,6 +463,6 @@ class E2eeCrypto {
           }));
 
   /// The receiver applied [env]: its staged payload can go.
-  Future<void> applied(pb.Envelope env) => _db.transaction(
+  Future<void> applied(InboundEnvelope env) => _db.transaction(
       (txn) => _records.forTransaction(txn).remove('inbox', _inboxKey(env)));
 }

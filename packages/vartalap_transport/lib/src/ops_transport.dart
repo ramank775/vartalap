@@ -8,7 +8,7 @@ import 'ack.dart';
 import 'auth_token_provider.dart';
 import 'rest_transport.dart' show classifyHttpStatus;
 import 'transport.dart';
-import 'ws_transport.dart' show ackOutcomeOf, opFrame;
+import 'ws_transport.dart' show ackFrames, opFrame;
 
 /// The socket's op frames over https, `POST <ws endpoint>/ops`
 /// (SYNC_PROTOCOL.md §5.11), for an engine with no socket: a push wake,
@@ -48,8 +48,19 @@ class OpsTransport implements Transport {
   Future<void> send(OutboundFrame frame) async {
     final token = auth.currentAccesskey;
     if (token == null) throw StateError('OpsTransport.send: no accesskey');
-    final body = jsonEncode(
-        {'frame': base64Encode(opFrame(frame).writeToBuffer())});
+    final String body;
+    try {
+      body = jsonEncode(
+          {'frame': base64Encode(opFrame(frame).writeToBuffer())});
+    } on FormatException {
+      // As on the socket: an id the wire cannot carry fails the op.
+      for (final op in frame.ops) {
+        _emit(AckFrame(
+            opId: op.opId,
+            outcome: const AckPermanentReject(reason: 'validation_failed')));
+      }
+      return;
+    }
     unawaited(_issue(frame, token, body));
   }
 
@@ -71,9 +82,7 @@ class OpsTransport implements Transport {
         final reply = pb.WsEnvelope.fromBuffer(base64Decode(
             (jsonDecode(resp.body) as Map<String, dynamic>)['frame']
                 as String));
-        for (final ack in reply.acks.acks) {
-          _emit(AckFrame(opId: ack.opId, outcome: ackOutcomeOf(ack)));
-        }
+        ackFrames(reply.acks).forEach(_emit);
         return;
       }
     } catch (e) {
