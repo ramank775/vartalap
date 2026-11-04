@@ -59,12 +59,13 @@ void main() {
         FrameClass.resend);
   });
 
-  test('the class reaches the wire envelope, a message as no flags at all',
-      () {
+  test('the class reaches the wire envelope, a message as no flags at all', () {
     pb.Envelope sent(FrameClass c) => opFrame(OutboundFrame(
           kind: OpKind.chatPayload,
           resourceId: _group,
-          ops: [FramedOp(opId: _opId, payload: const [1], frameClass: c)],
+          ops: [
+            FramedOp(opId: _opId, payload: const [1], frameClass: c)
+          ],
         )).ops.envelopes.single;
 
     expect(sent(FrameClass.message).hasFlags(), isFalse);

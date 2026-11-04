@@ -32,7 +32,8 @@ String uuidText(List<int> bytes) {
 
 /// A 9-hex user_id as 5 bytes, big-endian (one 0 nibble in front).
 Uint8List userIdBytes(String userId) {
-  if (!_userId.hasMatch(userId)) throw FormatException('Not a user id: $userId');
+  if (!_userId.hasMatch(userId))
+    throw FormatException('Not a user id: $userId');
   return _bytes('0$userId');
 }
 
@@ -182,7 +183,9 @@ class InboundEnvelope {
   /// (what `client_timestamp_ms` was). 0 for an op id that is no UUID.
   int get clientTimestampMs {
     final hex = opId.replaceAll('-', '');
-    return hex.length == 32 ? int.tryParse(hex.substring(0, 12), radix: 16) ?? 0 : 0;
+    return hex.length == 32
+        ? int.tryParse(hex.substring(0, 12), radix: 16) ?? 0
+        : 0;
   }
 
   /// This envelope at another server time (a re-send takes its
