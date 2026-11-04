@@ -10,7 +10,7 @@
 library vartalap_proto;
 
 export 'src/generated/v3-envelope.pb.dart'
-    show Envelope, Ack, WsEnvelope, EnvelopeBatch, AckBatch, WsError;
+    show Envelope, Ack, WsEnvelope, EnvelopeBatch, AckBatch, WsError, PendingPage;
 export 'src/generated/v3-envelope.pbenum.dart' show AckOutcome, WsType;
 export 'src/generated/v3-chat-payload.pb.dart'
     show ChatPayload, Attachment, ForwardSource;

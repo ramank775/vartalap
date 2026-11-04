@@ -27,37 +27,33 @@ export 'v3-envelope.pbenum.dart';
 ///
 /// A client sends an Envelope to push some payload bytes into a channel.
 /// The server validates routing fields, adds the server-stamped fields
-/// (sender_user_id, server_timestamp_ms) on fanout,
+/// (server_timestamp_ms, sender_device_id) on fanout,
 /// and delivers the same Envelope to every other channel member.
 ///
 /// Recipients interpret `payload` according to the client-to-client
 /// schema. The server's job ends at "delivered to channel members."
 class Envelope extends $pb.GeneratedMessage {
   factory Envelope({
-    $core.String? opId,
-    $core.String? channelId,
-    $fixnum.Int64? clientTimestampMs,
     $core.List<$core.int>? payload,
     $core.bool? ephemeral,
-    $core.String? peer,
     $core.int? ttlSec,
     $core.int? flags,
-    $core.String? senderUserId,
+    $core.List<$core.int>? opId,
+    $core.List<$core.int>? channelId,
+    $core.List<$core.int>? peer,
+    $core.List<$core.int>? senderDeviceId,
     $fixnum.Int64? serverTimestampMs,
-    $core.String? senderDeviceId,
   }) {
     final result = create();
-    if (opId != null) result.opId = opId;
-    if (channelId != null) result.channelId = channelId;
-    if (clientTimestampMs != null) result.clientTimestampMs = clientTimestampMs;
     if (payload != null) result.payload = payload;
     if (ephemeral != null) result.ephemeral = ephemeral;
-    if (peer != null) result.peer = peer;
     if (ttlSec != null) result.ttlSec = ttlSec;
     if (flags != null) result.flags = flags;
-    if (senderUserId != null) result.senderUserId = senderUserId;
-    if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
+    if (opId != null) result.opId = opId;
+    if (channelId != null) result.channelId = channelId;
+    if (peer != null) result.peer = peer;
     if (senderDeviceId != null) result.senderDeviceId = senderDeviceId;
+    if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
     return result;
   }
 
@@ -74,22 +70,22 @@ class Envelope extends $pb.GeneratedMessage {
       _omitMessageNames ? '' : 'Envelope',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3'),
       createEmptyInstance: create)
-    ..aOS(1, _omitFieldNames ? '' : 'opId')
-    ..aOS(2, _omitFieldNames ? '' : 'channelId')
-    ..a<$fixnum.Int64>(
-        4, _omitFieldNames ? '' : 'clientTimestampMs', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
     ..a<$core.List<$core.int>>(
         5, _omitFieldNames ? '' : 'payload', $pb.PbFieldType.OY)
     ..aOB(6, _omitFieldNames ? '' : 'ephemeral')
-    ..aOS(7, _omitFieldNames ? '' : 'peer')
     ..aI(8, _omitFieldNames ? '' : 'ttlSec', fieldType: $pb.PbFieldType.OU3)
     ..aI(9, _omitFieldNames ? '' : 'flags', fieldType: $pb.PbFieldType.OU3)
-    ..aOS(20, _omitFieldNames ? '' : 'senderUserId')
+    ..a<$core.List<$core.int>>(
+        10, _omitFieldNames ? '' : 'opId', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        11, _omitFieldNames ? '' : 'channelId', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        12, _omitFieldNames ? '' : 'peer', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        13, _omitFieldNames ? '' : 'senderDeviceId', $pb.PbFieldType.OY)
     ..a<$fixnum.Int64>(
-        21, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
+        14, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
-    ..aOS(23, _omitFieldNames ? '' : 'senderDeviceId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -110,184 +106,122 @@ class Envelope extends $pb.GeneratedMessage {
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Envelope>(create);
   static Envelope? _defaultInstance;
 
-  /// Client-generated UUIDv7. The dedup key. Stable across retries.
-  /// Required on client→server. Echoed unchanged on fanout.
-  @$pb.TagNumber(1)
-  $core.String get opId => $_getSZ(0);
-  @$pb.TagNumber(1)
-  set opId($core.String value) => $_setString(0, value);
-  @$pb.TagNumber(1)
-  $core.bool hasOpId() => $_has(0);
-  @$pb.TagNumber(1)
-  void clearOpId() => $_clearField(1);
-
-  /// The channel this envelope targets. For a group the server checks
-  /// the sender is a member; for a `d`-prefixed DM there is no row and
-  /// no member list, and `peer` (field 7) carries the check instead.
-  /// Required.
-  @$pb.TagNumber(2)
-  $core.String get channelId => $_getSZ(1);
-  @$pb.TagNumber(2)
-  set channelId($core.String value) => $_setString(1, value);
-  @$pb.TagNumber(2)
-  $core.bool hasChannelId() => $_has(1);
-  @$pb.TagNumber(2)
-  void clearChannelId() => $_clearField(2);
-
-  /// Client wall-clock at op-creation, ms since epoch. Advisory only —
-  /// server may use for audit logs and debugging; never for ordering
-  /// (server_timestamp_ms is the ordering key). Optional.
-  @$pb.TagNumber(4)
-  $fixnum.Int64 get clientTimestampMs => $_getI64(2);
-  @$pb.TagNumber(4)
-  set clientTimestampMs($fixnum.Int64 value) => $_setInt64(2, value);
-  @$pb.TagNumber(4)
-  $core.bool hasClientTimestampMs() => $_has(2);
-  @$pb.TagNumber(4)
-  void clearClientTimestampMs() => $_clearField(4);
-
-  /// OPAQUE TO SERVER. Client-defined chat-content payload. The server
-  /// does not parse, validate, or interpret these bytes — it only
-  /// forwards them. Suggested client schema in v3-chat-payload.proto;
-  /// clients are free to evolve it without server coordination.
-  /// Required (zero-length allowed for client-defined "ping" semantics).
+  /// Opaque to the server (end-to-end encrypted, sealed format v2,
+  /// decision 218). Required.
   @$pb.TagNumber(5)
-  $core.List<$core.int> get payload => $_getN(3);
+  $core.List<$core.int> get payload => $_getN(0);
   @$pb.TagNumber(5)
-  set payload($core.List<$core.int> value) => $_setBytes(3, value);
+  set payload($core.List<$core.int> value) => $_setBytes(0, value);
   @$pb.TagNumber(5)
-  $core.bool hasPayload() => $_has(3);
+  $core.bool hasPayload() => $_has(0);
   @$pb.TagNumber(5)
   void clearPayload() => $_clearField(5);
 
-  /// Best-effort, no-persistence, no-ack signal. Drives "send-and-forget"
-  /// events like typing indicators. Server semantics:
-  ///   - Fan to currently-connected channel members verbatim.
-  ///   - DO NOT enqueue for offline members (skip the undelivered queue).
-  ///   - DO NOT emit an `Ack` back to the sender.
-  ///   - DO NOT include in any history / sync-pull responses.
-  ///
-  /// Recipients that observe this flag bypass `op_id_seen` and any
-  /// projection writes — these envelopes are routed to a side-channel
-  /// (e.g. typing-indicator stream) and dropped from the persistent
-  /// pipeline entirely. Senders construct ephemeral envelopes via a
-  /// direct `WsTransport.sendEphemeral(...)` path that bypasses
-  /// `outbound_ops`; if the WS is not connected the envelope is dropped.
-  ///
-  /// Wire compat: defaults to false, so older clients/servers that don't
-  /// know about this field treat the envelope as a normal queued op —
-  /// which is harmless for typing (wastes one row, never re-applied
-  /// because the receiver-side dispatcher dedups by op_id) but the
-  /// optimization only kicks in once both sides understand the flag.
+  /// Typing and the like: never acked, never stored, never pushed.
   @$pb.TagNumber(6)
-  $core.bool get ephemeral => $_getBF(4);
+  $core.bool get ephemeral => $_getBF(1);
   @$pb.TagNumber(6)
-  set ephemeral($core.bool value) => $_setBool(4, value);
+  set ephemeral($core.bool value) => $_setBool(1, value);
   @$pb.TagNumber(6)
-  $core.bool hasEphemeral() => $_has(4);
+  $core.bool hasEphemeral() => $_has(1);
   @$pb.TagNumber(6)
   void clearEphemeral() => $_clearField(6);
 
-  /// Trim 4 (design/protocol/TRIM_4_12_CONTRACT.md §2) — the OTHER
-  /// participant's user_id (9 lowercase hex chars) on a derived DM
-  /// channel. Required iff `channel_id` matches ^d[0-9a-f]{31}$,
-  /// absent otherwise. (The full shape, not the `d` prefix: a group id
-  /// is a dashed UUID, so the two id spaces are provably disjoint.)
-  ///
-  /// A DM channel id is `"d" + sha256_hex(min(a,b) || 0x00 || max(a,b))
-  /// [0:31]`, so the server does not look up a channel row or a member
-  /// list for it — there is none, and there never was. It recomputes
-  /// the derivation from the authenticated session's user_id and this
-  /// field: a missing or malformed `peer` is `validation_failed`, a
-  /// `peer` that does not derive to `channel_id` is `forbidden`. A
-  /// third party cannot send on, create or reserve someone else's DM
-  /// id because they cannot produce a `peer` that derives to it from
-  /// their own user_id.
-  ///
-  /// Recipients are {peer, sender} expanded to devices, minus the
-  /// sending device (trim 12), so the sender's own other devices get
-  /// their message. At max_devices = 1 that is the same thing as
-  /// {peer}.
-  ///
-  /// Echoed unchanged on fanout; the recipient already knows the pair
-  /// from `sender_user_id` and does not need to read it.
-  @$pb.TagNumber(7)
-  $core.String get peer => $_getSZ(5);
-  @$pb.TagNumber(7)
-  set peer($core.String value) => $_setString(5, value);
-  @$pb.TagNumber(7)
-  $core.bool hasPeer() => $_has(5);
-  @$pb.TagNumber(7)
-  void clearPeer() => $_clearField(7);
-
-  /// How long the server keeps this envelope on its recipients'
-  /// timeline for a later pull, in seconds (SYNC_PROTOCOL.md §10.6).
-  /// 0 or absent means the maximum, 30 days (§19 decision 1); more is
-  /// capped to it. Once expired it is left out of every pull and
-  /// deleted; a live push is unaffected. Ignored on an ephemeral
-  /// envelope, which is never kept. Echoed unchanged on fanout.
+  /// How long the server keeps this envelope on its recipients' timeline
+  /// for a later pull, in seconds (SYNC_PROTOCOL.md §10.6). 0 or absent
+  /// means the maximum, 30 days; more is capped to it. The server may keep
+  /// a class for less (a receipt: 7 days). Echoed unchanged on fanout.
   @$pb.TagNumber(8)
-  $core.int get ttlSec => $_getIZ(6);
+  $core.int get ttlSec => $_getIZ(2);
   @$pb.TagNumber(8)
-  set ttlSec($core.int value) => $_setUnsignedInt32(6, value);
+  set ttlSec($core.int value) => $_setUnsignedInt32(2, value);
   @$pb.TagNumber(8)
-  $core.bool hasTtlSec() => $_has(6);
+  $core.bool hasTtlSec() => $_has(2);
   @$pb.TagNumber(8)
   void clearTtlSec() => $_clearField(8);
 
-  /// Handling flags, one bit each (decisions 212, 215). Unknown bits are
-  /// kept and echoed, so a newer sender's flags survive an older server.
-  /// Echoed unchanged on fanout.
-  ///   bit 0 (1) SILENT: no push wake. Stored and fanned out as usual, but
-  ///         an offline recipient gets it on its next pull instead of
-  ///         being woken for it. Senders set it on whatever shows no
-  ///         notification (receipts, edits, deletes, reactions, keys); the
-  ///         server sets it on its own events.
+  /// Handling bits (decisions 212, 215, 218). Unknown bits are kept and
+  /// echoed. Echoed unchanged on fanout.
+  ///   bit 0 (1)       SILENT: no push wake, whatever the class.
+  ///   bits 1-3 (2-14) CLASS, (flags >> 1) & 7:
+  ///     0 MESSAGE   a new message or forward: wakes, served first
+  ///     1 MUTATION  edit, delete, reaction: no wake
+  ///     2 RECEIPT   delivered/read: no wake, served last, kept 7 days
+  ///     3 KEY       a group-key handoff: no wake, never dropped
+  ///     4 RESEND    "send me that again": wakes
+  ///     5 EVENT     server-authored (set by the server only): no wake
+  ///   A frame with no flags is a MESSAGE.
   @$pb.TagNumber(9)
-  $core.int get flags => $_getIZ(7);
+  $core.int get flags => $_getIZ(3);
   @$pb.TagNumber(9)
-  set flags($core.int value) => $_setUnsignedInt32(7, value);
+  set flags($core.int value) => $_setUnsignedInt32(3, value);
   @$pb.TagNumber(9)
-  $core.bool hasFlags() => $_has(7);
+  $core.bool hasFlags() => $_has(3);
   @$pb.TagNumber(9)
   void clearFlags() => $_clearField(9);
 
-  /// The authenticated sender's user_id (9 lowercase hex chars). Server
-  /// derives from session, not from any client-supplied field. Recipients
-  /// use this for sender attribution; see SYNC_PROTOCOL.md §10.1 for the
-  /// display-name resolution rule (contact-book → username → phone).
-  @$pb.TagNumber(20)
-  $core.String get senderUserId => $_getSZ(8);
-  @$pb.TagNumber(20)
-  set senderUserId($core.String value) => $_setString(8, value);
-  @$pb.TagNumber(20)
-  $core.bool hasSenderUserId() => $_has(8);
-  @$pb.TagNumber(20)
-  void clearSenderUserId() => $_clearField(20);
+  /// The op's UUIDv7, 16 bytes (RFC 9562 byte order). Required. Its first
+  /// 48 bits are the client's clock in ms (what client_timestamp_ms was),
+  /// and bits 64..99 carry the sender's 36-bit user_id (§3): the server
+  /// checks them against the session, so a receiver reads the sender from
+  /// here. Clients dedupe on it and break ordering ties with it. A
+  /// server-authored event (payload starting 0x53) has a random op id
+  /// whose user bits mean nothing.
+  @$pb.TagNumber(10)
+  $core.List<$core.int> get opId => $_getN(4);
+  @$pb.TagNumber(10)
+  set opId($core.List<$core.int> value) => $_setBytes(4, value);
+  @$pb.TagNumber(10)
+  $core.bool hasOpId() => $_has(4);
+  @$pb.TagNumber(10)
+  void clearOpId() => $_clearField(10);
 
-  /// When the server accepted the envelope, ms since epoch. The
-  /// ordering key: every client orders a channel by
-  /// (server_timestamp_ms, op_id) — op_id is a UUIDv7, so ties break
-  /// the same way on every device (SYNC_PROTOCOL.md §6).
-  @$pb.TagNumber(21)
-  $fixnum.Int64 get serverTimestampMs => $_getI64(9);
-  @$pb.TagNumber(21)
-  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(9, value);
-  @$pb.TagNumber(21)
-  $core.bool hasServerTimestampMs() => $_has(9);
-  @$pb.TagNumber(21)
-  void clearServerTimestampMs() => $_clearField(21);
+  /// A group's channel id: its UUID, 16 bytes. Absent for a DM: a DM
+  /// channel is derived from the pair (TRIM_4_12_CONTRACT §1), the server
+  /// from (sender, peer) and a receiver from (sender, peer) as well.
+  @$pb.TagNumber(11)
+  $core.List<$core.int> get channelId => $_getN(5);
+  @$pb.TagNumber(11)
+  set channelId($core.List<$core.int> value) => $_setBytes(5, value);
+  @$pb.TagNumber(11)
+  $core.bool hasChannelId() => $_has(5);
+  @$pb.TagNumber(11)
+  void clearChannelId() => $_clearField(11);
 
-  /// Authenticated sending installation, overwritten from the session.
-  /// Empty on server-authored events. Selects the sender's E2EE device keys.
-  @$pb.TagNumber(23)
-  $core.String get senderDeviceId => $_getSZ(10);
-  @$pb.TagNumber(23)
-  set senderDeviceId($core.String value) => $_setString(10, value);
-  @$pb.TagNumber(23)
-  $core.bool hasSenderDeviceId() => $_has(10);
-  @$pb.TagNumber(23)
-  void clearSenderDeviceId() => $_clearField(23);
+  /// A DM's other participant: the 36-bit user_id as 5 bytes, big-endian
+  /// (the 9-hex id left-padded with one 0 nibble). Required on a DM,
+  /// absent on a group. Echoed unchanged on fanout.
+  @$pb.TagNumber(12)
+  $core.List<$core.int> get peer => $_getN(6);
+  @$pb.TagNumber(12)
+  set peer($core.List<$core.int> value) => $_setBytes(6, value);
+  @$pb.TagNumber(12)
+  $core.bool hasPeer() => $_has(6);
+  @$pb.TagNumber(12)
+  void clearPeer() => $_clearField(12);
+
+  /// Server-stamped on fanout: the sending device's id, its UUID as 16
+  /// bytes. Absent on a server-authored event.
+  @$pb.TagNumber(13)
+  $core.List<$core.int> get senderDeviceId => $_getN(7);
+  @$pb.TagNumber(13)
+  set senderDeviceId($core.List<$core.int> value) => $_setBytes(7, value);
+  @$pb.TagNumber(13)
+  $core.bool hasSenderDeviceId() => $_has(7);
+  @$pb.TagNumber(13)
+  void clearSenderDeviceId() => $_clearField(13);
+
+  /// Server-stamped on fanout; a client never sets it. When the server
+  /// accepted the envelope, ms since epoch: with op_id, the channel's
+  /// ordering key (server_timestamp_ms, op_id).
+  @$pb.TagNumber(14)
+  $fixnum.Int64 get serverTimestampMs => $_getI64(8);
+  @$pb.TagNumber(14)
+  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(8, value);
+  @$pb.TagNumber(14)
+  $core.bool hasServerTimestampMs() => $_has(8);
+  @$pb.TagNumber(14)
+  void clearServerTimestampMs() => $_clearField(14);
 }
 
 /// -----------------------------------------------------------------------------
@@ -298,18 +232,18 @@ class Envelope extends $pb.GeneratedMessage {
 /// matches by `op_id`.
 class Ack extends $pb.GeneratedMessage {
   factory Ack({
-    $core.String? opId,
     AckOutcome? outcome,
     $core.String? reason,
     $fixnum.Int64? retryAfterMs,
     $fixnum.Int64? serverTimestampMs,
+    $core.List<$core.int>? opId,
   }) {
     final result = create();
-    if (opId != null) result.opId = opId;
     if (outcome != null) result.outcome = outcome;
     if (reason != null) result.reason = reason;
     if (retryAfterMs != null) result.retryAfterMs = retryAfterMs;
     if (serverTimestampMs != null) result.serverTimestampMs = serverTimestampMs;
+    if (opId != null) result.opId = opId;
     return result;
   }
 
@@ -326,7 +260,6 @@ class Ack extends $pb.GeneratedMessage {
       _omitMessageNames ? '' : 'Ack',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3'),
       createEmptyInstance: create)
-    ..aOS(1, _omitFieldNames ? '' : 'opId')
     ..aE<AckOutcome>(2, _omitFieldNames ? '' : 'outcome',
         enumValues: AckOutcome.values)
     ..aOS(3, _omitFieldNames ? '' : 'reason')
@@ -336,6 +269,8 @@ class Ack extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(
         5, _omitFieldNames ? '' : 'serverTimestampMs', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$core.List<$core.int>>(
+        7, _omitFieldNames ? '' : 'opId', $pb.PbFieldType.OY)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -356,21 +291,12 @@ class Ack extends $pb.GeneratedMessage {
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Ack>(create);
   static Ack? _defaultInstance;
 
-  @$pb.TagNumber(1)
-  $core.String get opId => $_getSZ(0);
-  @$pb.TagNumber(1)
-  set opId($core.String value) => $_setString(0, value);
-  @$pb.TagNumber(1)
-  $core.bool hasOpId() => $_has(0);
-  @$pb.TagNumber(1)
-  void clearOpId() => $_clearField(1);
-
   @$pb.TagNumber(2)
-  AckOutcome get outcome => $_getN(1);
+  AckOutcome get outcome => $_getN(0);
   @$pb.TagNumber(2)
   set outcome(AckOutcome value) => $_setField(2, value);
   @$pb.TagNumber(2)
-  $core.bool hasOutcome() => $_has(1);
+  $core.bool hasOutcome() => $_has(0);
   @$pb.TagNumber(2)
   void clearOutcome() => $_clearField(2);
 
@@ -379,41 +305,46 @@ class Ack extends $pb.GeneratedMessage {
   ///   forbidden, prefix_mismatch, rate_limited,
   ///   validation_failed, server_busy, storage_unavailable,
   ///   downstream_timeout, fanout_queue_full.
-  /// Note: per SYNC_PROTOCOL.md §6a, reasons specific to chat-content
-  /// semantics (gone, not_found-for-message, author-mismatch) do NOT
-  /// appear here — the server does not interpret payloads, so it
-  /// cannot produce those outcomes.
   @$pb.TagNumber(3)
-  $core.String get reason => $_getSZ(2);
+  $core.String get reason => $_getSZ(1);
   @$pb.TagNumber(3)
-  set reason($core.String value) => $_setString(2, value);
+  set reason($core.String value) => $_setString(1, value);
   @$pb.TagNumber(3)
-  $core.bool hasReason() => $_has(2);
+  $core.bool hasReason() => $_has(1);
   @$pb.TagNumber(3)
   void clearReason() => $_clearField(3);
 
   /// Lower bound on retry delay. Populated on transient outcomes and
   /// on rate_limited.
   @$pb.TagNumber(4)
-  $fixnum.Int64 get retryAfterMs => $_getI64(3);
+  $fixnum.Int64 get retryAfterMs => $_getI64(2);
   @$pb.TagNumber(4)
-  set retryAfterMs($fixnum.Int64 value) => $_setInt64(3, value);
+  set retryAfterMs($fixnum.Int64 value) => $_setInt64(2, value);
   @$pb.TagNumber(4)
-  $core.bool hasRetryAfterMs() => $_has(3);
+  $core.bool hasRetryAfterMs() => $_has(2);
   @$pb.TagNumber(4)
   void clearRetryAfterMs() => $_clearField(4);
 
-  /// Server-stamped on success — same value the recipient sees on the
-  /// fanout Envelope. The sender orders its own message by it, exactly
-  /// as every recipient does.
+  /// Server-stamped on success: the same value the recipients get on the
+  /// fanout Envelope, so the sender orders its own op without waiting.
   @$pb.TagNumber(5)
-  $fixnum.Int64 get serverTimestampMs => $_getI64(4);
+  $fixnum.Int64 get serverTimestampMs => $_getI64(3);
   @$pb.TagNumber(5)
-  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(4, value);
+  set serverTimestampMs($fixnum.Int64 value) => $_setInt64(3, value);
   @$pb.TagNumber(5)
-  $core.bool hasServerTimestampMs() => $_has(4);
+  $core.bool hasServerTimestampMs() => $_has(3);
   @$pb.TagNumber(5)
   void clearServerTimestampMs() => $_clearField(5);
+
+  /// The op this answers: its 16-byte UUIDv7, as sent.
+  @$pb.TagNumber(7)
+  $core.List<$core.int> get opId => $_getN(4);
+  @$pb.TagNumber(7)
+  set opId($core.List<$core.int> value) => $_setBytes(4, value);
+  @$pb.TagNumber(7)
+  $core.bool hasOpId() => $_has(4);
+  @$pb.TagNumber(7)
+  void clearOpId() => $_clearField(7);
 }
 
 enum WsEnvelope_Body { ops, acks, push, reauthRequired, error, notSet }
@@ -740,6 +671,74 @@ class WsError extends $pb.GeneratedMessage {
   $core.bool hasMessage() => $_has(1);
   @$pb.TagNumber(2)
   void clearMessage() => $_clearField(2);
+}
+
+/// -----------------------------------------------------------------------------
+/// PendingPage — the body of GET /v3.0/sync/pending (decision 218).
+/// -----------------------------------------------------------------------------
+///
+/// application/x-protobuf. The device's timeline from its pointer on,
+/// oldest first, each envelope exactly as a WS_PUSH carries it.
+class PendingPage extends $pb.GeneratedMessage {
+  factory PendingPage({
+    $core.Iterable<Envelope>? envelopes,
+    $core.bool? more,
+  }) {
+    final result = create();
+    if (envelopes != null) result.envelopes.addAll(envelopes);
+    if (more != null) result.more = more;
+    return result;
+  }
+
+  PendingPage._();
+
+  factory PendingPage.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory PendingPage.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PendingPage',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3'),
+      createEmptyInstance: create)
+    ..pPM<Envelope>(1, _omitFieldNames ? '' : 'envelopes',
+        subBuilder: Envelope.create)
+    ..aOB(2, _omitFieldNames ? '' : 'more')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PendingPage clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PendingPage copyWith(void Function(PendingPage) updates) =>
+      super.copyWith((message) => updates(message as PendingPage))
+          as PendingPage;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PendingPage create() => PendingPage._();
+  @$core.override
+  PendingPage createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static PendingPage getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PendingPage>(create);
+  static PendingPage? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<Envelope> get envelopes => $_getList(0);
+
+  /// More wait past this page: pull again from the last one's stamp.
+  @$pb.TagNumber(2)
+  $core.bool get more => $_getBF(1);
+  @$pb.TagNumber(2)
+  set more($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMore() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMore() => $_clearField(2);
 }
 
 const $core.bool _omitFieldNames =

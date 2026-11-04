@@ -55,53 +55,56 @@ final $typed_data.Uint8List wsTypeDescriptor = $convert.base64Decode(
 const Envelope$json = {
   '1': 'Envelope',
   '2': [
-    {'1': 'op_id', '3': 1, '4': 1, '5': 9, '10': 'opId'},
-    {'1': 'channel_id', '3': 2, '4': 1, '5': 9, '10': 'channelId'},
-    {
-      '1': 'client_timestamp_ms',
-      '3': 4,
-      '4': 1,
-      '5': 4,
-      '10': 'clientTimestampMs'
-    },
+    {'1': 'op_id', '3': 10, '4': 1, '5': 12, '10': 'opId'},
+    {'1': 'channel_id', '3': 11, '4': 1, '5': 12, '10': 'channelId'},
+    {'1': 'peer', '3': 12, '4': 1, '5': 12, '10': 'peer'},
     {'1': 'payload', '3': 5, '4': 1, '5': 12, '10': 'payload'},
     {'1': 'ephemeral', '3': 6, '4': 1, '5': 8, '10': 'ephemeral'},
-    {'1': 'peer', '3': 7, '4': 1, '5': 9, '10': 'peer'},
     {'1': 'ttl_sec', '3': 8, '4': 1, '5': 13, '10': 'ttlSec'},
     {'1': 'flags', '3': 9, '4': 1, '5': 13, '10': 'flags'},
-    {'1': 'sender_user_id', '3': 20, '4': 1, '5': 9, '10': 'senderUserId'},
     {
       '1': 'server_timestamp_ms',
-      '3': 21,
+      '3': 14,
       '4': 1,
       '5': 4,
       '10': 'serverTimestampMs'
     },
-    {'1': 'sender_device_id', '3': 23, '4': 1, '5': 9, '10': 'senderDeviceId'},
+    {'1': 'sender_device_id', '3': 13, '4': 1, '5': 12, '10': 'senderDeviceId'},
   ],
   '9': [
+    {'1': 1, '2': 2},
+    {'1': 2, '2': 3},
     {'1': 3, '2': 4},
+    {'1': 4, '2': 5},
+    {'1': 7, '2': 8},
+    {'1': 20, '2': 21},
     {'1': 22, '2': 23},
+    {'1': 23, '2': 24},
   ],
-  '10': ['resource_seq', 'delivery_sequence'],
+  '10': [
+    'resource_seq',
+    'delivery_sequence',
+    'client_timestamp_ms',
+    'sender_user_id'
+  ],
 };
 
 /// Descriptor for `Envelope`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List envelopeDescriptor = $convert.base64Decode(
-    'CghFbnZlbG9wZRITCgVvcF9pZBgBIAEoCVIEb3BJZBIdCgpjaGFubmVsX2lkGAIgASgJUgljaG'
-    'FubmVsSWQSLgoTY2xpZW50X3RpbWVzdGFtcF9tcxgEIAEoBFIRY2xpZW50VGltZXN0YW1wTXMS'
-    'GAoHcGF5bG9hZBgFIAEoDFIHcGF5bG9hZBIcCgllcGhlbWVyYWwYBiABKAhSCWVwaGVtZXJhbB'
-    'ISCgRwZWVyGAcgASgJUgRwZWVyEhcKB3R0bF9zZWMYCCABKA1SBnR0bFNlYxIUCgVmbGFncxgJ'
-    'IAEoDVIFZmxhZ3MSJAoOc2VuZGVyX3VzZXJfaWQYFCABKAlSDHNlbmRlclVzZXJJZBIuChNzZX'
-    'J2ZXJfdGltZXN0YW1wX21zGBUgASgEUhFzZXJ2ZXJUaW1lc3RhbXBNcxIoChBzZW5kZXJfZGV2'
-    'aWNlX2lkGBcgASgJUg5zZW5kZXJEZXZpY2VJZEoECAMQBEoECBYQF1IMcmVzb3VyY2Vfc2VxUh'
-    'FkZWxpdmVyeV9zZXF1ZW5jZQ==');
+    'CghFbnZlbG9wZRITCgVvcF9pZBgKIAEoDFIEb3BJZBIdCgpjaGFubmVsX2lkGAsgASgMUgljaG'
+    'FubmVsSWQSEgoEcGVlchgMIAEoDFIEcGVlchIYCgdwYXlsb2FkGAUgASgMUgdwYXlsb2FkEhwK'
+    'CWVwaGVtZXJhbBgGIAEoCFIJZXBoZW1lcmFsEhcKB3R0bF9zZWMYCCABKA1SBnR0bFNlYxIUCg'
+    'VmbGFncxgJIAEoDVIFZmxhZ3MSLgoTc2VydmVyX3RpbWVzdGFtcF9tcxgOIAEoBFIRc2VydmVy'
+    'VGltZXN0YW1wTXMSKAoQc2VuZGVyX2RldmljZV9pZBgNIAEoDFIOc2VuZGVyRGV2aWNlSWRKBA'
+    'gBEAJKBAgCEANKBAgDEARKBAgEEAVKBAgHEAhKBAgUEBVKBAgWEBdKBAgXEBhSDHJlc291cmNl'
+    'X3NlcVIRZGVsaXZlcnlfc2VxdWVuY2VSE2NsaWVudF90aW1lc3RhbXBfbXNSDnNlbmRlcl91c2'
+    'VyX2lk');
 
 @$core.Deprecated('Use ackDescriptor instead')
 const Ack$json = {
   '1': 'Ack',
   '2': [
-    {'1': 'op_id', '3': 1, '4': 1, '5': 9, '10': 'opId'},
+    {'1': 'op_id', '3': 7, '4': 1, '5': 12, '10': 'opId'},
     {
       '1': 'outcome',
       '3': 2,
@@ -121,6 +124,7 @@ const Ack$json = {
     },
   ],
   '9': [
+    {'1': 1, '2': 2},
     {'1': 6, '2': 7},
   ],
   '10': ['delivery_sequence'],
@@ -128,10 +132,10 @@ const Ack$json = {
 
 /// Descriptor for `Ack`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List ackDescriptor = $convert.base64Decode(
-    'CgNBY2sSEwoFb3BfaWQYASABKAlSBG9wSWQSMQoHb3V0Y29tZRgCIAEoDjIXLnZhcnRhbGFwLn'
+    'CgNBY2sSEwoFb3BfaWQYByABKAxSBG9wSWQSMQoHb3V0Y29tZRgCIAEoDjIXLnZhcnRhbGFwLn'
     'YzLkFja091dGNvbWVSB291dGNvbWUSFgoGcmVhc29uGAMgASgJUgZyZWFzb24SJAoOcmV0cnlf'
     'YWZ0ZXJfbXMYBCABKARSDHJldHJ5QWZ0ZXJNcxIuChNzZXJ2ZXJfdGltZXN0YW1wX21zGAUgAS'
-    'gEUhFzZXJ2ZXJUaW1lc3RhbXBNc0oECAYQB1IRZGVsaXZlcnlfc2VxdWVuY2U=');
+    'gEUhFzZXJ2ZXJUaW1lc3RhbXBNc0oECAEQAkoECAYQB1IRZGVsaXZlcnlfc2VxdWVuY2U=');
 
 @$core.Deprecated('Use wsEnvelopeDescriptor instead')
 const WsEnvelope$json = {
@@ -256,3 +260,24 @@ const WsError$json = {
 final $typed_data.Uint8List wsErrorDescriptor = $convert.base64Decode(
     'CgdXc0Vycm9yEhIKBGNvZGUYASABKAlSBGNvZGUSGAoHbWVzc2FnZRgCIAEoCVIHbWVzc2FnZQ'
     '==');
+
+@$core.Deprecated('Use pendingPageDescriptor instead')
+const PendingPage$json = {
+  '1': 'PendingPage',
+  '2': [
+    {
+      '1': 'envelopes',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.vartalap.v3.Envelope',
+      '10': 'envelopes'
+    },
+    {'1': 'more', '3': 2, '4': 1, '5': 8, '10': 'more'},
+  ],
+};
+
+/// Descriptor for `PendingPage`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pendingPageDescriptor = $convert.base64Decode(
+    'CgtQZW5kaW5nUGFnZRIzCgllbnZlbG9wZXMYASADKAsyFS52YXJ0YWxhcC52My5FbnZlbG9wZV'
+    'IJZW52ZWxvcGVzEhIKBG1vcmUYAiABKAhSBG1vcmU=');
