@@ -9,8 +9,25 @@ import 'package:test/test.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_transport/vartalap_transport.dart';
 
+/// A UUIDv7 op id carrying [userId]'s bits (Uuid7Gen's layout), [n] in
+/// its tail: an independent check of the edge's reading of them.
+String _opId(int n, [String userId = '000000000']) {
+  final u = int.parse(userId, radix: 16);
+  return uuidText(Uint8List(16)
+    ..[6] = 0x70
+    ..[8] = 0x80 | (u >> 30) & 0x3f
+    ..[9] = (u >> 22) & 0xff
+    ..[10] = (u >> 14) & 0xff
+    ..[11] = (u >> 6) & 0xff
+    ..[12] = (u & 0x3f) << 2
+    ..[15] = n);
+}
+
+const _group = '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0000';
+
 void main() {
   _appBuildTests();
+  _wireTests();
   group('WsTransport', () {
     late _WsEchoServer server;
 
@@ -46,18 +63,18 @@ void main() {
 
       await transport.send(OutboundFrame(
         kind: 'chat_payload',
-        resourceId: 'channel-xyz',
+        resourceId: _group,
         ops: [
           FramedOp(
-            opId: 'op-1',
+            opId: _opId(1),
             payload: const [1, 2, 3],
-            clientTimestampMs: 1000,
+            frameClass: FrameClass.receipt,
           ),
         ],
       ));
 
       final ack = await ackFuture;
-      expect(ack.opId, 'op-1');
+      expect(ack.opId, _opId(1));
       expect(ack.outcome, isA<AckSuccess>());
       final success = ack.outcome as AckSuccess;
       expect(success.serverTimestampMs, 1700000);
@@ -67,9 +84,12 @@ void main() {
 
       // Server decoded the outbound envelope correctly.
       expect(server.lastEnvelope, isNotNull);
-      expect(server.lastEnvelope!.opId, 'op-1');
-      expect(server.lastEnvelope!.channelId, 'channel-xyz');
-      expect(server.lastEnvelope!.clientTimestampMs.toInt(), 1000);
+      // Decision 218: ids as bytes, a group's channel and no peer, the
+      // class in flags.
+      expect(server.lastEnvelope!.opId, uuidBytes(_opId(1)));
+      expect(server.lastEnvelope!.channelId, uuidBytes(_group));
+      expect(server.lastEnvelope!.hasPeer(), isFalse);
+      expect(server.lastEnvelope!.flags, 4);
       expect(server.lastEnvelope!.payload, const [1, 2, 3]);
     });
 
@@ -98,9 +118,9 @@ void main() {
       );
       await transport.send(OutboundFrame(
         kind: 'chat_payload',
-        resourceId: 'c',
+        resourceId: _group,
         ops: [
-          FramedOp(opId: 'op-2', payload: const [0]),
+          FramedOp(opId: _opId(2), payload: const [0]),
         ],
       ));
 
@@ -134,9 +154,9 @@ void main() {
       );
       await transport.send(OutboundFrame(
         kind: 'chat_payload',
-        resourceId: 'c',
+        resourceId: _group,
         ops: [
-          FramedOp(opId: 'op-3', payload: const [0]),
+          FramedOp(opId: _opId(3), payload: const [0]),
         ],
       ));
 
@@ -199,20 +219,21 @@ void main() {
       // Release the post-connect buffer (no sync pull in this test).
       transport.endSyncBuffer();
 
-      server.pushEnvelope(pb.Envelope(
-        opId: 'push-op-1',
-        channelId: 'ch-abc',
-        senderUserId: '1a2b3c4d5',
-        senderDeviceId: 'peer-phone',
-        serverTimestampMs: fixnum.Int64(1800000),
+      server.pushEnvelope(wireEnvelope(
+        opId: _opId(9, '1a2b3c4d5'),
+        channelId: _group,
+        senderDeviceId: _group,
+        serverTimestampMs: 1800000,
         payload: utf8.encode('hi'),
       ));
 
       final pushed = await pushFuture;
-      expect(pushed.opId, 'push-op-1');
-      expect(pushed.senderUserId, '1a2b3c4d5');
-      expect(pushed.senderDeviceId, 'peer-phone');
-      expect(pushed.serverTimestampMs.toInt(), 1800000);
+      expect(pushed.opId, _opId(9, '1a2b3c4d5'));
+      expect(pushed.channelId, _group);
+      expect(pushed.senderUserId, '1a2b3c4d5',
+          reason: 'decision 218: the sender is the op id\'s user bits');
+      expect(pushed.senderDeviceId, _group);
+      expect(pushed.serverTimestampMs, 1800000);
     });
   });
 
@@ -453,27 +474,22 @@ void main() {
     test('pullPendingSync asks from `since` and returns the page with '
         '`more`; null when it could not ask (§10.6)', () async {
       String? query;
-      String frame(pb.WsEnvelope env) => base64Encode(env.writeToBuffer());
+      String? accept;
+      pb.Envelope env(int n) => wireEnvelope(
+          opId: _opId(n), channelId: _group, payload: [n], serverTimestampMs: n);
       server.handler = (req) async {
         query = req.uri.query;
+        accept = req.headers.value('accept');
         req.response.statusCode = 200;
-        req.response.headers.contentType = ContentType.json;
-        req.response.write(jsonEncode({
-          'frames': [
-            frame(pb.WsEnvelope(
-              type: pb.WsType.WS_PUSH,
-              push: pb.Envelope(
-                  opId: 'p-11', serverTimestampMs: fixnum.Int64(11)),
-            )),
-            frame(pb.WsEnvelope(type: pb.WsType.WS_ACK)), // not a push
-            frame(pb.WsEnvelope(
-              type: pb.WsType.WS_PUSH,
-              push: pb.Envelope(
-                  opId: 'p-12', serverTimestampMs: fixnum.Int64(12)),
-            )),
-          ],
-          'more': true,
-        }));
+        req.response.headers.contentType =
+            ContentType('application', 'x-protobuf');
+        // Decision 218: a protobuf PendingPage.
+        req.response.add(pb.PendingPage(envelopes: [
+          env(11),
+          pb.Envelope(opId: [1, 2, 3], channelId: uuidBytes(_group)),
+          env(12),
+        ], more: true)
+            .writeToBuffer());
         await req.response.close();
       };
       final transport = RestTransport(
@@ -485,8 +501,10 @@ void main() {
       final page = await transport.pullPendingSync(since: 10);
       expect(query, 'since=10');
       expect(server.lastAuthHeader, 'Bearer acc-pull');
-      expect(page!.envelopes.map((e) => e.opId), ['p-11', 'p-12']);
-      expect(page.envelopes.last.serverTimestampMs.toInt(), 12);
+      expect(accept, 'application/x-protobuf');
+      expect(page!.envelopes.map((e) => e.opId), [_opId(11), _opId(12)],
+          reason: 'a malformed envelope (a 3-byte op id) is dropped');
+      expect(page.envelopes.last.serverTimestampMs, 12);
       expect(page.more, isTrue);
 
       server.handler = (req) async {
@@ -627,11 +645,10 @@ void _appBuildTests() {
 
     OutboundFrame frame(List<String> opIds) => OutboundFrame(
           kind: 'chat_payload',
-          resourceId: 'd-ab',
+          resourceId: dmChannelId('000000000', 'b1c2d3e4f'),
           peer: 'b1c2d3e4f',
           ops: [
-            for (final id in opIds)
-              FramedOp(opId: id, payload: [1, 2], clientTimestampMs: 7),
+            for (final id in opIds) FramedOp(opId: id, payload: [1, 2]),
           ],
         );
 
@@ -644,15 +661,15 @@ void _appBuildTests() {
             jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
         final sent = pb.WsEnvelope.fromBuffer(base64Decode(body['frame']));
         expect(sent.type, pb.WsType.WS_OP);
-        expect(sent.ops.envelopes.single.opId, 'op-1');
-        expect(sent.ops.envelopes.single.peer, 'b1c2d3e4f');
+        expect(sent.ops.envelopes.single.opId, uuidBytes(_opId(1)));
+        expect(sent.ops.envelopes.single.peer, userIdBytes('b1c2d3e4f'));
         req.response.headers.contentType = ContentType.json;
         req.response.write(jsonEncode({
           'frame': base64Encode(pb.WsEnvelope(
             type: pb.WsType.WS_ACK,
             acks: pb.AckBatch(acks: [
               pb.Ack(
-                  opId: 'op-1',
+                  opId: uuidBytes(_opId(1)),
                   outcome: pb.AckOutcome.ACK_SUCCESS,
                   serverTimestampMs: fixnum.Int64(42)),
             ]),
@@ -666,10 +683,10 @@ void _appBuildTests() {
         httpClient: http.Client(),
       );
       final ack = transport.acks.first.timeout(const Duration(seconds: 3));
-      await transport.send(frame(['op-1']));
+      await transport.send(frame([_opId(1)]));
 
       final got = await ack;
-      expect(got.opId, 'op-1');
+      expect(got.opId, _opId(1));
       expect((got.outcome as AckSuccess).serverTimestampMs, 42);
       expect(server.lastAuthHeader, 'Bearer acc-ops');
     });
@@ -685,10 +702,10 @@ void _appBuildTests() {
         httpClient: http.Client(),
       );
       final acks = transport.acks.take(2).toList();
-      await transport.send(frame(['op-1', 'op-2']));
+      await transport.send(frame([_opId(1), _opId(2)]));
 
       final got = await acks.timeout(const Duration(seconds: 3));
-      expect(got.map((a) => a.opId), ['op-1', 'op-2']);
+      expect(got.map((a) => a.opId), [_opId(1), _opId(2)]);
       expect(got.every((a) => a.outcome is AckAuthFailure), isTrue);
     });
   });
@@ -809,4 +826,112 @@ Future<void> _waitForState(WsTransport t, TransportState target) async {
   await t.state
       .firstWhere((s) => s == target)
       .timeout(const Duration(seconds: 3));
+}
+
+/// Decision 218: the edge between text ids and wire bytes.
+void _wireTests() {
+  group('wire edge', () {
+    test('ids convert both ways and refuse a wrong length', () {
+      expect(uuidText(uuidBytes(_group)), _group);
+      expect(uuidBytes(_group), hasLength(16));
+      expect(userIdBytes('1a2b3c4d5'), [0x01, 0xa2, 0xb3, 0xc4, 0xd5]);
+      expect(userIdText([0x01, 0xa2, 0xb3, 0xc4, 0xd5]), '1a2b3c4d5');
+      expect(opIdUserId(uuidBytes(_opId(1, 'fedcba987'))), 'fedcba987');
+      for (final bad in [
+        () => uuidText(List.filled(15, 0)),
+        () => uuidText(List.filled(17, 0)),
+        () => uuidBytes('g-1'),
+        () => userIdText(List.filled(4, 0)),
+        () => userIdText([0x10, 0, 0, 0, 0]), // past 36 bits
+        () => userIdBytes('u-peer'),
+        () => opIdUserId(List.filled(5, 0)),
+      ]) {
+        expect(bad, throwsFormatException);
+      }
+    });
+
+    test('a DM sends its peer and no channel, a group the reverse; the '
+        'class rides flags', () {
+      final dm = wireEnvelope(
+          opId: _opId(1, '0a1b2c3d4'),
+          channelId: dmChannelId('0a1b2c3d4', 'f00dcafe1'),
+          peer: 'f00dcafe1',
+          payload: const [1],
+          flags: FrameClass.message.flags);
+      expect(dm.hasChannelId(), isFalse);
+      expect(dm.peer, userIdBytes('f00dcafe1'));
+      expect(dm.hasFlags(), isFalse, reason: 'a default is never encoded');
+      expect(dm.hasEphemeral() || dm.hasTtlSec(), isFalse);
+
+      final group = wireEnvelope(
+          opId: _opId(2),
+          channelId: _group,
+          payload: const [1],
+          flags: FrameClass.key.flags);
+      expect(group.hasPeer(), isFalse);
+      expect(group.channelId, uuidBytes(_group));
+      expect((group.flags >> 1) & 7, 3);
+    });
+
+    test('inbound: the sender is the op id\'s bits, a DM\'s channel is '
+        'derived from the pair, a server event has no sender', () {
+      final dm = InboundEnvelope.fromWire(wireEnvelope(
+          opId: _opId(1, '0a1b2c3d4'),
+          channelId: '',
+          peer: 'f00dcafe1',
+          payload: const [8],
+          senderDeviceId: _group,
+          serverTimestampMs: 5));
+      expect(dm.senderUserId, '0a1b2c3d4');
+      expect(dm.peer, 'f00dcafe1');
+      expect(dm.channelId, dmChannelId('f00dcafe1', '0a1b2c3d4'));
+      expect(dm.serverTimestampMs, 5);
+
+      final event = InboundEnvelope.fromWire(pb.Envelope(
+          opId: uuidBytes('0190aaaa-bbbb-4ccc-8ddd-eeeeffff0001'),
+          channelId: uuidBytes(_group),
+          payload: const [0x53, 1]));
+      expect(event.senderUserId, '', reason: 'a v4 op id carries no user');
+      expect(event.channelId, _group);
+      final byActor = InboundEnvelope.fromWire(pb.Envelope(
+          opId: uuidBytes(_opId(3, '0a1b2c3d4')),
+          channelId: uuidBytes(_group),
+          payload: const [0x53, 1]));
+      expect(byActor.senderUserId, '0a1b2c3d4',
+          reason: 'a UUIDv7 the server minted names its actor');
+
+      for (final bad in [
+        pb.Envelope(opId: [1], channelId: uuidBytes(_group)),
+        pb.Envelope(opId: uuidBytes(_opId(4))), // neither
+        pb.Envelope(
+            opId: uuidBytes(_opId(4)),
+            channelId: uuidBytes(_group),
+            peer: userIdBytes('f00dcafe1')), // both
+        pb.Envelope(opId: uuidBytes(_opId(4)), peer: [1, 2, 3, 4]),
+        pb.Envelope(opId: uuidBytes(_opId(4)), channelId: [1, 2]),
+      ]) {
+        expect(() => InboundEnvelope.fromWire(bad), throwsFormatException);
+      }
+    });
+
+    test('an op id the wire cannot carry fails the op, not the socket',
+        () async {
+      final server = _WsEchoServer();
+      await server.start();
+      addTearDown(server.stop);
+      final transport = WsTransport(endpoint: server.uri, auth: _FakeAuth('a'));
+      addTearDown(transport.dispose);
+      await transport.start();
+      await _waitForState(transport, TransportState.connected);
+      transport.endSyncBuffer();
+      final ack = transport.acks.first;
+      await transport.send(OutboundFrame(
+          kind: 'chat_payload',
+          resourceId: _group,
+          ops: [FramedOp(opId: 'op-1', payload: const [0])]));
+      final got = await ack.timeout(const Duration(seconds: 3));
+      expect(got.opId, 'op-1');
+      expect((got.outcome as AckPermanentReject).reason, 'validation_failed');
+    });
+  });
 }
