@@ -259,7 +259,7 @@ void main() {
         expect(
           row?.state,
           MessageState.rejected,
-          reason: 'SYNC_PROTOCOL §21.1: a 1:1 frame between two people '
+          reason: 'SYNC_PROTOCOL §23.1: a 1:1 frame between two people '
               'with no accepted invite is a permanent reject. '
               '${await a.opDebug(dmChannel)}',
         );
@@ -284,7 +284,7 @@ void main() {
         expect(
           invite.channelId,
           dmChannel,
-          reason: 'SYNC_PROTOCOL §21.3: a 1:1 InviteSent comes addressed '
+          reason: 'SYNC_PROTOCOL §23.3: a 1:1 InviteSent comes addressed '
               "like a DM, so B derives the pair's channel from it.",
         );
 

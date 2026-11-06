@@ -911,7 +911,7 @@ class InboundReceiver {
     await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
-  /// SYNC_PROTOCOL §21 InviteSent (decisions 219, 221). A 1:1 invite
+  /// SYNC_PROTOCOL §23 InviteSent (decisions 219, 221). A 1:1 invite
   /// comes addressed like a DM, so its channel is the pair's. To us, it
   /// is an incoming invite, announced on [peerMessagesStored] so it
   /// notifies like a message; into a group of ours, its member list
@@ -947,7 +947,7 @@ class InboundReceiver {
     await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
-  /// SYNC_PROTOCOL §21 InviteAnswered: an invite is no longer pending. A
+  /// SYNC_PROTOCOL §23 InviteAnswered: an invite is no longer pending. A
   /// 1:1 one accepted connects us with its actor, and the chat says so.
   Future<void> _handleInviteAnswered(
     InboundEnvelope env,

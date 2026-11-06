@@ -1217,7 +1217,7 @@ class ChatService with TimelineService {
       adoptGroup;
 
   /// Mirror the server's connections, blocks and pending invites
-  /// (SYNC_PROTOCOL §21) into the store. At every foreground login.
+  /// (SYNC_PROTOCOL §23) into the store. At every foreground login.
   Future<void> refreshConnections() async {
     final json = await _authClient.getConnections();
     final invites = [

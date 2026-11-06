@@ -366,7 +366,7 @@ class AuthClient implements AuthTokenProvider {
     return _decodeJson(resp);
   }
 
-  // ---- invites, blocks, reports (SYNC_PROTOCOL §21) ---------------------
+  // ---- invites, blocks, reports (SYNC_PROTOCOL §23) ---------------------
 
   /// `GET /v3.0/channels/connections`: connections, blocks and the pending
   /// invites the caller can see.

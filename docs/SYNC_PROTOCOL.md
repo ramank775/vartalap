@@ -2080,10 +2080,10 @@ ever leaves the server, not even the timing of a change.
   the user comes online or stops being online (the app goes to the
   background, or its last such socket closes). Stamping on the way in too
   keeps a sane value if the server dies while the user is online.
-- **Contacts**, for now: users who have each written to the other in a
-  DM (a MESSAGE-class op, not a receipt). The gateway tells profile-ms
-  each direction once per process (`dm_contacts`, both backends).
-  Accepted connections replace this once invites exist.
+- **Contacts**: the people connected by an accepted invite (§23,
+  decision 219); profile-ms asks channel-ms. A block, either way, hides
+  presence whatever the setting, and the gateway does not answer a
+  presence op about someone who blocked the asker.
 - **Reciprocity** (WhatsApp): A sees B's presence only while B shares
   with A and A shares with B. `nobody` sees nobody's; `contacts` sees
   only contacts' (and only those sharing).
@@ -2131,10 +2131,9 @@ else nothing.
 No fan-out on connect: a change goes only to the sockets watching that
 user, at most one watch per socket (the open chat). One profile-ms call
 per change (it stamps last seen and filters the watchers) and one per
-answer. Internal routes: profile-ms `POST /_internal/presence`
-`{user_id, viewers, seen}` → `{last_seen_ms, viewers}` and
-`POST /_internal/presence/contact` `{user_id, peer}`; the gateway
-reaches them through `--profile-ms-endpoint` (the monolith: itself) and
+answer. Internal route: profile-ms `POST /_internal/presence`
+`{user_id, viewers, seen}` → `{last_seen_ms, viewers}`; the gateway
+reaches it through `--profile-ms-endpoint` (the monolith: itself) and
 does no presence without it.
 
 ponytail: the watches and the online state live in the gateway process.
@@ -2230,7 +2229,7 @@ keeps 30 days, so a pair silent for longer invites again.
 The account's invites (both ways), connections and blocks (both ways)
 go with it. Reports about or by it stay until their 90 days are up.
 
-### 21.6 The timeline
+### 23.6 The timeline
 
 A timeline post (decision 223) reaches only the poster's connections,
 less anyone blocked either way: profile-ms asks channel-ms which of the

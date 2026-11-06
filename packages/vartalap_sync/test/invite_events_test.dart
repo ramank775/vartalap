@@ -9,7 +9,7 @@ import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart'
     show InboundEnvelope, dmChannelId;
 
-// SYNC_PROTOCOL §21: the invite events, as the inbound receiver applies them.
+// SYNC_PROTOCOL §23: the invite events, as the inbound receiver applies them.
 
 const _me = '0aaaaaaa1';
 const _ravi = '0bbbbbbb2';
