@@ -95,6 +95,8 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: vartalap-${{ github.ref_name }}
+          # R8's mapping files: to read the Android stack of a crash report
           path: |
             ${{ env.AAB }}
             ${{ env.APK }}
+            build/app/outputs/mapping/*Release/mapping.txt

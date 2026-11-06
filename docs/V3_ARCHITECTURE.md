@@ -51,7 +51,7 @@ returns: no Firebase SDKs, no google-services plugin, no
 - iOS `GeneratedPluginRegistrant.m` Firebase imports — regenerated clean via
   `flutter clean && pod install` after pubspec removal.
 - Phone OTP is self-hosted via chat-server (see decision 7).
-- Crash reporting: none in the app since DECISIONS 214 (Sentry removed; see decision 8).
+- Crash reporting: the app's own since Sentry was removed (DECISIONS 214; see decision 8).
 - Push: decision deferred to v3-blocker spike (see decision 6).
 
 Because v3 is a greenfield launch, **there is no parallel-run migration
@@ -348,8 +348,18 @@ first launch.
 ### 8. Crash reporting — opt-in, self-hosted-capable
 **Superseded (DECISIONS 214, 2026-11-03): Sentry is removed from the app.**
 No DSN was ever provisioned, and `sentry_flutter` 10 needs Android 8.0.
-Play Console vitals covers Play installs; a better option is a post-launch
-todo. The original decision follows.
+Play Console vitals covers Play installs. **Replaced by the app's own
+reports (2026-11-06):** uncaught Dart errors (`FlutterError.onError`,
+`PlatformDispatcher.onError`, in every engine) and Android crashes (a
+Kotlin uncaught-exception handler in `Application.kt`) are written to
+files on the phone, as their type and stack frames, never the message. On
+the next start the app asks once whether to send them ("Vartalap closed
+unexpectedly. Send a report to help fix it?"), or sends them without
+asking when Settings › Privacy › "Send crash reports automatically" is on
+(off by default). They go to chat-server `POST /v3.0/crash-reports`, which
+keeps them 30 days without the sender. No SDK, no Google, Android 7.0
+keeps working (`lib/services/crash_reports.dart`). The original decision
+follows.
 
 Sentry via `sentry_flutter`. User opts in via a settings toggle, default OFF.
 DSN is configured at build time but Sentry is **not initialized** until the

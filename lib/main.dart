@@ -41,6 +41,7 @@ import 'package:vartalap/screens/update/app_update.dart';
 import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/crash_reports.dart';
 import 'package:vartalap/services/device_contacts.dart';
 import 'package:vartalap/services/live_location.dart';
 import 'package:vartalap_crypto/vartalap_crypto.dart';
@@ -536,6 +537,8 @@ Future<AppServices> initializeApp({
   bool pushEvents = true,
 }) async {
   await configStore.init();
+  final info = configStore.packageInfo;
+  await CrashReports.install(build: '${info.version}+${info.buildNumber}');
 
   // --- config / secure-storage bootstrapping --------------------------------
   final prefs = await SharedPreferences.getInstance();
@@ -558,6 +561,7 @@ Future<AppServices> initializeApp({
   // Every call to our server says which build this is (decision 192).
   final httpClient = AppBuildClient(configStore.appBuild, apiUrl.host);
   final authClient = AuthClient(baseUrl: apiUrl, httpClient: httpClient);
+  CrashReports.instance?.send = authClient.sendCrashReport;
   final authService = AuthService(client: authClient);
   await authService.init(
       hasAccountDatabase: (userId) =>

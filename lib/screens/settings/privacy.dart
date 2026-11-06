@@ -4,9 +4,11 @@
 library vartalap.screens.settings.privacy;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/screens/invites/invites.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/crash_reports.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
 
@@ -230,4 +232,43 @@ class _BlockedScreenState extends State<BlockedScreen> {
       ),
     );
   }
+}
+
+/// Settings › Privacy: send crash reports without asking (decision 214's
+/// replacement for Sentry). Off by default: the app asks each time.
+class CrashReportsSwitch extends StatefulWidget {
+  const CrashReportsSwitch({super.key});
+
+  @override
+  State<CrashReportsSwitch> createState() => _CrashReportsSwitchState();
+}
+
+class _CrashReportsSwitchState extends State<CrashReportsSwitch> {
+  bool _on = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) {
+        setState(() => _on = prefs.getBool(kCrashReportsAutoKey) ?? false);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+        title: const Text('Send crash reports automatically'),
+        subtitle: const Text(
+          'When Vartalap closes unexpectedly or hits an error, send a report '
+          'without asking. Reports have no messages, phone numbers or '
+          'contacts.',
+        ),
+        value: _on,
+        onChanged: (on) async {
+          setState(() => _on = on);
+          await (await SharedPreferences.getInstance())
+              .setBool(kCrashReportsAutoKey, on);
+        },
+      );
 }

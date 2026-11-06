@@ -276,6 +276,14 @@ class AuthClient implements AuthTokenProvider {
     return _decodeJson(resp);
   }
 
+  /// `POST /v3.0/crash-reports` — one opt-in crash report (decision 214's
+  /// replacement for Sentry; `lib/services/crash_reports.dart`).
+  Future<void> sendCrashReport(Map<String, Object> report) async {
+    final resp = await _post('/v3.0/crash-reports',
+        body: report, headers: _authHeaders());
+    _assertOk(resp, 'sendCrashReport');
+  }
+
   /// `PUT /v3.0/users/me/discoverability` — decision 223: who may find
   /// this account by phone number. [mode] is `everyone`, `chosen` or
   /// `nobody`; [phoneHashes] (SHA-256 hex of E.164 numbers, at most

@@ -10,6 +10,7 @@ import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/timeline/timeline.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/crash_reports.dart';
 
 class HomeScreen extends StatefulWidget {
   final ChatService chatService;
@@ -39,6 +40,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkNew();
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => CrashReports.instance?.offer(context));
   }
 
   @override

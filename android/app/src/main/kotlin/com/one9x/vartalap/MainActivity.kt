@@ -27,6 +27,14 @@ class MainActivity: FlutterActivity() {
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         // Live location: start the sharing service, hear what it changed.
         LiveLocationService.register(flutterEngine, this)
+        // What a crash report says of the phone (lib/services/crash_reports.dart).
+        MethodChannel(messenger, "vartalap/crash")
+            .setMethodCallHandler { _, result ->
+                result.success(mapOf(
+                    "android" to "${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",
+                    "model" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+                ))
+            }
         // SIM country for the phone screen's default country; needs no permission.
         MethodChannel(messenger, "vartalap/sim")
             .setMethodCallHandler { _, result ->
