@@ -8,6 +8,8 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
+import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -137,6 +139,44 @@ void main() {
       clock.advance(const Duration(seconds: 1));
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       expect(await store.fetchMessage(m.messageId), isNull);
+    });
+  });
+
+  group('secure messages', () {
+    Future<pb.ChatPayload> sentPayload() async => pb.ChatPayload.fromBuffer(
+        (await store.db.query('outbound_ops')).last['payload'] as List<int>);
+
+    test(
+        'screen lock: the box and its key go in the payload, the secret '
+        'never in a body; this phone opens its own copy', () async {
+      await chat.sendSecure(
+          channelId: dm, secret: 'PIN 4321', authorUserId: self, timerSec: 60);
+      final p = await sentPayload();
+      expect([p.contentType, p.hasBody(), p.secureKey.length, p.timerSec],
+          [kSecureType, false, 32, 60]);
+      expect(openSecret(p.secureBox, key: p.secureKey), 'PIN 4321');
+      final m = await newest();
+      expect([m.body, m.contentType, m.timerSec], [null, kSecureType, 60]);
+      expect(ChatService.secureUnlock(m), SecureUnlock.screenLock);
+      expect(await chat.openSecure(m), 'PIN 4321');
+      expect(await store.searchMessages(query: '4321'), isEmpty);
+    });
+
+    test(
+        'password: no key travels; the right password opens it, a wrong '
+        'one does not', () async {
+      await chat.sendSecure(
+          channelId: dm,
+          secret: 'door code 1985',
+          authorUserId: self,
+          password: 'tulip');
+      final p = await sentPayload();
+      expect(p.hasSecureKey(), isFalse);
+      final m = await newest();
+      expect(ChatService.secureUnlock(m), SecureUnlock.password);
+      expect(await chat.openSecure(m, password: 'tulip'), 'door code 1985');
+      await expectLater(
+          chat.openSecure(m, password: 'rose'), throwsA(isA<SecretLocked>()));
     });
   });
 

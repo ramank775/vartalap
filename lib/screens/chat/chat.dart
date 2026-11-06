@@ -14,6 +14,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart' show SecureUnlock;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/live_location.dart';
@@ -119,9 +120,9 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// Message being replied to, if any.
   MessageRow? _replyTo;
 
-  /// Decision 222: the next message's timer, seconds; 0 is Off. Back to
-  /// Off once it is sent.
-  int _timerSec = 0;
+  /// Decision 222: the next message's timer and secure options. Back to
+  /// none once it is sent.
+  ComposeOptions _options = kNoComposeOptions;
 
   /// The voice note being recorded; null while the composer is text.
   AudioRecorder? _recorder;
@@ -1361,6 +1362,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   Future<void> _onSend() async {
     final body = _input.text.trim();
     if (body.isEmpty) return;
+    final options = _editingMessageId == null ? _options : kNoComposeOptions;
     if (_editingMessageId != null && body == _editingOriginal?.trim()) {
       _cancelCompose();
       return;
@@ -1376,16 +1378,28 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
           messageId: editing,
           newBody: body,
         );
+      } else if (options.secure) {
+        // A secret is sent as typed: no trimming.
+        await widget.chatService.sendSecure(
+          channelId: widget.channelId,
+          secret: _input.text,
+          authorUserId: userId,
+          password: options.password,
+          replyToMessageId: _replyTo?.messageId,
+          timerSec: options.timerSec,
+        );
+        _toBottom();
+        _options = kNoComposeOptions;
       } else {
         await widget.chatService.sendMessage(
           channelId: widget.channelId,
           body: body,
           authorUserId: userId,
           replyToMessageId: _replyTo?.messageId,
-          timerSec: _timerSec,
+          timerSec: options.timerSec,
         );
         _toBottom();
-        _timerSec = 0;
+        _options = kNoComposeOptions;
       }
       if (mounted) {
         setState(() {
@@ -1632,8 +1646,14 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                         : () => showEditHistory(context,
                             widget.chatService.messageVersions(msg.messageId)),
                     onLongPress: () => _select(msg),
-                    // While selecting, a tap adds or removes a message.
-                    onTap: selecting ? () => _toggleSelected(msg) : null,
+                    // While selecting, a tap adds or removes a message; a
+                    // secure one opens on a tap (decision 222).
+                    onTap: selecting
+                        ? () => _toggleSelected(msg)
+                        : msg.contentType == kSecureType && !msg.tombstoned
+                            ? () => revealSecret(
+                                context, widget.chatService, msg)
+                            : null,
                     onReactionTap: (emoji) => _toggleReaction(msg, emoji),
                     onRetry:
                         failedOpId == null ? null : () => _retry(failedOpId),
@@ -1750,14 +1770,15 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                 : DateTime.now().difference(_recordingSince),
             onStopRecording: (send) => _stopRecording(send: send),
             editing: _editingMessageId != null,
-            timerSec: _timerSec,
-            onTimer: () async {
-              final picked = await pickMessageTimer(context, _timerSec);
+            options: _options,
+            onOptions: () async {
+              final picked = await pickComposeOptions(context, _options);
               if (picked != null && mounted) {
-                setState(() => _timerSec = picked);
+                setState(() => _options = picked);
               }
             },
-            onClearTimer: () => setState(() => _timerSec = 0),
+            onClearOptions: () =>
+                setState(() => _options = kNoComposeOptions),
             replyPreview: _replyTo == null ? null : _preview(_replyTo!),
             onCancelCompose:
                 (_editingMessageId != null || _replyTo != null)
@@ -1856,11 +1877,11 @@ class _MessageInput extends StatelessWidget {
   /// Non-null while editing or replying; clears both.
   final VoidCallback? onCancelCompose;
 
-  /// Decision 222: the next message's timer (0: Off), the button that
-  /// picks it and the ✕ that turns it off.
-  final int timerSec;
-  final VoidCallback onTimer;
-  final VoidCallback onClearTimer;
+  /// Decision 222: the next message's timer and secure options, the
+  /// button that picks them and the ✕ that drops them.
+  final ComposeOptions options;
+  final VoidCallback onOptions;
+  final VoidCallback onClearOptions;
 
   const _MessageInput({
     required this.controller,
@@ -1875,9 +1896,9 @@ class _MessageInput extends StatelessWidget {
     this.editing = false,
     this.replyPreview,
     this.onCancelCompose,
-    required this.timerSec,
-    required this.onTimer,
-    required this.onClearTimer,
+    required this.options,
+    required this.onOptions,
+    required this.onClearOptions,
   });
 
   /// Height of the box and of the round button beside it.
@@ -1958,26 +1979,32 @@ class _MessageInput extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (timerSec > 0 && !editing)
+              if (options != kNoComposeOptions && !editing)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(18, 4, 0, 0),
                   child: Row(
                     children: [
-                      Icon(Icons.timer_outlined,
-                          size: 16, color: scheme.primary),
+                      Icon(
+                          options.secure
+                              ? Icons.lock_outline
+                              : Icons.timer_outlined,
+                          size: 16,
+                          color: scheme.primary),
                       const SizedBox(width: kSpaceSm),
                       Expanded(
-                        child: Text(
-                          'Disappears ${kMessageTimers[timerSec]} after '
-                          'sending',
-                          style: TextStyle(fontSize: 13, color: muted),
+                        child: GestureDetector(
+                          onTap: onOptions,
+                          child: Text(
+                            composeOptionsText(options),
+                            style: TextStyle(fontSize: 13, color: muted),
+                          ),
                         ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.close, size: 18),
                         visualDensity: VisualDensity.compact,
-                        tooltip: 'Timer off',
-                        onPressed: onClearTimer,
+                        tooltip: 'Clear timer and secure',
+                        onPressed: onClearOptions,
                       ),
                     ],
                   ),
@@ -2016,7 +2043,8 @@ class _MessageInput extends StatelessWidget {
                     onPressed: sending ? null : onAttach,
                   ),
                   // WhatsApp hides the camera once there's text; the
-                  // message's timer takes its place (decision 222).
+                  // message's timer and secure options take its place
+                  // (decision 222).
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: controller,
                     builder: (context, value, _) => editing
@@ -2029,10 +2057,12 @@ class _MessageInput extends StatelessWidget {
                                 onPressed: sending ? null : onCamera,
                               )
                             : IconButton(
-                                icon: const Icon(Icons.timer_outlined),
-                                tooltip: 'Message timer',
-                                color: timerSec > 0 ? scheme.primary : muted,
-                                onPressed: sending ? null : onTimer,
+                                icon: const Icon(Icons.lock_clock_outlined),
+                                tooltip: 'Timer and secure',
+                                color: options != kNoComposeOptions
+                                    ? scheme.primary
+                                    : muted,
+                                onPressed: sending ? null : onOptions,
                               ),
                   ),
                 ],
@@ -2430,6 +2460,15 @@ class _MessageBubble extends StatelessWidget {
     final failed = onRetry != null;
     final tombstoned = message.tombstoned;
     final waiting = message.contentType == kUndecryptedType;
+    // Decision 222: never the secret, only how it opens.
+    final secure = !tombstoned && message.contentType == kSecureType
+        ? switch (ChatService.secureUnlock(message)) {
+            SecureUnlock.screenLock => 'Secure message. Tap to view',
+            SecureUnlock.password =>
+              'Secure message. Tap and enter the password',
+            null => 'Secure message. Update Vartalap to open it',
+          }
+        : null;
     // A contact / location / event renders as a card, never its body.
     final rich = !tombstoned && isRichType(message.contentType);
 
@@ -2665,12 +2704,21 @@ class _MessageBubble extends StatelessWidget {
                                     const TextSpan(text: ' $_waitingText'),
                                   ],
                                 )
-                              : _marked(body, searchQuery),
+                              : secure != null
+                                  ? TextSpan(children: [
+                                      WidgetSpan(
+                                        alignment: PlaceholderAlignment.middle,
+                                        child: Icon(Icons.lock_outline,
+                                            size: 16, color: fg),
+                                      ),
+                                      TextSpan(text: ' $secure'),
+                                    ])
+                                  : _marked(body, searchQuery),
                       tombstoned
                           ? 'This message was deleted'
                           : waiting
                               ? _waitingText
-                              : body,
+                              : secure ?? body,
                     )),
                   if (failed)
                     pad(Padding(

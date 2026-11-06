@@ -46,19 +46,34 @@ Uint8List _encodeChatPayload({
   String contentType = 'text/plain',
   String? replyToMessageId,
   int timerSec = 0,
+  SealedSecret? secure,
 }) =>
     pb.ChatPayload(
       version: 1,
       type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
       messageId: uuidBytes(messageId),
-      body: body,
+      // A secure message has none (decision 222).
+      body: body.isEmpty ? null : body,
       // Plain text is the proto's default: not sent (decision 218), and a
       // receiver stores none, which reads as text.
       contentType: contentType == 'text/plain' ? null : contentType,
       replyToMessageId:
           replyToMessageId == null ? null : uuidBytes(replyToMessageId),
       timerSec: timerSec == 0 ? null : timerSec,
+      secureBox: secure?.box,
+      secureKey: secure?.key,
     ).writeToBuffer();
+
+/// A secure message's sealed secret (decision 222, [sealSecret]).
+typedef SealedSecret = ({Uint8List box, Uint8List? key});
+
+// Argon2id takes a second or more: off the UI isolate. Top level, so the
+// closure carries only its arguments across.
+Future<SealedSecret> _sealWithPassword(String secret, String password) =>
+    Isolate.run(() => sealSecret(secret, password: password));
+
+Future<String> _openWithPassword(Uint8List box, String password) =>
+    Isolate.run(() => openSecret(box, password: password));
 
 /// Decision 222: the timers a message can be sent with, in seconds (0 is
 /// Off), and how the composer names them.
@@ -434,7 +449,7 @@ class ChatService with TimelineService {
   /// [contentType] other than `text/plain` marks a contact, location
   /// or event carried as standard text in [body] (decision 133).
   /// [timerSec]: a timed message (decision 222), gone from both phones
-  /// that long after the server takes it.
+  /// that long after the server takes it. [secure]: see [sendSecure].
   Future<void> sendMessage({
     required String channelId,
     required String body,
@@ -442,6 +457,7 @@ class ChatService with TimelineService {
     String? replyToMessageId,
     String contentType = 'text/plain',
     int timerSec = 0,
+    SealedSecret? secure,
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -451,7 +467,7 @@ class ChatService with TimelineService {
       messageId: messageId,
       channelId: channelId,
       authorUserId: authorUserId,
-      body: body,
+      body: secure == null ? body : null,
       contentType: contentType,
       replyToMessageId: replyToMessageId,
       clientTimestampMs: now,
@@ -463,6 +479,10 @@ class ChatService with TimelineService {
       tombstoned: false,
       tombstonePendingUntil: null,
       timerSec: timerSec == 0 ? null : timerSec,
+      secure: secure == null
+          ? null
+          : pb.ChatPayload(secureBox: secure.box, secureKey: secure.key)
+              .writeToBuffer(),
     );
 
     final op = OutboundOpRow(
@@ -478,6 +498,7 @@ class ChatService with TimelineService {
         contentType: contentType,
         replyToMessageId: replyToMessageId,
         timerSec: timerSec,
+        secure: secure,
       ),
       status: OpStatus.pending,
       attempts: 0,
@@ -496,6 +517,53 @@ class ChatService with TimelineService {
       nowMs: now,
     );
     _scheduler.tickSoon();
+  }
+
+  /// Decision 222: send [secret] as a secure message, hidden until opened.
+  /// Without a [password] it opens with the receiving phone's screen lock
+  /// (its random key rides inside the end-to-end encrypted payload); with
+  /// one, only with that password (Argon2id, off this isolate), which the
+  /// sender passes on another way. The secret is never in `body`.
+  Future<void> sendSecure({
+    required String channelId,
+    required String secret,
+    required String authorUserId,
+    String? password,
+    String? replyToMessageId,
+    int timerSec = 0,
+  }) async =>
+      sendMessage(
+        channelId: channelId,
+        body: '',
+        authorUserId: authorUserId,
+        replyToMessageId: replyToMessageId,
+        contentType: kSecureType,
+        timerSec: timerSec,
+        secure: password == null
+            ? sealSecret(secret)
+            : await _sealWithPassword(secret, password),
+      );
+
+  /// How [m], a secure message, opens; null when it is none this build
+  /// can open.
+  static SecureUnlock? secureUnlock(MessageRow m) {
+    final box = m.secure == null
+        ? null
+        : pb.ChatPayload.fromBuffer(m.secure!).secureBox;
+    try {
+      return box == null ? null : secureUnlockOf(box);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// The secret in [m]. The caller has passed the screen lock, or asked
+  /// for the [password]. Throws [SecretLocked] for a wrong password.
+  Future<String> openSecure(MessageRow m, {String? password}) async {
+    final p = pb.ChatPayload.fromBuffer(m.secure!);
+    final box = Uint8List.fromList(p.secureBox);
+    if (password == null) return openSecret(box, key: p.secureKey);
+    return _openWithPassword(box, password);
   }
 
   /// Refresh the cached profile of a DM's peer from

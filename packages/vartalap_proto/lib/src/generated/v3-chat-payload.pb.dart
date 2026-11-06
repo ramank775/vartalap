@@ -46,6 +46,8 @@ class ChatPayload extends $pb.GeneratedMessage {
     $core.bool? isTyping,
     $fixnum.Int64? markerServerTimestampMs,
     $core.int? timerSec,
+    $core.List<$core.int>? secureBox,
+    $core.List<$core.int>? secureKey,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
     LiveLocationPoint? liveLocationPoint,
     $core.int? liveLocationDurationSec,
@@ -66,6 +68,8 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (markerServerTimestampMs != null)
       result.markerServerTimestampMs = markerServerTimestampMs;
     if (timerSec != null) result.timerSec = timerSec;
+    if (secureBox != null) result.secureBox = secureBox;
+    if (secureKey != null) result.secureKey = secureKey;
     if (meta != null) result.meta.addEntries(meta);
     if (liveLocationPoint != null) result.liveLocationPoint = liveLocationPoint;
     if (liveLocationDurationSec != null)
@@ -110,6 +114,10 @@ class ChatPayload extends $pb.GeneratedMessage {
         $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..aI(70, _omitFieldNames ? '' : 'timerSec', fieldType: $pb.PbFieldType.OU3)
+    ..a<$core.List<$core.int>>(
+        71, _omitFieldNames ? '' : 'secureBox', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        72, _omitFieldNames ? '' : 'secureKey', $pb.PbFieldType.OY)
     ..m<$core.String, $core.String>(100, _omitFieldNames ? '' : 'meta',
         entryClassName: 'ChatPayload.MetaEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -291,45 +299,73 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(70)
   void clearTimerSec() => $_clearField(70);
 
+  /// For TYPE_MESSAGE_CREATE with content_type
+  /// "application/x-vartalap-secure" (body empty): a secure message, its
+  /// secret sealed on its own, as one unit so a forward copies it unchanged
+  /// and a traceability hash can be taken over it: version (1), unlock (1
+  /// the receiving phone's screen lock, 2 a password), a password's 16-byte
+  /// salt, a 12-byte nonce, then the ChaCha20-Poly1305 ciphertext and tag.
+  /// SYNC_PROTOCOL §20.4.
+  @$pb.TagNumber(71)
+  $core.List<$core.int> get secureBox => $_getN(13);
+  @$pb.TagNumber(71)
+  set secureBox($core.List<$core.int> value) => $_setBytes(13, value);
+  @$pb.TagNumber(71)
+  $core.bool hasSecureBox() => $_has(13);
+  @$pb.TagNumber(71)
+  void clearSecureBox() => $_clearField(71);
+
+  /// The random key that opens secure_box when it unlocks with the
+  /// receiving phone's screen lock; unset for a password (Argon2id of it,
+  /// never sent).
+  @$pb.TagNumber(72)
+  $core.List<$core.int> get secureKey => $_getN(14);
+  @$pb.TagNumber(72)
+  set secureKey($core.List<$core.int> value) => $_setBytes(14, value);
+  @$pb.TagNumber(72)
+  $core.bool hasSecureKey() => $_has(14);
+  @$pb.TagNumber(72)
+  void clearSecureKey() => $_clearField(72);
+
   /// Free-form client metadata. Other clients MAY ignore unknown keys.
   /// Reserved keys:
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(13);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(15);
 
   /// Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   /// For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   @$pb.TagNumber(130)
-  LiveLocationPoint get liveLocationPoint => $_getN(14);
+  LiveLocationPoint get liveLocationPoint => $_getN(16);
   @$pb.TagNumber(130)
   set liveLocationPoint(LiveLocationPoint value) => $_setField(130, value);
   @$pb.TagNumber(130)
-  $core.bool hasLiveLocationPoint() => $_has(14);
+  $core.bool hasLiveLocationPoint() => $_has(16);
   @$pb.TagNumber(130)
   void clearLiveLocationPoint() => $_clearField(130);
   @$pb.TagNumber(130)
-  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(14);
+  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(16);
 
   /// For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
   /// this 1:1 chat on (for `duration_sec`) or off (0).
   @$pb.TagNumber(131)
-  $core.int get liveLocationDurationSec => $_getIZ(15);
+  $core.int get liveLocationDurationSec => $_getIZ(17);
   @$pb.TagNumber(131)
-  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(15, value);
+  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(17, value);
   @$pb.TagNumber(131)
-  $core.bool hasLiveLocationDurationSec() => $_has(15);
+  $core.bool hasLiveLocationDurationSec() => $_has(17);
   @$pb.TagNumber(131)
   void clearLiveLocationDurationSec() => $_clearField(131);
 
   /// For TYPE_LIVE_LOCATION_PERMISSION: may the receiver turn the
   /// sender's live location on and off from now on.
   @$pb.TagNumber(132)
-  $core.bool get liveLocationAllowed => $_getBF(16);
+  $core.bool get liveLocationAllowed => $_getBF(18);
   @$pb.TagNumber(132)
-  set liveLocationAllowed($core.bool value) => $_setBool(16, value);
+  set liveLocationAllowed($core.bool value) => $_setBool(18, value);
   @$pb.TagNumber(132)
-  $core.bool hasLiveLocationAllowed() => $_has(16);
+  $core.bool hasLiveLocationAllowed() => $_has(18);
   @$pb.TagNumber(132)
   void clearLiveLocationAllowed() => $_clearField(132);
 }

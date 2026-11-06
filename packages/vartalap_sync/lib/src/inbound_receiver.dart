@@ -498,6 +498,12 @@ class InboundReceiver {
           serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
           timerSec: chat.timerSec == 0 ? null : chat.timerSec,
+          secure: chat.secureBox.isEmpty
+              ? null
+              : Uint8List.fromList(pb.ChatPayload(
+                      secureBox: chat.secureBox,
+                      secureKey: chat.hasSecureKey() ? chat.secureKey : null)
+                  .writeToBuffer()),
         );
         if (env.senderUserId != localUserId && !_peerMessageCtrl.isClosed) {
           _peerMessageCtrl.add(channelId);

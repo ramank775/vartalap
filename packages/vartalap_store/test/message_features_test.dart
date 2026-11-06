@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:test/test.dart';
 import 'package:vartalap_store/vartalap_store.dart';
@@ -339,6 +341,47 @@ void main() {
       expect((await store.fetchMessage('m-own'))!.expiresAtMs, 305000);
       await store.deleteExpiredMessages(nowMs: 305000, localUserId: 'u-self');
       expect(await store.fetchMessage('m-own'), isNull);
+    });
+  });
+
+  group('secure messages', () {
+    test(
+        'the sealed secret is kept apart from the body, and a delete for '
+        'everyone takes it', () async {
+      await store.applyInboundMessage(
+        localUserId: 'u-self',
+        channelId: 'c-1',
+        opId: 'op-s',
+        messageId: 'm-s',
+        senderUserId: 'u-peer',
+        body: null,
+        contentType: kSecureType,
+        attachments: null,
+        forwardSource: null,
+        replyToMessageId: null,
+        clientTimestampMs: 1000,
+        serverTimestampMs: 1000,
+        nowMs: 1000,
+        secure: Uint8List.fromList([1, 2, 3]),
+      );
+      final m = (await store.fetchMessage('m-s'))!;
+      expect([
+        m.body,
+        m.contentType,
+        m.secure
+      ], [
+        null,
+        kSecureType,
+        [1, 2, 3]
+      ]);
+      await store.applyInboundMessageDelete(
+          channelId: 'c-1',
+          opId: 'op-del',
+          messageId: 'm-s',
+          senderUserId: 'u-peer',
+          serverTimestampMs: 2000,
+          nowMs: 2000);
+      expect((await store.fetchMessage('m-s'))!.secure, isNull);
     });
   });
 

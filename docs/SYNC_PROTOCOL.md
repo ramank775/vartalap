@@ -1954,6 +1954,42 @@ sender's copy starts counting when its ACK brings the stamp.
 - The sender's re-send log (decision 188) refuses and drops a timed
   message past its expiry.
 
+### 20.4 Secure messages
+
+A `TYPE_MESSAGE_CREATE` with `content_type =
+"application/x-vartalap-secure"`, no `body`, and the secret sealed on its
+own in `secure_box` (ChatPayload field 71):
+
+    version (1) | unlock (1 screen lock, 2 password) | salt (16 bytes,
+    password only) | nonce (12) | ChaCha20-Poly1305 ciphertext + tag (16)
+
+The bytes before the nonce are the AEAD's associated data. The box is one
+unit: a forward (not built yet) copies it unchanged, and a traceability
+hash (not built yet) is taken over it rather than over the readable text;
+its fresh random key or random salt keeps that hash from being guessed
+back from the text (decision 222).
+
+- **Unlock 1, screen lock (the default).** A fresh random 32-byte key,
+  sent as `secure_key` (field 72) inside the end-to-end encrypted payload.
+  The app shows the secret only after the phone's own screen lock:
+  Android's BiometricPrompt allowing the device credential (fingerprint,
+  face, PIN, pattern; Android 10+), the confirm-credential screen on
+  Android 7 to 9 (channel `vartalap/secure`, `SecureScreen.kt`, framework
+  APIs only).
+- **Unlock 2, password.** The key is Argon2id(password, salt; 16 MiB, 3
+  passes, 1 lane, 32 bytes), never sent; the sender passes the password
+  on another way. A forgotten password cannot be recovered.
+- A phone with no screen lock: as receiver it asks its user to set one
+  (opening Security settings) before an unlock-1 secret shows; as sender
+  it offers unlock 2 only, since its user could not open their own copy.
+- Revealed for 30 seconds with screenshots and recording blocked
+  (`FLAG_SECURE`); Copy clears the clipboard 60 seconds later. Never in a
+  notification, the chat list or a reply quote ("🔒 Secure message"), never
+  found by search (there is no body). Not editable. Combines with
+  `timer_sec` (§20.3).
+- Each phone keeps the box and key in `messages.secure` (schema v11); a
+  delete for everyone clears it.
+
 ---
 
 ## 21. Live location (decision 223)

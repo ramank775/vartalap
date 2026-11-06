@@ -96,6 +96,8 @@ const ChatPayload$json = {
       '10': 'markerServerTimestampMs'
     },
     {'1': 'timer_sec', '3': 70, '4': 1, '5': 13, '10': 'timerSec'},
+    {'1': 'secure_box', '3': 71, '4': 1, '5': 12, '10': 'secureBox'},
+    {'1': 'secure_key', '3': 72, '4': 1, '5': 12, '10': 'secureKey'},
     {
       '1': 'live_location_point',
       '3': 130,
@@ -155,13 +157,14 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'GB4gASgJUgVlbW9qaRJJCg5mb3J3YXJkX3NvdXJjZRgoIAEoCzIiLnZhcnRhbGFwLnYzLnBheW'
     'xvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZFNvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlz'
     'VHlwaW5nEjsKGm1hcmtlcl9zZXJ2ZXJfdGltZXN0YW1wX21zGDwgASgEUhdtYXJrZXJTZXJ2ZX'
-    'JUaW1lc3RhbXBNcxIbCgl0aW1lcl9zZWMYRiABKA1SCHRpbWVyU2VjElcKE2xpdmVfbG9jYXRp'
-    'b25fcG9pbnQYggEgASgLMiYudmFydGFsYXAudjMucGF5bG9hZC5MaXZlTG9jYXRpb25Qb2ludF'
-    'IRbGl2ZUxvY2F0aW9uUG9pbnQSPAoabGl2ZV9sb2NhdGlvbl9kdXJhdGlvbl9zZWMYgwEgASgN'
-    'UhdsaXZlTG9jYXRpb25EdXJhdGlvblNlYxIzChVsaXZlX2xvY2F0aW9uX2FsbG93ZWQYhAEgAS'
-    'gIUhNsaXZlTG9jYXRpb25BbGxvd2VkEj4KBG1ldGEYZCADKAsyKi52YXJ0YWxhcC52My5wYXls'
-    'b2FkLkNoYXRQYXlsb2FkLk1ldGFFbnRyeVIEbWV0YRo3CglNZXRhRW50cnkSEAoDa2V5GAEgAS'
-    'gJUgNrZXkSFAoFdmFsdWUYAiABKAlSBXZhbHVlOgI4AUoECAMQBEoECBQQFQ==');
+    'JUaW1lc3RhbXBNcxIbCgl0aW1lcl9zZWMYRiABKA1SCHRpbWVyU2VjEh0KCnNlY3VyZV9ib3gY'
+    'RyABKAxSCXNlY3VyZUJveBIdCgpzZWN1cmVfa2V5GEggASgMUglzZWN1cmVLZXkSVwoTbGl2ZV'
+    '9sb2NhdGlvbl9wb2ludBiCASABKAsyJi52YXJ0YWxhcC52My5wYXlsb2FkLkxpdmVMb2NhdGlv'
+    'blBvaW50UhFsaXZlTG9jYXRpb25Qb2ludBI8ChpsaXZlX2xvY2F0aW9uX2R1cmF0aW9uX3NlYx'
+    'iDASABKA1SF2xpdmVMb2NhdGlvbkR1cmF0aW9uU2VjEjMKFWxpdmVfbG9jYXRpb25fYWxsb3dl'
+    'ZBiEASABKAhSE2xpdmVMb2NhdGlvbkFsbG93ZWQSPgoEbWV0YRhkIAMoCzIqLnZhcnRhbGFwLn'
+    'YzLnBheWxvYWQuQ2hhdFBheWxvYWQuTWV0YUVudHJ5UgRtZXRhGjcKCU1ldGFFbnRyeRIQCgNr'
+    'ZXkYASABKAlSA2tleRIUCgV2YWx1ZRgCIAEoCVIFdmFsdWU6AjgBSgQIAxAESgQIFBAV');
 
 @$core.Deprecated('Use liveLocationPointDescriptor instead')
 const LiveLocationPoint$json = {

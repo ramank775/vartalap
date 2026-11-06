@@ -792,6 +792,24 @@ void main() {
           reason: 'the server drops a copy still undelivered at its time');
     });
 
+    // ---- 7c3 ------------------------------------------------------------
+    test('7c3. a secure message: the peer gets the sealed box and its key '
+        'inside the end-to-end payload, and the box opens (decision 222)',
+        () async {
+      await h.chat.sendSecure(
+        channelId: dmChannel,
+        secret: 'vault 7788',
+        authorUserId: h.authService.currentUserId!,
+      );
+      await h.waitFor(() {
+        h.peerInbox();
+        return h.peerInboxSeen.any((p) => p.contentType == kSecureType);
+      });
+      final p = h.peerInboxSeen.lastWhere((p) => p.contentType == kSecureType);
+      expect(p.hasBody(), isFalse);
+      expect(openSecret(p.secureBox, key: p.secureKey), 'vault 7788');
+    });
+
     // ---- 7d -------------------------------------------------------------
     test('7d. delete own: undo inside the window sends nothing; letting it '
         'elapse sends MESSAGE_DELETE', () async {

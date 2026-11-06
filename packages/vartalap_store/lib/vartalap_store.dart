@@ -22,6 +22,7 @@ export 'src/types.dart'
         InviteRow,
         kDeleteForEveryoneGrace,
         kDeleteForEveryoneWindow,
+        kSecureType,
         kUndecryptedType,
         kVoiceNoteType,
         MessageReaction,

@@ -117,6 +117,20 @@ message ChatPayload {
   // then. 0: not timed. SYNC_PROTOCOL §20.3.
   uint32 timer_sec = 70;
 
+  // For TYPE_MESSAGE_CREATE with content_type
+  // "application/x-vartalap-secure" (body empty): a secure message, its
+  // secret sealed on its own, as one unit so a forward copies it unchanged
+  // and a traceability hash can be taken over it: version (1), unlock (1
+  // the receiving phone's screen lock, 2 a password), a password's 16-byte
+  // salt, a 12-byte nonce, then the ChaCha20-Poly1305 ciphertext and tag.
+  // SYNC_PROTOCOL §20.4.
+  bytes secure_box = 71;
+
+  // The random key that opens secure_box when it unlocks with the
+  // receiving phone's screen lock; unset for a password (Argon2id of it,
+  // never sent).
+  bytes secure_key = 72;
+
   // Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   // For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   LiveLocationPoint live_location_point = 130;

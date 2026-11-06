@@ -28,6 +28,7 @@ String messagePreview(
     kLiveLocationType => '📍 Live location',
     kEventType => '📅 ${EventInfo.parse(body)?.title ?? 'Event'}',
     kUndecryptedType => 'Waiting for this message',
+    kSecureType => '🔒 Secure message',
     _ => body,
   };
 }

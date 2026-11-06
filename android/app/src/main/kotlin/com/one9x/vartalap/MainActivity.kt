@@ -145,6 +145,9 @@ class MainActivity: FlutterActivity() {
                 window.setBackgroundDrawable(ColorDrawable((call.arguments as Number).toInt()))
                 result.success(null)
             }
+        // Secure messages (decision 222): the screen lock, no screenshots.
+        MethodChannel(messenger, "vartalap/secure")
+            .setMethodCallHandler { call, result -> SecureScreen.handle(this, call, result) }
         // Pre-filled hand-offs to the system apps, from shared contact
         // and event cards. false = no app installed takes it.
         MethodChannel(messenger, "vartalap/intents")
@@ -188,5 +191,11 @@ class MainActivity: FlutterActivity() {
                     false
                 })
             }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!SecureScreen.onActivityResult(requestCode, resultCode)) {
+            super.onActivityResult(requestCode, resultCode, data)
+        }
     }
 }

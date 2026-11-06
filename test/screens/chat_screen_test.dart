@@ -20,6 +20,7 @@ import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -542,33 +543,235 @@ void main() {
     expect(find.textContaining('Original'), findsOneWidget);
   });
 
+  /// The composer's "Timer and secure" sheet, open.
+  Future<void> openOptions(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Timer and secure'));
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+
   testWidgets('decision 222: the composer\'s timer sends one timed message, '
       'then turns itself off', (tester) async {
     await pumpChat(tester);
-    expect(find.byTooltip('Message timer'), findsNothing,
+    expect(find.byTooltip('Timer and secure'), findsNothing,
         reason: 'the camera has the spot while there is nothing typed');
     await tester.enterText(find.byType(TextField), 'OTP 1234');
     await settle(tester);
-    await tester.tap(find.byTooltip('Message timer'));
-    await settle(tester);
-    await tester.pump(const Duration(milliseconds: 400));
+    await openOptions(tester);
     expect(find.text('1 day'), findsOneWidget);
     await tester.tap(find.text('5 minutes'));
+    await settle(tester);
+    await tester.ensureVisible(find.text('Done'));
+    await tester.tap(find.text('Done'));
     await settle(tester);
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Disappears 5 minutes after sending'), findsOneWidget);
 
     final opsBefore = (await ops(tester)).length;
     await tester.tap(find.byIcon(Icons.send_rounded));
-    await until(tester, () async => (await ops(tester)).length > opsBefore);
-    await until(tester,
-        () async => find.byIcon(Icons.timer_outlined).evaluate().length == 1);
+    await until(
+        tester,
+        () async =>
+            (await ops(tester)).length > opsBefore &&
+            find.text('Disappears 5 minutes after sending').evaluate().isEmpty &&
+            find.byIcon(Icons.timer_outlined).evaluate().length == 1);
     final sent = (await ops(tester)).skip(opsBefore).single;
     expect(_payload(sent).timerSec, 300);
     expect(find.text('Disappears 5 minutes after sending'), findsNothing);
     expect(find.byIcon(Icons.timer_outlined), findsOneWidget,
         reason: 'the bubble wears the timer; the composer is back to the '
             'camera');
+  });
+
+  group('secure messages (decision 222)', () {
+    const channel = MethodChannel('vartalap/secure');
+    late List<String> calls;
+    var lockSet = true;
+
+    /// SecureScreen.kt, as the phone answers it; every call recorded.
+    void phone(WidgetTester tester, {bool lock = true}) {
+      calls = [];
+      lockSet = lock;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+          (call) async {
+        calls.add('${call.method}:${call.arguments}');
+        return switch (call.method) {
+          'lockSet' => lockSet,
+          'unlock' => true,
+          'lockSettings' => true,
+          _ => null,
+        };
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null));
+    }
+
+    Future<void> inboundSecret(SealedSecret sealed) => store.applyInboundMessage(
+          localUserId: localUserId,
+          channelId: channelId,
+          opId: 'seed-secret',
+          messageId: mMine2,
+          senderUserId: peerUserId,
+          body: null,
+          contentType: kSecureType,
+          attachments: null,
+          forwardSource: null,
+          replyToMessageId: null,
+          clientTimestampMs: _seedBase + 5,
+          serverTimestampMs: _seedBase + 5,
+          nowMs: _seedBase + 5,
+          secure: Uint8List.fromList(pb.ChatPayload(
+                  secureBox: sealed.box, secureKey: sealed.key)
+              .writeToBuffer()),
+        );
+
+    testWidgets('sent secure with the screen lock: the payload carries the '
+        'box and key, the bubble never the secret', (tester) async {
+      await pumpChat(tester);
+      phone(tester);
+      await tester.enterText(find.byType(TextField), 'PIN 9876');
+      await settle(tester);
+      await openOptions(tester);
+      await tester.tap(find.text('Secure message'));
+      await settle(tester);
+      await tester.ensureVisible(find.text('Done'));
+    await tester.tap(find.text('Done'));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Secure: opens with their screen lock'), findsOneWidget);
+
+      final opsBefore = (await ops(tester)).length;
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await until(
+          tester,
+          () async =>
+              (await ops(tester)).length > opsBefore &&
+              find.textContaining('Tap to view').evaluate().isNotEmpty);
+      final p = _payload((await ops(tester)).skip(opsBefore).single);
+      expect([p.contentType, p.hasBody(), p.secureKey.length],
+          [kSecureType, false, 32]);
+      expect(find.textContaining('Secure message. Tap to view'), findsOneWidget);
+      expect(find.textContaining('9876'), findsNothing);
+    });
+
+    testWidgets('a phone with no screen lock offers the password way only',
+        (tester) async {
+      await pumpChat(tester);
+      phone(tester, lock: false);
+      await tester.enterText(find.byType(TextField), 'wifi pass');
+      await settle(tester);
+      await openOptions(tester);
+      await tester.tap(find.text('Secure message'));
+      await settle(tester);
+      expect(
+          tester
+              .widget<ListTile>(find.ancestor(
+                  of: find.text('Opens with their screen lock'),
+                  matching: find.byType(ListTile)))
+              .enabled,
+          isFalse);
+      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+          isNull,
+          reason: 'no password yet');
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Password'), 'tulip');
+      await settle(tester);
+      await tester.ensureVisible(find.text('Done'));
+    await tester.tap(find.text('Done'));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Secure: opens with your password'), findsOneWidget);
+    });
+
+    testWidgets('tapping one opens it past the screen lock, screenshots '
+        'blocked, for 30 seconds; a copy leaves the clipboard a minute '
+        'later', (tester) async {
+      final clipboard = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboard.add((call.arguments as Map)['text'] as String);
+        }
+        if (call.method == 'Clipboard.getData') {
+          return {'text': clipboard.lastOrNull};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      await pumpChat(tester,
+          seed: () => inboundSecret(sealSecret('OTP 555666')));
+      phone(tester);
+
+      await tester.tap(find.textContaining('Secure message. Tap to view'),
+          warnIfMissed: false);
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('OTP 555666'), findsOneWidget);
+      expect(calls, containsAllInOrder(['unlock:Open secure message', 'noCapture:true']));
+
+      await tester.tap(find.text('Copy'));
+      await tester.pump();
+      expect(clipboard, ['OTP 555666']);
+
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('OTP 555666'), findsNothing);
+      expect(calls.last, 'noCapture:false');
+
+      await tester.pump(const Duration(seconds: 31));
+      await settle(tester);
+      expect(clipboard.last, '', reason: 'cleared a minute after the copy');
+    });
+
+    testWidgets('no screen lock on this phone: asked to set one', (tester) async {
+      await pumpChat(tester,
+          seed: () => inboundSecret(sealSecret('OTP 555666')));
+      phone(tester, lock: false);
+      await tester.tap(find.textContaining('Secure message. Tap to view'),
+          warnIfMissed: false);
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Set a screen lock'), findsOneWidget);
+      await tester.tap(find.text('Open settings'));
+      await settle(tester);
+      expect(calls, contains('lockSettings:null'));
+      expect(find.text('OTP 555666'), findsNothing);
+    });
+
+    testWidgets('a password one opens only with its password', (tester) async {
+      await pumpChat(tester, seed: () async {
+        await inboundSecret(sealSecret('code 1985', password: 'tulip'));
+      });
+      phone(tester);
+      await tester.tap(
+          find.textContaining('Secure message. Tap and enter the password'),
+          warnIfMissed: false);
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      /// Argon2id runs on another isolate: real time.
+      Future<void> wait(Finder f) async {
+        for (var i = 0; i < 60 && f.evaluate().isEmpty; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 250)));
+          await tester.pump();
+        }
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      await tester.enterText(find.byType(TextField).last, 'rose');
+      await tester.tap(find.text('Open'));
+      await wait(find.text('Wrong password'));
+      expect(find.text('Wrong password'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).last, 'tulip');
+      await tester.tap(find.text('Open'));
+      await wait(find.text('code 1985'));
+      expect(find.text('code 1985'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await tester.pump(const Duration(milliseconds: 400));
+    });
   });
 
   testWidgets('an inbound image attachment renders inline; any other mime '

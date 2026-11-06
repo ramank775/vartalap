@@ -19,6 +19,11 @@ const String kUndecryptedType = 'application/x-vartalap-undecrypted';
 String undecryptedMessageId(String senderUserId, String opId) =>
     'undecrypted:$senderUserId:$opId';
 
+/// `content_type` of a secure message (decision 222): its secret is in
+/// [MessageRow.secure], never in `body`, so no preview, notification or
+/// search ever holds it.
+const String kSecureType = 'application/x-vartalap-secure';
+
 /// Decision 222: "Delete for everyone" is offered only this long after a
 /// message was sent (its server time). A message not yet sent can always
 /// be deleted.
@@ -251,6 +256,11 @@ class MessageRow {
   /// Decision 222: a timed message's timer; null when not timed.
   final int? timerSec;
 
+  /// Decision 222: a secure message's sealed secret, a ChatPayload
+  /// holding only `secure_box` and `secure_key`; callers decode, as with
+  /// [attachments]. Null for any other message.
+  final List<int>? secure;
+
   /// When a timed message goes: its timer after its server time. Null
   /// when not timed, or not sent yet (its timer has not started).
   int? get expiresAtMs => timerSec == null || serverTimestampMs == null
@@ -276,6 +286,7 @@ class MessageRow {
     this.attachments,
     this.reactions = const [],
     this.timerSec,
+    this.secure,
   });
 }
 

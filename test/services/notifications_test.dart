@@ -149,6 +149,13 @@ void main() {
         inInclusiveRange(50000, 60000));
   });
 
+  test('decision 222: a secure message reads "Secure message", never its '
+      'secret', () async {
+    await message(_dm, _asha, '', contentType: kSecureType);
+    await notifications.showUnread();
+    expect(lines(_dm), ['Asha: 🔒 Secure message']);
+  });
+
   test('muted chats and deleted lines stay out', () async {
     await message(_dm, _asha, 'one');
     await message(_dm, _asha, 'two');

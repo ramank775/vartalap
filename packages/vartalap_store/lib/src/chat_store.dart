@@ -176,6 +176,11 @@ class ChatStore {
               await db.execute(stmt);
             }
           }
+          if (from < 11 && await has('messages')) {
+            for (final stmt in migrateV10ToV11) {
+              await db.execute(stmt);
+            }
+          }
           for (final stmt in ddl) {
             await db.execute(stmt);
           }
@@ -995,6 +1000,7 @@ class ChatStore {
     required int serverTimestampMs,
     required int nowMs,
     int? timerSec,
+    Uint8List? secure,
   }) async {
     final bumpUnread = senderUserId != localUserId;
     var inserted = false;
@@ -1025,6 +1031,7 @@ class ChatStore {
               'tombstoned': 0,
               'tombstone_pending_until': null,
               'timer_sec': timerSec,
+              'secure': secure,
             },
             conflictAlgorithm: ConflictAlgorithm.ignore,
           ) !=
@@ -1323,6 +1330,7 @@ class ChatStore {
             'body': null,
             'content_type': null,
             'attachments': null,
+            'secure': null,
             'state_updated_at': nowMs,
           },
           where: 'message_id = ?',
@@ -2769,6 +2777,7 @@ class ChatStore {
               'body': null,
               'content_type': null,
               'attachments': null,
+              'secure': null,
               'rollback_body': null,
             },
             where: 'message_id = ?',
@@ -3041,6 +3050,7 @@ class ChatStore {
         'tombstoned': m.tombstoned ? 1 : 0,
         'tombstone_pending_until': m.tombstonePendingUntil,
         'timer_sec': m.timerSec,
+        'secure': m.secure == null ? null : Uint8List.fromList(m.secure!),
       };
 
   static MessageRow _rowToMessage(Map<String, Object?> r) => MessageRow(
@@ -3062,6 +3072,7 @@ class ChatStore {
         attachments: r['attachments'] as List<int>?,
         reactions: _parseReactions(r['reactions'] as String?),
         timerSec: r['timer_sec'] as int?,
+        secure: r['secure'] as List<int>?,
       );
 
   /// Inverse of the `group_concat` in [fetchChannelMessages]. Null for

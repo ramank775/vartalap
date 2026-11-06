@@ -5,4 +5,5 @@ library vartalap_crypto;
 export 'src/attachment.dart';
 export 'src/e2ee.dart';
 export 'src/e2ee_crypto.dart';
+export 'src/secure_message.dart';
 export 'src/signal_store.dart';

@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 10;
+const int schemaVersion = 11;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -114,7 +114,12 @@ const List<String> ddl = [
 
     -- Decision 222: a timed message goes from this phone timer_sec
     -- after its server_timestamp_ms. NULL: not timed.
-    timer_sec               INTEGER
+    timer_sec               INTEGER,
+
+    -- Decision 222: a secure message's sealed secret, a ChatPayload
+    -- holding only secure_box and secure_key (as `attachments` holds only
+    -- its own field). NULL for any other message.
+    secure                  BLOB
   )
   ''',
   '''
@@ -390,4 +395,9 @@ const List<String> migrateV5ToV6 = [
 /// before [ddl], which then creates its index.
 const List<String> migrateV9ToV10 = [
   'ALTER TABLE messages ADD COLUMN timer_sec INTEGER',
+];
+
+/// v10 → v11 (decision 222): `messages.secure`, secure messages.
+const List<String> migrateV10ToV11 = [
+  'ALTER TABLE messages ADD COLUMN secure BLOB',
 ];

@@ -254,6 +254,30 @@ void main() {
     expect((await store.fetchMessage(_mid('m-old')))!.tombstoned, isFalse);
   });
 
+  test('decision 222: a secure message keeps its box and key apart from '
+      'the body; a timed one keeps its timer', () async {
+    pushes.add(_makeEnvelope(
+      opId: 'op-secure',
+      senderUserId: _peerUserId,
+      payload: pb.ChatPayload(
+        version: 1,
+        type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+        messageId: uuidBytes(_mid('m-secure')),
+        contentType: kSecureType,
+        secureBox: [1, 1, 9, 9],
+        secureKey: List.filled(32, 7),
+        timerSec: 300,
+      ).writeToBuffer(),
+      serverTimestampMs: 5000,
+    ));
+    await _settle(store, _mid('m-secure'), present: true);
+    final m = (await store.fetchMessage(_mid('m-secure')))!;
+    expect([m.body, m.contentType, m.timerSec], [null, kSecureType, 300]);
+    final secure = pb.ChatPayload.fromBuffer(m.secure!);
+    expect(secure.secureBox, [1, 1, 9, 9]);
+    expect(secure.secureKey, List.filled(32, 7));
+  });
+
   test('decision 218: a message id that is not 16 bytes is malformed, '
       'dropped', () async {
     pushes.add(_makeEnvelope(
