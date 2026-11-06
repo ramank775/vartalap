@@ -543,7 +543,7 @@ FrameClass frameClassOf(OutboundOpRow op) {
   }
 }
 
-/// SYNC_PROTOCOL §20: what a live-location op's envelope adds to its
+/// SYNC_PROTOCOL §21: what a live-location op's envelope adds to its
 /// class. A remote on/off wakes the phone it goes to (the rest of the
 /// class is SILENT), and the server keeps each kind only while it is
 /// worth anything: a position 15 minutes, so a phone that was away gets

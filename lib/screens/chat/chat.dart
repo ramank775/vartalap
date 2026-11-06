@@ -16,6 +16,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
+import 'package:vartalap/screens/chat/live_location.dart';
 import 'package:vartalap/screens/chat/message_options.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat/voice_note.dart';
@@ -988,7 +989,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     );
     if (choice == null || !mounted) return;
     if (choice == 'contact') return _shareContact();
-    if (choice == 'location') return _shareLocation();
+    if (choice == 'location') {
+      return showLocationSheet(context,
+          channelId: widget.channelId, sendCurrent: _shareLocation);
+    }
     if (choice == 'event') return _shareEvent();
 
     String? sourcePath;
@@ -2503,6 +2507,8 @@ class _MessageBubble extends StatelessWidget {
                       tint: fg,
                       footer: meta,
                       onMessage: onMessageContact,
+                      messageId: message.messageId,
+                      mine: isMine,
                     ),
                   if (!selfTimed)
                     pad(withMeta(

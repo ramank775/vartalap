@@ -41,6 +41,7 @@ import 'package:vartalap/services/account_db.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/device_contacts.dart';
+import 'package:vartalap/services/live_location.dart';
 import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap/services/message_crypto.dart';
 import 'package:vartalap/services/notifications.dart';
@@ -67,6 +68,16 @@ void main(List<String> args) async {
   // pull `/sync/pending`, post the notifications — is wired by
   // initializeApp (no WS there: the app's own engine has it); there is no UI to run, so we stop short
   // of runApp and let the callback fire.
+  // LiveLocationService (Kotlin) starts this entrypoint in an engine of
+  // its own: it hands over each position, which goes out from here, app
+  // closed or not (SYNC_PROTOCOL §21). It must not take the push inbox.
+  if (args.contains('--live-location')) {
+    final services = await initializeApp(background: true, pushEvents: false);
+    handleLiveLocationCalls(
+        flush: () => services.sendQueued(within: const Duration(seconds: 10)));
+    await LiveLocationPlatform.ready();
+    return;
+  }
   final background = args.contains('--unifiedpush-bg');
   final services = await initializeApp(background: background);
   if (background) return;
@@ -222,6 +233,8 @@ class AppServices {
       ..selfUserId = userId
       ..seal = crypto.seal;
     crypto.tick = scheduler.tickSoon;
+    LiveLocation.instance = LiveLocation(
+        store: store, selfUserId: userId, tick: scheduler.tickSoon);
     // The server keeps an envelope 30 days; so does the re-send log.
     unawaited(crypto.crypto.forgetSentBefore(
         DateTime.now().subtract(const Duration(days: 30)).millisecondsSinceEpoch));
@@ -272,6 +285,7 @@ class AppServices {
     final userId = _userId!;
     this.store = null;
     cryptoRecords = null;
+    LiveLocation.instance = null;
     final crypto = this.crypto;
     this.crypto = null;
     _userId = null;
@@ -417,6 +431,7 @@ class AppServices {
       open: crypto!.open,
       applied: crypto!.applied,
       undecryptable: crypto!.requestResend,
+      liveLocation: LiveLocation.instance?.apply,
     );
     await next.start();
     inboundReceiver = next;
@@ -622,6 +637,7 @@ Future<AppServices> initializeApp({
     debugPrint('Push init failed: $e');
   }
   if (!background) {
+    handleLiveLocationCalls();
     unawaited(refreshBackgroundAccess());
     // Decision 201: the message check keeps pace with push.
     void poll() {
@@ -653,6 +669,9 @@ Future<AppServices> initializeApp({
       // at OTP-verify on a fresh install). Server never auto-pushes. A
       // wake's engine leaves it to the wake's own pull.
       if (!background) unawaited(services.pullPendingSync());
+      // Shares still running get their service back (a restart, or
+      // Android stopped it).
+      if (!background) unawaited(LiveLocation.instance?.resume());
       // Decision 208: new joiners in the address book show on start.
       if (!background && authService.username != null) {
         unawaited(syncDeviceContacts(services.chatService)

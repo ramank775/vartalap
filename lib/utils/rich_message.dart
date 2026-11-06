@@ -9,6 +9,10 @@ const kContactType = 'text/vcard';
 const kLocationType = 'text/x-geo';
 const kEventType = 'text/calendar';
 
+/// A live location share (SYNC_PROTOCOL §21): the body is the share as
+/// JSON (`LiveShare`), kept up to date by the share's later ops.
+const kLiveLocationType = 'application/x-vartalap-live-location';
+
 /// Name on a shared vCard, or 'Contact' when it has none.
 String contactName(String vcard) {
   try {

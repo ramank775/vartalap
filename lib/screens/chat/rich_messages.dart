@@ -3,17 +3,22 @@
 /// calendar) that make the standard formats worth having.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vartalap/screens/chat/live_location.dart';
+import 'package:vartalap/services/live_location.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/rich_message.dart';
 
 bool isRichType(String? contentType) =>
     contentType == kContactType ||
     contentType == kLocationType ||
+    contentType == kLiveLocationType ||
     contentType == kEventType;
 
 /// Current position, or null when location is off, denied or unfixed
@@ -45,6 +50,11 @@ class RichMessageView extends StatelessWidget {
   final Widget? footer;
   final ValueChanged<String>? onMessage;
 
+  /// A live location's message, and whether it is this phone's share:
+  /// its view follows the message, and its sharer can stop it.
+  final String? messageId;
+  final bool mine;
+
   const RichMessageView({
     super.key,
     required this.contentType,
@@ -52,6 +62,8 @@ class RichMessageView extends StatelessWidget {
     required this.tint,
     this.footer,
     this.onMessage,
+    this.messageId,
+    this.mine = false,
   });
 
   @override
@@ -60,6 +72,12 @@ class RichMessageView extends StatelessWidget {
             vcard: body, tint: tint, footer: footer, onMessage: onMessage),
         kLocationType => _LocationCard(
             point: GeoPoint.parse(body), tint: tint, footer: footer),
+        kLiveLocationType => LiveLocationCard(
+            body: body,
+            tint: tint,
+            footer: footer,
+            messageId: messageId,
+            mine: mine),
         _ => _EventCard(
             event: EventInfo.parse(body), tint: tint, footer: footer),
       };
@@ -273,19 +291,7 @@ class _LocationCard extends StatelessWidget {
 
   const _LocationCard({required this.point, required this.tint, this.footer});
 
-  /// Whatever maps app is installed; the OSM website when there is none.
-  Future<void> _open(BuildContext context) async {
-    final p = point!;
-    final at = '${p.lat},${p.lng}';
-    final opened = await launchUrl(Uri.parse('geo:$at?q=$at'))
-        .catchError((_) => false);
-    if (opened) return;
-    await launchUrl(
-      Uri.parse('https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}'
-          '#map=17/${p.lat}/${p.lng}'),
-      mode: LaunchMode.externalApplication,
-    ).catchError((_) => false);
-  }
+  Future<void> _open(BuildContext context) => openInMaps(point!);
 
   @override
   Widget build(BuildContext context) {
@@ -310,6 +316,108 @@ class _LocationCard extends StatelessWidget {
         _line('${p.lat.toStringAsFixed(5)}, ${p.lng.toStringAsFixed(5)}', tint),
       ],
       actions: [('Open in maps', () => _open(context))],
+    );
+  }
+}
+
+/// Whatever maps app is installed; the OSM website when there is none.
+Future<void> openInMaps(GeoPoint p) async {
+  final at = '${p.lat},${p.lng}';
+  final opened =
+      await launchUrl(Uri.parse('geo:$at?q=$at')).catchError((_) => false);
+  if (opened) return;
+  await launchUrl(
+    Uri.parse('https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}'
+        '#map=17/${p.lat}/${p.lng}'),
+    mode: LaunchMode.externalApplication,
+  ).catchError((_) => false);
+}
+
+/// A live location share (SYNC_PROTOCOL §21): until when, how fresh the
+/// position is, View (the position, kept up to date) and, for its
+/// sharer, Stop sharing. Re-reads the clock every 30 s so "Updated 2 min
+/// ago" and the end stay true without a new message.
+class LiveLocationCard extends StatefulWidget {
+  final String body;
+  final Color tint;
+  final Widget? footer;
+  final String? messageId;
+  final bool mine;
+
+  const LiveLocationCard({
+    super.key,
+    required this.body,
+    required this.tint,
+    this.footer,
+    this.messageId,
+    this.mine = false,
+  });
+
+  @override
+  State<LiveLocationCard> createState() => _LiveLocationCardState();
+}
+
+class _LiveLocationCardState extends State<LiveLocationCard> {
+  Timer? _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = widget.tint;
+    final share = LiveShare.parse(widget.body);
+    if (share == null) {
+      return _Card(
+        leading: _tile(Icons.location_off_outlined, tint),
+        tint: tint,
+        footer: widget.footer,
+        lines: [
+          _title('Live location', tint),
+          _line('Unreadable location', tint),
+        ],
+      );
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final live = share.liveAt(now);
+    final id = widget.messageId;
+    final service = LiveLocation.instance;
+    void view() => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => LiveLocationScreen(messageId: id!, live: service!)));
+    final canView =
+        id != null && service != null && (live || share.point != null);
+    return _Card(
+      leading: _tile(
+          live ? Icons.share_location : Icons.location_off_outlined, tint),
+      tint: tint,
+      footer: widget.footer,
+      onTap: canView ? view : null,
+      lines: [
+        _title('Live location', tint),
+        _line(liveUntilLabel(context, share, now), tint),
+        // A sharer's own position is the service's to update, in its own
+        // engine: only the people watching get "Updated …".
+        if (live && !widget.mine)
+          _line(liveUpdatedLabel(context, share.atMs, now), tint),
+        if (share.by != null && share.by == service?.selfUserId)
+          _line('Turned on by you', tint),
+      ],
+      actions: [
+        if (canView) ('View', view),
+        if (live && widget.mine && id != null && service != null)
+          ('Stop sharing', () => confirmStopSharing(context, service, id)),
+      ],
     );
   }
 }

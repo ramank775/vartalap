@@ -25,6 +25,8 @@ class MainActivity: FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+        // Live location: start the sharing service, hear what it changed.
+        LiveLocationService.register(flutterEngine, this)
         // SIM country for the phone screen's default country; needs no permission.
         MethodChannel(messenger, "vartalap/sim")
             .setMethodCallHandler { _, result ->

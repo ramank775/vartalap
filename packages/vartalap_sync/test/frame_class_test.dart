@@ -78,7 +78,7 @@ void main() {
   });
 
   test('live location: class LOCATION; a position or stop SILENT and short '
-      'lived, a remote on/off wakes (SYNC_PROTOCOL §20)', () {
+      'lived, a remote on/off wakes (SYNC_PROTOCOL §21)', () {
     pb.Envelope sent(pb.ChatPayloadType type) {
       final op = _op(OpKind.chatPayload, _payload(type));
       final live = liveLocationWire(op)!;

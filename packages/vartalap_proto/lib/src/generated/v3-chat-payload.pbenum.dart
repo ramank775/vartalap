@@ -79,7 +79,7 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static const ChatPayloadType TYPE_DELIVERY_RECEIPT =
       ChatPayloadType._(9, _omitEnumNames ? '' : 'TYPE_DELIVERY_RECEIPT');
 
-  /// Live location (SYNC_PROTOCOL.md §20, decision 223; values 40-49). A
+  /// Live location (SYNC_PROTOCOL.md §21, decision 223; values 40-49). A
   /// share starts as a TYPE_MESSAGE_CREATE with content_type
   /// "application/x-vartalap-live-location" whose body is the share as
   /// JSON; these act on it (`message_id` = that message), except CONTROL

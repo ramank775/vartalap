@@ -17,6 +17,7 @@ library vartalap.screens.chat_info;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/chat_info/live_location_controls.dart';
 import 'package:vartalap/screens/chat_info/security_code.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
@@ -326,6 +327,12 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                       number: widget.chatService.safetyNumber(peer.userId),
                     ),
                   )),
+                ),
+              if (!_isGroup && peer!.userId.isNotEmpty)
+                LiveLocationControls(
+                  channelId: widget.channelId,
+                  peerUserId: peer.userId,
+                  peerName: peer.contact?.displayLabel ?? _name,
                 ),
               if (_isGroup) ...[
                 const Divider(),

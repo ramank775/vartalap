@@ -279,7 +279,7 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(100)
   $pb.PbMap<$core.String, $core.String> get meta => $_getMap(12);
 
-  /// Live location (SYNC_PROTOCOL.md §20, decision 223; fields 130-139).
+  /// Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   /// For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   @$pb.TagNumber(130)
   LiveLocationPoint get liveLocationPoint => $_getN(13);

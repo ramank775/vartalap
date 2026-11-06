@@ -88,7 +88,7 @@ enum FrameClass {
   /// [location] is 7.
   timeline,
 
-  /// Live location (SYNC_PROTOCOL §20): positions, stops and permissions
+  /// Live location (SYNC_PROTOCOL §21): positions, stops and permissions
   /// go SILENT; a remote on/off wakes ([FramedOp.wakes]).
   location;
 

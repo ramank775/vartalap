@@ -1926,3 +1926,97 @@ body was written (store table `message_versions`, schema v8). Tapping
 earlier than the message's last applied edit (they arrived out of
 order) only joins the history; the body stays the newer one. A delete
 for everyone takes the history with it. Edits stay unlimited in time.
+
+---
+
+## 21. Live location (decision 223)
+
+A user shares where they are, in a 1:1 chat or a group, for 15 minutes,
+1 hour or 8 hours (WhatsApp's choices), and can stop early. In a 1:1
+chat a contact the user has allowed can turn the user's live location on
+and off from their own phone. Client-to-client only: the server relays
+and stores as for any envelope; its one addition is the class number.
+
+### 21.1 The share is a message
+
+A share starts as an ordinary `TYPE_MESSAGE_CREATE` (class MESSAGE, so
+it wakes and shows a notification, "📍 Live location") with
+`content_type = "application/x-vartalap-live-location"` and the share as
+JSON in `body`:
+
+| key | | |
+|---|---|---|
+| `until` | required | when sharing ends, ms since epoch, the sharer's clock |
+| `lat`, `lng` | optional | the first position, WGS 84 degrees |
+| `acc` | optional | its accuracy, metres |
+| `at` | optional | when that position was taken, ms since epoch |
+| `by` | optional | the 9-hex user_id of the contact who turned it on (§21.2) |
+
+Each phone keeps the newest position in its own copy of the body, and
+adds `end` (ms) when the sharer stopped early. A share is live while it
+has no `end` and `until` has not passed; nothing is sent when the time
+runs out.
+
+### 21.2 Ops on a share, and the remote control
+
+All ride `Envelope` class 7 LOCATION (`flags` bits 1-4). The sender
+decides the wake (decision 220): only the remote on/off wakes.
+
+| `ChatPayloadType` | carries | flags | `ttl_sec` | receiver applies it when |
+|---|---|---|---|---|
+| 40 `TYPE_LIVE_LOCATION_UPDATE` | `message_id` (the share), `live_location_point` (130) | LOCATION + SILENT | 900 | the share exists in this chat, its author is the sender, it has not ended, and `at_ms` is newer than the position it holds |
+| 41 `TYPE_LIVE_LOCATION_STOP` | `message_id` | LOCATION + SILENT | 28800 | as for 40; `end` = the envelope's `server_timestamp_ms` |
+| 42 `TYPE_LIVE_LOCATION_CONTROL` | `live_location_duration_sec` (131): on for that long, 0 = off | LOCATION (wakes) | 3600 | a 1:1 chat, and the receiving phone's own setting allows the sender (below) |
+| 43 `TYPE_LIVE_LOCATION_PERMISSION` | `live_location_allowed` (132) | LOCATION + SILENT | 0 (30 days) | a 1:1 chat; recorded for the receiver's screens only |
+
+`LiveLocationPoint`: `lat`, `lng` (double), `accuracy_m` (0 = unknown),
+`at_ms` (when the sharer's phone took the fix).
+
+A position is kept 15 minutes, so a viewer that was offline gets the
+latest few, not hours of them; a stop as long as the longest share.
+
+**Remote on/off.** The permission is the receiving phone's alone: its
+user turns on "Let Rahul turn on my live location" in Rahul's chat info
+(revocable at any time), and the phone checks that setting on every
+CONTROL. The CONTROL frame is never trusted for it, and PERMISSION only
+tells Rahul's phone to offer "Turn on" / "Turn off". On an allowed "on",
+unless it already shares in that chat, the phone starts a share there
+for `min(duration, 8 h)` with `by` = the sender, and always shows its own
+ongoing notification ("Rahul turned on your live location", with Stop).
+An allowed "off" stops its running shares in that chat. Anything else is
+dropped.
+
+### 21.3 Sender rules
+
+- Positions come at most once a minute and only after 50 m of movement,
+  plus one every 10 minutes while the phone stays put (so viewers see it
+  is still on). A position still unsent when the next is taken (no
+  network) is dropped for it.
+- A remote start the phone cannot carry out (no "all the time" location
+  access, location off, or Android refusing a background start) is
+  stopped again at once (a STOP follows the share), and the phone shows a
+  notification asking its user to open the app.
+- An UPDATE or STOP that will not decrypt (class LOCATION, SILENT,
+  `ttl_sec` > 0) gets no "Waiting for this message" and no re-send
+  request (§6a.7): the next position replaces it.
+
+### 21.4 Server
+
+`FRAME_CLASS.LOCATION = 7` (libs/v3-envelope.js). Nothing else: it
+wakes for what is not SILENT and keeps each envelope for its `ttl_sec`,
+as for every class. For the invite gate (decision 220): CONTROL and
+PERMISSION are 1:1 frames between the two people in the chat; UPDATE and
+STOP go wherever their share went.
+
+### 21.5 Android
+
+The positions are sent by a foreground service of type `location`
+(`LiveLocationService`, ongoing notification with Stop), so sharing goes
+on with the app closed. Positions come from the platform
+`LocationManager` (its own fused provider on Android 12+), never Play
+services. Permissions: `ACCESS_FINE_LOCATION` (while in use) to share;
+for a remote start also `ACCESS_BACKGROUND_LOCATION` ("Allow all the
+time"), since the service then starts from a push while the app is in
+the background; `FOREGROUND_SERVICE_LOCATION`. Android 12+ allows that
+start only after a high-priority FCM message or with the app left out of
+battery optimization, which the permission flow asks for.

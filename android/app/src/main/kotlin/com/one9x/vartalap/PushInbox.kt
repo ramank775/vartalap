@@ -40,6 +40,8 @@ object PushInbox {
         wake?.destroy()
         wake = FlutterEngine(context.applicationContext).apply {
             localizationPlugin.sendLocalesToFlutter(context.resources.configuration)
+            // A contact's "turn on my live location" arrives on a wake.
+            LiveLocationService.register(this, context)
             dartExecutor.executeDartEntrypoint(
                 DartExecutor.DartEntrypoint.createDefault(),
                 listOf("--unifiedpush-bg")

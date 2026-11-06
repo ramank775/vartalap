@@ -129,7 +129,7 @@ class InboundReceiver {
   /// After a stored op applied, so [open] can drop what it staged for it.
   final Future<void> Function(InboundEnvelope env)? applied;
 
-  /// Live location (SYNC_PROTOCOL §20): the app applies the
+  /// Live location (SYNC_PROTOCOL §21): the app applies the
   /// TYPE_LIVE_LOCATION_* ops (a share itself is a message). Unset: they
   /// are recorded as seen and dropped.
   final Future<void> Function(InboundEnvelope env, pb.ChatPayload chat)?

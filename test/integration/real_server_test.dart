@@ -32,6 +32,8 @@ import 'package:http/http.dart' as http;
 import 'package:vartalap/main.dart' show pullPendingPages;
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/services/live_location.dart';
+import 'package:vartalap/utils/rich_message.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -640,6 +642,46 @@ void main() {
         expect((await b.chat.timelineClient.feed()).posts, isEmpty);
       });
 
+      // ---- 8f -----------------------------------------------------------
+      test('8f. live location: A shares, moves and stops; B turns it on and '
+          'off once A allows it (SYNC_PROTOCOL §21)', () async {
+        Future<LiveShare?> atB(String id) async =>
+            LiveShare.parse((await b.store.fetchMessage(id))?.body);
+
+        expect(
+            await a.live.share(dmChannel, const Duration(minutes: 15),
+                point: const GeoPoint(12.9, 77.6)),
+            'started');
+        final id = (await a.live.shares()).single.messageId;
+        await b.waitForAsync(() async => await atB(id) != null);
+        expect((await atB(id))!.point!.lat, 12.9);
+
+        // class LOCATION, SILENT, ttl_sec 900 through the real gateway
+        await a.live.onFix(
+            const GeoPoint(13, 77.7), DateTime.now().millisecondsSinceEpoch);
+        await b.waitForAsync(() async => (await atB(id))?.point?.lat == 13);
+        expect((await atB(id))!.point!.lat, 13);
+
+        await a.live.stop(id);
+        await b.waitForAsync(() async => (await atB(id))?.endedMs != null);
+        expect((await atB(id))!.endedMs, isNotNull);
+
+        await a.live.allow(b.userId, true);
+        await b.waitForAsync(() => b.live.allowedBy(a.userId));
+        expect(await b.live.allowedBy(a.userId), isTrue);
+        await b.live.remote(a.userId, const Duration(hours: 1));
+        await a.waitForAsync(() async => (await a.live.shares()).isNotEmpty);
+        expect((await a.live.shares()).single.share.by, b.userId);
+        await b.waitForAsync(() async => (await b.live
+                .shares(channelId: dmChannel, author: a.userId))
+            .isNotEmpty);
+
+        await b.live.remote(a.userId, null);
+        await a.waitForAsync(() async => (await a.live.shares()).isEmpty);
+        expect(await a.live.shares(), isEmpty);
+        await a.waitForAsync(() async => await a.opCount() == 0);
+      });
+
       // ---- 9 ------------------------------------------------------------
       test('9. both log out → session revoked, local store kept', () async {
         await a.authService.logout();
@@ -699,6 +741,14 @@ class _Client {
   });
 
   String get userId => authService.currentUserId ?? '';
+
+  /// Live location without its Android service: positions come from the
+  /// test. Made once signed in (its op ids carry the user id).
+  late final LiveLocation live = LiveLocation(
+      store: store,
+      selfUserId: userId,
+      tick: scheduler.tickSoon,
+      platform: const _NoService());
 
   static Future<_Client> boot(String url, {required String label}) async {
     final baseUrl = Uri.parse(url);
@@ -837,6 +887,7 @@ class _Client {
       store: store,
       pushes: ws.pushes,
       localUserId: userIdHex,
+      liveLocation: (env, chat) => live.apply(env, chat),
     );
     await next.start();
     inbound = next;
@@ -960,6 +1011,20 @@ class _Client {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
+}
+
+class _NoService extends LiveLocationPlatform {
+  const _NoService();
+
+  @override
+  Future<String> start(
+          {bool background = false,
+          String? refusedTitle,
+          String? title}) async =>
+      'started';
+
+  @override
+  Future<void> changed() async {}
 }
 
 /// flutter_secure_storage has no platform channel under `flutter test`;

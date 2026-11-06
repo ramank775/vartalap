@@ -108,7 +108,7 @@ message ChatPayload {
   // receipt needs no message id and works for one still in transit.
   uint64 marker_server_timestamp_ms = 60;
 
-  // Live location (SYNC_PROTOCOL.md §20, decision 223; fields 130-139).
+  // Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   // For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   LiveLocationPoint live_location_point = 130;
   // For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
@@ -180,7 +180,7 @@ enum ChatPayloadType {
   // member is past it (decision 202).
   TYPE_DELIVERY_RECEIPT = 9;
 
-  // Live location (SYNC_PROTOCOL.md §20, decision 223; values 40-49). A
+  // Live location (SYNC_PROTOCOL.md §21, decision 223; values 40-49). A
   // share starts as a TYPE_MESSAGE_CREATE with content_type
   // "application/x-vartalap-live-location" whose body is the share as
   // JSON; these act on it (`message_id` = that message), except CONTROL

@@ -25,6 +25,7 @@ String messagePreview(
   return switch (contentType) {
     kContactType => '👤 ${contactName(body)}',
     kLocationType => '📍 Location',
+    kLiveLocationType => '📍 Live location',
     kEventType => '📅 ${EventInfo.parse(body)?.title ?? 'Event'}',
     kUndecryptedType => 'Waiting for this message',
     _ => body,
