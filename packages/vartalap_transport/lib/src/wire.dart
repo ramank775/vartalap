@@ -74,8 +74,8 @@ const int kEnvelopeFlagSilent = 1;
 
 /// `Envelope.flags` bits 1-4, `(flags >> 1) & 15` (decisions 218, 220):
 /// what an op is, which tells the server how long to keep it (a
-/// [receipt]: 7 days). [event] is the server's own. The index is the
-/// value; classes 9-15 are free for kinds to come.
+/// [receipt]: 7 days). [event] and [invite] are the server's own. The
+/// index is the value; classes 10-15 are free for kinds to come.
 enum FrameClass {
   message,
   mutation,
@@ -94,7 +94,11 @@ enum FrameClass {
 
   /// Ephemeral, between this phone and the server only (SYNC_PROTOCOL
   /// §22): last seen and online.
-  presence;
+  presence,
+
+  /// Class 9, the server's invite events (decision 219, SYNC_PROTOCOL
+  /// §23); the one bringing an invite wakes the phone. Never sent.
+  invite;
 
   /// A new message, or a resend request (its sender must answer), shows
   /// a notification or needs the phone awake; the rest do not.

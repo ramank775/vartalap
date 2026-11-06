@@ -29,6 +29,8 @@ const ServerEventType$json = {
     {'1': 'USERNAME_CHANGED', '2': 7},
     {'1': 'MESSAGE_STATE_CHANGED', '2': 8},
     {'1': 'TYPING', '2': 9},
+    {'1': 'INVITE_SENT', '2': 20},
+    {'1': 'INVITE_ANSWERED', '2': 21},
     {'1': 'PRESENCE', '2': 50},
   ],
 };
@@ -39,7 +41,8 @@ final $typed_data.Uint8List serverEventTypeDescriptor = $convert.base64Decode(
     '5FTF9DUkVBVEVEEAESGAoUQ0hBTk5FTF9NRU1CRVJfQURERUQQAhIaChZDSEFOTkVMX01FTUJF'
     'Ul9SRU1PVkVEEAMSEgoOQ0hBTk5FTF9FRElURUQQBBITCg9DSEFOTkVMX0RFTEVURUQQBRISCg'
     '5QUk9GSUxFX0VESVRFRBAGEhQKEFVTRVJOQU1FX0NIQU5HRUQQBxIZChVNRVNTQUdFX1NUQVRF'
-    'X0NIQU5HRUQQCBIKCgZUWVBJTkcQCRIMCghQUkVTRU5DRRAy');
+    'X0NIQU5HRUQQCBIKCgZUWVBJTkcQCRIPCgtJTlZJVEVfU0VOVBAUEhMKD0lOVklURV9BTlNXRV'
+    'JFRBAVEgwKCFBSRVNFTkNFEDI=');
 
 @$core.Deprecated('Use messageStateValueDescriptor instead')
 const MessageStateValue$json = {
@@ -57,6 +60,22 @@ final $typed_data.Uint8List messageStateValueDescriptor = $convert.base64Decode(
     'ChFNZXNzYWdlU3RhdGVWYWx1ZRIdChlNRVNTQUdFX1NUQVRFX1VOU1BFQ0lGSUVEEAASGwoXTU'
     'VTU0FHRV9TVEFURV9ERUxJVkVSRUQQARIWChJNRVNTQUdFX1NUQVRFX1JFQUQQAhIaChZNRVNT'
     'QUdFX1NUQVRFX1JFSkVDVEVEEAM=');
+
+@$core.Deprecated('Use inviteAnswerDescriptor instead')
+const InviteAnswer$json = {
+  '1': 'InviteAnswer',
+  '2': [
+    {'1': 'INVITE_ANSWER_UNSPECIFIED', '2': 0},
+    {'1': 'INVITE_ACCEPTED', '2': 1},
+    {'1': 'INVITE_DECLINED', '2': 2},
+    {'1': 'INVITE_CANCELED', '2': 3},
+  ],
+};
+
+/// Descriptor for `InviteAnswer`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List inviteAnswerDescriptor = $convert.base64Decode(
+    'CgxJbnZpdGVBbnN3ZXISHQoZSU5WSVRFX0FOU1dFUl9VTlNQRUNJRklFRBAAEhMKD0lOVklURV'
+    '9BQ0NFUFRFRBABEhMKD0lOVklURV9ERUNMSU5FRBACEhMKD0lOVklURV9DQU5DRUxFRBAD');
 
 @$core.Deprecated('Use serverEventPayloadDescriptor instead')
 const ServerEventPayload$json = {
@@ -153,6 +172,24 @@ const ServerEventPayload$json = {
       '10': 'typing'
     },
     {
+      '1': 'invite_sent',
+      '3': 80,
+      '4': 1,
+      '5': 11,
+      '6': '.vartalap.v3.payload.InviteSent',
+      '9': 0,
+      '10': 'inviteSent'
+    },
+    {
+      '1': 'invite_answered',
+      '3': 81,
+      '4': 1,
+      '5': 11,
+      '6': '.vartalap.v3.payload.InviteAnswered',
+      '9': 0,
+      '10': 'inviteAnswered'
+    },
+    {
       '1': 'presence',
       '3': 140,
       '4': 1,
@@ -183,8 +220,11 @@ final $typed_data.Uint8List serverEventPayloadDescriptor = $convert.base64Decode
     'FydGFsYXAudjMucGF5bG9hZC5Vc2VybmFtZUNoYW5nZWRIAFIPdXNlcm5hbWVDaGFuZ2VkEl4K'
     'FW1lc3NhZ2Vfc3RhdGVfY2hhbmdlZBgRIAEoCzIoLnZhcnRhbGFwLnYzLnBheWxvYWQuTWVzc2'
     'FnZVN0YXRlQ2hhbmdlZEgAUhNtZXNzYWdlU3RhdGVDaGFuZ2VkEjUKBnR5cGluZxgSIAEoCzIb'
-    'LnZhcnRhbGFwLnYzLnBheWxvYWQuVHlwaW5nSABSBnR5cGluZxI8CghwcmVzZW5jZRiMASABKA'
-    'syHS52YXJ0YWxhcC52My5wYXlsb2FkLlByZXNlbmNlSABSCHByZXNlbmNlQgYKBGJvZHk=');
+    'LnZhcnRhbGFwLnYzLnBheWxvYWQuVHlwaW5nSABSBnR5cGluZxJCCgtpbnZpdGVfc2VudBhQIA'
+    'EoCzIfLnZhcnRhbGFwLnYzLnBheWxvYWQuSW52aXRlU2VudEgAUgppbnZpdGVTZW50Ek4KD2lu'
+    'dml0ZV9hbnN3ZXJlZBhRIAEoCzIjLnZhcnRhbGFwLnYzLnBheWxvYWQuSW52aXRlQW5zd2VyZW'
+    'RIAFIOaW52aXRlQW5zd2VyZWQSPAoIcHJlc2VuY2UYjAEgASgLMh0udmFydGFsYXAudjMucGF5'
+    'bG9hZC5QcmVzZW5jZUgAUghwcmVzZW5jZUIGCgRib2R5');
 
 @$core.Deprecated('Use channelCreatedDescriptor instead')
 const ChannelCreated$json = {
@@ -400,3 +440,43 @@ const Presence$json = {
 final $typed_data.Uint8List presenceDescriptor = $convert.base64Decode(
     'CghQcmVzZW5jZRIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySWQSFgoGb25saW5lGAIgASgIUgZvbm'
     'xpbmUSIAoMbGFzdF9zZWVuX21zGAMgASgEUgpsYXN0U2Vlbk1z');
+
+@$core.Deprecated('Use inviteSentDescriptor instead')
+const InviteSent$json = {
+  '1': 'InviteSent',
+  '2': [
+    {'1': 'channel_id', '3': 1, '4': 1, '5': 9, '10': 'channelId'},
+    {'1': 'users', '3': 2, '4': 3, '5': 9, '10': 'users'},
+    {'1': 'name', '3': 3, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'at_ms', '3': 4, '4': 1, '5': 4, '10': 'atMs'},
+  ],
+};
+
+/// Descriptor for `InviteSent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List inviteSentDescriptor = $convert.base64Decode(
+    'CgpJbnZpdGVTZW50Eh0KCmNoYW5uZWxfaWQYASABKAlSCWNoYW5uZWxJZBIUCgV1c2VycxgCIA'
+    'MoCVIFdXNlcnMSEgoEbmFtZRgDIAEoCVIEbmFtZRITCgVhdF9tcxgEIAEoBFIEYXRNcw==');
+
+@$core.Deprecated('Use inviteAnsweredDescriptor instead')
+const InviteAnswered$json = {
+  '1': 'InviteAnswered',
+  '2': [
+    {'1': 'channel_id', '3': 1, '4': 1, '5': 9, '10': 'channelId'},
+    {'1': 'user', '3': 2, '4': 1, '5': 9, '10': 'user'},
+    {
+      '1': 'answer',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.vartalap.v3.payload.InviteAnswer',
+      '10': 'answer'
+    },
+    {'1': 'at_ms', '3': 4, '4': 1, '5': 4, '10': 'atMs'},
+  ],
+};
+
+/// Descriptor for `InviteAnswered`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List inviteAnsweredDescriptor = $convert.base64Decode(
+    'Cg5JbnZpdGVBbnN3ZXJlZBIdCgpjaGFubmVsX2lkGAEgASgJUgljaGFubmVsSWQSEgoEdXNlch'
+    'gCIAEoCVIEdXNlchI5CgZhbnN3ZXIYAyABKA4yIS52YXJ0YWxhcC52My5wYXlsb2FkLkludml0'
+    'ZUFuc3dlclIGYW5zd2VyEhMKBWF0X21zGAQgASgEUgRhdE1z');

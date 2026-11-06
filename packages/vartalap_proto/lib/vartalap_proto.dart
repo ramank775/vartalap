@@ -28,6 +28,8 @@ export 'src/generated/v3-server-event-payload.pb.dart'
         UsernameChanged,
         MessageStateChanged,
         Typing,
-        Presence;
+        Presence,
+        InviteSent,
+        InviteAnswered;
 export 'src/generated/v3-server-event-payload.pbenum.dart'
-    show ServerEventType, MessageStateValue;
+    show ServerEventType, MessageStateValue, InviteAnswer;

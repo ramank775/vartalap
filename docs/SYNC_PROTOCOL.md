@@ -811,6 +811,8 @@ REST error envelopes use the same code set where applicable.
 |---|---|---|---|---|
 | `prefix_mismatch` | `op_id` user_id bits ≠ authenticated user. | ✓ | ✓ | 400 |
 | `forbidden` | User lacks server-verifiable permission. WS: not a member of `channel_id`. REST: lacks owner/admin role on a channel write, attempting to PATCH another user, etc. | ✓ | ✓ | 403 |
+| `not_connected` | Invite-only (§23). WS: a 1:1 frame to someone the sender has no accepted invite with. REST: inviting a non-connection to a group. Permanent: the app shows the invite state instead. | ✓ | ✓ | 403 |
+| `invite_limit` | Too many 1:1 invites waiting for an answer (§23). | — | ✓ | 429 |
 | `not_found` | Server-verifiable resource doesn't exist. REST: channel id unknown, user_id unknown. WS: channel_id unknown to channel-ms. | ✓ | ✓ | 404 |
 | `gone` | Server-verifiable resource was deleted. REST: editing a deleted channel. | (rare) | ✓ | 410 |
 | `resource_id_taken` | Client-supplied id collides. REST: create_channel with collision (~10⁻¹² with UUIDv7). | — | ✓ | 409 |
@@ -2138,3 +2140,93 @@ does no presence without it.
 ponytail: the watches and the online state live in the gateway process.
 With several gateways a watcher hears only about sockets on its own;
 keep them in redis and publish changes the day a second gateway runs.
+
+---
+
+## 23. Invites, blocks and reports (decisions 219-221)
+
+Vartalap is invite-only: no message flows between two people until one
+has invited and the other accepted, and a group's newcomer is a member
+only once they accept. The server enforces it before it relays.
+
+### 23.1 The gate
+
+Every 1:1 envelope (one naming a `peer`) is checked after the §6a.3
+identity checks, by its frame class (`flags` bits 1-4):
+
+1. To oneself: relayed.
+2. Class KEY, RECEIPT or RESEND between two people who are both live
+   members of some group: relayed. Group keys, group receipts and
+   resend requests travel 1:1 between co-members who need not be
+   connected (decision 220), and a block does not stop them (a group
+   is not affected by a block, as in WhatsApp).
+3. The peer blocked the sender: acked `ACK_SUCCESS` with a stamp as
+   usual, and relayed nowhere and stored nowhere. The sender cannot
+   tell (WhatsApp's single tick).
+4. The pair is connected: relayed.
+5. Otherwise `ACK_PERMANENT` with reason `not_connected`.
+
+Group envelopes are not gated: membership (§6a.3) already is, and an
+invitee is not a member. Ephemeral envelopes follow the same rules and
+are, as always, never acked. The gateway caches a passing answer for the
+membership cache's time (30 s), never a refusal, so an accept lets the
+next frame through at once and a block takes up to 30 s to apply.
+
+### 23.2 REST (channel-ms, under `/v3.0/channels`)
+
+Not queued: the app calls these directly and shows the answer, since
+the user has to see the outcome (an invite past the cap, no network).
+All are idempotent; none takes an `op_id`. JSON, snake_case.
+
+| Call | Who | What |
+|---|---|---|
+| `GET /connections` | anyone | `{connections: [user_id], blocked: [user_id], invites: [{channel_id, from, to, name, created_at}]}`: every pending invite the caller can see, to them (less those from someone they blocked), from them, and in the groups they are in. A 1:1 invite's `channel_id` is the pair's derived DM id; a group invite's is the group's id and carries its `name`. |
+| `POST /invites {user_id}` | anyone | Invite to a 1:1 chat. `{state: "sent"}`, or `{state: "connected"}` when they already are, or when `user_id` had invited the caller (inviting back accepts). 429 `invite_limit` past the cap on pending 1:1 invites (default 30, `--invite-pending-max`). An invite to someone who blocked the caller is kept but never shown to them. |
+| `POST /{channel_id}/invite/accept` | the invitee | 1:1 (`channel_id` the DM id): `{state: "connected"}`. Group: the caller becomes a member; the answer is the group as `GET /{channel_id}` gives it. Again after it went through: the same answer. 404 `not_found` with no pending invite. |
+| `POST /{channel_id}/invite/decline {block?}` | the invitee | `{state: "none"}`. `block: true` also blocks the inviter (Decline & Block). |
+| `DELETE /{channel_id}/invites/{user_id}` | the inviter; for a group also its owner and admins | Cancel. `{state: "none"}`; 403 `forbidden` for anyone else. |
+| `POST /blocks {user_id}` / `DELETE /blocks/{user_id}` | anyone | Block / unblock. A block keeps the connection: unblocking restores the chat. |
+| `POST /reports {user_id, messages?}` | anyone | Report a user, 201. `messages`: up to the chat's last 5, as the reporter's phone shows them (`{author, body, content_type?, sent_at?}`; the server cannot read the chat). Kept 90 days for the operator. "Report and block" is this call and `POST /blocks`. |
+
+Groups: `POST /` and `POST /{channel_id}/members` invite everyone
+listed but the creator (each must be a connection of the actor, else
+403 `not_connected`); the create answers `members: [creator]` and
+`invited`, an add `{member_count, invited}`. A group's view (`GET /`,
+`GET /{channel_id}`) lists its pending invitees in `invited`. The group
+member cap counts invitees.
+
+### 23.3 Events (`ServerEventPayload`, frame class 9 INVITE)
+
+The actor is in the op_id's user bits, as on every server event. A 1:1
+invite event is addressed like a DM (`peer` = its recipient), so the
+channel both derive is the pair's DM id; a group's names the group.
+
+| Event | To | Flags |
+|---|---|---|
+| `INVITE_SENT` (1:1) | the invitee | INVITE, wakes |
+| `INVITE_SENT` (group) | the invitees | INVITE, wakes |
+| `INVITE_SENT` (group) | the members, for "Invited" in their member list | INVITE + SILENT |
+| `INVITE_ANSWERED` accepted (1:1) | the inviter | INVITE + SILENT |
+| `INVITE_ANSWERED` declined | the inviter; for a group its members too | INVITE + SILENT |
+| `INVITE_ANSWERED` canceled | the invitee; for a group its members too | INVITE + SILENT |
+| `CHANNEL_MEMBER_ADDED` (a group accept) | the members and the newcomer, who is its actor and only member | EVENT + SILENT |
+| `CHANNEL_DELETED` | members and pending invitees | EVENT + SILENT |
+
+Why a class of its own and not EVENT without SILENT: EVENT is the
+server's silent bookkeeping (decision 220); the one server event that
+must reach a sleeping phone says why with its class, and a later
+priority or retention rule can tell invites apart. The app writes the
+invite into its store and notifies from there, like a message.
+
+### 23.4 Migration
+
+Before the gate a 1:1 chat needed no invite. When the server starts with
+no connection at all, every pair that has a 1:1 message, edit, delete or
+reaction on the timeline (§10.6) counts as connected, once. The timeline
+keeps 30 days, so a pair silent for longer invites again.
+
+### 23.5 Account deletion
+
+The account's invites (both ways), connections and blocks (both ways)
+go with it. Reports about or by it stay until their 90 days are up.
+

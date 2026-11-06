@@ -36,6 +36,12 @@ class ServerEventType extends $pb.ProtobufEnum {
   static const ServerEventType TYPING =
       ServerEventType._(9, _omitEnumNames ? '' : 'TYPING');
 
+  /// Decisions 219-221, invites: values 20-29.
+  static const ServerEventType INVITE_SENT =
+      ServerEventType._(20, _omitEnumNames ? '' : 'INVITE_SENT');
+  static const ServerEventType INVITE_ANSWERED =
+      ServerEventType._(21, _omitEnumNames ? '' : 'INVITE_ANSWERED');
+
   /// 50-59: presence (decision 223, track F).
   static const ServerEventType PRESENCE =
       ServerEventType._(50, _omitEnumNames ? '' : 'PRESENCE');
@@ -51,6 +57,8 @@ class ServerEventType extends $pb.ProtobufEnum {
     USERNAME_CHANGED,
     MESSAGE_STATE_CHANGED,
     TYPING,
+    INVITE_SENT,
+    INVITE_ANSWERED,
     PRESENCE,
   ];
 
@@ -99,6 +107,31 @@ class MessageStateValue extends $pb.ProtobufEnum {
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
   const MessageStateValue._(super.value, super.name);
+}
+
+class InviteAnswer extends $pb.ProtobufEnum {
+  static const InviteAnswer INVITE_ANSWER_UNSPECIFIED =
+      InviteAnswer._(0, _omitEnumNames ? '' : 'INVITE_ANSWER_UNSPECIFIED');
+  static const InviteAnswer INVITE_ACCEPTED =
+      InviteAnswer._(1, _omitEnumNames ? '' : 'INVITE_ACCEPTED');
+  static const InviteAnswer INVITE_DECLINED =
+      InviteAnswer._(2, _omitEnumNames ? '' : 'INVITE_DECLINED');
+  static const InviteAnswer INVITE_CANCELED =
+      InviteAnswer._(3, _omitEnumNames ? '' : 'INVITE_CANCELED');
+
+  static const $core.List<InviteAnswer> values = <InviteAnswer>[
+    INVITE_ANSWER_UNSPECIFIED,
+    INVITE_ACCEPTED,
+    INVITE_DECLINED,
+    INVITE_CANCELED,
+  ];
+
+  static final $core.List<InviteAnswer?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
+  static InviteAnswer? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const InviteAnswer._(super.value, super.name);
 }
 
 const $core.bool _omitEnumNames =

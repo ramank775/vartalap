@@ -31,6 +31,8 @@ enum ServerEventPayload_Body {
   usernameChanged,
   messageStateChanged,
   typing,
+  inviteSent,
+  inviteAnswered,
   presence,
   notSet
 }
@@ -56,6 +58,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     UsernameChanged? usernameChanged,
     MessageStateChanged? messageStateChanged,
     Typing? typing,
+    InviteSent? inviteSent,
+    InviteAnswered? inviteAnswered,
     Presence? presence,
   }) {
     final result = create();
@@ -71,6 +75,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     if (messageStateChanged != null)
       result.messageStateChanged = messageStateChanged;
     if (typing != null) result.typing = typing;
+    if (inviteSent != null) result.inviteSent = inviteSent;
+    if (inviteAnswered != null) result.inviteAnswered = inviteAnswered;
     if (presence != null) result.presence = presence;
     return result;
   }
@@ -95,6 +101,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     16: ServerEventPayload_Body.usernameChanged,
     17: ServerEventPayload_Body.messageStateChanged,
     18: ServerEventPayload_Body.typing,
+    80: ServerEventPayload_Body.inviteSent,
+    81: ServerEventPayload_Body.inviteAnswered,
     140: ServerEventPayload_Body.presence,
     0: ServerEventPayload_Body.notSet
   };
@@ -103,7 +111,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
       createEmptyInstance: create)
-    ..oo(0, [10, 11, 12, 13, 14, 15, 16, 17, 18, 140])
+    ..oo(0, [10, 11, 12, 13, 14, 15, 16, 17, 18, 80, 81, 140])
     ..aI(1, _omitFieldNames ? '' : 'version', fieldType: $pb.PbFieldType.OU3)
     ..aE<ServerEventType>(2, _omitFieldNames ? '' : 'type',
         enumValues: ServerEventType.values)
@@ -125,6 +133,10 @@ class ServerEventPayload extends $pb.GeneratedMessage {
         subBuilder: MessageStateChanged.create)
     ..aOM<Typing>(18, _omitFieldNames ? '' : 'typing',
         subBuilder: Typing.create)
+    ..aOM<InviteSent>(80, _omitFieldNames ? '' : 'inviteSent',
+        subBuilder: InviteSent.create)
+    ..aOM<InviteAnswered>(81, _omitFieldNames ? '' : 'inviteAnswered',
+        subBuilder: InviteAnswered.create)
     ..aOM<Presence>(140, _omitFieldNames ? '' : 'presence',
         subBuilder: Presence.create)
     ..hasRequiredFields = false;
@@ -157,6 +169,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(16)
   @$pb.TagNumber(17)
   @$pb.TagNumber(18)
+  @$pb.TagNumber(80)
+  @$pb.TagNumber(81)
   @$pb.TagNumber(140)
   ServerEventPayload_Body whichBody() =>
       _ServerEventPayload_BodyByTag[$_whichOneof(0)]!;
@@ -169,6 +183,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(16)
   @$pb.TagNumber(17)
   @$pb.TagNumber(18)
+  @$pb.TagNumber(80)
+  @$pb.TagNumber(81)
   @$pb.TagNumber(140)
   void clearBody() => $_clearField($_whichOneof(0));
 
@@ -294,17 +310,40 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(18)
   Typing ensureTyping() => $_ensure(10);
 
+  /// Decisions 219-221, invites: oneof fields 80-89.
+  @$pb.TagNumber(80)
+  InviteSent get inviteSent => $_getN(11);
+  @$pb.TagNumber(80)
+  set inviteSent(InviteSent value) => $_setField(80, value);
+  @$pb.TagNumber(80)
+  $core.bool hasInviteSent() => $_has(11);
+  @$pb.TagNumber(80)
+  void clearInviteSent() => $_clearField(80);
+  @$pb.TagNumber(80)
+  InviteSent ensureInviteSent() => $_ensure(11);
+
+  @$pb.TagNumber(81)
+  InviteAnswered get inviteAnswered => $_getN(12);
+  @$pb.TagNumber(81)
+  set inviteAnswered(InviteAnswered value) => $_setField(81, value);
+  @$pb.TagNumber(81)
+  $core.bool hasInviteAnswered() => $_has(12);
+  @$pb.TagNumber(81)
+  void clearInviteAnswered() => $_clearField(81);
+  @$pb.TagNumber(81)
+  InviteAnswered ensureInviteAnswered() => $_ensure(12);
+
   /// 140-149: presence (decision 223, track F; SYNC_PROTOCOL §22).
   @$pb.TagNumber(140)
-  Presence get presence => $_getN(11);
+  Presence get presence => $_getN(13);
   @$pb.TagNumber(140)
   set presence(Presence value) => $_setField(140, value);
   @$pb.TagNumber(140)
-  $core.bool hasPresence() => $_has(11);
+  $core.bool hasPresence() => $_has(13);
   @$pb.TagNumber(140)
   void clearPresence() => $_clearField(140);
   @$pb.TagNumber(140)
-  Presence ensurePresence() => $_ensure(11);
+  Presence ensurePresence() => $_ensure(13);
 }
 
 /// Emitted on REST `POST /v3.0/channels` to every member (creator included
@@ -1297,6 +1336,197 @@ class Presence extends $pb.GeneratedMessage {
   $core.bool hasLastSeenMs() => $_has(2);
   @$pb.TagNumber(3)
   void clearLastSeenMs() => $_clearField(3);
+}
+
+/// Someone was invited. To the invitee (wakes), and for a group also to its
+/// members, SILENT, so their member list can show "Invited".
+class InviteSent extends $pb.GeneratedMessage {
+  factory InviteSent({
+    $core.String? channelId,
+    $core.Iterable<$core.String>? users,
+    $core.String? name,
+    $fixnum.Int64? atMs,
+  }) {
+    final result = create();
+    if (channelId != null) result.channelId = channelId;
+    if (users != null) result.users.addAll(users);
+    if (name != null) result.name = name;
+    if (atMs != null) result.atMs = atMs;
+    return result;
+  }
+
+  InviteSent._();
+
+  factory InviteSent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory InviteSent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'InviteSent',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'channelId')
+    ..pPS(2, _omitFieldNames ? '' : 'users')
+    ..aOS(3, _omitFieldNames ? '' : 'name')
+    ..a<$fixnum.Int64>(4, _omitFieldNames ? '' : 'atMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InviteSent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InviteSent copyWith(void Function(InviteSent) updates) =>
+      super.copyWith((message) => updates(message as InviteSent)) as InviteSent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static InviteSent create() => InviteSent._();
+  @$core.override
+  InviteSent createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static InviteSent getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<InviteSent>(create);
+  static InviteSent? _defaultInstance;
+
+  /// The group's id; empty for a 1:1 invite.
+  @$pb.TagNumber(1)
+  $core.String get channelId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set channelId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasChannelId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearChannelId() => $_clearField(1);
+
+  /// Who is invited (user_ids). A 1:1 invite names the recipient.
+  @$pb.TagNumber(2)
+  $pb.PbList<$core.String> get users => $_getList(1);
+
+  /// The group's name, for an invitee who has no copy of the group yet.
+  @$pb.TagNumber(3)
+  $core.String get name => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set name($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasName() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearName() => $_clearField(3);
+
+  /// When the server stored the invite, ms since epoch.
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get atMs => $_getI64(3);
+  @$pb.TagNumber(4)
+  set atMs($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasAtMs() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearAtMs() => $_clearField(4);
+}
+
+/// An invite is no longer pending. Accepted 1:1: to the inviter (now
+/// connected). Declined: to the inviter, and for a group its members.
+/// Canceled: to the invitee, and for a group its members. A group accept
+/// is announced as ChannelMemberAdded with the newcomer as actor and member.
+class InviteAnswered extends $pb.GeneratedMessage {
+  factory InviteAnswered({
+    $core.String? channelId,
+    $core.String? user,
+    InviteAnswer? answer,
+    $fixnum.Int64? atMs,
+  }) {
+    final result = create();
+    if (channelId != null) result.channelId = channelId;
+    if (user != null) result.user = user;
+    if (answer != null) result.answer = answer;
+    if (atMs != null) result.atMs = atMs;
+    return result;
+  }
+
+  InviteAnswered._();
+
+  factory InviteAnswered.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory InviteAnswered.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'InviteAnswered',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'channelId')
+    ..aOS(2, _omitFieldNames ? '' : 'user')
+    ..aE<InviteAnswer>(3, _omitFieldNames ? '' : 'answer',
+        enumValues: InviteAnswer.values)
+    ..a<$fixnum.Int64>(4, _omitFieldNames ? '' : 'atMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InviteAnswered clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InviteAnswered copyWith(void Function(InviteAnswered) updates) =>
+      super.copyWith((message) => updates(message as InviteAnswered))
+          as InviteAnswered;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static InviteAnswered create() => InviteAnswered._();
+  @$core.override
+  InviteAnswered createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static InviteAnswered getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<InviteAnswered>(create);
+  static InviteAnswered? _defaultInstance;
+
+  /// The group's id; empty for a 1:1 invite.
+  @$pb.TagNumber(1)
+  $core.String get channelId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set channelId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasChannelId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearChannelId() => $_clearField(1);
+
+  /// Who was invited.
+  @$pb.TagNumber(2)
+  $core.String get user => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set user($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasUser() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearUser() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  InviteAnswer get answer => $_getN(2);
+  @$pb.TagNumber(3)
+  set answer(InviteAnswer value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAnswer() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAnswer() => $_clearField(3);
+
+  /// When, ms since epoch.
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get atMs => $_getI64(3);
+  @$pb.TagNumber(4)
+  set atMs($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasAtMs() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearAtMs() => $_clearField(4);
 }
 
 const $core.bool _omitFieldNames =

@@ -145,4 +145,10 @@ void main() {
         )).ops.envelopes.single.ttlSec,
         300);
   });
+
+  test('INVITE is class 9 (decision 219)', () {
+    expect(FrameClass.event.flags, (5 << 1) | 1);
+    expect(FrameClass.invite.index, 9);
+    expect(FrameClass.invite.flags, (9 << 1) | 1);
+  });
 }
