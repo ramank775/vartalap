@@ -64,8 +64,15 @@ class MemberPickerScreen extends StatefulWidget {
 }
 
 class _MemberPickerScreenState extends State<MemberPickerScreen> {
-  late final Future<List<ContactRow>> _contacts =
-      widget.chatService.discoverContacts();
+  /// Decision 221: only people we are connected with may be invited.
+  late final Future<List<ContactRow>> _contacts = () async {
+    final contacts = await widget.chatService.discoverContacts();
+    final connected = await widget.chatService.connectedUsers();
+    return [
+      for (final c in contacts)
+        if (connected.contains(c.userId)) c,
+    ];
+  }();
   final List<ContactRow> _picked = [];
 
   void _toggle(ContactRow c) => setState(() {
@@ -124,8 +131,9 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
                 padding: const EdgeInsets.all(kSpaceXl),
                 child: Text(
                   widget.exclude.isEmpty
-                      ? 'None of your contacts are on Vartalap yet'
-                      : 'Everyone in your contacts is already in this group',
+                      ? 'You can add people who accepted your invite to '
+                          'chat. Invite someone first.'
+                      : 'Everyone you chat with is already in this group',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),

@@ -32,6 +32,27 @@ void main() {
         "Asha deleted this group's icon");
   });
 
+  test('invites: invited, joined, accepted (decisions 219, 221)', () {
+    expect(text(const GroupEvent(GroupEventKind.invited, users: ['u-ravi'])),
+        'Asha invited Ravi');
+    expect(
+        text(const GroupEvent(GroupEventKind.invited, users: ['u-ravi']),
+            actor: 'u-me'),
+        'You invited Ravi');
+    expect(
+        text(const GroupEvent(GroupEventKind.added, users: ['u-ravi']),
+            actor: 'u-ravi'),
+        'Ravi joined');
+    expect(
+        text(const GroupEvent(GroupEventKind.added, users: ['u-me']),
+            actor: 'u-me'),
+        'You joined');
+    expect(text(const GroupEvent(GroupEventKind.accepted)),
+        'Asha accepted your invite. You can chat now.');
+    expect(text(const GroupEvent(GroupEventKind.accepted), actor: 'u-me'),
+        'You accepted the invite. You can chat now.');
+  });
+
   test('a body round-trips, and one from a newer client reads as null', () {
     const e = GroupEvent(GroupEventKind.added, users: ['u-ravi']);
     final back = GroupEvent.parse(e.encode())!;

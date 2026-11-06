@@ -908,13 +908,14 @@ class ChatService with TimelineService {
       role: 'owner',
       joinedAt: now,
     );
+    // Decision 221: the others are invited, and members once they accept.
     for (final uid in memberUserIds) {
-      await _store.insertChannelMember(
+      await _store.putInvite(InviteRow(
         channelId: channelId,
-        userId: uid,
-        role: 'member',
-        joinedAt: now,
-      );
+        toUser: uid,
+        fromUser: creatorUserId,
+        createdAt: now,
+      ));
     }
     await _store.insertGroupEvent(
       channelId: channelId,
@@ -923,6 +924,15 @@ class ChatService with TimelineService {
       event: GroupEvent(GroupEventKind.created, text: name),
       atMs: now,
     );
+    if (memberUserIds.isNotEmpty) {
+      await _store.insertGroupEvent(
+        channelId: channelId,
+        messageId: 'ge-$channelId-invited',
+        actorUserId: creatorUserId,
+        event: GroupEvent(GroupEventKind.invited, users: memberUserIds),
+        atMs: now,
+      );
+    }
     return channelId;
   }
 
@@ -1056,8 +1066,9 @@ class ChatService with TimelineService {
       );
 
   /// Add people to a group (owner and admins, decision 81):
-  /// `POST /v3.0/channels/{id}/members`. They show as members at once; a
-  /// terminal reject takes them back off.
+  /// `POST /v3.0/channels/{id}/members`. Decision 221: they are invited
+  /// and show as "Invited" until they accept; a terminal reject takes
+  /// the invites back.
   Future<void> addMembers(String channelId, List<String> userIds) =>
       _channelMembershipOp(
         channelId: channelId,
@@ -1068,15 +1079,15 @@ class ChatService with TimelineService {
         payload: utf8.encode(jsonEncode({'members': userIds})),
         applyLocal: (opId) async {
           for (final userId in userIds) {
-            await _store.upsertChannelMember(
+            await _store.putInvite(InviteRow(
               channelId: channelId,
-              userId: userId,
-              role: 'member',
-              joinedAt: _clock.nowMs(),
-            );
+              toUser: userId,
+              fromUser: _authClient.currentUserId ?? '',
+              createdAt: _clock.nowMs(),
+            ));
           }
           await _ownGroupEvent(channelId, opId,
-              GroupEvent(GroupEventKind.added, users: userIds));
+              GroupEvent(GroupEventKind.invited, users: userIds));
         },
       );
 
@@ -1197,6 +1208,196 @@ class ChatService with TimelineService {
         event: event,
         atMs: _clock.nowMs(),
       );
+
+  // --- connecting: invites, blocks, reports (decisions 219-221) ---------
+
+  /// Set by `main.dart`: materialize a group just joined through the
+  /// inbound receiver, which also fetches its members' profiles.
+  Future<void> Function(String channelId, Map<String, dynamic> group)?
+      adoptGroup;
+
+  /// Mirror the server's connections, blocks and pending invites
+  /// (SYNC_PROTOCOL §21) into the store. At every foreground login.
+  Future<void> refreshConnections() async {
+    final json = await _authClient.getConnections();
+    final invites = [
+      for (final i in (json['invites'] as List).cast<Map<String, dynamic>>())
+        InviteRow(
+          channelId: i['channel_id'] as String,
+          toUser: i['to'] as String,
+          fromUser: i['from'] as String,
+          name: i['name'] as String?,
+          createdAt: (i['created_at'] as num).toInt(),
+        ),
+    ];
+    await _store.replaceConnections(
+      connected: (json['connections'] as List).cast<String>(),
+      blocked: (json['blocked'] as List).cast<String>(),
+      invites: invites,
+    );
+    // An invite from someone this phone has never seen needs a name.
+    final known = {for (final c in await _store.fetchContacts()) c.userId};
+    for (final from in {for (final i in invites) i.fromUser}) {
+      if (!known.contains(from)) await _fetchContact(from);
+    }
+  }
+
+  Future<void> _fetchContact(String userId) async {
+    try {
+      final profile = await _authClient.getUser(userId);
+      await _store.upsertContact(
+        userId: userId,
+        username: profile['username'] as String?,
+        displayName: profile['displayName'] as String?,
+        avatarUrl: profile['avatarUrl'] as String?,
+        statusText: profile['statusText'] as String?,
+        nowMs: _clock.nowMs(),
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChatService: profile of $userId failed: $e');
+    }
+  }
+
+  /// Every pending invite this phone can see, oldest first.
+  Stream<List<InviteRow>> watchInvites() =>
+      _store.watchTables(const {'invites'}, _store.fetchInvites);
+
+  /// Where we stand with [peerUserId]: connected, blocked, an invite
+  /// either way.
+  Stream<PeerLink> watchPeerLink(String peerUserId) => _store.watchTables(
+      const {'invites', 'connections'},
+      () => _store.peerLink(_authClient.currentUserId ?? '', peerUserId));
+
+  /// Who we blocked (Settings › Privacy › Blocked).
+  Stream<Set<String>> watchBlocked() =>
+      _store.watchTables(const {'connections'}, _store.blockedUsers);
+
+  /// Who we may invite to a group: our connections (decision 221).
+  Future<Set<String>> connectedUsers() => _store.connectedUsers();
+
+  /// Invite [peerUserId] to chat (decision 219). Their chat with us shows
+  /// "You invited …" and, until they answer, "Invite sent". Throws
+  /// [AuthClientException]: 429 `invite_limit` past the cap.
+  Future<void> sendInvite(String peerUserId) async {
+    final self = _authClient.currentUserId!;
+    final state = await _authClient.sendInvite(peerUserId);
+    final channelId = dmChannelId(self, peerUserId);
+    final now = _clock.nowMs();
+    if (state == 'connected') {
+      // they had invited us: inviting back accepted theirs
+      await _store.removeInvites(channelId);
+      await _store.setConnection(peerUserId, connected: true);
+      await _dmLine(
+          channelId, self, const GroupEvent(GroupEventKind.accepted));
+      return;
+    }
+    await _store.putInvite(InviteRow(
+      channelId: channelId,
+      toUser: peerUserId,
+      fromUser: self,
+      createdAt: now,
+    ));
+    await _dmLine(channelId, self,
+        GroupEvent(GroupEventKind.invited, users: [peerUserId]));
+  }
+
+  /// A line in a 1:1 chat this phone already has; once per kind.
+  Future<void> _dmLine(
+      String channelId, String actor, GroupEvent event) async {
+    if (!await _store.channelExists(channelId)) return;
+    final now = _clock.nowMs();
+    await _store.insertGroupEvent(
+      channelId: channelId,
+      messageId: 'ge-${event.kind.name}-$channelId-$now',
+      actorUserId: actor,
+      event: event,
+      atMs: now,
+    );
+  }
+
+  /// Accept [invite]; returns the chat to open. A 1:1 one connects us; a
+  /// group's makes us a member. Throws [AuthClientException]; a 404 means
+  /// the invite is gone (taken back), and it goes from here too.
+  Future<String> acceptInvite(InviteRow invite) async {
+    final self = _authClient.currentUserId!;
+    final Map<String, dynamic> json;
+    try {
+      json = await _authClient.acceptInvite(invite.channelId);
+    } on AuthClientException catch (e) {
+      if (e.statusCode == 404) {
+        await _store.removeInvites(invite.channelId, toUser: self);
+      }
+      rethrow;
+    }
+    await _store.removeInvites(invite.channelId, toUser: self);
+    if (invite.isGroup) {
+      await adoptGroup?.call(invite.channelId, json);
+      await _dmLine(invite.channelId, self,
+          GroupEvent(GroupEventKind.added, users: [self]));
+      return invite.channelId;
+    }
+    await _store.setConnection(invite.fromUser, connected: true);
+    final peer = (await _store.fetchContacts())
+        .where((c) => c.userId == invite.fromUser)
+        .firstOrNull;
+    final channelId = await startDirectMessage(
+      localUserId: self,
+      peerUserId: invite.fromUser,
+      peerName: peer?.displayLabel ?? '',
+    );
+    await _dmLine(channelId, self, const GroupEvent(GroupEventKind.accepted));
+    return channelId;
+  }
+
+  /// Decline [invite]; [block] also blocks whoever sent it.
+  Future<void> declineInvite(InviteRow invite, {bool block = false}) async {
+    await _authClient.declineInvite(invite.channelId, block: block);
+    await _store.removeInvites(invite.channelId, toUser: invite.toUser);
+    if (block) await _store.setConnection(invite.fromUser, blocked: true);
+  }
+
+  /// Take back our invite of [userId] into [channelId] (a group's, or the
+  /// pair's DM id).
+  Future<void> cancelInvite(String channelId, String userId) async {
+    await _authClient.cancelInvite(channelId, userId);
+    await _store.removeInvites(channelId, toUser: userId);
+  }
+
+  /// Block or unblock [userId]: the server drops their 1:1 messages and
+  /// invites to us. Groups are not affected.
+  Future<void> setBlocked(String userId, bool blocked) async {
+    await _authClient.setBlocked(userId, blocked);
+    await _store.setConnection(userId, blocked: blocked);
+  }
+
+  /// Report [userId] (WhatsApp's Report). With [channelId], the chat's
+  /// last 5 messages go along, as this phone shows them: the server
+  /// cannot read the chat. [block]: Report and block.
+  Future<void> report(
+    String userId, {
+    String? channelId,
+    bool block = false,
+  }) async {
+    final messages = channelId == null
+        ? const <MessageRow>[]
+        : (await _store.fetchChannelMessages(channelId, limit: 50))
+            .where((m) => m.contentType != kGroupEventType && !m.tombstoned)
+            .take(5)
+            .toList();
+    await _authClient.report(userId, [
+      for (final m in messages.reversed)
+        {
+          'author': m.authorUserId,
+          'body': (m.body ?? '').length > 4096
+              ? m.body!.substring(0, 4096)
+              : m.body ?? '',
+          if (m.contentType != null) 'content_type': m.contentType,
+          'sent_at': m.displayTimestampMs,
+        },
+    ]);
+    if (block) await setBlocked(userId, true);
+  }
 
   /// Active members of [channelId], joined with the local contact row
   /// where one exists. Powers the chat-info member list.

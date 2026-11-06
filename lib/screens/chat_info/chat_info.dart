@@ -22,6 +22,7 @@ import 'package:vartalap/screens/chat_info/security_code.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/labels/labels.dart';
+import 'package:vartalap/screens/invites/invites.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -114,6 +115,14 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   final Set<String> _reportedFailures = {};
   StreamSubscription<List<OutboundOpRow>>? _failureSub;
 
+  /// Decision 221: who is invited into this group, not a member yet.
+  List<InviteRow> _invited = const [];
+
+  /// Decision 219: who we blocked, for a DM's Block / Unblock.
+  Set<String> _blocked = const {};
+  final List<StreamSubscription<Object>> _subs = [];
+  Map<String, String> _names = const {};
+
   @override
   void initState() {
     super.initState();
@@ -125,6 +134,23 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       widget.chatService.fetchLinks(widget.channelId),
     ]).then((lists) => lists.fold<int>(0, (n, l) => n + l.length));
     _reloadChannel();
+    _subs.add(widget.chatService.watchInvites().listen((all) {
+      if (mounted) {
+        setState(() => _invited = [
+              for (final i in all)
+                if (i.channelId == widget.channelId) i,
+            ]);
+      }
+    }));
+    _subs.add(widget.chatService.watchBlocked().listen((blocked) {
+      if (mounted) setState(() => _blocked = blocked);
+    }));
+    widget.chatService.discoverContacts().then((contacts) {
+      if (mounted) {
+        setState(() =>
+            _names = {for (final c in contacts) c.userId: c.displayLabel});
+      }
+    });
     // A rejected role change is rolled back in the store
     // (`_rollbackMemberRole`); the screen's job is to say so and show
     // the restored roster.
@@ -144,6 +170,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   @override
   void dispose() {
     _failureSub?.cancel();
+    for (final sub in _subs) {
+      sub.cancel();
+    }
     super.dispose();
   }
 
@@ -338,12 +367,17 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 const Divider(),
                 _MembersSection(
                   members: members,
+                  invited: [
+                    for (final i in _invited)
+                      (i.toUser, _names[i.toUser] ?? 'Unknown'),
+                  ],
                   localUserId: localUserId,
                   canManageRoles: canManage,
                   loading: snap.connectionState == ConnectionState.waiting,
                   onSetRole: _setMemberRole,
                   onAdd: canManage ? () => _addMembers(members) : null,
                   onRemove: _removeMember,
+                  onCancelInvite: canManage ? _cancelInvite : null,
                 ),
               ],
               const Divider(),
@@ -371,6 +405,32 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                         'Contacts.',
                 onTap: () => _deleteChat(context),
               ),
+              // WhatsApp's two red rows at the bottom (decision 219)
+              if (!_isGroup && peer!.userId.isNotEmpty) ...[
+                const Divider(),
+                _InfoTile(
+                  icon: Icons.block,
+                  title: _blocked.contains(peer.userId)
+                      ? 'Unblock $_name'
+                      : 'Block $_name',
+                  iconColor: scheme.error,
+                  titleColor: scheme.error,
+                  onTap: () => _toggleBlock(peer.userId),
+                ),
+                _InfoTile(
+                  icon: Icons.thumb_down_outlined,
+                  title: 'Report $_name',
+                  iconColor: scheme.error,
+                  titleColor: scheme.error,
+                  onTap: () => showReportDialog(
+                    context,
+                    chatService: widget.chatService,
+                    userId: peer.userId,
+                    name: _name,
+                    channelId: widget.channelId,
+                  ),
+                ),
+              ],
               if (_isGroup) ...[
                 const Divider(),
                 _InfoTile(
@@ -451,6 +511,24 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     await _reloadChannel();
   }
 
+  Future<void> _toggleBlock(String userId) async {
+    final block = !_blocked.contains(userId);
+    if (block && !await confirmBlock(context, _name)) return;
+    try {
+      await widget.chatService.setBlocked(userId, block);
+    } catch (e) {
+      if (mounted) showInviteError(context, e);
+    }
+  }
+
+  Future<void> _cancelInvite(String userId) async {
+    try {
+      await widget.chatService.cancelInvite(widget.channelId, userId);
+    } catch (e) {
+      if (mounted) showInviteError(context, e);
+    }
+  }
+
   Future<void> _addMembers(List<ChannelMemberRow> members) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -458,7 +536,10 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
           chatService: widget.chatService,
           title: 'Add members',
           doneIcon: Icons.check,
-          exclude: {for (final m in members) m.userId},
+          exclude: {
+            for (final m in members) m.userId,
+            for (final i in _invited) i.toUser,
+          },
           onDone: (pickerContext, picked) async {
             await widget.chatService.addMembers(
               widget.channelId,
@@ -687,21 +768,27 @@ class _DmIdentityBlock extends StatelessWidget {
 
 class _MembersSection extends StatelessWidget {
   final List<ChannelMemberRow> members;
+
+  /// Invited, not members yet (decision 221): (user_id, name).
+  final List<(String, String)> invited;
   final String? localUserId;
   final bool canManageRoles;
   final bool loading;
   final Future<void> Function(ChannelMemberRow, String) onSetRole;
   final VoidCallback? onAdd;
   final Future<void> Function(ChannelMemberRow) onRemove;
+  final Future<void> Function(String userId)? onCancelInvite;
 
   const _MembersSection({
     required this.members,
+    required this.invited,
     required this.localUserId,
     required this.canManageRoles,
     required this.loading,
     required this.onSetRole,
     required this.onAdd,
     required this.onRemove,
+    required this.onCancelInvite,
   });
 
   @override
@@ -751,6 +838,25 @@ class _MembersSection extends StatelessWidget {
               onSetRole: onSetRole,
               onRemove: onRemove,
             ),
+        for (final (userId, name) in invited)
+          ListTile(
+            leading: Avator(
+              text: name,
+              seed: personSeed(context, userId),
+              width: kAvatarMd,
+              height: kAvatarMd,
+            ),
+            title: Text(name),
+            subtitle: Text('Invited',
+                style: TextStyle(color: scheme.onSurfaceVariant)),
+            trailing: onCancelInvite == null
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Cancel invite',
+                    onPressed: () => onCancelInvite!(userId),
+                  ),
+          ),
       ],
     );
   }

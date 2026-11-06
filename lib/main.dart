@@ -29,6 +29,7 @@ import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
 import 'package:vartalap/screens/home/home.dart';
+import 'package:vartalap/screens/invites/invites.dart';
 import 'package:vartalap/utils/username_link.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/screens/login/discoverability.dart';
@@ -442,7 +443,17 @@ class AppServices {
     await next.start();
     inboundReceiver = next;
     // A push wake has seconds to deliver; the foreground app catches up.
-    if (adoptGroups) unawaited(_adoptServerGroups(authClient, next));
+    if (adoptGroups) {
+      unawaited(_adoptServerGroups(authClient, next));
+      // invites, connections and blocks (decision 219)
+      unawaited(chatService.refreshConnections().catchError((Object e) {
+        // ignore: avoid_print
+        print('refreshConnections failed: $e');
+      }));
+    }
+    // A group invite just accepted: built like any group we were added to.
+    chatService.adoptGroup = (channelId, json) =>
+        next.adoptGroups({channelId: groupRosterFromJson(json)});
     chatService.bindTypingSource(next.typingEvents);
     chatService.bindDeliverySource(next.peerMessagesStored);
     // Every inbound message, WS or pull, lands here: off screen it
@@ -902,6 +913,17 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     final channelId = _pendingChat;
     if (channelId == null || !_isLogin || _username == null) return;
     _pendingChat = null;
+    if (channelId == kInvitesNotification) {
+      final navigator = _navKey.currentState;
+      navigator?.popUntil((route) => route.isFirst);
+      unawaited(navigator?.push(MaterialPageRoute<void>(
+        builder: (_) => InvitesScreen(
+          chatService: widget.services.chatService,
+          authService: widget.services.authService,
+        ),
+      )));
+      return;
+    }
     final chat = await widget.services.chatService.fetchChannel(channelId);
     final navigator = _navKey.currentState;
     if (chat == null || navigator == null) return;

@@ -22,6 +22,7 @@ import 'package:vartalap/screens/chat/presence_line.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat/voice_note.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
+import 'package:vartalap/screens/invites/invites.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -213,6 +214,13 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// [GroupEvent] line.
   List<ChannelMemberRow>? _members;
   ChannelListEntry? _channel;
+
+  /// A 1:1 chat's other person, and where we stand with them (decision
+  /// 219): until they are connected, [InviteBar] takes the composer's
+  /// place.
+  String? _peerUserId;
+  PeerLink? _link;
+  StreamSubscription<PeerLink>? _linkSub;
   String? _lastGroupEventId;
 
   @override
@@ -340,6 +348,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     }
     unawaited(stopVoiceNote());
     _failureSub?.cancel();
+    _linkSub?.cancel();
     _scroll.dispose();
     _readMarkerSub?.cancel();
     _highlightTimer?.cancel();
@@ -439,6 +448,27 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       _members = members;
       _channel = channel;
     });
+    final me = widget.authService.currentUserId;
+    final peer = members.where((m) => m.userId != me).firstOrNull?.userId;
+    if (widget.channelKind != 'group' && peer != null && _linkSub == null) {
+      _peerUserId = peer;
+      _linkSub = widget.chatService.watchPeerLink(peer).listen((link) {
+        if (mounted) setState(() => _link = link);
+      });
+    }
+  }
+
+  /// Chat menu's Block / Unblock (decision 219).
+  Future<void> _toggleBlock() async {
+    final peer = _peerUserId;
+    if (peer == null) return;
+    final block = _link?.blocked != true;
+    if (block && !await confirmBlock(context, _title)) return;
+    try {
+      await widget.chatService.setBlocked(peer, block);
+    } catch (e) {
+      if (mounted) showInviteError(context, e);
+    }
   }
 
   /// "Dev_Two, Asha, You" under a group's name (WhatsApp).
@@ -1491,6 +1521,16 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
             tooltip: 'Search in conversation',
             onPressed: _openSearch,
           ),
+          if (_peerUserId != null)
+            PopupMenuButton<void>(
+              tooltip: 'More options',
+              itemBuilder: (_) => [
+                PopupMenuItem<void>(
+                  onTap: _toggleBlock,
+                  child: Text(_link?.blocked == true ? 'Unblock' : 'Block'),
+                ),
+              ],
+            ),
         ],
       ),
       body: Column(
@@ -1686,6 +1726,15 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ),
+            )
+          else if (_link case final link?
+              when !link.connected || link.blocked)
+            InviteBar(
+              link: link,
+              peerUserId: _peerUserId!,
+              peerName: _title,
+              chatService: widget.chatService,
+              authService: widget.authService,
             )
           else
           _MessageInput(

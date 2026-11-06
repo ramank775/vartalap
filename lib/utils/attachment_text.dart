@@ -57,7 +57,10 @@ String groupEventText(
       : '${users.sublist(0, users.length - 1).join(', ')} and ${users.last}';
   return switch (event.kind) {
     GroupEventKind.created => '$actor created group "${event.text ?? ''}"',
-    GroupEventKind.added => '$actor added $list',
+    GroupEventKind.added => event.users.length == 1 &&
+            event.users.single == actorUserId
+        ? '$actor joined'
+        : '$actor added $list',
     GroupEventKind.removed => '$actor removed $list',
     GroupEventKind.left =>
       '${who(event.users.firstOrNull ?? actorUserId, first: true)} left',
@@ -69,5 +72,9 @@ String groupEventText(
     GroupEventKind.securityCode =>
       "${who(event.users.firstOrNull ?? actorUserId, first: true)}'s security "
           'code changed',
+    GroupEventKind.invited => '$actor invited $list',
+    GroupEventKind.accepted => actorUserId == selfUserId
+        ? 'You accepted the invite. You can chat now.'
+        : '$actor accepted your invite. You can chat now.',
   };
 }

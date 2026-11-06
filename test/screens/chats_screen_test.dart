@@ -843,6 +843,9 @@ class _FakeChatService implements ChatService {
   Stream<List<Label>> watchLabels() => Stream.value(const []);
 
   @override
+  Stream<List<InviteRow>> watchInvites() => Stream.value(const []);
+
+  @override
   Future<List<ContactRow>> discoverContacts({
     List<String> normalizedPhones = const [],
     Map<String, String> contactBookNamesByPhone = const {},

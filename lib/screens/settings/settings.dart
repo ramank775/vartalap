@@ -149,7 +149,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Privacy',
             subtitle: chat == null
                 ? 'Who can find me by my number'
-                : 'Find me by number, last seen, read receipts',
+                : 'Find me by number, last seen, blocked contacts',
             onTap: () =>
                 _open(_PrivacyPage(authService: auth, chatService: chat)),
           ),
@@ -288,9 +288,12 @@ class _PrivacyPageState extends State<_PrivacyPage> {
               if (mounted) setState(() {});
             },
           ),
-          if (widget.chatService case final chat?)
+          if (widget.chatService case final chat?) ...[
             PresencePrivacyRows(
                 authService: widget.authService, chatService: chat),
+            const Divider(height: 1),
+            BlockedContactsRow(chatService: chat),
+          ],
         ],
       );
 }

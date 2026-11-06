@@ -27,6 +27,11 @@ const int _summaryId = 2;
 /// Every chat notification has this id; its tag, the channel id, tells
 /// them apart.
 const int _chatId = 3;
+
+/// Invites to us (decision 219): one notification, tapped open the
+/// Invites list. Its payload, and its key among the watermarks.
+const int _invitesId = 4;
+const String kInvitesNotification = 'invites';
 const String _group = 'vartalap.messages';
 
 /// Everything goes on one "Messages" channel, high importance so a
@@ -174,6 +179,19 @@ class MessageNotifications {
         await _showChat(chat, lines, self, names);
         posted = true;
       }
+      // Decision 219: an invite to us alerts like a message, once.
+      final invites = [
+        for (final i in await store.fetchInvites())
+          if (i.toUser == self) i,
+      ];
+      if (invites.isNotEmpty) {
+        final mark = invites.last.createdAt.toString().padLeft(15, '0');
+        next[kInvitesNotification] = mark;
+        final seen = notified[kInvitesNotification];
+        if (!quiet && (seen == null || seen.compareTo(mark) < 0)) {
+          await _showInvites(invites, names);
+        }
+      }
       // Only chats with unread lines keep a watermark: reading a chat
       // drops its entry, and the next message there alerts afresh.
       await prefs.setString(keyNotified, jsonEncode(next));
@@ -275,6 +293,30 @@ class MessageNotifications {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showInvites(
+    List<InviteRow> invites,
+    Map<String, String> names,
+  ) {
+    final newest = invites.last;
+    final from = names[newest.fromUser] ?? 'Someone';
+    final one = invites.length == 1;
+    return _plugin.show(
+      id: _invitesId,
+      title: !one
+          ? 'Invites'
+          : newest.isGroup
+              ? newest.name ?? 'Group invite'
+              : from,
+      body: !one
+          ? '${invites.length} invites are waiting for your answer'
+          : newest.isGroup
+              ? '$from invited you to this group'
+              : 'Wants to chat with you',
+      payload: kInvitesNotification,
+      notificationDetails: _details(tag: kInvitesNotification),
     );
   }
 

@@ -22,6 +22,7 @@ import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/labels/labels.dart';
+import 'package:vartalap/screens/invites/invites.dart';
 import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/screens/starred/starred.dart';
 import 'package:vartalap/screens/battery/background_access.dart';
@@ -160,6 +161,12 @@ class _ChatsScreenState extends State<ChatsScreen> {
               AppUpdateBanner(appBuild: widget.config.appBuild),
               BackgroundAccessBanner(
                   push: AppServicesProvider.maybeOf(context)?.pushService),
+              // decision 219: whoever wants to chat, above the chats
+              if (!_searchOpen && selected.isEmpty)
+                InvitesRow(
+                  chatService: widget.chatService,
+                  authService: widget.authService,
+                ),
               Expanded(child: Builder(builder: (context) {
                 if (snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData) {

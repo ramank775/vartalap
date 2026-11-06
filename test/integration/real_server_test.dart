@@ -252,6 +252,55 @@ void main() {
         );
       });
 
+      // ---- 2c -----------------------------------------------------------
+      test('2c. before an invite is accepted nothing flows: the DM is '
+          'refused not_connected (decision 219)', () async {
+        final row = await a.sendAndSettle(dmChannel, 'before the invite');
+        expect(
+          row?.state,
+          MessageState.rejected,
+          reason: 'SYNC_PROTOCOL §21.1: a 1:1 frame between two people '
+              'with no accepted invite is a permanent reject. '
+              '${await a.opDebug(dmChannel)}',
+        );
+        expect(await a.opDebug(dmChannel), contains('not_connected'));
+        await b.pump();
+        expect(await b.hasChannel(dmChannel), isFalse,
+            reason: 'nothing reached B');
+        // The failure has said its piece; later steps count the queue.
+        await a.store.db.delete('outbound_ops');
+      });
+
+      // ---- 2d -----------------------------------------------------------
+      test('2d. A invites B → B is told → B accepts → both connected',
+          () async {
+        await a.chat.sendInvite(b.userId);
+        expect((await a.store.peerLink(a.userId, b.userId)).inviteSent,
+            isTrue);
+
+        await b.waitForAsync(() async => (await b.store.fetchInvites())
+            .any((i) => i.fromUser == a.userId && i.toUser == b.userId));
+        final invite = (await b.store.fetchInvites()).single;
+        expect(
+          invite.channelId,
+          dmChannel,
+          reason: 'SYNC_PROTOCOL §21.3: a 1:1 InviteSent comes addressed '
+              "like a DM, so B derives the pair's channel from it.",
+        );
+
+        expect(await b.chat.acceptInvite(invite), dmChannel);
+        expect((await b.store.peerLink(b.userId, a.userId)).connected,
+            isTrue);
+        await a.waitForAsync(() async =>
+            (await a.store.peerLink(a.userId, b.userId)).connected);
+        final link = await a.store.peerLink(a.userId, b.userId);
+        expect(
+          (link.connected, link.inviteSent),
+          (true, false),
+          reason: 'InviteAnswered{accepted} reaches A over the socket.',
+        );
+      });
+
       // ---- 3 ------------------------------------------------------------
       test('3. A sends 3 messages → B receives all three, in order',
           () async {
@@ -430,7 +479,8 @@ void main() {
       });
 
       // ---- 6 ------------------------------------------------------------
-      test('6. A creates a group with B → B sees it', () async {
+      test('6. A creates a group with B → B is invited, accepts, sees it',
+          () async {
         groupChannelId = await a.chat.createGroup(
           name: 'real server group',
           creatorUserId: a.userId,
@@ -444,6 +494,8 @@ void main() {
               'kind="group" must be accepted.',
         );
 
+        // Decision 221: B is invited, not a member, until B accepts.
+        await b.acceptGroupInvite(groupChannelId);
         await b.waitForAsync(() async => await b.hasChannel(groupChannelId));
         expect(
           await b.hasChannel(groupChannelId),
@@ -552,6 +604,14 @@ void main() {
       // drive makes through the UI, minus the widgets.
       test('8b. A creates a group with B and C → both see the full roster',
           () async {
+        // Decision 221: only A's connections may be invited.
+        await a.chat.sendInvite(c.userId);
+        await c.waitForAsync(
+            () async => (await c.store.fetchInvites()).isNotEmpty);
+        await c.chat.acceptInvite((await c.store.fetchInvites()).single);
+        await a.waitForAsync(() async =>
+            (await a.store.peerLink(a.userId, c.userId)).connected);
+
         trioChannelId = await a.chat.createGroup(
           name: 'trio ${_freshUsername()}',
           creatorUserId: a.userId,
@@ -566,7 +626,13 @@ void main() {
         );
 
         for (final p in [b, c]) {
-          await p.waitForAsync(() async => await p.hasChannel(trioChannelId));
+          await p.acceptGroupInvite(trioChannelId);
+        }
+        await a.waitForAsync(() async =>
+            (await a.chat.fetchChannelMembers(trioChannelId)).length == 3);
+        for (final p in [b, c]) {
+          await p.waitForAsync(() async =>
+              (await p.chat.fetchChannelMembers(trioChannelId)).length == 3);
           expect(
             (await p.chat.fetchChannelMembers(trioChannelId))
                 .map((m) => m.userId),
@@ -959,6 +1025,18 @@ class _Client {
     inbound = next;
     chat.bindTypingSource(next.typingEvents);
     chat.bindDeliverySource(next.peerMessagesStored);
+    chat.adoptGroup = (channelId, json) =>
+        next.adoptGroups({channelId: groupRosterFromJson(json)});
+  }
+
+  /// Decision 221: wait for the invite into [channelId], then accept it.
+  Future<void> acceptGroupInvite(String channelId) async {
+    await waitForAsync(() async => (await store.fetchInvites())
+        .any((i) => i.channelId == channelId && i.toUser == userId));
+    final invite = (await store.fetchInvites())
+        .firstWhere((i) => i.channelId == channelId && i.toUser == userId);
+    expect(invite.name, isNotNull, reason: 'it names the group');
+    expect(await chat.acceptInvite(invite), channelId);
   }
 
   // ---- queries ---------------------------------------------------------
@@ -987,11 +1065,12 @@ class _Client {
     return rows.map((r) => r['user_id'] as String).toSet();
   }
 
+  /// The messages' bodies, oldest first; group event lines are no messages.
   Future<List<String>> bodiesIn(String channelId) async {
     final rows = await store.fetchChannelMessages(channelId);
     return [
       for (final m in rows.reversed)
-        if (m.body != null) m.body!
+        if (m.body != null && m.contentType != kGroupEventType) m.body!
     ];
   }
 

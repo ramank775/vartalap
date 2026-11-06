@@ -340,6 +340,37 @@ void main() {
 
     expect(find.text('Dev_Two'), findsOneWidget);
   });
+
+  testWidgets('an invitee shows as Invited; the owner can take it back',
+      (tester) async {
+    final service = _FakeChatService(members: _roster(), invites: const [
+      InviteRow(
+          channelId: _channelId,
+          toUser: 'u-asha',
+          fromUser: 'u-self',
+          createdAt: 1),
+    ]);
+    await _pumpInfo(tester, service, kind: 'group');
+    await _scrollTo(tester, 'Invited');
+    expect(find.text('Invited'), findsOneWidget);
+    expect(find.text('3 members'), findsOneWidget, reason: 'not a member yet');
+    await tester.tap(find.byTooltip('Cancel invite'));
+    await tester.pumpAndSettle();
+    expect(service.calls, ['cancelInvite($_channelId,u-asha)']);
+  });
+
+  testWidgets('a DM ends with Block and Report, in red (decision 219)',
+      (tester) async {
+    final service = _FakeChatService(members: [
+      _member('u-self', 'owner', 1),
+      _member('u-peer', 'member', 1, 'Dev'),
+    ]);
+    await _pumpInfo(tester, service, kind: 'one_to_one');
+    await _scrollTo(tester, 'Report Kothrud Flat 3B');
+    final scheme = lightThemeData.colorScheme;
+    expect(_titleColor(tester, 'Block Kothrud Flat 3B'), scheme.error);
+    expect(_titleColor(tester, 'Report Kothrud Flat 3B'), scheme.error);
+  });
 }
 
 const String _channelId = 'c-1';
@@ -437,10 +468,12 @@ class _FakeChatService implements ChatService {
   final List<MessageRow> files;
   final List<MessageRow> links;
   final List<ChannelMemberRow> members;
+  final List<InviteRow> invites;
   int? mutedUntilMs;
   final ChannelListEntry? channel;
 
   _FakeChatService({
+    this.invites = const [],
     this.channel,
     this.media = const [],
     this.files = const [],
@@ -459,6 +492,19 @@ class _FakeChatService implements ChatService {
 
   @override
   Stream<List<Label>> watchLabels() => Stream.value(const []);
+
+  @override
+  Stream<List<InviteRow>> watchInvites() => Stream.value(invites);
+
+  @override
+  Stream<Set<String>> watchBlocked() => Stream.value(const {});
+
+  @override
+  Future<List<ContactRow>> discoverContacts({
+    List<String> normalizedPhones = const [],
+    Map<String, String> contactBookNamesByPhone = const {},
+  }) async =>
+      const [];
 
   @override
   Future<void> deleteGroup(String channelId) async {
@@ -502,6 +548,11 @@ class _FakeChatService implements ChatService {
   @override
   Future<void> deleteChat(String channelId) async {
     calls.add('deleteChat($channelId)');
+  }
+
+  @override
+  Future<void> cancelInvite(String channelId, String userId) async {
+    calls.add('cancelInvite($channelId,$userId)');
   }
 
   @override

@@ -1,11 +1,14 @@
 /// Settings › Privacy's presence rows (decision 223, track F): who sees
 /// your last seen and online, and the read receipts and typing switches,
-/// in WhatsApp's words.
+/// in WhatsApp's words; and its Blocked contacts (decision 219).
 library vartalap.screens.settings.privacy;
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/invites/invites.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/avator.dart';
 
 /// The server's values and how the page says them.
 const Map<String, String> kPresenceLabels = {
@@ -133,6 +136,98 @@ class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Settings › Privacy's Blocked contacts (decision 219), with the count.
+class BlockedContactsRow extends StatelessWidget {
+  final ChatService chatService;
+  const BlockedContactsRow({super.key, required this.chatService});
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<Set<String>>(
+        stream: chatService.watchBlocked(),
+        builder: (context, snap) {
+          final n = snap.data?.length ?? 0;
+          return ListTile(
+            leading: Icon(Icons.block,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            title: const Text('Blocked contacts'),
+            subtitle: Text(n == 0 ? 'None' : '$n'),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => BlockedScreen(chatService: chatService))),
+          );
+        },
+      );
+}
+
+/// Everyone we blocked; Unblock lets their messages and invites in again.
+class BlockedScreen extends StatefulWidget {
+  final ChatService chatService;
+  const BlockedScreen({super.key, required this.chatService});
+
+  @override
+  State<BlockedScreen> createState() => _BlockedScreenState();
+}
+
+class _BlockedScreenState extends State<BlockedScreen> {
+  late final Stream<(Set<String>, Map<String, String>)> _blocked =
+      widget.chatService.watchBlocked().asyncMap((blocked) async {
+    final contacts = await widget.chatService.discoverContacts();
+    return (blocked, {for (final c in contacts) c.userId: c.displayLabel});
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Blocked contacts')),
+      body: StreamBuilder<(Set<String>, Map<String, String>)>(
+        stream: _blocked,
+        builder: (context, snap) {
+          final data = snap.data;
+          if (data == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final (blocked, names) = data;
+          if (blocked.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(kSpaceXl),
+                child: Text(
+                  'Nobody is blocked. Blocked contacts cannot message you '
+                  'or send you invites.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ),
+            );
+          }
+          return ListView(children: [
+            for (final userId in blocked)
+              ListTile(
+                leading: Avator(
+                  text: names[userId] ?? 'Unknown',
+                  seed: personSeed(context, userId),
+                  width: kAvatarMd,
+                  height: kAvatarMd,
+                ),
+                title: Text(names[userId] ?? 'Unknown'),
+                trailing: TextButton(
+                  onPressed: () async {
+                    try {
+                      await widget.chatService.setBlocked(userId, false);
+                    } catch (e) {
+                      if (context.mounted) showInviteError(context, e);
+                    }
+                  },
+                  child: const Text('Unblock'),
+                ),
+              ),
+          ]);
+        },
+      ),
     );
   }
 }
