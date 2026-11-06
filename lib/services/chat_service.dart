@@ -620,18 +620,16 @@ class ChatService with TimelineService {
   void Function(String channelId)? onRead;
 
   /// Enqueues a read or delivery receipt up to the newest peer message in
-  /// [channelId]; no-op when logged out or there is none.
+  /// [channelId]; no-op when logged out or there is nothing new.
   ///
-  /// Decision 218: our own `channel_members` row keeps the last marker of
-  /// each kind we sent (decision 202's ticks never read our own row). A
-  /// delivered receipt it already covers is skipped, and a read one
-  /// covers delivery, so a chat read within the debounce sends only the
-  /// read. A DM's receipt goes to its peer; a group's goes over 1:1 to
-  /// each member who wrote in it since the last one of its kind: theirs
-  /// are the only ticks it moves.
-  /// ponytail: a message stamped before that last marker but stored after
-  /// it (a late pull) names no author; their next message's receipt
-  /// covers it.
+  /// A peer message's `message_state` (which draws no tick) records the
+  /// receipts sent for it: `sent` none yet, then `delivered`, then `read`
+  /// (a read covers delivery, so a chat read within the debounce sends
+  /// only the read). A receipt goes only while some peer message up to
+  /// the marker lacks one of its kind. A DM's goes to its peer; a
+  /// group's (decision 218) goes over 1:1 to each member with such a
+  /// message, so one that arrived late, stamped before the last receipt,
+  /// still reaches its author.
   Future<void> _enqueueReceipt(
     String channelId,
     pb.ChatPayloadType type,
@@ -652,32 +650,24 @@ class ChatService with TimelineService {
     if (newest == null) return;
     final marker = newest.serverTimestampMs;
     final read = type == pb.ChatPayloadType.TYPE_READ_RECEIPT;
-    final self = await _store.db.query('channel_members',
-        columns: [read ? 'read_up_to' : 'delivered_up_to'],
-        where: 'channel_id = ? AND user_id = ?',
-        whereArgs: [channelId, localUserId]);
-    final last = self.firstOrNull?.values.single as int? ?? 0;
-    if (!read && last >= marker) return;
+    final unacked = '''
+      channel_id = ? AND author_user_id != ? AND server_timestamp_ms <= ?
+      AND message_state IN ('${MessageState.sent.wire}'
+        ${read ? ", '${MessageState.delivered.wire}'" : ''})
+      AND tombstoned = 0 AND content_type IS NOT '$kGroupEventType'
+    ''';
+    final authors = [
+      for (final row in await _store.db.rawQuery(
+          'SELECT DISTINCT author_user_id FROM messages WHERE $unacked',
+          [channelId, localUserId, marker]))
+        row['author_user_id'] as String
+    ];
+    if (authors.isEmpty) return;
 
     final group = !isDmChannelId(channelId);
     final targets = !group
         ? [(channelId, null)]
-        : [
-            for (final row in await _store.db.rawQuery(
-              '''
-              SELECT DISTINCT author_user_id FROM messages
-              WHERE channel_id = ? AND author_user_id != ?
-                AND server_timestamp_ms > ? AND server_timestamp_ms <= ?
-                AND tombstoned = 0
-                AND content_type IS NOT '$kGroupEventType'
-              ''',
-              [channelId, localUserId, last, marker],
-            ))
-              (
-                dmChannelId(localUserId, row['author_user_id'] as String),
-                row['author_user_id'] as String,
-              )
-          ];
+        : [for (final a in authors) (dmChannelId(localUserId, a), a)];
     for (final (channel, String? peer) in targets) {
       await _store.enqueueOutboundOp(OutboundOpRow(
         opId: _uuidGen.next(nowMs: now),
@@ -702,13 +692,18 @@ class ChatService with TimelineService {
         peer: peer,
       ));
     }
-    // A read is also a delivery.
+    // After the enqueue: a crash in between resends, never loses. A row
+    // stored meanwhile by another author waits for the next receipt.
     await _store.db.rawUpdate(
-      'UPDATE channel_members '
-      'SET delivered_up_to = MAX(COALESCE(delivered_up_to, 0), ?)'
-      '${read ? ', read_up_to = MAX(COALESCE(read_up_to, 0), ?)' : ''} '
-      'WHERE channel_id = ? AND user_id = ?',
-      [marker, if (read) marker, channelId, localUserId],
+      'UPDATE messages SET message_state = ? WHERE $unacked '
+      'AND author_user_id IN (${List.filled(authors.length, '?').join(',')})',
+      [
+        (read ? MessageState.read : MessageState.delivered).wire,
+        channelId,
+        localUserId,
+        marker,
+        ...authors,
+      ],
     );
     _scheduler.tickSoon();
   }

@@ -712,13 +712,16 @@ still be in transit. Its own messages with no Ack yet have no
 timestamp and are never flipped.
 
 A DM's receipt goes on the DM. A group's goes only to the members it
-acknowledges (decision 218): over the 1:1 channel to each member who
-authored a message after the last receipt of that kind sent for the
-group, up to the marker, with `group_id` (field 5) naming the group;
-the author applies it to its own messages there. A delivered receipt
-is skipped when a read receipt covering the same or a newer marker
-went out first (a chat read within the delivery debounce sends only
-the read).
+acknowledges (decision 218): over the 1:1 channel to each member with
+a message up to the marker that no receipt of that kind has covered
+yet, with `group_id` (field 5) naming the group; the author applies it
+to its own messages there. The sender tracks this per message, not by
+the last marker sent, so a message that arrives late (stamped before
+the last receipt, stored after it) still gets its author a receipt. A
+receipt goes only when some message needs it, and a read covers
+delivery: a delivered receipt is skipped when a read one already went
+for every message up to its marker (a chat read within the delivery
+debounce sends only the read).
 
 The recipient keeps each member's newest delivered and read marker
 (decision 202). A message flips only once every current member who

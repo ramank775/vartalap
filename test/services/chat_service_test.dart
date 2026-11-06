@@ -542,6 +542,33 @@ void main() {
       expect(await queued(), isEmpty, reason: 'nothing new to acknowledge');
     });
 
+    test('a group message that arrives late still reaches its author',
+        () async {
+      final stored = StreamController<String>();
+      chat.bindDeliverySource(stored.stream);
+      addTearDown(stored.close);
+
+      await peerMessage(group, carol, 200);
+      stored.add(group);
+      await pumpEventQueue();
+      await chat.queueDeliveryReceiptsNow();
+      expect(await queued(), ['delivered@200 to $carol for $group']);
+
+      await peerMessage(group, bob, 100);
+      stored.add(group);
+      await pumpEventQueue();
+      await chat.queueDeliveryReceiptsNow();
+      expect(await queued(), ['delivered@200 to $bob for $group'],
+          reason: 'stamped before the last receipt, stored after it');
+
+      await chat.markRead(group);
+      expect(
+          await queued(),
+          unorderedEquals(
+              ['read@200 to $bob for $group', 'read@200 to $carol for $group']));
+      chat.bindDeliverySource(null);
+    });
+
     test('a delivered receipt a read one already covered is skipped',
         () async {
       final stored = StreamController<String>();
