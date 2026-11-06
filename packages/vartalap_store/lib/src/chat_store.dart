@@ -8,6 +8,8 @@ import 'group_event.dart';
 import 'schema.dart';
 import 'types.dart';
 
+part 'labels_store.dart';
+
 /// The `op_id_seen` dedup write, guarded on the channel still being
 /// local. See [ChatStore.markOpIdSeen] for why; shared verbatim with the
 /// inbound writers that record it inside their own transaction.
@@ -133,7 +135,7 @@ class ChatStore {
           }
         },
         onCreate: (db, _) async {
-          for (final stmt in ddl) {
+          for (final stmt in [...ddl, ...seedLabels]) {
             await db.execute(stmt);
           }
         },
@@ -166,6 +168,11 @@ class ChatStore {
           }
           for (final stmt in ddl) {
             await db.execute(stmt);
+          }
+          if (from < 8) {
+            for (final stmt in seedLabels) {
+              await db.execute(stmt);
+            }
           }
         },
       ),

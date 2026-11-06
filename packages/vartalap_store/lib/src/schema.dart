@@ -293,6 +293,30 @@ const List<String> ddl = [
     checked_ms INTEGER NOT NULL
   )
   ''',
+
+  // Decision 223 — labels the user tags contacts with. Private: they
+  // never leave the phone; a timeline post's audience is resolved from
+  // them here. v8 adds these through [ddl]; [seedLabels] fills in the
+  // defaults once.
+  '''
+  CREATE TABLE IF NOT EXISTS labels (
+    label_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    name      TEXT NOT NULL
+  )
+  ''',
+  '''
+  CREATE TABLE IF NOT EXISTS label_members (
+    label_id  INTEGER NOT NULL REFERENCES labels(label_id) ON DELETE CASCADE,
+    user_id   TEXT NOT NULL,
+    PRIMARY KEY (label_id, user_id)
+  )
+  ''',
+];
+
+/// Decision 223: the labels a new database, or one upgraded to v8,
+/// starts with. Once only: the user may rename or delete them.
+const List<String> seedLabels = [
+  "INSERT INTO labels (name) VALUES ('Family'), ('Friends'), ('Close')",
 ];
 
 /// v1 → v2: the server stopped sequencing (SYNC_PROTOCOL §6), so the
