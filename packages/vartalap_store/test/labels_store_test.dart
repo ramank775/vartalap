@@ -122,4 +122,18 @@ void main() {
             .timelineAudience(selfUserId: _self, labelIds: {ids['Close']!}),
         isEmpty);
   });
+
+  test('the audience is only connections, and no one blocked (decision 219)',
+      () async {
+    final store = await _store();
+    await _chat(store, 'd-asha', 'one_to_one', [_asha]);
+    await _chat(store, 'd-ravi', 'one_to_one', [_ravi]);
+    await store.setConnection(_ravi, blocked: true);
+    expect(await store.timelineAudience(selfUserId: _self), [_asha],
+        reason: 'before the server is heard every chat counts, but a block');
+    await store.replaceConnections(
+        connected: [_ravi], blocked: const [], invites: const []);
+    expect(await store.timelineAudience(selfUserId: _self), [_ravi],
+        reason: 'Asha never accepted an invite');
+  });
 }

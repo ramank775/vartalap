@@ -149,19 +149,20 @@ void main() {
     expect(channels.single['name'], 'Weekend Trip');
     expect(channels.single['owner_user_id'], creator);
 
-    // Membership: creator + 3 members.
+    // Membership: the creator; decision 221: the 3 others are invited.
     final memberRows = await store.db.query(
       'channel_members',
       where: 'channel_id = ? AND removed_at IS NULL',
       whereArgs: [channelId],
     );
-    expect(memberRows, hasLength(4));
-    final memberIds =
-        memberRows.map((r) => r['user_id'] as String).toSet();
-    expect(memberIds, {creator, ...members});
-    final creatorRow =
-        memberRows.firstWhere((r) => r['user_id'] == creator);
-    expect(creatorRow['role'], 'owner');
+    expect(memberRows, hasLength(1));
+    expect(memberRows.single['user_id'], creator);
+    expect(memberRows.single['role'], 'owner');
+    final invites = await store.fetchInvites();
+    expect({for (final i in invites) i.toUser}, members.toSet());
+    expect(
+        invites.every((i) => i.channelId == channelId && i.fromUser == creator),
+        isTrue);
 
     // Outbound op: REST CHANNEL_CREATE.
     final ops = await store.db.query('outbound_ops',

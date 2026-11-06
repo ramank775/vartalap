@@ -96,8 +96,10 @@ extension LabelsStore on ChatStore {
   }
 
   /// Who a post to [labelIds] reaches (null: everyone): the people we
-  /// have a 1:1 chat with, so on Vartalap and (once invites land)
-  /// connected, carrying any of those labels. Sorted, no duplicates.
+  /// have a 1:1 chat with and are connected to (decision 219; every chat
+  /// counts until the server's connections first land, as in [peerLink]),
+  /// not blocked, carrying any of those labels. Sorted, no duplicates.
+  /// The server cuts the audience the same way.
   Future<List<String>> timelineAudience({
     required String selfUserId,
     Set<int>? labelIds,
@@ -112,6 +114,11 @@ extension LabelsStore on ChatStore {
         JOIN channels c ON c.channel_id = cm.channel_id
        WHERE c.kind = 'one_to_one' AND c.tombstoned = 0
          AND cm.removed_at IS NULL AND cm.user_id != ?
+         AND NOT EXISTS (SELECT 1 FROM connections k
+                          WHERE k.user_id = cm.user_id AND k.blocked = 1)
+         AND (NOT EXISTS (SELECT 1 FROM connections WHERE user_id = '')
+              OR EXISTS (SELECT 1 FROM connections k
+                          WHERE k.user_id = cm.user_id AND k.connected = 1))
          $labelled
        ORDER BY cm.user_id
       ''',

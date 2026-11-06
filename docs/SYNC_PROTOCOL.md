@@ -2230,3 +2230,8 @@ keeps 30 days, so a pair silent for longer invites again.
 The account's invites (both ways), connections and blocks (both ways)
 go with it. Reports about or by it stay until their 90 days are up.
 
+### 21.6 The timeline
+
+A timeline post (decision 223) reaches only the poster's connections,
+less anyone blocked either way: profile-ms asks channel-ms which of the
+audience qualify.

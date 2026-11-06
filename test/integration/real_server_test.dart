@@ -742,13 +742,16 @@ void main() {
       // ---- 8e -----------------------------------------------------------
       test('8e. timeline: a post reaches its audience only; only the poster '
           'sees who reacted; the poster deletes it (decision 223)', () async {
-        // A's label, on A's phone only: B, with whom A has a 1:1 chat.
+        // A's label, on A's phone only: B and C, both connected to A.
         final family = (await a.chat.fetchLabels()).first.labelId;
         await a.chat.setLabelMembers(family, {b.userId, c.userId});
+        // Decision 219: blocked, C is no audience, on A's phone or the server.
+        await a.chat.setBlocked(c.userId, true);
+        addTearDown(() => a.chat.setBlocked(c.userId, false));
         final post = await a.chat
             .postToTimeline(body: 'Reached Pune', labelIds: {family});
         expect(post.audience, [b.userId],
-            reason: 'C carries the label but A has no 1:1 chat with C');
+            reason: 'C carries the label but A blocked C');
 
         final seen = (await b.chat.timelineClient.feed()).posts;
         expect([for (final p in seen) (p.postId, p.text, p.author)],

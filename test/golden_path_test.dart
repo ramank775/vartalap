@@ -438,6 +438,14 @@ void main() {
         reason: 'SYNC_PROTOCOL §11.3: POST /v3.0/channels with kind="group" '
             'must be accepted. Got ${post?.status} (${post?.body}).',
       );
+      // Decision 221: the peer is invited, and a member once it accepts,
+      // which the server announces as ChannelMemberAdded. (The mock keeps
+      // the old add-is-a-member rule, so only the announcement is played.)
+      h.mock.addChannelMember(groupChannelId, peerUserId,
+          actorUserId: peerUserId);
+      await h.waitForAsync(() async => (await h.store
+              .fetchChannelMembers(groupChannelId))
+          .any((m) => m.userId == peerUserId));
 
       // §10.2 ChannelCreated fanout: a channel somebody else created.
       // A group id is a UUID: 16 bytes on the wire (decision 218).

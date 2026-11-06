@@ -325,6 +325,9 @@ class _FakeChat implements ChatService {
       [_contact(_asha, 'Asha'), _contact(_ravi, 'Ravi')];
 
   @override
+  Stream<List<InviteRow>> watchInvites() => Stream.value(const []);
+
+  @override
   Stream<List<ChannelListEntry>> watchChannels({int limit = 100}) =>
       Stream.value(channels);
 
