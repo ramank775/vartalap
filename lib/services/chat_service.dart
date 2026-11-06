@@ -22,6 +22,7 @@ import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
+import 'package:vartalap/services/timeline_client.dart';
 import 'dart:isolate';
 
 import 'package:vartalap/services/message_crypto.dart';
@@ -30,6 +31,8 @@ import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
+
+part 'timeline.dart';
 
 /// Build the WS_OP payload for an outbound text message — a
 /// `ChatPayload{TYPE_MESSAGE_CREATE}` protobuf (SYNC_PROTOCOL §6a.1,
@@ -109,7 +112,7 @@ const int kContactLookupBatch = 5000;
 /// it is looked up again.
 const Duration kContactLookupCooldown = Duration(minutes: 15);
 
-class ChatService {
+class ChatService with TimelineService {
   /// Seals typing indicators (decision 188). Set by `main.dart`.
   MessageCrypto? crypto;
 

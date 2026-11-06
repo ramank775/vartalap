@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:vartalap/screens/chat_info/security_code.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
+import 'package:vartalap/screens/labels/labels.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -311,6 +312,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   await _reloadChannel();
                 },
               ),
+              if (!_isGroup && peer!.userId.isNotEmpty)
+                ContactLabelsTile(
+                    chatService: widget.chatService, userId: peer.userId),
               if (!_isGroup && peer!.userId.isNotEmpty)
                 _InfoTile(
                   icon: Icons.lock_outline,

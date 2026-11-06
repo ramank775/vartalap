@@ -28,6 +28,7 @@ import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
+import 'package:vartalap/screens/home/home.dart';
 import 'package:vartalap/utils/username_link.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
 import 'package:vartalap/screens/login/discoverability.dart';
@@ -970,7 +971,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         onDone: () => setState(() => _askDiscoverability = false),
       );
     }
-    final chats = ChatsScreen(
+    final chats = HomeScreen(
       chatService: widget.services.chatService,
       authService: widget.services.authService,
       config: configStore,

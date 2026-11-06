@@ -10,6 +10,7 @@ library vartalap.screens.contact_info;
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/labels/labels.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -256,6 +257,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             ),
           ),
           const SizedBox(height: kSpaceMd),
+          const Divider(height: 1, indent: 0),
+          ContactLabelsTile(
+              chatService: widget.chatService, userId: contact.userId),
           FutureBuilder<List<ChannelListEntry>>(
             future: _sharedGroups,
             builder: (context, snapshot) {

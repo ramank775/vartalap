@@ -605,6 +605,41 @@ void main() {
         }
       });
 
+      // ---- 8e -----------------------------------------------------------
+      test('8e. timeline: a post reaches its audience only; only the poster '
+          'sees who reacted; the poster deletes it (decision 223)', () async {
+        // A's label, on A's phone only: B, with whom A has a 1:1 chat.
+        final family = (await a.chat.fetchLabels()).first.labelId;
+        await a.chat.setLabelMembers(family, {b.userId, c.userId});
+        final post = await a.chat
+            .postToTimeline(body: 'Reached Pune', labelIds: {family});
+        expect(post.audience, [b.userId],
+            reason: 'C carries the label but A has no 1:1 chat with C');
+
+        final seen = (await b.chat.timelineClient.feed()).posts;
+        expect([for (final p in seen) (p.postId, p.text, p.author)],
+            [(post.postId, 'Reached Pune', a.userId)]);
+        expect((await c.chat.timelineClient.feed()).posts, isEmpty,
+            reason: 'C is not in the audience');
+        await expectLater(c.chat.reactToPost(seen.single, '😂'),
+            throwsA(isA<AuthClientException>()
+                .having((e) => e.statusCode, 'status', 404)));
+
+        await b.chat.reactToPost(seen.single, '❤️');
+        final mine = (await a.chat.timelineClient.mine()).posts.single;
+        expect([for (final r in mine.reactions) (r.userId, r.emoji)],
+            [(b.userId, '❤️')],
+            reason: 'the poster sees who reacted');
+        final again = (await b.chat.timelineClient.feed()).posts.single;
+        expect(again.myReaction, '❤️');
+        expect(again.reactions, isEmpty,
+            reason: 'nobody else sees reactions, not even a count');
+        expect(again.audience, isNull);
+
+        await a.chat.deletePost(mine);
+        expect((await b.chat.timelineClient.feed()).posts, isEmpty);
+      });
+
       // ---- 9 ------------------------------------------------------------
       test('9. both log out → session revoked, local store kept', () async {
         await a.authService.logout();

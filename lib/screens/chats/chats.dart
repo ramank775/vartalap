@@ -8,7 +8,8 @@
 /// Above the rows, as in WhatsApp: a search bar (chat names, then
 /// messages across every chat) and the All / Unread / Groups chips.
 /// Frame b's (3.1) Personal and Other are two more chips over the same
-/// rows, not a redesign — see [_ChatFilter].
+/// rows, not a redesign — see [_ChatFilter]. After them, a chip per label
+/// (decision 223: the 1:1 chats with its people) and + to manage them.
 library vartalap.screens.chats.chats;
 
 import 'dart:async';
@@ -20,6 +21,7 @@ import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
+import 'package:vartalap/screens/labels/labels.dart';
 import 'package:vartalap/screens/settings/settings.dart';
 import 'package:vartalap/screens/starred/starred.dart';
 import 'package:vartalap/screens/battery/background_access.dart';
@@ -74,6 +76,29 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   _ChatFilter _filter = _ChatFilter.all;
 
+  /// Decision 223: a label chip picked instead of [_filter]'s.
+  int? _labelId;
+  List<Label> _labels = const [];
+  StreamSubscription<List<Label>>? _labelsSub;
+
+  /// The picked label, null when none is (or it was deleted).
+  Label? get _label =>
+      _labels.where((l) => l.labelId == _labelId).firstOrNull;
+
+  bool _keeps(ChannelListEntry e) {
+    if (_labelId == null) return _filter.keeps(e);
+    return e.kind == 'one_to_one' &&
+        (_label?.userIds.contains(e.peerContact?.userId) ?? false);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _labelsSub = widget.chatService
+        .watchLabels()
+        .listen((labels) => setState(() => _labels = labels));
+  }
+
   bool _searchOpen = false;
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -85,6 +110,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   @override
   void dispose() {
+    _labelsSub?.cancel();
     _searchDebounce?.cancel();
     _search.dispose();
     _searchFocus.dispose();
@@ -110,7 +136,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ];
         final rows = [
           for (final e in channels)
-            if (_filter.keeps(e)) e,
+            if (_keeps(e)) e,
         ];
         // Back closes the selection or the search first, like WhatsApp.
         return PopScope(
@@ -303,6 +329,24 @@ class _ChatsScreenState extends State<ChatsScreen> {
   /// WhatsApp's search bar, then the filter chips.
   Widget _header() {
     final scheme = Theme.of(context).colorScheme;
+    Widget chip(String label, bool selected, VoidCallback pick) => Padding(
+          padding: const EdgeInsets.only(right: kSpaceSm),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: selected,
+            showCheckmark: false,
+            shape: const StadiumBorder(),
+            side: BorderSide.none,
+            backgroundColor: scheme.surfaceContainerHighest,
+            selectedColor: scheme.primaryContainer,
+            labelStyle: TextStyle(
+              color: selected
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
+            ),
+            onSelected: (_) => setState(pick),
+          ),
+        );
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: kSpaceMd,
@@ -339,26 +383,38 @@ class _ChatsScreenState extends State<ChatsScreen> {
             ),
           ),
           const SizedBox(height: kSpaceSm),
-          Wrap(
-            spacing: kSpaceSm,
-            children: [
-              for (final f in _ChatFilter.values)
-                ChoiceChip(
-                  label: Text(f.label),
-                  selected: _filter == f,
-                  showCheckmark: false,
+          // One row that scrolls sideways once labels make it long.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final f in _ChatFilter.values)
+                  chip(f.label, _labelId == null && _filter == f, () {
+                    _filter = f;
+                    _labelId = null;
+                  }),
+                for (final l in _labels)
+                  chip(l.name, _labelId == l.labelId, () {
+                    _filter = _ChatFilter.all;
+                    _labelId = l.labelId;
+                  }),
+                ActionChip(
+                  avatar: Icon(Icons.add, color: scheme.onSurfaceVariant),
+                  label: const Text('Labels'),
+                  tooltip: 'Labels',
                   shape: const StadiumBorder(),
                   side: BorderSide.none,
                   backgroundColor: scheme.surfaceContainerHighest,
-                  selectedColor: scheme.primaryContainer,
-                  labelStyle: TextStyle(
-                    color: _filter == f
-                        ? scheme.onPrimaryContainer
-                        : scheme.onSurfaceVariant,
+                  labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          LabelsScreen(chatService: widget.chatService),
+                    ),
                   ),
-                  onSelected: (_) => setState(() => _filter = f),
                 ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -372,11 +428,18 @@ class _ChatsScreenState extends State<ChatsScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          _filter == _ChatFilter.unread ? 'No unread chats' : 'No groups',
+          _labelId != null
+              ? 'No chats with people in ${_label?.name ?? 'this label'}'
+              : _filter == _ChatFilter.unread
+                  ? 'No unread chats'
+                  : 'No groups',
           style: TextStyle(color: scheme.onSurfaceVariant),
         ),
         TextButton(
-          onPressed: () => setState(() => _filter = _ChatFilter.all),
+          onPressed: () => setState(() {
+            _filter = _ChatFilter.all;
+            _labelId = null;
+          }),
           child: const Text('View all chats'),
         ),
       ],

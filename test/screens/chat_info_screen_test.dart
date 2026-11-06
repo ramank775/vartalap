@@ -458,6 +458,9 @@ class _FakeChatService implements ChatService {
       const Stream<List<OutboundOpRow>>.empty();
 
   @override
+  Stream<List<Label>> watchLabels() => Stream.value(const []);
+
+  @override
   Future<void> deleteGroup(String channelId) async {
     calls.add('deleteGroup($channelId)');
   }
