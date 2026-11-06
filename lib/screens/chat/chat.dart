@@ -18,6 +18,7 @@ import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/live_location.dart';
 import 'package:vartalap/screens/chat/message_options.dart';
+import 'package:vartalap/screens/chat/presence_line.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat/voice_note.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
@@ -1444,7 +1445,14 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (_peerTypingTimers.isNotEmpty)
+                    if (widget.channelKind != 'group')
+                      PresenceLine(
+                        chatService: widget.chatService,
+                        channelId: widget.channelId,
+                        typing: _peerTypingTimers.isNotEmpty,
+                        color: onBar.withValues(alpha: 0.85),
+                      )
+                    else if (_peerTypingTimers.isNotEmpty)
                       Text(
                         _peerTypingTimers.length == 1
                             ? 'typing…'

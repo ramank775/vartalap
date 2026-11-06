@@ -27,6 +27,7 @@ export 'src/generated/v3-server-event-payload.pb.dart'
         ProfileEdited,
         UsernameChanged,
         MessageStateChanged,
-        Typing;
+        Typing,
+        Presence;
 export 'src/generated/v3-server-event-payload.pbenum.dart'
     show ServerEventType, MessageStateValue;

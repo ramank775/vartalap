@@ -255,6 +255,7 @@ class AppServices {
     )
       ..onRead = notifications.cancelChat
       ..crypto = crypto;
+    await chatService.loadPrivacy();
     await rebuildInboundReceiverForUser(userId, adoptGroups: adoptGroups);
     // A push wake has seconds; the foreground publishes.
     if (adoptGroups) unawaited(publishKeys());
@@ -296,6 +297,7 @@ class AppServices {
     inboundReceiver = null;
     chatService.bindTypingSource(null);
     chatService.bindDeliverySource(null);
+    chatService.stopPresence();
     await receiver?.stop();
     await scheduler?.stop();
     scheduler = null;
@@ -432,6 +434,7 @@ class AppServices {
       applied: crypto!.applied,
       undecryptable: crypto!.requestResend,
       liveLocation: LiveLocation.instance?.apply,
+      dmReadReceipts: () => chatService.readReceipts.value,
     );
     await next.start();
     inboundReceiver = next;
@@ -927,8 +930,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final services = widget.services;
     // Still on screen while inactive (the shade pulled down, Recents).
-    _markOnScreen(state == AppLifecycleState.resumed ||
-        state == AppLifecycleState.inactive);
+    final onScreen = state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
+    _markOnScreen(onScreen);
+    // last seen and online (SYNC_PROTOCOL §21) follow the same screen
+    if (services.store != null) services.chatService.setOnScreen(onScreen);
     if (state == AppLifecycleState.resumed) {
       // the user may have changed it in Settings meanwhile
       unawaited(refreshBackgroundAccess());

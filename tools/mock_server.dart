@@ -2676,6 +2676,12 @@ class MockServer {
       recipients = channel.members;
     }
 
+    // §21 — a presence op (class 8) is for the server only, never fanned
+    // out, and must be ephemeral. The mock keeps no presence: it drops it.
+    if ((env.flags >> 1) & 15 == FrameClass.presence.index) {
+      return env.ephemeral ? null : reject('validation_failed');
+    }
+
     // §10.2 / decision 56 — server events are server-authored. A client
     // that prepends the 0x53 distinguisher is forging one; the real
     // gateway answers `validation_failed` and so do we. Checked ahead of

@@ -31,6 +31,7 @@ enum ServerEventPayload_Body {
   usernameChanged,
   messageStateChanged,
   typing,
+  presence,
   notSet
 }
 
@@ -55,6 +56,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     UsernameChanged? usernameChanged,
     MessageStateChanged? messageStateChanged,
     Typing? typing,
+    Presence? presence,
   }) {
     final result = create();
     if (version != null) result.version = version;
@@ -69,6 +71,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     if (messageStateChanged != null)
       result.messageStateChanged = messageStateChanged;
     if (typing != null) result.typing = typing;
+    if (presence != null) result.presence = presence;
     return result;
   }
 
@@ -92,6 +95,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
     16: ServerEventPayload_Body.usernameChanged,
     17: ServerEventPayload_Body.messageStateChanged,
     18: ServerEventPayload_Body.typing,
+    140: ServerEventPayload_Body.presence,
     0: ServerEventPayload_Body.notSet
   };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
@@ -99,7 +103,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
       createEmptyInstance: create)
-    ..oo(0, [10, 11, 12, 13, 14, 15, 16, 17, 18])
+    ..oo(0, [10, 11, 12, 13, 14, 15, 16, 17, 18, 140])
     ..aI(1, _omitFieldNames ? '' : 'version', fieldType: $pb.PbFieldType.OU3)
     ..aE<ServerEventType>(2, _omitFieldNames ? '' : 'type',
         enumValues: ServerEventType.values)
@@ -121,6 +125,8 @@ class ServerEventPayload extends $pb.GeneratedMessage {
         subBuilder: MessageStateChanged.create)
     ..aOM<Typing>(18, _omitFieldNames ? '' : 'typing',
         subBuilder: Typing.create)
+    ..aOM<Presence>(140, _omitFieldNames ? '' : 'presence',
+        subBuilder: Presence.create)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -151,6 +157,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(16)
   @$pb.TagNumber(17)
   @$pb.TagNumber(18)
+  @$pb.TagNumber(140)
   ServerEventPayload_Body whichBody() =>
       _ServerEventPayload_BodyByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(10)
@@ -162,6 +169,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(16)
   @$pb.TagNumber(17)
   @$pb.TagNumber(18)
+  @$pb.TagNumber(140)
   void clearBody() => $_clearField($_whichOneof(0));
 
   /// Server-authored schema version. Bumped only when the wire shape
@@ -285,6 +293,18 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   void clearTyping() => $_clearField(18);
   @$pb.TagNumber(18)
   Typing ensureTyping() => $_ensure(10);
+
+  /// 140-149: presence (decision 223, track F; SYNC_PROTOCOL §21).
+  @$pb.TagNumber(140)
+  Presence get presence => $_getN(11);
+  @$pb.TagNumber(140)
+  set presence(Presence value) => $_setField(140, value);
+  @$pb.TagNumber(140)
+  $core.bool hasPresence() => $_has(11);
+  @$pb.TagNumber(140)
+  void clearPresence() => $_clearField(140);
+  @$pb.TagNumber(140)
+  Presence ensurePresence() => $_ensure(11);
 }
 
 /// Emitted on REST `POST /v3.0/channels` to every member (creator included
@@ -1178,6 +1198,105 @@ class MessageStateChanged extends $pb.GeneratedMessage {
   $core.bool hasRecipientUserId() => $_has(4);
   @$pb.TagNumber(5)
   void clearRecipientUserId() => $_clearField(5);
+}
+
+/// EPHEMERAL, frame class 8 PRESENCE (decision 223, track F; SYNC_PROTOCOL
+/// §21). Never stored, never pushed to a phone that is offline.
+///
+/// Server to client: whether `user_id` is online and when it was last
+/// seen, as the owner's "Last seen and online" setting allows this viewer
+/// (with WhatsApp's reciprocity). Rides an ephemeral envelope whose op_id
+/// carries `user_id`'s bits and whose `peer` is the viewer, so a receiver
+/// reads it as a DM frame from `user_id`. Sent in answer to a client's
+/// presence op and whenever the watched user comes online or leaves. A
+/// viewer who may not see it gets one with only `user_id` set (online
+/// false, last_seen_ms 0: show nothing), and only in answer to its own
+/// op, or once when it may no longer see what it was shown.
+///
+/// Client to server: the payload of a client's presence op (an ephemeral
+/// envelope of class 8 to `peer`, the user whose presence it wants; its
+/// own user_id for nobody), with only `online` set: whether the app is on
+/// screen. The server reads it and fans nothing out.
+class Presence extends $pb.GeneratedMessage {
+  factory Presence({
+    $core.String? userId,
+    $core.bool? online,
+    $fixnum.Int64? lastSeenMs,
+  }) {
+    final result = create();
+    if (userId != null) result.userId = userId;
+    if (online != null) result.online = online;
+    if (lastSeenMs != null) result.lastSeenMs = lastSeenMs;
+    return result;
+  }
+
+  Presence._();
+
+  factory Presence.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory Presence.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Presence',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'userId')
+    ..aOB(2, _omitFieldNames ? '' : 'online')
+    ..a<$fixnum.Int64>(
+        3, _omitFieldNames ? '' : 'lastSeenMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Presence clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Presence copyWith(void Function(Presence) updates) =>
+      super.copyWith((message) => updates(message as Presence)) as Presence;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static Presence create() => Presence._();
+  @$core.override
+  Presence createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static Presence getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Presence>(create);
+  static Presence? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get userId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set userId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUserId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUserId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get online => $_getBF(1);
+  @$pb.TagNumber(2)
+  set online($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasOnline() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearOnline() => $_clearField(2);
+
+  /// When `user_id` last left the app, ms since epoch; 0 when unknown or
+  /// not to be shown.
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get lastSeenMs => $_getI64(2);
+  @$pb.TagNumber(3)
+  set lastSeenMs($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasLastSeenMs() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearLastSeenMs() => $_clearField(3);
 }
 
 const $core.bool _omitFieldNames =

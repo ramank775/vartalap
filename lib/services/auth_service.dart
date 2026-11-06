@@ -368,6 +368,17 @@ class AuthService {
     }
   }
 
+  /// Who sees this account's last seen and online: `everyone`,
+  /// `contacts` or `nobody` (SYNC_PROTOCOL §21). The server keeps it and
+  /// enforces it, so it is read from there. Throws when offline.
+  Future<String> presenceSetting() async =>
+      (await _client.getOwnProfile())['presence'] as String? ?? 'everyone';
+
+  /// Server-first, like [setUsername]: a setting the phone believes but
+  /// the server does not hold would hide nothing. Throws when offline.
+  Future<void> setPresenceSetting(String value) =>
+      _client.patchOwnProfile(presence: value);
+
   /// `POST /v3.0/auth/otp/send` — AUTH_CONTRACT §3.1.
   ///
   /// Returns the [OtpSendResult] containing the sessionId needed for

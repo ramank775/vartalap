@@ -562,6 +562,23 @@ void main() {
           reason: 'newer than the read, so it goes');
       chat.bindDeliverySource(null);
     });
+
+    test('read receipts off (decision 223): a DM is told delivered only, '
+        'a group still read', () async {
+      chat.readReceipts.value = false;
+      await peerMessage(dm, bob, 100);
+      await peerMessage(group, bob, 150);
+      await chat.markRead(dm);
+      await chat.markRead(group);
+      expect(await queued(),
+          ['delivered@100 to $dm', 'read@150 to $bob for $group']);
+      await chat.markRead(dm);
+      expect(await queued(), isEmpty, reason: 'the delivery is covered');
+
+      chat.readReceipts.value = true;
+      await chat.markRead(dm);
+      expect(await queued(), ['read@100 to $dm'], reason: 'on again: read');
+    });
   });
 }
 

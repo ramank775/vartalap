@@ -20,6 +20,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/timeline_client.dart';
@@ -105,6 +106,25 @@ Uint8List _encodeReceipt(pb.ChatPayloadType type, int marker,
       groupId: groupId == null ? null : uuidBytes(groupId),
     ).writeToBuffer();
 
+/// A presence op's payload (SYNC_PROTOCOL §21): whether the app is on
+/// screen, as the `0x53` `Presence` the server reads.
+Uint8List _encodePresence(bool onScreen) => Uint8List.fromList([
+      0x53,
+      ...pb.ServerEventPayload(
+        version: 1,
+        type: pb.ServerEventType.PRESENCE,
+        presence: pb.Presence(online: onScreen),
+      ).writeToBuffer(),
+    ]);
+
+/// A DM peer's presence as the server lets this phone see it
+/// (SYNC_PROTOCOL §21): online, else when last seen (ms since epoch).
+typedef PeerPresence = ({bool online, int lastSeenMs});
+
+/// SharedPreferences keys of the Settings › Privacy switches (decision 223).
+const String kReadReceiptsPrefKey = 'privacy.read_receipts';
+const String kTypingIndicatorPrefKey = 'privacy.typing_indicator';
+
 /// AUTH_CONTRACT §7.2: the most phone hashes one lookup may carry.
 const int kContactLookupBatch = 5000;
 
@@ -147,7 +167,8 @@ class ChatService with TimelineService {
     _typingSub = null;
     if (source == null) return;
     _typingSub = source.listen((e) {
-      if (!_typingCtrl.isClosed) _typingCtrl.add(e);
+      // decision 223: typing off shows nobody's either
+      if (typingIndicator.value && !_typingCtrl.isClosed) _typingCtrl.add(e);
     });
   }
 
@@ -226,6 +247,126 @@ class ChatService with TimelineService {
         _uuidGen = uuidGen,
         _clock = clock {
     _installAssetPipeline();
+    _presenceSubs = [
+      // a new socket starts off line: say again where we are
+      _wsTransport.state.listen((s) {
+        if (s == TransportState.connected) _sendPresence();
+      }),
+      _wsTransport.pushes.listen(_onPresence),
+    ];
+  }
+
+  // ---- Settings › Privacy (decision 223, track F) -----------------------
+
+  /// Off: a 1:1 chat is sent delivered receipts only, and its peer's read
+  /// receipts show as delivered (WhatsApp: who sends none sees none).
+  /// Groups keep read receipts either way.
+  final ValueNotifier<bool> readReceipts = ValueNotifier(true);
+
+  /// Off: no "typing…" goes out, and none shows.
+  final ValueNotifier<bool> typingIndicator = ValueNotifier(true);
+
+  /// Read both switches. Per phone, like the theme. Unreadable: both on.
+  Future<void> loadPrivacy() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      readReceipts.value = prefs.getBool(kReadReceiptsPrefKey) ?? true;
+      typingIndicator.value = prefs.getBool(kTypingIndicatorPrefKey) ?? true;
+    } catch (_) {/* no platform channel: a plain test, keep the defaults */}
+  }
+
+  Future<void> setReadReceipts(bool on) async {
+    readReceipts.value = on;
+    await (await SharedPreferences.getInstance())
+        .setBool(kReadReceiptsPrefKey, on);
+  }
+
+  Future<void> setTypingIndicator(bool on) async {
+    typingIndicator.value = on;
+    await (await SharedPreferences.getInstance())
+        .setBool(kTypingIndicatorPrefKey, on);
+  }
+
+  // ---- Presence (SYNC_PROTOCOL §21) -------------------------------------
+
+  /// The watched DM peer's presence as the server lets us see it; null:
+  /// show nothing.
+  final ValueNotifier<PeerPresence?> presence = ValueNotifier(null);
+  String? _watchedChannel;
+  String? _watchedPeer;
+  bool _onScreen = true;
+  List<StreamSubscription<Object?>> _presenceSubs = const [];
+
+  /// The open chat: a DM's peer is watched (its presence lands in
+  /// [presence]); a group, or null, watches nobody.
+  Future<void> watchPresence(String? channelId) async {
+    final me = _authClient.currentUserId;
+    _watchedChannel = channelId;
+    presence.value = null;
+    final peer = channelId == null || me == null || !isDmChannelId(channelId)
+        ? null
+        : await _store.dmPeer(channelId, me);
+    if (_watchedChannel != channelId) return; // another chat opened meanwhile
+    _watchedPeer = peer;
+    _sendPresence();
+  }
+
+  /// [channelId]'s screen closed: stop watching, unless another chat took
+  /// over the watch.
+  void unwatchPresence(String channelId) {
+    if (_watchedChannel == channelId) unawaited(watchPresence(null));
+  }
+
+  /// The app came on screen or left it: online is the app on screen.
+  void setOnScreen(bool onScreen) {
+    if (_onScreen == onScreen) return;
+    _onScreen = onScreen;
+    _sendPresence();
+  }
+
+  /// Account closed: stop listening to the socket.
+  void stopPresence() {
+    for (final s in _presenceSubs) {
+      s.cancel();
+    }
+    _presenceSubs = const [];
+  }
+
+  /// A presence op: on screen or not, and whom we watch (ourselves for
+  /// nobody). Ephemeral, to the server only; dropped while offline, and
+  /// sent again on every reconnect.
+  void _sendPresence() {
+    final me = _authClient.currentUserId;
+    if (me == null || me.isEmpty) return;
+    final peer = _watchedPeer ?? me;
+    _wsTransport.sendEphemeral(
+      opId: _uuidGen.next(nowMs: _clock.nowMs()),
+      channelId: dmChannelId(me, peer),
+      peer: peer,
+      payload: _encodePresence(_onScreen),
+      flags: FrameClass.presence.flags,
+    );
+  }
+
+  void _onPresence(InboundEnvelope env) {
+    final p = env.payload;
+    if (!env.ephemeral ||
+        (env.flags >> 1) & 15 != FrameClass.presence.index ||
+        p.isEmpty ||
+        p[0] != 0x53) {
+      return;
+    }
+    final pb.Presence body;
+    try {
+      body = pb.ServerEventPayload.fromBuffer(p.sublist(1)).presence;
+    } catch (_) {
+      return;
+    }
+    if (body.userId != _watchedPeer) return;
+    final lastSeen = body.lastSeenMs.toInt();
+    presence.value = body.online || lastSeen > 0
+        ? (online: body.online, lastSeenMs: lastSeen)
+        : null;
   }
 
   /// Replace the internal op_id generator after login / phone rebind.
@@ -478,6 +619,12 @@ class ChatService with TimelineService {
     String channelId,
     pb.ChatPayloadType type,
   ) async {
+    // Decision 223: read receipts off, a 1:1 chat is only told delivered.
+    if (type == pb.ChatPayloadType.TYPE_READ_RECEIPT &&
+        isDmChannelId(channelId) &&
+        !readReceipts.value) {
+      type = pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT;
+    }
     final now = _clock.nowMs();
     final localUserId = _authClient.currentUserId;
     if (localUserId == null) return;
@@ -558,7 +705,7 @@ class ChatService with TimelineService {
     required bool isTyping,
   }) {
     final localUserId = _authClient.currentUserId;
-    if (localUserId == null) return;
+    if (localUserId == null || !typingIndicator.value) return;
     final now = _clock.nowMs();
     // localUserId is read only to gate the call (don't fire when
     // logged out — the embedded uuid_v7 user_id bits would be wrong).

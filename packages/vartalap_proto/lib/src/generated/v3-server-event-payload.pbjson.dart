@@ -29,6 +29,7 @@ const ServerEventType$json = {
     {'1': 'USERNAME_CHANGED', '2': 7},
     {'1': 'MESSAGE_STATE_CHANGED', '2': 8},
     {'1': 'TYPING', '2': 9},
+    {'1': 'PRESENCE', '2': 50},
   ],
 };
 
@@ -38,7 +39,7 @@ final $typed_data.Uint8List serverEventTypeDescriptor = $convert.base64Decode(
     '5FTF9DUkVBVEVEEAESGAoUQ0hBTk5FTF9NRU1CRVJfQURERUQQAhIaChZDSEFOTkVMX01FTUJF'
     'Ul9SRU1PVkVEEAMSEgoOQ0hBTk5FTF9FRElURUQQBBITCg9DSEFOTkVMX0RFTEVURUQQBRISCg'
     '5QUk9GSUxFX0VESVRFRBAGEhQKEFVTRVJOQU1FX0NIQU5HRUQQBxIZChVNRVNTQUdFX1NUQVRF'
-    'X0NIQU5HRUQQCBIKCgZUWVBJTkcQCQ==');
+    'X0NIQU5HRUQQCBIKCgZUWVBJTkcQCRIMCghQUkVTRU5DRRAy');
 
 @$core.Deprecated('Use messageStateValueDescriptor instead')
 const MessageStateValue$json = {
@@ -151,6 +152,15 @@ const ServerEventPayload$json = {
       '9': 0,
       '10': 'typing'
     },
+    {
+      '1': 'presence',
+      '3': 140,
+      '4': 1,
+      '5': 11,
+      '6': '.vartalap.v3.payload.Presence',
+      '9': 0,
+      '10': 'presence'
+    },
   ],
   '8': [
     {'1': 'body'},
@@ -173,7 +183,8 @@ final $typed_data.Uint8List serverEventPayloadDescriptor = $convert.base64Decode
     'FydGFsYXAudjMucGF5bG9hZC5Vc2VybmFtZUNoYW5nZWRIAFIPdXNlcm5hbWVDaGFuZ2VkEl4K'
     'FW1lc3NhZ2Vfc3RhdGVfY2hhbmdlZBgRIAEoCzIoLnZhcnRhbGFwLnYzLnBheWxvYWQuTWVzc2'
     'FnZVN0YXRlQ2hhbmdlZEgAUhNtZXNzYWdlU3RhdGVDaGFuZ2VkEjUKBnR5cGluZxgSIAEoCzIb'
-    'LnZhcnRhbGFwLnYzLnBheWxvYWQuVHlwaW5nSABSBnR5cGluZ0IGCgRib2R5');
+    'LnZhcnRhbGFwLnYzLnBheWxvYWQuVHlwaW5nSABSBnR5cGluZxI8CghwcmVzZW5jZRiMASABKA'
+    'syHS52YXJ0YWxhcC52My5wYXlsb2FkLlByZXNlbmNlSABSCHByZXNlbmNlQgYKBGJvZHk=');
 
 @$core.Deprecated('Use channelCreatedDescriptor instead')
 const ChannelCreated$json = {
@@ -374,3 +385,18 @@ final $typed_data.Uint8List messageStateChangedDescriptor = $convert.base64Decod
     'YXAudjMucGF5bG9hZC5NZXNzYWdlU3RhdGVWYWx1ZVIIbmV3U3RhdGUSIgoNY2hhbmdlZF9hdF'
     '9tcxgEIAEoBFILY2hhbmdlZEF0TXMSKgoRcmVjaXBpZW50X3VzZXJfaWQYBSABKAlSD3JlY2lw'
     'aWVudFVzZXJJZA==');
+
+@$core.Deprecated('Use presenceDescriptor instead')
+const Presence$json = {
+  '1': 'Presence',
+  '2': [
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'online', '3': 2, '4': 1, '5': 8, '10': 'online'},
+    {'1': 'last_seen_ms', '3': 3, '4': 1, '5': 4, '10': 'lastSeenMs'},
+  ],
+};
+
+/// Descriptor for `Presence`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List presenceDescriptor = $convert.base64Decode(
+    'CghQcmVzZW5jZRIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySWQSFgoGb25saW5lGAIgASgIUgZvbm'
+    'xpbmUSIAoMbGFzdF9zZWVuX21zGAMgASgEUgpsYXN0U2Vlbk1z');

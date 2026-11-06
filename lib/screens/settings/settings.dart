@@ -18,6 +18,7 @@ import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/login/discoverability.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/profile/profile.dart';
+import 'package:vartalap/screens/settings/privacy.dart';
 import 'package:vartalap/screens/qr/qr.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
@@ -143,6 +144,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: 'Log out, delete account',
             onTap: () => _open(_AccountPage(authService: auth)),
           ),
+          if (chat != null)
+            _Row(
+              icon: Icons.lock_outline,
+              title: 'Privacy',
+              subtitle: 'Last seen and online, read receipts',
+              onTap: () =>
+                  _open(PrivacyPage(authService: auth, chatService: chat)),
+            ),
           _Row(
             icon: Icons.lock_outline,
             title: 'Privacy',

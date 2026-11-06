@@ -36,6 +36,10 @@ class ServerEventType extends $pb.ProtobufEnum {
   static const ServerEventType TYPING =
       ServerEventType._(9, _omitEnumNames ? '' : 'TYPING');
 
+  /// 50-59: presence (decision 223, track F).
+  static const ServerEventType PRESENCE =
+      ServerEventType._(50, _omitEnumNames ? '' : 'PRESENCE');
+
   static const $core.List<ServerEventType> values = <ServerEventType>[
     SERVER_EVENT_UNSPECIFIED,
     CHANNEL_CREATED,
@@ -47,12 +51,12 @@ class ServerEventType extends $pb.ProtobufEnum {
     USERNAME_CHANGED,
     MESSAGE_STATE_CHANGED,
     TYPING,
+    PRESENCE,
   ];
 
-  static final $core.List<ServerEventType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 9);
-  static ServerEventType? valueOf($core.int value) =>
-      value < 0 || value >= _byValue.length ? null : _byValue[value];
+  static final $core.Map<$core.int, ServerEventType> _byValue =
+      $pb.ProtobufEnum.initByValue(values);
+  static ServerEventType? valueOf($core.int value) => _byValue[value];
 
   const ServerEventType._(super.value, super.name);
 }

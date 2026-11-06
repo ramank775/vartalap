@@ -326,6 +326,7 @@ class WsTransport implements Transport {
     required String channelId,
     required Uint8List payload,
     String? peer,
+    int flags = 0,
   }) {
     final ch = _channel;
     if (ch == null || _state != TransportState.connected) return false;
@@ -341,7 +342,8 @@ class WsTransport implements Transport {
               channelId: channelId,
               peer: peer,
               payload: payload,
-              ephemeral: true),
+              ephemeral: true,
+              flags: flags),
         ]),
       );
       ch.sink.add(wsEnv.writeToBuffer());

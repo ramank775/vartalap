@@ -135,6 +135,11 @@ class InboundReceiver {
   final Future<void> Function(InboundEnvelope env, pb.ChatPayload chat)?
       liveLocation;
 
+  /// Settings › Privacy › Read receipts (decision 223): while it says no,
+  /// a DM peer's read receipt counts as delivered only (WhatsApp: who
+  /// sends none sees none). A group's are applied as ever. Unset: on.
+  final bool Function()? dmReadReceipts;
+
   StreamSubscription<InboundEnvelope>? _sub;
   bool _running = false;
 
@@ -210,6 +215,7 @@ class InboundReceiver {
     this.applied,
     this.undecryptable,
     this.liveLocation,
+    this.dmReadReceipts,
   });
 
   /// Subscribe to inbound pushes. Idempotent — re-calling after [stop]
@@ -545,7 +551,9 @@ class InboundReceiver {
           nowMs: clock.nowMs(),
         );
       case pb.ChatPayloadType.TYPE_READ_RECEIPT:
-        await _handleReceipt(env, chat, MessageState.read, channelId);
+        final shown = !dm || (dmReadReceipts?.call() ?? true);
+        await _handleReceipt(env, chat,
+            shown ? MessageState.read : MessageState.delivered, channelId);
       case pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT:
         await _handleReceipt(env, chat, MessageState.delivered, channelId);
       case pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE:
@@ -648,6 +656,8 @@ class InboundReceiver {
         // Typing should never arrive on the persistent path — it's
         // routed via the ephemeral flag. If we see it here a peer/server
         // didn't set the flag; treat as no-op rather than persisting.
+      // Presence is ephemeral too (SYNC_PROTOCOL §21); ChatService reads it.
+      case pb.ServerEventPayload_Body.presence:
       case pb.ServerEventPayload_Body.notSet:
         _logServerEventFallback(env, sep);
     }
