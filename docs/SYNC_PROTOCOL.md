@@ -1916,3 +1916,13 @@ the window's end in its op id, not the commit time.
 
 "Delete for me" removes messages from this phone only, any message, any
 age; nothing is sent.
+
+### 20.2 Edit history
+
+No wire change: every phone keeps, from the `TYPE_MESSAGE_UPDATE`s it
+already sends and receives, each body an edit replaced and when that
+body was written (store table `message_versions`, schema v8). Tapping
+"edited" on a bubble lists them, newest first. An update stamped
+earlier than the message's last applied edit (they arrived out of
+order) only joins the history; the body stays the newer one. A delete
+for everyone takes the history with it. Edits stay unlimited in time.

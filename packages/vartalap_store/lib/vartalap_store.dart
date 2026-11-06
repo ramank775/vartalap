@@ -25,6 +25,7 @@ export 'src/types.dart'
         MessageReaction,
         MessageRow,
         MessageState,
+        MessageVersion,
         OpKind,
         OpStatus,
         OpTransport,

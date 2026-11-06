@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 7;
+const int schemaVersion = 8;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -264,6 +264,24 @@ const List<String> ddl = [
     id                INTEGER PRIMARY KEY CHECK (id = 1),
     newest_handled_ms INTEGER NOT NULL
   )
+  ''',
+
+  // Decision 222 — the earlier versions of an edited message, kept on
+  // this phone only from the edits it already sends and receives: each
+  // body and when it was written. [op_id] is our own edit that replaced
+  // it, so a rejected edit can take its rows back. v8 adds it through
+  // [ddl].
+  '''
+  CREATE TABLE IF NOT EXISTS message_versions (
+    message_id  TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+    body        TEXT,
+    made_at_ms  INTEGER NOT NULL,
+    op_id       TEXT
+  )
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_message_versions
+    ON message_versions(message_id)
   ''',
 
   // AUTH_CONTRACT §7.4 (decision 208) — address-book numbers a lookup

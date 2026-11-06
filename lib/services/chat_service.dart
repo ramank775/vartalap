@@ -1200,6 +1200,10 @@ class ChatService {
   Future<void> deleteForMe(List<String> messageIds) =>
       _store.deleteMessagesLocal(messageIds);
 
+  /// Decision 222: [messageId]'s versions, newest (current) first.
+  Future<List<MessageVersion>> messageVersions(String messageId) =>
+      _store.fetchMessageVersions(messageId);
+
   /// Decision 11 — delete for everyone, with a [undoWindow] during
   /// which nothing has been sent. The caller is responsible for calling
   /// [commitDelete] when the window elapses (or [undoDelete] before

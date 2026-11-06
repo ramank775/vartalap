@@ -20,6 +20,7 @@ void main() {
       'outbound_ops',
       'op_id_seen',
       'pending_ops',
+      'message_versions',
     ]) {
       final count = await store.db.rawQuery('SELECT COUNT(*) c FROM $tbl');
       expect(count.single['c'], 0, reason: tbl);

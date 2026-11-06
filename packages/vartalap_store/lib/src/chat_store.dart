@@ -40,6 +40,16 @@ UPDATE channels
  WHERE channel_id = (SELECT channel_id FROM messages WHERE message_id = ?)
 ''';
 
+/// Decision 222: keep message `?`'s body as an earlier version, written
+/// when it was (its last edit, else its own time), before an edit
+/// replaces it. The first `?` is our own edit's op id, null for a peer's.
+const _keepVersionSql = '''
+INSERT INTO message_versions (message_id, body, made_at_ms, op_id)
+SELECT message_id, body,
+       COALESCE(last_edit_ms, server_timestamp_ms, client_timestamp_ms), ?
+  FROM messages WHERE message_id = ?
+''';
+
 /// Growable page window for [ChatStore.watchChannelMessages].
 ///
 /// "Load older" must not open a second live query — the chat screen
@@ -462,14 +472,45 @@ class ChatStore {
     if (messageId == null) return;
     switch (kind) {
       case OpKind.messageEdit:
+        // The versions this edit (and any queued after it) kept go back
+        // with it; what is left says whether the restored body is itself
+        // an edit, and when it was written.
+        final mark = await txn.query('message_versions',
+            columns: const ['rowid', 'made_at_ms'],
+            where: 'op_id = ?',
+            whereArgs: [opId],
+            limit: 1);
+        if (mark.isEmpty) {
+          // Queued before v8 kept versions.
+          await txn.rawUpdate(
+            'UPDATE messages '
+            '   SET body = COALESCE(rollback_body, body), '
+            '       rollback_body = NULL, '
+            '       is_edited = CASE WHEN last_edit_ms IS NULL THEN 0 ELSE 1 END, '
+            '       state_updated_at = ? '
+            ' WHERE message_id = ?',
+            [nowMs, messageId],
+          );
+          break;
+        }
+        await txn.delete('message_versions',
+            where: 'message_id = ? AND rowid >= ?',
+            whereArgs: [messageId, mark.single['rowid']]);
+        final edited = (await txn.query('message_versions',
+                where: 'message_id = ?', whereArgs: [messageId], limit: 1))
+            .isNotEmpty;
         await txn.rawUpdate(
           'UPDATE messages '
           '   SET body = COALESCE(rollback_body, body), '
-          '       rollback_body = NULL, '
-          '       is_edited = CASE WHEN last_edit_ms IS NULL THEN 0 ELSE 1 END, '
+          '       rollback_body = NULL, is_edited = ?, last_edit_ms = ?, '
           '       state_updated_at = ? '
           ' WHERE message_id = ?',
-          [nowMs, messageId],
+          [
+            edited ? 1 : 0,
+            edited ? mark.single['made_at_ms'] : null,
+            nowMs,
+            messageId,
+          ],
         );
       case OpKind.messageDelete:
         await txn.rawUpdate(
@@ -1169,7 +1210,12 @@ class ChatStore {
     final sender = op['sender_user_id'] as String;
     final rows = await txn.query(
       'messages',
-      columns: const ['author_user_id', 'tombstoned', 'server_timestamp_ms'],
+      columns: const [
+        'author_user_id',
+        'tombstoned',
+        'server_timestamp_ms',
+        'last_edit_ms',
+      ],
       where: 'message_id = ?',
       whereArgs: [messageId],
       limit: 1,
@@ -1186,6 +1232,15 @@ class ChatStore {
     switch (op['kind']) {
       case 'update':
         if (!live || !byAuthor) return false;
+        final at = op['server_timestamp_ms'] as int;
+        final lastEdit = rows.single['last_edit_ms'] as int?;
+        if (lastEdit != null && at < lastEdit) {
+          // An older edit landing after a newer one: history only.
+          await txn.insert('message_versions',
+              {'message_id': messageId, 'body': op['body'], 'made_at_ms': at});
+          return true;
+        }
+        await txn.rawInsert(_keepVersionSql, [null, messageId]);
         await txn.update(
           'messages',
           {
@@ -1223,6 +1278,8 @@ class ChatStore {
           where: 'message_id = ?',
           whereArgs: [messageId],
         );
+        await txn.delete('message_versions',
+            where: 'message_id = ?', whereArgs: [messageId]);
       case 'reaction_add':
         if (!live) return false;
         await txn.rawInsert(
@@ -2406,11 +2463,10 @@ class ChatStore {
   /// still in flight, so a rollback lands on the last server-known
   /// text) and enqueues [op] in the same transaction.
   ///
-  /// `last_edit_ms` is deliberately NOT stamped here — it is the
-  /// server-side edit time, written by [applyInboundMessageUpdate] for
-  /// a peer's edit and by [applyMessageOpAck] for our own. Its
-  /// nullness is what tells a rollback whether the "edited" label
-  /// predates this attempt.
+  /// The body it replaces is kept as an earlier version (decision 222),
+  /// marked with [op] so a rollback takes it back. `last_edit_ms` is the
+  /// time the new body was written: now, then the ACK's time
+  /// ([applyMessageOpAck]); a peer's comes from its edit's server time.
   Future<void> enqueueMessageEdit({
     required String messageId,
     required String newBody,
@@ -2418,12 +2474,14 @@ class ChatStore {
     required int nowMs,
   }) async {
     await db.transaction((txn) async {
+      await txn.rawInsert(_keepVersionSql, [op.opId, messageId]);
       await txn.rawUpdate(
         'UPDATE messages '
         '   SET rollback_body = COALESCE(rollback_body, body), '
-        '       body = ?, is_edited = 1, state_updated_at = ? '
+        '       body = ?, is_edited = 1, last_edit_ms = ?, '
+        '       state_updated_at = ? '
         ' WHERE message_id = ?',
-        [newBody, nowMs, messageId],
+        [newBody, nowMs, nowMs, messageId],
       );
       await txn.insert('outbound_ops', _outboundOpToRow(op));
     });
@@ -2612,9 +2670,28 @@ class ChatStore {
             where: 'message_id = ?',
             whereArgs: [messageId],
           );
+          await txn.delete('message_versions',
+              where: 'message_id = ?', whereArgs: [messageId]);
       }
     });
     _notify(const {'outbound_ops', 'messages'});
+  }
+
+  /// Decision 222: [messageId]'s versions, newest first, the current one
+  /// at the top; each with when it was written. Just the current one for
+  /// a message never edited, none for one this phone does not hold.
+  Future<List<MessageVersion>> fetchMessageVersions(String messageId) async {
+    final m = await fetchMessage(messageId);
+    if (m == null) return const [];
+    final rows = await db.query('message_versions',
+        where: 'message_id = ?',
+        whereArgs: [messageId],
+        orderBy: 'made_at_ms DESC, rowid DESC');
+    return [
+      (body: m.body, atMs: m.lastEditMs ?? m.displayTimestampMs),
+      for (final r in rows)
+        (body: r['body'] as String?, atMs: r['made_at_ms'] as int),
+    ];
   }
 
   // --- Starred messages -------------------------------------------------

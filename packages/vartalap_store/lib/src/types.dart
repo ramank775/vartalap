@@ -269,6 +269,10 @@ class MessageRow {
   });
 }
 
+/// One version of a message (decision 222): its body and when it was
+/// written.
+typedef MessageVersion = ({String? body, int atMs});
+
 /// A starred message and the chat it is in, for the Starred messages
 /// list. [channel] carries only the chat's id, kind and title inputs;
 /// its `lastMessage*` fields are unset.

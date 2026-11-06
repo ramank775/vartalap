@@ -89,6 +89,142 @@ void main() {
     });
   });
 
+  group('edit history', () {
+    Future<void> edit(String body, int at, {String? from}) =>
+        store.applyInboundMessageUpdate(
+          channelId: 'c-1',
+          opId: 'op-edit-$at',
+          messageId: 'm-1',
+          senderUserId: from ?? 'u-peer',
+          body: body,
+          contentType: null,
+          attachments: null,
+          serverTimestampMs: at,
+          nowMs: at,
+        );
+
+    Future<List<String>> versions() async => [
+          for (final v in await store.fetchMessageVersions('m-1'))
+            '${v.body}@${v.atMs}'
+        ];
+
+    test('a peer\'s edits keep every earlier version, newest first', () async {
+      await inbound('m-1', 'u-peer', 'meet at 5', 1000);
+      expect(await versions(), ['meet at 5@1000']);
+      await edit('meet at 6', 2000);
+      await edit('meet at 7', 3000);
+      expect(await versions(),
+          ['meet at 7@3000', 'meet at 6@2000', 'meet at 5@1000']);
+    });
+
+    test('an older edit landing after a newer one only joins the history',
+        () async {
+      await inbound('m-1', 'u-peer', 'v0', 1000);
+      await edit('v2', 3000);
+      await edit('v1', 2000);
+      expect((await store.fetchMessage('m-1'))!.body, 'v2');
+      expect(await versions(), ['v2@3000', 'v1@2000', 'v0@1000']);
+    });
+
+    test('an edit from someone else keeps nothing', () async {
+      await inbound('m-1', 'u-peer', 'v0', 1000);
+      await edit('forged', 2000, from: 'u-other');
+      expect(await versions(), ['v0@1000']);
+    });
+
+    test('a delete for everyone takes the history with it', () async {
+      await inbound('m-1', 'u-peer', 'v0', 1000);
+      await edit('v1', 2000);
+      await store.applyInboundMessageDelete(
+          channelId: 'c-1',
+          opId: 'op-del',
+          messageId: 'm-1',
+          senderUserId: 'u-peer',
+          serverTimestampMs: 3000,
+          nowMs: 3000);
+      expect(await store.db.query('message_versions'), isEmpty);
+    });
+
+    test(
+        'own edits keep versions as they are made; a rejected one takes '
+        'back what it kept', () async {
+      await inbound('m-1', 'u-self', 'v0', 1000);
+      Future<void> ownEdit(String body, String opId, int at) =>
+          store.enqueueMessageEdit(
+            messageId: 'm-1',
+            newBody: body,
+            nowMs: at,
+            op: OutboundOpRow(
+              opId: opId,
+              transport: OpTransport.ws,
+              kind: OpKind.messageEdit,
+              restMethod: null,
+              restPath: null,
+              resourceId: 'c-1',
+              payload: const [1],
+              status: OpStatus.pending,
+              attempts: 0,
+              nextRetryAt: at,
+              dispatchedAt: null,
+              lastError: null,
+              acknowledgedAt: null,
+              createdAt: at,
+              targetMessageId: 'm-1',
+              targetChannelId: 'c-1',
+            ),
+          );
+      await ownEdit('v1', 'op-a', 2000);
+      await store.applyMessageOpAck(
+          opId: 'op-a',
+          kind: OpKind.messageEdit,
+          messageId: 'm-1',
+          nowMs: 2100);
+      // Offline: two more, neither acked yet.
+      await ownEdit('v2', 'op-b', 3000);
+      await ownEdit('v3', 'op-c', 4000);
+      expect(await versions(), ['v3@4000', 'v2@3000', 'v1@2100', 'v0@1000']);
+
+      await store.applyPermanentReject(
+          opId: 'op-b', reason: 'forbidden', messageId: 'm-1', nowMs: 5000);
+      final m = (await store.fetchMessage('m-1'))!;
+      expect(m.body, 'v1');
+      expect(m.isEdited, isTrue);
+      expect(await versions(), ['v1@2100', 'v0@1000']);
+    });
+
+    test('rejecting the only edit leaves the message unedited', () async {
+      await inbound('m-1', 'u-self', 'v0', 1000);
+      await store.enqueueMessageEdit(
+        messageId: 'm-1',
+        newBody: 'v1',
+        nowMs: 2000,
+        op: OutboundOpRow(
+          opId: 'op-a',
+          transport: OpTransport.ws,
+          kind: OpKind.messageEdit,
+          restMethod: null,
+          restPath: null,
+          resourceId: 'c-1',
+          payload: const [1],
+          status: OpStatus.pending,
+          attempts: 0,
+          nextRetryAt: 2000,
+          dispatchedAt: null,
+          lastError: null,
+          acknowledgedAt: null,
+          createdAt: 2000,
+          targetMessageId: 'm-1',
+          targetChannelId: 'c-1',
+        ),
+      );
+      await store.applyPermanentReject(
+          opId: 'op-a', reason: 'forbidden', messageId: 'm-1', nowMs: 3000);
+      final m = (await store.fetchMessage('m-1'))!;
+      expect([m.body, m.isEdited, m.lastEditMs], ['v0', false, null]);
+      expect(await versions(), ['v0@1000']);
+    });
+  });
+
   group('delete for me', () {
     test('removes the rows here only, sends nothing, keeps the chat listed',
         () async {

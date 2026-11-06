@@ -82,6 +82,18 @@ void main() {
     return (await store.fetchMessage(m.messageId))!;
   }
 
+  test('edit history: every own edit keeps the body it replaced', () async {
+    final m = await sent('meet at 5', ackAt: t0);
+    clock.advance(const Duration(minutes: 1));
+    await chat.editMessage(
+        channelId: dm, messageId: m.messageId, newBody: 'meet at 6');
+    clock.advance(const Duration(minutes: 1));
+    await chat.editMessage(
+        channelId: dm, messageId: m.messageId, newBody: 'meet at 7');
+    expect([for (final v in await chat.messageVersions(m.messageId)) v.body],
+        ['meet at 7', 'meet at 6', 'meet at 5']);
+  });
+
   group('delete for everyone within 5 minutes', () {
     test(
         'offered for an unsent message, and for one sent under 5 minutes '

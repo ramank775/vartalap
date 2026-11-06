@@ -1569,6 +1569,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                     onReplyTap: replyTo == null || !bodyById.containsKey(replyTo)
                         ? null
                         : () => _jumpToMessage(replyTo),
+                    onEditedTap: selecting
+                        ? null
+                        : () => showEditHistory(context,
+                            widget.chatService.messageVersions(msg.messageId)),
                     onLongPress: () => _select(msg),
                     // While selecting, a tap adds or removes a message.
                     onTap: selecting ? () => _toggleSelected(msg) : null,
@@ -2269,6 +2273,9 @@ class _MessageBubble extends StatelessWidget {
   /// Tapping the reply quote jumps to the message it quotes.
   final VoidCallback? onReplyTap;
 
+  /// Tapping "edited" opens the earlier versions (decision 222).
+  final VoidCallback? onEditedTap;
+
   const _MessageBubble({
     super.key,
     required this.message,
@@ -2287,6 +2294,7 @@ class _MessageBubble extends StatelessWidget {
     this.link,
     this.onTap,
     this.onReplyTap,
+    this.onEditedTap,
   });
 
   /// `messages.attachments` is a ChatPayload holding only the repeated
@@ -2334,12 +2342,15 @@ class _MessageBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (message.isEdited && !tombstoned) ...[
-              Text(
-                'edited',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
-                  color: color,
+              GestureDetector(
+                onTap: onEditedTap,
+                child: Text(
+                  'edited',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: color,
+                  ),
                 ),
               ),
               const SizedBox(width: 4),

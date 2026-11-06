@@ -503,6 +503,33 @@ void main() {
     expect(find.textContaining('their message'), findsNothing);
   });
 
+  testWidgets('decision 222: tapping "edited" lists the earlier versions, '
+      'newest first', (tester) async {
+    await pumpChat(tester, seed: () async {
+      await store.applyInboundMessageUpdate(
+        channelId: channelId,
+        opId: 'seed-edit',
+        messageId: mPeer,
+        senderUserId: peerUserId,
+        body: 'their better message',
+        contentType: null,
+        attachments: null,
+        serverTimestampMs: _seedBase + 10,
+        nowMs: _seedBase + 10,
+      );
+    });
+    await tester.tap(find.text('edited'));
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Edit history'), findsOneWidget);
+    final current = tester.getTopLeft(find.text('their better message'));
+    final original = tester.getTopLeft(find.text('their message'));
+    expect(current.dy, lessThan(original.dy));
+    expect(find.textContaining('Current'), findsOneWidget);
+    expect(find.textContaining('Original'), findsOneWidget);
+  });
+
   testWidgets('an inbound image attachment renders inline; any other mime '
       'gets a file row', (tester) async {
     await pumpChat(tester);
