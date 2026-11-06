@@ -7,8 +7,10 @@
 library vartalap.services.auth_service;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -28,7 +30,11 @@ const String _keyDisplayName = 'v3.displayName';
 const String _keyUsername = 'v3.username';
 const String _keyStatusText = 'v3.statusText';
 const String _keyUsernameKey = 'v3.usernameKey';
+const String _keyDiscoverability = 'v3.discoverability';
+const String _keyChosenPhones = 'v3.chosenPhones';
 const _sessionKeys = [
+  _keyDiscoverability,
+  _keyChosenPhones,
   _keyAccesskey,
   _keyUserId,
   _keyRefreshToken,
@@ -40,6 +46,22 @@ const _sessionKeys = [
   _keyOtpSessionId,
   _keyOtpPhone,
 ];
+
+/// Decision 223: who may find this account by its phone number. Finding
+/// someone by @username is never affected.
+enum Discoverability {
+  /// Anyone who has the number.
+  everyone,
+
+  /// Only the numbers on [AuthService.chosenPhones].
+  chosen,
+
+  /// Nobody: by @username only.
+  nobody,
+}
+
+/// The server's `chosen` list limit.
+const int kChosenPhonesMax = 500;
 
 class AuthService {
   final AuthClient _client;
@@ -61,6 +83,12 @@ class AuthService {
   /// renders.
   String? _usernameKey;
   String? _statusText;
+  Discoverability? _discoverability;
+
+  /// The `chosen` list as E.164 numbers. The server keeps it only as
+  /// tokens it cannot read back, so this phone's copy is the only one;
+  /// kept when the mode changes, so picking `chosen` again starts from it.
+  List<String> _chosenPhones = const [];
   final StreamController<String?> _displayNameChange =
       StreamController<String?>.broadcast();
   final StreamController<String?> _usernameChange =
@@ -161,6 +189,11 @@ class AuthService {
     _username = await _storage.read(key: _keyUsername);
     _usernameKey = await _storage.read(key: _keyUsernameKey);
     _statusText = await _storage.read(key: _keyStatusText);
+    _discoverability = Discoverability.values
+        .asNameMap()[await _storage.read(key: _keyDiscoverability)];
+    final chosen = await _storage.read(key: _keyChosenPhones);
+    _chosenPhones =
+        chosen == null ? const [] : (jsonDecode(chosen) as List).cast<String>();
   }
 
   /// True iff the [AuthClient] has an in-memory session. Synchronous —
@@ -296,6 +329,45 @@ class AuthService {
     }
   }
 
+  /// Last known; an account that never chose is [Discoverability.everyone].
+  Discoverability get discoverability =>
+      _discoverability ?? Discoverability.everyone;
+
+  List<String> get chosenPhones => _chosenPhones;
+
+  /// The server's value, which another phone of this account may have
+  /// set. Offline, the last known one.
+  Future<Discoverability> refreshDiscoverability() async {
+    try {
+      final mode = Discoverability.values
+          .asNameMap()[(await _client.getOwnProfile())['discoverability']];
+      if (mode != null) {
+        _discoverability = mode;
+        await _storage.write(key: _keyDiscoverability, value: mode.name);
+      }
+    } catch (_) {/* offline: keep the last known */}
+    return discoverability;
+  }
+
+  /// `PUT /v3.0/users/me/discoverability`. [chosen] are E.164 numbers,
+  /// sent hashed like a contact lookup; only `chosen` sends them. Throws
+  /// when the server did not take it.
+  Future<void> setDiscoverability(Discoverability mode,
+      {List<String>? chosen}) async {
+    final phones = chosen ?? _chosenPhones;
+    await _client.setDiscoverability(mode.name,
+        phoneHashes: mode == Discoverability.chosen
+            ? {for (final p in phones) sha256.convert(utf8.encode(p)).toString()}
+                .toList()
+            : null);
+    _discoverability = mode;
+    await _storage.write(key: _keyDiscoverability, value: mode.name);
+    if (chosen != null) {
+      _chosenPhones = List.unmodifiable(chosen);
+      await _storage.write(key: _keyChosenPhones, value: jsonEncode(chosen));
+    }
+  }
+
   /// `POST /v3.0/auth/otp/send` — AUTH_CONTRACT §3.1.
   ///
   /// Returns the [OtpSendResult] containing the sessionId needed for
@@ -317,7 +389,7 @@ class AuthService {
     final sessionId = _otpSessionId;
     if (sessionId == null) return sendOtp(phone);
     try {
-      return await _client.resendOtp(sessionId: sessionId);
+      return await _client.resendOtp(sessionId: sessionId, phone: phone);
     } on AuthClientException catch (e) {
       if (const {404, 410, 423}.contains(e.statusCode)) return sendOtp(phone);
       rethrow;
@@ -460,6 +532,8 @@ class AuthService {
     _username = null;
     _usernameKey = null;
     _statusText = null;
+    _discoverability = null;
+    _chosenPhones = const [];
     _otpSessionId = null;
     _authState.add(false);
   }

@@ -30,6 +30,7 @@ import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
 import 'package:vartalap/utils/username_link.dart';
 import 'package:vartalap/screens/login/choose_username.dart';
+import 'package:vartalap/screens/login/discoverability.dart';
 import 'package:vartalap/screens/login/introduction.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/startup/crypto_locked.dart';
@@ -729,6 +730,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// step is still outstanding, for a fresh signup AND for a restored
   /// session whose stored profile has no handle.
   String? _username;
+
+  /// Decision 223: the username was just picked, so "who can find you by
+  /// your number" comes next. In memory only: an app killed on that step
+  /// keeps the default, changeable in Settings › Privacy.
+  bool _askDiscoverability = false;
   late StreamSubscription<bool> _authSub;
   late StreamSubscription<String?> _usernameSub;
   StreamSubscription<TransportState>? _wsStateSub;
@@ -955,6 +961,13 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       // authenticated route is 403 USERNAME_REQUIRED until this lands.
       return ChooseUsernameScreen(
         authService: widget.services.authService,
+        onDone: () => setState(() => _askDiscoverability = true),
+      );
+    }
+    if (_askDiscoverability) {
+      return DiscoverabilityScreen(
+        authService: widget.services.authService,
+        onDone: () => setState(() => _askDiscoverability = false),
       );
     }
     final chats = ChatsScreen(

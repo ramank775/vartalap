@@ -146,7 +146,7 @@ change anywhere else in this document.
 |---|---|---|---|---|
 | `user_id` | **Canonical user identity.** Every reference to a user — message author, group member, ACK target, fanout recipient, event payload — uses `user_id`. Also the 36-bit UUIDv7 partition (see `SPIKE_B_SYNC.md` §4). | **Immutable.** | 9 lowercase hex chars, e.g., `"a3f2e8c5d"`. | Server-assigned at signup. |
 | `username` | **Required. The primary public identifier.** Human-readable, discoverable; this is what other users see and search for (see §2.4 for the display rule). Returned by contact lookup and `GET /v3.0/users/by-username/{username}` (§7.6). Used **only** to find a user before any reference is created — once the client has the `user_id`, all subsequent operations reference the id, never the username. `null` only in the brief window between signup and the mandatory username-pick step. | **Required, mutable.** Must be set before most authenticated routes work; can be changed thereafter subject to the §10.6 rate limit. | 3-30 chars, lower-case `[a-z0-9._]`, must start with a letter, no `..` or `__`, no `www.` prefix or domain-suffix ending. Globally unique, case-insensitively. | NOT picked at OTP verify — set immediately after via the mandatory `PATCH /v3.0/users/me` step (§2.4, §3.2, §4.5). |
-| `phone` | **Strictly private login handle.** Used during OTP send/verify. Used as a contact-discovery key (hashed). Never appears in op payloads, ACKs, or fanout frames, and never in any response except to the account owner (§2.5). | **Rebindable** via §9 phone-rebind flow. | E.164, e.g., `"+919876543210"`. | User-supplied at OTP send; verified by SMS receipt. |
+| `phone` | **Strictly private login handle.** Used during OTP send/verify. Used as a contact-discovery key (hashed). Stored only as a keyed hash (decision 223). Never appears in op payloads, ACKs, fanout frames or any response (§2.5). | **Rebindable** via §9 phone-rebind flow. | E.164, e.g., `"+919876543210"`. | User-supplied at OTP send; verified by SMS receipt. |
 
 ### 2.2 Why this split
 
@@ -306,18 +306,21 @@ the server-side handle for anyone who has this person saved.
   E.164).
 - **Bound to exactly one `user_id` at any time.** A phone may be
   rebound (§9) but has at most one owner at any moment.
-- **Hashed for contact discovery.** SHA-256 of the canonical E.164
-  string. See §7.
+- **Stored keyed, never plain (decision 223).** The server keeps
+  only the *phone key*: HMAC-SHA256 under the server secret
+  `PHONE_PEPPER` of the SHA-256 hex of the canonical E.164 string,
+  which is the hash the client sends to §7.2. Login, discovery and
+  rebind all match on that key; anything that needs the number itself
+  (sending the SMS) takes it from the request. Rows from before were
+  converted at server start and their plain number dropped.
 - **Never appears on the sync wire.** The only endpoints that take
-  `phone` in plaintext are §3 (OTP send/verify), §7 (contact lookup,
-  hashed), and §9 (phone rebind, OTP-on-new).
+  `phone` in plaintext are §3 (OTP send/resend), §8.2's operator
+  delete and §9 (phone rebind, OTP-on-new); §7 takes it hashed.
 
-**Phone is strictly private (v1.1).** `phone` in plaintext MUST
-appear in exactly one class of response: to the account owner about
-themselves. Concretely, that is `GET /v3.0/users/me` and
-`PATCH /v3.0/users/me` (§4.4-4.5), `POST /v3.0/auth/otp/verify`
-(§3.2), and `POST /v3.0/auth/phone/rebind/verify` (§9.3). No other
-response or event — `GET /v3.0/users/<user_id>` (§7.5),
+**Phone is strictly private (v1.1).** Since decision 223 no response
+carries `phone` at all, not even to the account owner: the server has
+no number to return, and the client keeps its own from the OTP step.
+No response or event — `GET /v3.0/users/<user_id>` (§7.5),
 `GET /v3.0/users/by-username/…` (§7.6),
 `POST /v3.0/contacts/lookup` matches (§7.2), the `ChannelCreated`
 fanout, or any other fanout/event payload — may include another
@@ -373,7 +376,6 @@ Three identifiers in a typical signup response:
   "status": true,
   "user_id": "a3f2e8c5d",
   "username": "alice_k",
-  "phone": "+919876543210",
   "accesskey": "d4f5a1c9-1234-abcd-5678-ef01234abcde",
   "refreshToken": "rt_8f7a6b5c4d3e2f1a0987654321fedcba",
   "accesskeyExpiresAt": 1747267200000,
@@ -385,9 +387,8 @@ Three identifiers in a typical signup response:
 Of these:
 - `user_id` is the identity. Use it everywhere.
 - `username` is the display handle. Show it in UI.
-- `phone` is echoed for client convenience (so the client can
-  display "logged in as +91…"); it is not used in any subsequent
-  request body except OTP and contact discovery.
+- No `phone`: the client already knows the number it verified and
+  keeps it itself (decision 223).
 - `accesskey` is the bearer credential.
 - `refreshToken` rotates the accesskey before expiry.
 
@@ -494,7 +495,6 @@ or `notificationToken` from older clients) as `validation_failed`.
   "status": true,
   "user_id": "a3f2e8c5d",
   "username": null,
-  "phone": "+919876543210",
   "accesskey": "d4f5a1c9-1234-abcd-5678-ef01234abcde",
   "refreshToken": "rt_8f7a6b5c4d3e2f1a0987654321fedcba",
   "accesskeyExpiresAt": 1747267200000,
@@ -507,7 +507,6 @@ or `notificationToken` from older clients) as `validation_failed`.
 |---|---|---|
 | `user_id` | string (9 hex) | Canonical identity. **Client MUST store this in `flutter_secure_storage` and use for all subsequent op generation.** |
 | `username` | string \| null | The user's currently-set username. `null` if unset (always `null` for a fresh signup, may be `null` for an existing user who has not picked one or has cleared it). |
-| `phone` | string (E.164) | Echo. |
 | `accesskey` | string | Bearer credential. 30-day TTL (see §4.1). |
 | `refreshToken` | string | Rotation credential. 90-day TTL (see §4.2). Single-use — every refresh issues a new one and invalidates the old. |
 | `accesskeyExpiresAt` | integer (ms epoch) | Absolute expiry. Client uses to schedule proactive refresh at T < 48h. |
@@ -533,17 +532,20 @@ collision-prone fields anymore.
 
 ### 3.3 `POST /v3.0/auth/otp/resend`
 
-Convenience endpoint: re-send the OTP code for an existing session
-without re-supplying the phone number.
+Convenience endpoint: re-send the OTP code for an existing session.
 
 **Request body:**
 ```json
-{ "sessionId": "01f0a3b4-7c2d-7000-8abc-def012345678" }
+{ "sessionId": "01f0a3b4-7c2d-7000-8abc-def012345678", "phone": "+919876543210" }
 ```
 
 **Success response `200 OK`:** identical shape to `/send`.
 
-**Behavior.** Server looks up the phone bound to the session,
+**Behavior.** The server keeps no number (decision 223), so the
+request names it: `phone` must be the number the session was started
+for (its phone key must match), else `404 SESSION_NOT_FOUND` and no
+SMS. A request without `phone` (an app from before decision 223)
+answers `410 RESEND_UNAVAILABLE`. Otherwise the server
 applies §3.1 idempotency: if `< resendAfterSec` since last send,
 returns the same response without re-sending SMS. Otherwise sends the same
 code again. Verification keeps using the hash; a separate AES-256-GCM copy
@@ -663,10 +665,10 @@ Fetch the authenticated user's profile.
 {
   "user_id": "a3f2e8c5d",
   "username": "alice_k",
-  "phone": "+919876543210",
   "displayName": "Alice K.",
   "avatarUrl": "https://media.vartalap/…/avatar.jpg",
   "statusText": "Off the grid",
+  "discoverability": "everyone",
   "createdAt": 1744675200000
 }
 ```
@@ -676,10 +678,8 @@ mandatory username-pick step (§2.4) — a `null` here is exactly the
 signal that triggers the client's "choose username" screen and the
 server's `403 USERNAME_REQUIRED` gate on other routes. `displayName`,
 `avatarUrl`, `statusText` MAY be `null` if unset. `user_id`,
-`phone`, `createdAt` are always present. This is one of the two
-endpoints (with `POST /v3.0/auth/otp/verify`/rebind-verify) allowed
-to return `phone` — see §2.5, which is unconditional: no other
-endpoint or fanout ever includes it.
+`discoverability` (§7.7) and `createdAt` are always present. There is
+no `phone` (§2.5, decision 223).
 
 ### 4.5 `PATCH /v3.0/users/me`
 
@@ -1081,8 +1081,9 @@ account. Used when the user opens "New chat" and selects a contact.
 
 The server does not learn plaintext phone numbers it doesn't already
 know about. The client hashes phone numbers with SHA-256 before
-sending; the server matches against pre-hashed phone columns in the
-`users` table.
+sending; the server keys each hash with `PHONE_PEPPER` (§2.5) and
+matches it against the phone keys in the `users` table, the only form
+of a number it stores (decision 223).
 
 This is a **soft privacy guarantee** — the hash space is small
 enough (~10^10 possible E.164 numbers) that brute-force reversal is
@@ -1098,9 +1099,8 @@ become PSI; the wire shape will likely change when PSI lands, and
 that's fine.
 
 A successful phone-hash match reveals only `(user_id, username)` —
-never `phone` (§2.5) — to the requester. A per-user "discoverable by
-phone" opt-out (excluding an account from hash-match results
-entirely) is **deferred to v3.1**.
+never `phone` (§2.5) — to the requester, and only when the account's
+discoverability (§7.7) lets this requester find it.
 
 ### 7.2 `POST /v3.0/contacts/lookup`
 
@@ -1128,8 +1128,15 @@ spaces, no formatting. Example:
 SHA256("+919876543210") =
 "5a8f2c1d3e4b6a7c9d8e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1"
 ```
-Server MUST hash its `users.phone` column the same way (lowercase
-hex, canonical E.164 string).
+The server keys each hash with `PHONE_PEPPER` and matches the stored
+phone keys (§2.5).
+
+**Discoverability (§7.7).** A hash whose account is discoverable by
+`nobody`, or by `chosen` without the requester's own number on its
+list, is left out exactly like an unknown number. Every phone lookup
+of the client comes here, a shared contact card's numbers too, so
+every one respects it. A client that found someone earlier keeps its
+cached match; the setting governs new lookups.
 
 **Success response `200 OK`:**
 ```json
@@ -1194,9 +1201,12 @@ people who just joined, so the limits sit in the client instead:
   joined shows on the next start. More than 5,000 unknown numbers go
   in several requests.
 
-Nothing on the server limits how many distinct numbers an account
-checks; signing up needs a phone number and an OTP. Revisit with a
-server-side limit if scraping shows up.
+The server adds only short windows (decision 223), never a daily
+budget: 20 lookup requests a minute per account (`429 RATE_LIMITED`,
+`retryAfterSec` 60), and 300 checks of `chosen` accounts a minute per
+account (each costs a slow hash; past the budget those matches are
+left out, and the client's 15 minute cooldown asks again). Signing up
+needs a phone number and an OTP.
 
 ### 7.5 `GET /v3.0/users/<user_id>`
 
@@ -1293,6 +1303,37 @@ defense; the rate limit still throttles brute-forcing the 4-digit
 key space (10,000 combinations) against a known username.
 
 ---
+
+### 7.7 `PUT /v3.0/users/me/discoverability` (decision 223)
+
+Who may find this account by its phone number. Username lookup (§7.6)
+is never affected.
+
+**Headers:** `Authorization: Bearer <accesskey>`
+**Request body:**
+```json
+{ "mode": "chosen", "phoneHashes": ["5a8f2c1d…sha256_hex"] }
+```
+
+| `mode` | Who finds the account through §7.2 |
+|---|---|
+| `everyone` | anyone with the number (exact match) |
+| `chosen` | only the numbers in `phoneHashes` |
+| `nobody` | nobody; by username only |
+
+`phoneHashes` (SHA-256 hex like §7.2, at most 500) is required with
+`chosen`, refused otherwise, and is the whole list each time. An
+account that never chose is `everyone`. **Success `200 OK`:**
+`{"mode": "chosen", "count": 1}` (distinct entries kept). 20 saves an
+hour per account.
+
+**Stored as tokens only.** Each entry is kept as
+`scrypt(user_id + phone_key, salt = PHONE_PEPPER)`, with `phone_key`
+the §2.5 key of the allowed number, so the list cannot be read back
+and the server never needs the number. A lookup recomputes the
+requester's token for each `chosen` match and checks it. Leaving
+`chosen` deletes the tokens. The client keeps its own copy of the list
+to show and edit; `GET /v3.0/users/me` returns only `discoverability`.
 
 ## 8. Logout and account deletion
 
@@ -1503,8 +1544,7 @@ no need to re-prove ownership of the old number).
 ```json
 {
   "user_id": "a3f2e8c5d",
-  "username": "alice_k",
-  "phone": "+919999988888"
+  "username": "alice_k"
 }
 ```
 
@@ -1515,7 +1555,7 @@ no need to re-prove ownership of the old number).
    another `user_id` (in case someone signed up on it between
    start and verify). On collision: reject with `PHONE_TAKEN`,
    the rebind is aborted.
-3. `UPDATE users SET phone=:newPhone WHERE user_id=:p` in a
+3. `UPDATE users SET phone_key=:newPhoneKey WHERE user_id=:p` in a
    transaction.
 4. Mark `rebindSessionId` consumed.
 5. Accesskey and refresh token are **unchanged** — the rebind
@@ -1619,7 +1659,8 @@ RATE_LIMITED`.
 
 ### 10.5 Contact discovery limits
 
-See §7.4. (5,000 hashes per request, no daily budget; decision 208.)
+See §7.4. (5,000 hashes per request, no daily budget, decision 208;
+20 requests and 300 `chosen` checks a minute per account, decision 223.)
 
 ### 10.6 Profile update limits
 
@@ -1934,9 +1975,14 @@ operator obligation.
 ### 14.4 Phone-hash brute force
 
 SHA-256 of an E.164 phone is trivially brute-forceable (~10^10
-input space, modern hardware). The §7.4 quotas are the actual
-defense; the hashing prevents casual log/breach exposure of the
-contact list, not determined attack. PSI in v4 closes this gap.
+input space, modern hardware), so what the client sends protects
+little. What the server stores is keyed with `PHONE_PEPPER`, kept
+outside the database: a database copy alone reveals no number. With
+the pepper too, numbers can be tested at HMAC speed; `chosen` lists
+cost a scrypt per guess. The pepper cannot be rotated (the server has
+no numbers to re-key; deployment README "Phone pepper"). The §7.4
+limits and §7.7 discoverability are the defense against lookup
+enumeration. PSI or OPRF lookup later closes the gap.
 
 ### 14.5 OTP code handling
 

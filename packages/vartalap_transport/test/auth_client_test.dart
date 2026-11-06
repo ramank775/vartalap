@@ -67,12 +67,14 @@ void main() {
   });
 
   group('resendOtp', () {
-    test('posts the session id and returns the same session', () async {
+    test('posts the session id and the number, returns the same session',
+        () async {
       server.handler = (req) async {
         expect(req.uri.path, '/v3.0/auth/otp/resend');
         final body =
             jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
-        expect(body, {'sessionId': 'sess-123'});
+        // decision 223: the server keeps no number to resend to
+        expect(body, {'sessionId': 'sess-123', 'phone': '+919876543210'});
         _respond(req, 200, {
           'sessionId': 'sess-123',
           'resendAfterSec': 30,
@@ -80,7 +82,8 @@ void main() {
           'isExistingAccount': false,
         });
       };
-      final result = await client.resendOtp(sessionId: 'sess-123');
+      final result = await client.resendOtp(
+          sessionId: 'sess-123', phone: '+919876543210');
       expect(result.sessionId, 'sess-123');
       expect(result.expiresIn, const Duration(seconds: 540));
     });
@@ -242,8 +245,8 @@ void main() {
         _respond(req, 200, {
           'user_id': 'u',
           'username': 'alice',
-          'phone': '+91123',
           'displayName': 'Alice',
+          'discoverability': 'everyone',
           'avatarUrl': null,
           'statusText': null,
           'createdAt': 1744675200000,
@@ -253,6 +256,33 @@ void main() {
       final profile = await client.getOwnProfile();
       expect(profile['username'], 'alice');
       expect(profile['user_id'], 'u');
+    });
+  });
+
+  group('setDiscoverability', () {
+    test('PUTs the mode; the hashes only with chosen (decision 223)',
+        () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+      final bodies = <Object?>[];
+      server.handler = (req) async {
+        expect(req.method, 'PUT');
+        expect(req.uri.path, '/v3.0/users/me/discoverability');
+        expect(req.headers.value('authorization'), 'Bearer ak');
+        bodies.add(jsonDecode(await utf8.decodeStream(req)));
+        _respond(req, 200, {'mode': 'x', 'count': 0});
+      };
+      await client.setDiscoverability('chosen', phoneHashes: ['h1']);
+      await client.setDiscoverability('nobody', phoneHashes: ['ignored']);
+      expect(bodies, [
+        {'mode': 'chosen', 'phoneHashes': ['h1']},
+        {'mode': 'nobody'},
+      ]);
+
+      server.handler = (req) async => _respond(req, 429, {
+            'error': {'code': 'RATE_LIMITED', 'message': 'slow down'}
+          });
+      await expectLater(client.setDiscoverability('everyone'),
+          throwsA(isA<AuthClientException>()));
     });
   });
 

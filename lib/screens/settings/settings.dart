@@ -15,6 +15,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/battery/background_access.dart';
+import 'package:vartalap/screens/login/discoverability.dart';
 import 'package:vartalap/screens/login/push_onboarding.dart';
 import 'package:vartalap/screens/profile/profile.dart';
 import 'package:vartalap/screens/qr/qr.dart';
@@ -143,6 +144,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => _open(_AccountPage(authService: auth)),
           ),
           _Row(
+            icon: Icons.lock_outline,
+            title: 'Privacy',
+            subtitle: 'Who can find me by my number',
+            onTap: () => _open(_PrivacyPage(authService: auth)),
+          ),
+          _Row(
             icon: Icons.chat_outlined,
             title: 'Chats',
             subtitle: 'Theme',
@@ -233,6 +240,48 @@ class _Page extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(title)),
         body: ListView(children: children),
+      );
+}
+
+// ---------------------------------------------------------------------------
+// Privacy — who can find me by my number (decision 223)
+// ---------------------------------------------------------------------------
+
+class _PrivacyPage extends StatefulWidget {
+  final AuthService authService;
+  const _PrivacyPage({required this.authService});
+
+  @override
+  State<_PrivacyPage> createState() => _PrivacyPageState();
+}
+
+class _PrivacyPageState extends State<_PrivacyPage> {
+  @override
+  void initState() {
+    super.initState();
+    widget.authService.refreshDiscoverability().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => _Page(
+        title: 'Privacy',
+        children: [
+          ListTile(
+            leading: Icon(Icons.person_search_outlined,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            title: const Text('Find me by my number'),
+            subtitle: Text(
+                discoverabilityLabel(widget.authService.discoverability)),
+            onTap: () async {
+              await Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) =>
+                      DiscoverabilityScreen(authService: widget.authService)));
+              if (mounted) setState(() {});
+            },
+          ),
+        ],
       );
 }
 

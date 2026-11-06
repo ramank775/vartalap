@@ -131,10 +131,16 @@ class AuthClient implements AuthTokenProvider {
 
   /// `POST /v3.0/auth/otp/resend` — AUTH_CONTRACT §3.3: the same session,
   /// its wrong-code count carried forward. 404/410/423 when the session
-  /// is gone, expired or locked; start over with [sendOtp] then.
-  Future<OtpSendResult> resendOtp({required String sessionId}) async {
+  /// is gone, expired or locked; start over with [sendOtp] then. The
+  /// server keeps no number to resend to (decision 223), so [phone] is
+  /// the one the session was started for.
+  Future<OtpSendResult> resendOtp({
+    required String sessionId,
+    required String phone,
+  }) async {
     final resp = await _post('/v3.0/auth/otp/resend', body: {
       'sessionId': sessionId,
+      'phone': phone,
     });
     _assertOk(resp, 'resendOtp');
     return OtpSendResult._fromJson(_decodeJson(resp));
@@ -265,6 +271,22 @@ class AuthClient implements AuthTokenProvider {
         body: body, headers: _authHeaders());
     _assertOk(resp, 'patchOwnProfile');
     return _decodeJson(resp);
+  }
+
+  /// `PUT /v3.0/users/me/discoverability` — decision 223: who may find
+  /// this account by phone number. [mode] is `everyone`, `chosen` or
+  /// `nobody`; [phoneHashes] (SHA-256 hex of E.164 numbers, at most
+  /// 500) is the whole `chosen` list, and only goes with `chosen`.
+  Future<void> setDiscoverability(String mode,
+      {List<String>? phoneHashes}) async {
+    final resp = await _client.put(
+        baseUrl.resolve('/v3.0/users/me/discoverability'),
+        headers: _authHeaders(),
+        body: jsonEncode({
+          'mode': mode,
+          if (mode == 'chosen') 'phoneHashes': phoneHashes ?? const [],
+        }));
+    _assertOk(resp, 'setDiscoverability');
   }
 
   /// `GET /v3.0/users/by-username/{username}` — AUTH_CONTRACT §7.6.

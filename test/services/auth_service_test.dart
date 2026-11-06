@@ -4,6 +4,9 @@
 /// exactly those behaviors against in-memory fakes.
 library vartalap.services.auth_service_test;
 
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -158,13 +161,64 @@ void main() {
       expect(client.calls, ['send']);
 
       await auth.resendOtp('+911234567890');
-      expect(client.calls, ['send', 'resend otp-1']);
+      expect(client.calls, ['send', 'resend otp-1 +911234567890']);
 
       client.resendStatus = 410;
       final again = await auth.resendOtp('+911234567890');
-      expect(client.calls, ['send', 'resend otp-1', 'resend otp-1', 'send']);
+      expect(client.calls, [
+        'send',
+        'resend otp-1 +911234567890',
+        'resend otp-1 +911234567890',
+        'send',
+      ]);
       expect(again.sessionId, 'otp-2');
       await auth.dispose();
+    });
+
+    test('discoverability: chosen numbers go hashed, stay on this phone, '
+        'and go at logout (decision 223)', () async {
+      final storage = _InMemoryStorage(initial: {
+        'v3.accesskey': 'sk_live',
+        'v3.user_id': 'c9d8e7f65',
+      });
+      final client = _FakeAuthClient();
+      final auth = AuthService(client: client, storage: storage);
+      await auth.init();
+      expect(auth.discoverability, Discoverability.everyone,
+          reason: 'an account that never chose is found by everyone');
+
+      await auth.setDiscoverability(Discoverability.chosen,
+          chosen: ['+919876543210', '+919876543211', '+919876543210']);
+      // SHA-256 of each E.164 number, like a contact lookup, once each
+      String hash(String p) => sha256.convert(utf8.encode(p)).toString();
+      expect(client.discoverability, [
+        'chosen',
+        [hash('+919876543210'), hash('+919876543211')],
+      ]);
+      expect(auth.chosenPhones, hasLength(3));
+      // Leaving `chosen` keeps this phone's copy of the list for next time.
+      await auth.setDiscoverability(Discoverability.nobody);
+      expect(client.discoverability, ['nobody', null]);
+      expect(auth.chosenPhones, hasLength(3));
+
+      final again = AuthService(client: _FakeAuthClient(), storage: storage);
+      await again.init();
+      expect(again.discoverability, Discoverability.nobody);
+      expect(again.chosenPhones,
+          ['+919876543210', '+919876543211', '+919876543210']);
+
+      client.profileDiscoverability = 'chosen';
+      expect(await auth.refreshDiscoverability(), Discoverability.chosen);
+      client.profileThrows = true;
+      expect(await auth.refreshDiscoverability(), Discoverability.chosen,
+          reason: 'offline keeps the last known');
+
+      await auth.logout();
+      expect(auth.discoverability, Discoverability.everyone);
+      expect(auth.chosenPhones, isEmpty);
+      expect(await storage.read(key: 'v3.chosenPhones'), isNull);
+      await auth.dispose();
+      await again.dispose();
     });
 
     test('logout clears secure storage, AuthClient, and emits false', () async {
@@ -343,6 +397,23 @@ class _FakeAuthClient extends AuthClient {
 
   _FakeAuthClient() : super(baseUrl: Uri.parse('https://example.invalid'));
 
+  /// The last setDiscoverability: [mode, phoneHashes].
+  List<Object?>? discoverability;
+  String profileDiscoverability = 'everyone';
+  bool profileThrows = false;
+
+  @override
+  Future<void> setDiscoverability(String mode,
+      {List<String>? phoneHashes}) async {
+    discoverability = [mode, phoneHashes];
+  }
+
+  @override
+  Future<Map<String, dynamic>> getOwnProfile() async {
+    if (profileThrows) throw StateError('offline');
+    return {'discoverability': profileDiscoverability};
+  }
+
   @override
   Future<OtpVerifyResult> verifyOtp({
     required String phone,
@@ -375,8 +446,11 @@ class _FakeAuthClient extends AuthClient {
   }
 
   @override
-  Future<OtpSendResult> resendOtp({required String sessionId}) async {
-    calls.add('resend $sessionId');
+  Future<OtpSendResult> resendOtp({
+    required String sessionId,
+    required String phone,
+  }) async {
+    calls.add('resend $sessionId $phone');
     final status = resendStatus;
     if (status != null) {
       throw AuthClientException('resendOtp', status, 'SESSION_EXPIRED', null);

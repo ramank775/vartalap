@@ -47,7 +47,7 @@ void main() {
     // No display name yet: the header falls back to the handle.
     expect(find.text('@alice_k'), findsOneWidget);
     expect(find.text('Hey there, I am using Vartalap'), findsOneWidget);
-    for (final row in ['Account', 'Chats', 'Help']) {
+    for (final row in ['Account', 'Privacy', 'Chats', 'Help']) {
       expect(find.text(row), findsOneWidget, reason: row);
     }
     expect(find.text('Appearance'), findsNothing);
@@ -56,6 +56,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Version'), findsOneWidget);
     expect(find.text('Open source licenses'), findsOneWidget);
+  });
+
+  testWidgets('Privacy: who can find me by my number, from the server',
+      (tester) async {
+    final auth = _FakeAuthService();
+    await pumpSettings(tester, authService: auth, page: 'Privacy');
+    expect(find.text('Find me by my number'), findsOneWidget);
+    expect(find.text('Nobody'), findsOneWidget,
+        reason: 'the server value, refreshed when the page opens');
+
+    await tester.tap(find.text('Find me by my number'));
+    await tester.pumpAndSettle();
+    expect(find.text('Who can find you by your number?'), findsOneWidget);
   });
 
   testWidgets(
@@ -142,6 +155,15 @@ class _FakeAuthService extends AuthService {
 
   @override
   String? get username => 'alice_k';
+
+  Discoverability _mode = Discoverability.everyone;
+
+  @override
+  Discoverability get discoverability => _mode;
+
+  @override
+  Future<Discoverability> refreshDiscoverability() async =>
+      _mode = Discoverability.nobody;
 
   @override
   Future<void> deleteAccount(String confirmation) async =>

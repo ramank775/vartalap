@@ -53,6 +53,12 @@ class UserRecord {
   String? displayName;
   String? avatarUrl;
   String? statusText;
+
+  /// Decision 223: who may find this user by phone, and for `chosen` the
+  /// SHA-256 hashes of the allowed numbers (the real server keeps scrypt
+  /// tokens). Not persisted.
+  String discoverability = 'everyone';
+  Set<String> chosenHashes = {};
   final int createdAt;
 
   UserRecord({
@@ -61,13 +67,14 @@ class UserRecord {
     required this.createdAt,
   });
 
+  /// No `phone`: the server keeps only a keyed hash (decision 223).
   Map<String, dynamic> toProfileJson() => {
         'user_id': userId,
         'username': username,
-        'phone': phone,
         'displayName': displayName,
         'avatarUrl': avatarUrl,
         'statusText': statusText,
+        'discoverability': discoverability,
         'createdAt': createdAt,
       };
 
@@ -1381,6 +1388,8 @@ class MockServer {
       await _handleClaimKeys(req, path.split('/')[3]);
     } else if (method == 'POST' && path == '/v3.0/contacts/lookup') {
       await _handleContactLookup(req);
+    } else if (method == 'PUT' && path == '/v3.0/users/me/discoverability') {
+      await _handlePutDiscoverability(req);
     } else if (method == 'GET' && path == '/v3.0/push/vapid') {
       _handlePushVapid(req);
     } else if (method == 'POST' && path == '/v3.0/push/topic') {
@@ -1449,11 +1458,18 @@ class MockServer {
     });
   }
 
-  /// §3.3: the same session again; the code stays 000000.
+  /// §3.3: the same session again; the code stays 000000. Decision 223:
+  /// the request names the number, which must be the session's.
   Future<void> _handleOtpResend(HttpRequest req) async {
     final body = await _readJsonBody(req);
+    if (body['phone'] == null) {
+      _respondJson(req, 410, {
+        'error': {'code': 'RESEND_UNAVAILABLE', 'message': 'Request a new code'}
+      });
+      return;
+    }
     final session = state.otpSessions[body['sessionId']];
-    if (session == null) {
+    if (session == null || session.phone != body['phone']) {
       _respondJson(req, 404, {
         'error': {'code': 'SESSION_NOT_FOUND', 'message': 'Unknown session'}
       });
@@ -1540,7 +1556,6 @@ class MockServer {
       'status': true,
       'user_id': user.userId,
       'username': user.username,
-      'phone': user.phone,
       'accesskey': session.accesskey,
       'refreshToken': session.refreshToken,
       'accesskeyExpiresAt': session.accesskeyExpiresAt,
@@ -1888,8 +1903,17 @@ class MockServer {
     // string broke that mapping — every contact ended up with a null
     // `contact_book_name` in the local store, falling through to
     // `@username` in the UI.
+    // Decision 223: nobody is never found by phone, chosen only by the
+    // numbers on its list.
+    final me = state.usersById[session.userId]!;
+    final myHash = sha256.convert(utf8.encode(me.phone)).toString();
     final matches = state.usersById.values
         .where((u) => u.userId != session.userId)
+        .where((u) => switch (u.discoverability) {
+              'nobody' => false,
+              'chosen' => u.chosenHashes.contains(myHash),
+              _ => true,
+            })
         .map((u) => {
               'phoneHash': sha256.convert(utf8.encode(u.phone)).toString(),
               'user_id': u.userId,
@@ -1897,6 +1921,29 @@ class MockServer {
             })
         .toList();
     _respondJson(req, 200, {'matches': matches});
+  }
+
+  /// Decision 223: `PUT /v3.0/users/me/discoverability`.
+  Future<void> _handlePutDiscoverability(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final body = await _readJsonBody(req);
+    final mode = body['mode'];
+    final hashes = body['phoneHashes'];
+    final valid = const ['everyone', 'chosen', 'nobody'].contains(mode) &&
+        (mode == 'chosen') == (hashes is List) &&
+        (hashes is! List || hashes.length <= 500);
+    if (!valid) {
+      _respondJson(req, 400, {
+        'error': {'code': 'validation_failed', 'message': 'bad discoverability'}
+      });
+      return;
+    }
+    final user = state.usersById[session.userId]!
+      ..discoverability = mode as String
+      ..chosenHashes = {...(hashes as List? ?? const []).cast<String>()};
+    _respondJson(
+        req, 200, {'mode': mode, 'count': user.chosenHashes.length});
   }
 
   // DEV-ONLY. Pre-registers N synthetic users with deterministic phones

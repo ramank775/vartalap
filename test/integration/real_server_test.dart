@@ -24,6 +24,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -164,6 +165,53 @@ void main() {
           reason: 'nothing has been said yet, so there is nothing B could '
               'have heard about.',
         );
+      });
+
+      // ---- 2a -----------------------------------------------------------
+      test('2a. finding by number follows discoverability (decision 223)',
+          () async {
+        String hash(String p) => sha256.convert(utf8.encode(p)).toString();
+        Future<List<String>> finds(_Client who, _Client target) async => [
+              for (final m in await who.authClient
+                  .lookupContacts([hash(target.phone)]))
+                m.userId,
+            ];
+
+        final me = await b.authClient.getOwnProfile();
+        expect(me.containsKey('phone'), isFalse,
+            reason: 'the server keeps only a keyed hash of the number');
+        expect(me['discoverability'], 'everyone');
+        expect(await finds(a, b), [b.userId],
+            reason: 'an account that never chose is found by everyone');
+
+        await b.authService.setDiscoverability(Discoverability.nobody);
+        expect(await finds(a, b), isEmpty);
+        expect((await a.chat.findByUsername(usernameB)).userId, b.userId,
+            reason: 'nobody still leaves the @username');
+
+        await b.authService
+            .setDiscoverability(Discoverability.chosen, chosen: [c.phone]);
+        expect(await finds(c, b), [b.userId]);
+        expect(await finds(a, b), isEmpty);
+        expect(await a.authService.refreshDiscoverability(),
+            Discoverability.everyone);
+        expect(await b.authService.refreshDiscoverability(),
+            Discoverability.chosen);
+
+        await b.authService.setDiscoverability(Discoverability.everyone);
+        expect(await finds(a, b), [b.userId]);
+
+        // the resend names the number; the server keeps none to send to
+        final d = await _Client.boot(baseUrl, label: 'D');
+        addTearDown(d.shutdown);
+        final sent = await d.authService.sendOtp(d.phone);
+        final again = await d.authClient
+            .resendOtp(sessionId: sent.sessionId, phone: d.phone);
+        expect(again.sessionId, sent.sessionId);
+        await expectLater(
+            d.authClient.resendOtp(sessionId: sent.sessionId, phone: c.phone),
+            throwsA(isA<AuthClientException>()
+                .having((e) => e.statusCode, 'status', 404)));
       });
 
       // ---- 2b -----------------------------------------------------------
