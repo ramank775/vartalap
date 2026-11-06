@@ -2020,3 +2020,99 @@ time"), since the service then starts from a push while the app is in
 the background; `FOREGROUND_SERVICE_LOCATION`. Android 12+ allows that
 start only after a high-priority FCM message or with the app left out of
 battery optimization, which the permission flow asks for.
+
+---
+
+## 22. Presence: last seen and online, read receipts and typing (decision 223, track F)
+
+WhatsApp's three privacy controls. Two stay on the phone; one the server
+keeps and enforces.
+
+### 22.1 Read receipts and typing (phone only)
+
+Settings › Privacy holds two switches, per phone, both on by default.
+
+- **Read receipts off.** In a 1:1 chat the phone sends a
+  `TYPE_DELIVERY_RECEIPT` where it would have sent a `TYPE_READ_RECEIPT`
+  (the grey ticks still go), and applies a peer's DM read receipt as
+  delivered (WhatsApp: who sends none sees none). Groups keep read
+  receipts both ways. Turned back on, the next read receipt covers
+  everything before its marker, as ever.
+- **Typing indicator off.** No `TYPE_TYPING` frame goes out and none
+  shows.
+
+No wire change: the server never sees either switch.
+
+### 22.2 Last seen and online (server)
+
+Each account has `presence` (`PATCH /v3.0/users/me`, AUTH_CONTRACT
+§4.5): who sees its last seen and online, `everyone` (the default),
+`contacts` or `nobody`. The server enforces it; nothing it may not show
+ever leaves the server, not even the timing of a change.
+
+- **Online** is a socket whose app said it is on screen (§22.3). A socket
+  alone is not online: the app keeps its socket in the background.
+- **Last seen** (`users.lastSeenAt`, both backends) is stamped whenever
+  the user comes online or stops being online (the app goes to the
+  background, or its last such socket closes). Stamping on the way in too
+  keeps a sane value if the server dies while the user is online.
+- **Contacts**, for now: users who have each written to the other in a
+  DM (a MESSAGE-class op, not a receipt). The gateway tells profile-ms
+  each direction once per process (`dm_contacts`, both backends).
+  Accepted connections replace this once invites exist.
+- **Reciprocity** (WhatsApp): A sees B's presence only while B shares
+  with A and A shares with B. `nobody` sees nobody's; `contacts` sees
+  only contacts' (and only those sharing).
+
+### 22.3 The wire: frame class 8 PRESENCE
+
+Class 8 (`flags` bits 1-4, decision 220) is ephemeral and between a
+phone and the server only: never stored, never fanned out, never woken
+for. Both directions carry `0x53` + `ServerEventPayload{type: PRESENCE
+(50), presence (140)}` (proto/v3-server-event-payload.proto, `Presence`).
+
+**Phone → server, the presence op.** An ephemeral envelope, flags
+`(8 << 1) | SILENT` = 17, `peer` = the user whose presence the phone
+wants (its own user_id for nobody), payload `0x53` + `Presence{online}`:
+whether the app is on screen. The app sends one when a DM opens or
+closes, when the app comes on screen or leaves it, and on every
+reconnect (a new socket starts not online). A socket watches one user at
+most; the next op replaces the watch. Not acked; one sent non-ephemeral
+is `validation_failed`; over `POST /wss/ops` (no socket) it does nothing.
+The gateway accepts a `0x53` payload only for this class, and only
+because it reads it and fans nothing out.
+
+**Server → phone, the PRESENCE frame.** A `WS_PUSH` whose envelope is
+ephemeral, flags 17, `op_id` minted with the watched user's bits and
+`peer` = the viewer, so it reads as a DM frame from the watched user;
+payload `0x53` + `Presence{user_id, online, last_seen_ms}`. Sent:
+
+1. in answer to every presence op that watches someone;
+2. whenever the watched user comes online or stops being online, to
+   each watcher allowed to see it;
+3. once, to a watcher shown something before, when it may no longer see
+   (the watched user changed the setting: profile-ms calls the gateway's
+   `POST /_internal/presence/refresh`).
+
+A viewer who may not see gets `Presence{user_id}` (online false,
+`last_seen_ms` 0: show nothing), and only in cases 1 and 3, never on a
+change: its timing would give the change away.
+
+**The header** (WhatsApp): "typing…", else "online", else "last seen
+today at 10:42" / "yesterday at …" / a weekday this week / the date,
+else nothing.
+
+### 22.4 Load
+
+No fan-out on connect: a change goes only to the sockets watching that
+user, at most one watch per socket (the open chat). One profile-ms call
+per change (it stamps last seen and filters the watchers) and one per
+answer. Internal routes: profile-ms `POST /_internal/presence`
+`{user_id, viewers, seen}` → `{last_seen_ms, viewers}` and
+`POST /_internal/presence/contact` `{user_id, peer}`; the gateway
+reaches them through `--profile-ms-endpoint` (the monolith: itself) and
+does no presence without it.
+
+ponytail: the watches and the online state live in the gateway process.
+With several gateways a watcher hears only about sockets on its own;
+keep them in redis and publish changes the day a second gateway runs.
