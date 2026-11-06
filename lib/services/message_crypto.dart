@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' show Transaction;
 import 'package:vartalap_crypto/vartalap_crypto.dart';
+import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
@@ -63,6 +64,15 @@ class MessageCrypto {
       p[1] == kSealedVersion &&
       p[2] == _kindResendRequest;
 
+  static bool _isPosition(List<int> p) {
+    try {
+      return pb.ChatPayload.fromBuffer(p).type ==
+          pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// [SyncScheduler.seal]: a DM op for its peer, a group op for every
   /// member, the sealed bytes kept on the op's row. A re-send names the op
   /// it replaces inside the authenticated header.
@@ -73,8 +83,10 @@ class MessageCrypto {
     final ttlSec = ttlSecOf(op);
     Future<void> persist(Transaction txn, Uint8List sealed) async {
       await ChatStore.storeSealedPayload(txn, op.opId, sealed);
-      // A re-send is never re-sent again.
-      if (op.retryOf == null) {
+      // A re-send is never re-sent again, and a live-location position
+      // is stale long before anyone could ask for it (§21): neither is
+      // kept, so a request for one goes unanswered.
+      if (op.retryOf == null && !_isPosition(payload)) {
         await crypto.rememberSent(txn, op.opId, {
           'ch': op.resourceId,
           'kind': op.kind,

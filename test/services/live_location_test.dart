@@ -3,11 +3,15 @@
 /// contact this phone allows turns it on or off), and when a share ends.
 library;
 
+import 'dart:typed_data';
+
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/services/live_location.dart';
+import 'package:vartalap/services/message_crypto.dart';
 import 'package:vartalap/utils/rich_message.dart';
+import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
@@ -347,4 +351,87 @@ void main() {
           reason: '0 is off');
     });
   });
+
+  test('a position is not kept for a re-send, so a request for one goes '
+      'unanswered; a stop is re-sent', () async {
+    await E2eeRecordStore.createSchema(store.db);
+    final crypto = MessageCrypto(
+      crypto: E2eeCrypto(
+        db: store.db,
+        records: E2eeRecordStore(store.db,
+            accountId: _self, wrappingKey: Uint8List(32)),
+        selfUserId: _self,
+        selfDeviceId: 'phone-a',
+        directory: (_) async => [],
+        claim: (_, __, ___) => throw StateError('no keys here'),
+      ),
+      store: store,
+      ws: _NoTransport(),
+      selfUserId: _self,
+      clock: clock,
+    );
+    final ops = <pb.ChatPayloadType, String>{};
+    for (final (i, type) in [
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE,
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_STOP,
+    ].indexed) {
+      final opId = ops[type] = '0190aaaa-bbbb-7ccc-8ddd-00000000000$i';
+      final row = OutboundOpRow(
+        opId: opId,
+        transport: OpTransport.ws,
+        kind: OpKind.chatPayload,
+        restMethod: null,
+        restPath: null,
+        resourceId: _group,
+        payload: pb.ChatPayload(type: type).writeToBuffer(),
+        status: OpStatus.pending,
+        attempts: 0,
+        nextRetryAt: 0,
+        dispatchedAt: null,
+        lastError: null,
+        acknowledgedAt: null,
+        createdAt: 0,
+        targetMessageId: null,
+        targetChannelId: _group,
+      );
+      await store.enqueueOutboundOp(row);
+      await crypto.seal(row, null);
+    }
+    // The peer joined after: their phone asks for both.
+    await store.insertChannelMember(
+        channelId: _group, userId: _peer, role: 'member', joinedAt: 2);
+    final before = (await store.db.query('outbound_ops')).length;
+    for (final opId in ops.values) {
+      await crypto.open(InboundEnvelope(
+        opId: '0190aaaa-bbbb-7ccc-8ddd-0000000000ff',
+        channelId: dm,
+        senderUserId: _peer,
+        senderDeviceId: 'phone-b',
+        payload: [
+          kSealedMarker, kSealedVersion, 5,
+          ...uuidBytes(opId), ...uuidBytes(_group),
+        ],
+      ));
+    }
+    final resent = (await store.db.query('outbound_ops',
+            where: 'retry_of IS NOT NULL'))
+        .map((r) => r['retry_of'])
+        .toList();
+    expect(resent, [ops[pb.ChatPayloadType.TYPE_LIVE_LOCATION_STOP]]);
+    expect((await store.db.query('outbound_ops')).length, before + 1);
+  });
+}
+
+class _NoTransport implements Transport {
+  @override
+  Future<void> send(OutboundFrame frame) async {}
+
+  @override
+  Stream<AckFrame> get acks => const Stream.empty();
+
+  @override
+  Stream<TransportState> get state => const Stream.empty();
+
+  @override
+  TransportState get currentState => TransportState.disconnected;
 }

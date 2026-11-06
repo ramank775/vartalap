@@ -2025,7 +2025,9 @@ dropped.
   notification asking its user to open the app.
 - An UPDATE or STOP that will not decrypt (class LOCATION, SILENT,
   `ttl_sec` > 0) gets no "Waiting for this message" and no re-send
-  request (§6a.7): the next position replaces it.
+  request (§6a.7): the next position replaces it. Nor does the sender
+  keep a position in its re-send log (decision 188), so a request for one
+  is not answered.
 
 ### 21.4 Server
 
