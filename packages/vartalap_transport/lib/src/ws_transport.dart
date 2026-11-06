@@ -470,7 +470,8 @@ pb.WsEnvelope opFrame(OutboundFrame frame) => pb.WsEnvelope(
             channelId: frame.resourceId,
             peer: frame.peer,
             payload: op.payload,
-            flags: op.frameClass.flags,
+            flags: op.flags,
+            ttlSec: op.ttlSec,
           ),
       ]),
     );

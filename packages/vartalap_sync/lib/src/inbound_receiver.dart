@@ -4,7 +4,13 @@ import 'dart:typed_data';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart'
-    show InboundEnvelope, dmChannelId, isDmChannelId, uuidText;
+    show
+        FrameClass,
+        InboundEnvelope,
+        dmChannelId,
+        isDmChannelId,
+        kEnvelopeFlagSilent,
+        uuidText;
 
 import 'clock.dart';
 
@@ -123,6 +129,12 @@ class InboundReceiver {
   /// After a stored op applied, so [open] can drop what it staged for it.
   final Future<void> Function(InboundEnvelope env)? applied;
 
+  /// Live location (SYNC_PROTOCOL §20): the app applies the
+  /// TYPE_LIVE_LOCATION_* ops (a share itself is a message). Unset: they
+  /// are recorded as seen and dropped.
+  final Future<void> Function(InboundEnvelope env, pb.ChatPayload chat)?
+      liveLocation;
+
   StreamSubscription<InboundEnvelope>? _sub;
   bool _running = false;
 
@@ -197,6 +209,7 @@ class InboundReceiver {
     this.open,
     this.applied,
     this.undecryptable,
+    this.liveLocation,
   });
 
   /// Subscribe to inbound pushes. Idempotent — re-calling after [stop]
@@ -381,6 +394,7 @@ class InboundReceiver {
         final opened = await open(env);
         if (!_running) return;
         if (opened == null) {
+          if (_lossy(env)) return;
           await _ensureDmChannel(channelId, sender, env);
           await _placeholder(env);
           return;
@@ -403,6 +417,7 @@ class InboundReceiver {
       final opened = await open(env);
       if (!_running) return;
       if (opened == null) {
+        if (_lossy(env)) return;
         await _placeholder(env);
         return;
       }
@@ -533,6 +548,12 @@ class InboundReceiver {
         await _handleReceipt(env, chat, MessageState.read, channelId);
       case pb.ChatPayloadType.TYPE_DELIVERY_RECEIPT:
         await _handleReceipt(env, chat, MessageState.delivered, channelId);
+      case pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE:
+      case pb.ChatPayloadType.TYPE_LIVE_LOCATION_STOP:
+      case pb.ChatPayloadType.TYPE_LIVE_LOCATION_CONTROL:
+      case pb.ChatPayloadType.TYPE_LIVE_LOCATION_PERMISSION:
+        await liveLocation?.call(env, chat);
+        await store.markOpIdSeen(channelId, opId, clock.nowMs());
       case pb.ChatPayloadType.TYPE_TYPING:
         // Typing must ride `ephemeral=true`; on the persistent path it
         // would be a stale indicator by the time it applied. Drop it,
@@ -555,6 +576,15 @@ class InboundReceiver {
     }
     await applied?.call(env);
   }
+
+  /// A live-location position or stop (class LOCATION, SILENT, kept only
+  /// briefly) that will not open: the next one replaces it, so it gets no
+  /// "Waiting for this message" and no re-send. A permission (kept the
+  /// full time) still does.
+  static bool _lossy(InboundEnvelope env) =>
+      (env.flags >> 1) & 15 == FrameClass.location.index &&
+      env.flags & kEnvelopeFlagSilent != 0 &&
+      env.ttlSec > 0;
 
   /// Decision 188: an op that will never open here shows as "Waiting for
   /// this message" in its place, recorded as handled so the pointer moves

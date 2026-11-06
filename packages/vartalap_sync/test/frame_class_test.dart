@@ -5,7 +5,8 @@ library vartalap_sync.frame_class_test;
 import 'package:test/test.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
-import 'package:vartalap_sync/src/sync_scheduler.dart' show frameClassOf;
+import 'package:vartalap_sync/src/sync_scheduler.dart'
+    show frameClassOf, liveLocationWire;
 import 'package:vartalap_transport/src/ws_transport.dart' show opFrame;
 import 'package:vartalap_transport/vartalap_transport.dart';
 
@@ -74,5 +75,46 @@ void main() {
     expect(sent(FrameClass.receipt).flags, (2 << 1) | 1);
     expect(sent(FrameClass.key).flags, (3 << 1) | 1);
     expect(sent(FrameClass.resend).flags, 4 << 1, reason: 'a resend wakes');
+  });
+
+  test('live location: class LOCATION; a position or stop SILENT and short '
+      'lived, a remote on/off wakes (SYNC_PROTOCOL §20)', () {
+    pb.Envelope sent(pb.ChatPayloadType type) {
+      final op = _op(OpKind.chatPayload, _payload(type));
+      final live = liveLocationWire(op)!;
+      return opFrame(OutboundFrame(
+        kind: OpKind.chatPayload,
+        resourceId: _group,
+        ops: [
+          FramedOp(
+            opId: _opId,
+            payload: const [1],
+            frameClass: frameClassOf(op),
+            wakes: live.wakes,
+            ttlSec: live.ttlSec,
+          )
+        ],
+      )).ops.envelopes.single;
+    }
+
+    final update = sent(pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE);
+    expect((update.flags >> 1) & 15, 7);
+    expect(update.flags & kEnvelopeFlagSilent, 1);
+    expect(update.ttlSec, 15 * 60);
+    final stop = sent(pb.ChatPayloadType.TYPE_LIVE_LOCATION_STOP);
+    expect(stop.flags, (7 << 1) | 1);
+    expect(stop.ttlSec, 8 * 3600);
+    final control = sent(pb.ChatPayloadType.TYPE_LIVE_LOCATION_CONTROL);
+    expect(control.flags, 7 << 1, reason: 'wakes the owner\'s phone');
+    expect(control.ttlSec, 3600);
+    final permission = sent(pb.ChatPayloadType.TYPE_LIVE_LOCATION_PERMISSION);
+    expect(permission.flags, (7 << 1) | 1);
+    expect(permission.hasTtlSec(), isFalse, reason: 'kept the full time');
+
+    expect(
+        liveLocationWire(_op(OpKind.chatPayload,
+            _payload(pb.ChatPayloadType.TYPE_MESSAGE_CREATE))),
+        isNull,
+        reason: 'a share itself is a message');
   });
 }

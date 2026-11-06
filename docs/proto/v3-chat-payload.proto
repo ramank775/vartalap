@@ -108,6 +108,16 @@ message ChatPayload {
   // receipt needs no message id and works for one still in transit.
   uint64 marker_server_timestamp_ms = 60;
 
+  // Live location (SYNC_PROTOCOL.md §20, decision 223; fields 130-139).
+  // For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
+  LiveLocationPoint live_location_point = 130;
+  // For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
+  // this 1:1 chat on (for `duration_sec`) or off (0).
+  uint32 live_location_duration_sec = 131;
+  // For TYPE_LIVE_LOCATION_PERMISSION: may the receiver turn the
+  // sender's live location on and off from now on.
+  bool live_location_allowed = 132;
+
   // Free-form client metadata. Other clients MAY ignore unknown keys.
   // Reserved keys:
   //   "client_version"  — UI hint about sender's client (advisory)
@@ -170,10 +180,38 @@ enum ChatPayloadType {
   // member is past it (decision 202).
   TYPE_DELIVERY_RECEIPT = 9;
 
+  // Live location (SYNC_PROTOCOL.md §20, decision 223; values 40-49). A
+  // share starts as a TYPE_MESSAGE_CREATE with content_type
+  // "application/x-vartalap-live-location" whose body is the share as
+  // JSON; these act on it (`message_id` = that message), except CONTROL
+  // and PERMISSION, which ride 1:1 chats and carry no message id. All
+  // ride Envelope class 7 LOCATION. Recipients enforce authorship as for
+  // an UPDATE.
+  //
+  // A newer position: `live_location_point`. SILENT, short ttl_sec.
+  TYPE_LIVE_LOCATION_UPDATE = 40;
+  // The sharer stopped before the end time. SILENT.
+  TYPE_LIVE_LOCATION_STOP = 41;
+  // Turn the receiver's live location on or off from the sender's phone.
+  // Wakes the phone. The receiver acts only if it has allowed the sender
+  // (it never trusts the frame), and always shows its own notification.
+  TYPE_LIVE_LOCATION_CONTROL = 42;
+  // The sender allows (or no longer allows) the receiver to send
+  // CONTROL; informs the receiver's UI only. SILENT.
+  TYPE_LIVE_LOCATION_PERMISSION = 43;
+
   // Future client-defined types: pinned messages, polls, replies-as-
   // first-class, ephemeral messages, etc. Adding a new value here
   // requires NO server change — only client coordination on what
   // the value means.
+}
+
+// One position of a live location share.
+message LiveLocationPoint {
+  double lat = 1;            // WGS 84 degrees
+  double lng = 2;
+  uint32 accuracy_m = 3;     // 0 = unknown
+  uint64 at_ms = 4;          // when the sharer's phone took this fix
 }
 
 message Attachment {

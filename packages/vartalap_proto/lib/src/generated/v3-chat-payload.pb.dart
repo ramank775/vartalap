@@ -46,6 +46,9 @@ class ChatPayload extends $pb.GeneratedMessage {
     $core.bool? isTyping,
     $fixnum.Int64? markerServerTimestampMs,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
+    LiveLocationPoint? liveLocationPoint,
+    $core.int? liveLocationDurationSec,
+    $core.bool? liveLocationAllowed,
   }) {
     final result = create();
     if (version != null) result.version = version;
@@ -62,6 +65,11 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (markerServerTimestampMs != null)
       result.markerServerTimestampMs = markerServerTimestampMs;
     if (meta != null) result.meta.addEntries(meta);
+    if (liveLocationPoint != null) result.liveLocationPoint = liveLocationPoint;
+    if (liveLocationDurationSec != null)
+      result.liveLocationDurationSec = liveLocationDurationSec;
+    if (liveLocationAllowed != null)
+      result.liveLocationAllowed = liveLocationAllowed;
     return result;
   }
 
@@ -104,6 +112,11 @@ class ChatPayload extends $pb.GeneratedMessage {
         keyFieldType: $pb.PbFieldType.OS,
         valueFieldType: $pb.PbFieldType.OS,
         packageName: const $pb.PackageName('vartalap.v3.payload'))
+    ..aOM<LiveLocationPoint>(130, _omitFieldNames ? '' : 'liveLocationPoint',
+        subBuilder: LiveLocationPoint.create)
+    ..aI(131, _omitFieldNames ? '' : 'liveLocationDurationSec',
+        fieldType: $pb.PbFieldType.OU3)
+    ..aOB(132, _omitFieldNames ? '' : 'liveLocationAllowed')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -265,6 +278,134 @@ class ChatPayload extends $pb.GeneratedMessage {
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
   $pb.PbMap<$core.String, $core.String> get meta => $_getMap(12);
+
+  /// Live location (SYNC_PROTOCOL.md §20, decision 223; fields 130-139).
+  /// For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
+  @$pb.TagNumber(130)
+  LiveLocationPoint get liveLocationPoint => $_getN(13);
+  @$pb.TagNumber(130)
+  set liveLocationPoint(LiveLocationPoint value) => $_setField(130, value);
+  @$pb.TagNumber(130)
+  $core.bool hasLiveLocationPoint() => $_has(13);
+  @$pb.TagNumber(130)
+  void clearLiveLocationPoint() => $_clearField(130);
+  @$pb.TagNumber(130)
+  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(13);
+
+  /// For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
+  /// this 1:1 chat on (for `duration_sec`) or off (0).
+  @$pb.TagNumber(131)
+  $core.int get liveLocationDurationSec => $_getIZ(14);
+  @$pb.TagNumber(131)
+  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(14, value);
+  @$pb.TagNumber(131)
+  $core.bool hasLiveLocationDurationSec() => $_has(14);
+  @$pb.TagNumber(131)
+  void clearLiveLocationDurationSec() => $_clearField(131);
+
+  /// For TYPE_LIVE_LOCATION_PERMISSION: may the receiver turn the
+  /// sender's live location on and off from now on.
+  @$pb.TagNumber(132)
+  $core.bool get liveLocationAllowed => $_getBF(15);
+  @$pb.TagNumber(132)
+  set liveLocationAllowed($core.bool value) => $_setBool(15, value);
+  @$pb.TagNumber(132)
+  $core.bool hasLiveLocationAllowed() => $_has(15);
+  @$pb.TagNumber(132)
+  void clearLiveLocationAllowed() => $_clearField(132);
+}
+
+/// One position of a live location share.
+class LiveLocationPoint extends $pb.GeneratedMessage {
+  factory LiveLocationPoint({
+    $core.double? lat,
+    $core.double? lng,
+    $core.int? accuracyM,
+    $fixnum.Int64? atMs,
+  }) {
+    final result = create();
+    if (lat != null) result.lat = lat;
+    if (lng != null) result.lng = lng;
+    if (accuracyM != null) result.accuracyM = accuracyM;
+    if (atMs != null) result.atMs = atMs;
+    return result;
+  }
+
+  LiveLocationPoint._();
+
+  factory LiveLocationPoint.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory LiveLocationPoint.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'LiveLocationPoint',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
+      createEmptyInstance: create)
+    ..aD(1, _omitFieldNames ? '' : 'lat')
+    ..aD(2, _omitFieldNames ? '' : 'lng')
+    ..aI(3, _omitFieldNames ? '' : 'accuracyM', fieldType: $pb.PbFieldType.OU3)
+    ..a<$fixnum.Int64>(4, _omitFieldNames ? '' : 'atMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LiveLocationPoint clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LiveLocationPoint copyWith(void Function(LiveLocationPoint) updates) =>
+      super.copyWith((message) => updates(message as LiveLocationPoint))
+          as LiveLocationPoint;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static LiveLocationPoint create() => LiveLocationPoint._();
+  @$core.override
+  LiveLocationPoint createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static LiveLocationPoint getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<LiveLocationPoint>(create);
+  static LiveLocationPoint? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.double get lat => $_getN(0);
+  @$pb.TagNumber(1)
+  set lat($core.double value) => $_setDouble(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasLat() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearLat() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.double get lng => $_getN(1);
+  @$pb.TagNumber(2)
+  set lng($core.double value) => $_setDouble(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasLng() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearLng() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.int get accuracyM => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set accuracyM($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAccuracyM() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAccuracyM() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get atMs => $_getI64(3);
+  @$pb.TagNumber(4)
+  set atMs($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasAtMs() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearAtMs() => $_clearField(4);
 }
 
 class Attachment extends $pb.GeneratedMessage {

@@ -29,6 +29,10 @@ const ChatPayloadType$json = {
     {'1': 'TYPE_READ_RECEIPT', '2': 7},
     {'1': 'TYPE_TYPING', '2': 8},
     {'1': 'TYPE_DELIVERY_RECEIPT', '2': 9},
+    {'1': 'TYPE_LIVE_LOCATION_UPDATE', '2': 40},
+    {'1': 'TYPE_LIVE_LOCATION_STOP', '2': 41},
+    {'1': 'TYPE_LIVE_LOCATION_CONTROL', '2': 42},
+    {'1': 'TYPE_LIVE_LOCATION_PERMISSION', '2': 43},
   ],
 };
 
@@ -38,7 +42,9 @@ final $typed_data.Uint8List chatPayloadTypeDescriptor = $convert.base64Decode(
     '9DUkVBVEUQARIXChNUWVBFX01FU1NBR0VfVVBEQVRFEAISFwoTVFlQRV9NRVNTQUdFX0RFTEVU'
     'RRADEhUKEVRZUEVfUkVBQ1RJT05fQUREEAQSGAoUVFlQRV9SRUFDVElPTl9SRU1PVkUQBRIYCh'
     'RUWVBFX01FU1NBR0VfRk9SV0FSRBAGEhUKEVRZUEVfUkVBRF9SRUNFSVBUEAcSDwoLVFlQRV9U'
-    'WVBJTkcQCBIZChVUWVBFX0RFTElWRVJZX1JFQ0VJUFQQCQ==');
+    'WVBJTkcQCBIZChVUWVBFX0RFTElWRVJZX1JFQ0VJUFQQCRIdChlUWVBFX0xJVkVfTE9DQVRJT0'
+    '5fVVBEQVRFECgSGwoXVFlQRV9MSVZFX0xPQ0FUSU9OX1NUT1AQKRIeChpUWVBFX0xJVkVfTE9D'
+    'QVRJT05fQ09OVFJPTBAqEiEKHVRZUEVfTElWRV9MT0NBVElPTl9QRVJNSVNTSU9OECs=');
 
 @$core.Deprecated('Use chatPayloadDescriptor instead')
 const ChatPayload$json = {
@@ -90,6 +96,28 @@ const ChatPayload$json = {
       '10': 'markerServerTimestampMs'
     },
     {
+      '1': 'live_location_point',
+      '3': 130,
+      '4': 1,
+      '5': 11,
+      '6': '.vartalap.v3.payload.LiveLocationPoint',
+      '10': 'liveLocationPoint'
+    },
+    {
+      '1': 'live_location_duration_sec',
+      '3': 131,
+      '4': 1,
+      '5': 13,
+      '10': 'liveLocationDurationSec'
+    },
+    {
+      '1': 'live_location_allowed',
+      '3': 132,
+      '4': 1,
+      '5': 8,
+      '10': 'liveLocationAllowed'
+    },
+    {
       '1': 'meta',
       '3': 100,
       '4': 3,
@@ -126,9 +154,29 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'GB4gASgJUgVlbW9qaRJJCg5mb3J3YXJkX3NvdXJjZRgoIAEoCzIiLnZhcnRhbGFwLnYzLnBheW'
     'xvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZFNvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlz'
     'VHlwaW5nEjsKGm1hcmtlcl9zZXJ2ZXJfdGltZXN0YW1wX21zGDwgASgEUhdtYXJrZXJTZXJ2ZX'
-    'JUaW1lc3RhbXBNcxI+CgRtZXRhGGQgAygLMioudmFydGFsYXAudjMucGF5bG9hZC5DaGF0UGF5'
-    'bG9hZC5NZXRhRW50cnlSBG1ldGEaNwoJTWV0YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5EhQKBX'
-    'ZhbHVlGAIgASgJUgV2YWx1ZToCOAFKBAgDEARKBAgUEBU=');
+    'JUaW1lc3RhbXBNcxJXChNsaXZlX2xvY2F0aW9uX3BvaW50GIIBIAEoCzImLnZhcnRhbGFwLnYz'
+    'LnBheWxvYWQuTGl2ZUxvY2F0aW9uUG9pbnRSEWxpdmVMb2NhdGlvblBvaW50EjwKGmxpdmVfbG'
+    '9jYXRpb25fZHVyYXRpb25fc2VjGIMBIAEoDVIXbGl2ZUxvY2F0aW9uRHVyYXRpb25TZWMSMwoV'
+    'bGl2ZV9sb2NhdGlvbl9hbGxvd2VkGIQBIAEoCFITbGl2ZUxvY2F0aW9uQWxsb3dlZBI+CgRtZX'
+    'RhGGQgAygLMioudmFydGFsYXAudjMucGF5bG9hZC5DaGF0UGF5bG9hZC5NZXRhRW50cnlSBG1l'
+    'dGEaNwoJTWV0YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5EhQKBXZhbHVlGAIgASgJUgV2YWx1ZT'
+    'oCOAFKBAgDEARKBAgUEBU=');
+
+@$core.Deprecated('Use liveLocationPointDescriptor instead')
+const LiveLocationPoint$json = {
+  '1': 'LiveLocationPoint',
+  '2': [
+    {'1': 'lat', '3': 1, '4': 1, '5': 1, '10': 'lat'},
+    {'1': 'lng', '3': 2, '4': 1, '5': 1, '10': 'lng'},
+    {'1': 'accuracy_m', '3': 3, '4': 1, '5': 13, '10': 'accuracyM'},
+    {'1': 'at_ms', '3': 4, '4': 1, '5': 4, '10': 'atMs'},
+  ],
+};
+
+/// Descriptor for `LiveLocationPoint`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List liveLocationPointDescriptor = $convert.base64Decode(
+    'ChFMaXZlTG9jYXRpb25Qb2ludBIQCgNsYXQYASABKAFSA2xhdBIQCgNsbmcYAiABKAFSA2xuZx'
+    'IdCgphY2N1cmFjeV9tGAMgASgNUglhY2N1cmFjeU0SEwoFYXRfbXMYBCABKARSBGF0TXM=');
 
 @$core.Deprecated('Use attachmentDescriptor instead')
 const Attachment$json = {

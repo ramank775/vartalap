@@ -79,6 +79,34 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static const ChatPayloadType TYPE_DELIVERY_RECEIPT =
       ChatPayloadType._(9, _omitEnumNames ? '' : 'TYPE_DELIVERY_RECEIPT');
 
+  /// Live location (SYNC_PROTOCOL.md §20, decision 223; values 40-49). A
+  /// share starts as a TYPE_MESSAGE_CREATE with content_type
+  /// "application/x-vartalap-live-location" whose body is the share as
+  /// JSON; these act on it (`message_id` = that message), except CONTROL
+  /// and PERMISSION, which ride 1:1 chats and carry no message id. All
+  /// ride Envelope class 7 LOCATION. Recipients enforce authorship as for
+  /// an UPDATE.
+  ///
+  /// A newer position: `live_location_point`. SILENT, short ttl_sec.
+  static const ChatPayloadType TYPE_LIVE_LOCATION_UPDATE =
+      ChatPayloadType._(40, _omitEnumNames ? '' : 'TYPE_LIVE_LOCATION_UPDATE');
+
+  /// The sharer stopped before the end time. SILENT.
+  static const ChatPayloadType TYPE_LIVE_LOCATION_STOP =
+      ChatPayloadType._(41, _omitEnumNames ? '' : 'TYPE_LIVE_LOCATION_STOP');
+
+  /// Turn the receiver's live location on or off from the sender's phone.
+  /// Wakes the phone. The receiver acts only if it has allowed the sender
+  /// (it never trusts the frame), and always shows its own notification.
+  static const ChatPayloadType TYPE_LIVE_LOCATION_CONTROL =
+      ChatPayloadType._(42, _omitEnumNames ? '' : 'TYPE_LIVE_LOCATION_CONTROL');
+
+  /// The sender allows (or no longer allows) the receiver to send
+  /// CONTROL; informs the receiver's UI only. SILENT.
+  static const ChatPayloadType TYPE_LIVE_LOCATION_PERMISSION =
+      ChatPayloadType._(
+          43, _omitEnumNames ? '' : 'TYPE_LIVE_LOCATION_PERMISSION');
+
   static const $core.List<ChatPayloadType> values = <ChatPayloadType>[
     TYPE_UNSPECIFIED,
     TYPE_MESSAGE_CREATE,
@@ -90,12 +118,15 @@ class ChatPayloadType extends $pb.ProtobufEnum {
     TYPE_READ_RECEIPT,
     TYPE_TYPING,
     TYPE_DELIVERY_RECEIPT,
+    TYPE_LIVE_LOCATION_UPDATE,
+    TYPE_LIVE_LOCATION_STOP,
+    TYPE_LIVE_LOCATION_CONTROL,
+    TYPE_LIVE_LOCATION_PERMISSION,
   ];
 
-  static final $core.List<ChatPayloadType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 9);
-  static ChatPayloadType? valueOf($core.int value) =>
-      value < 0 || value >= _byValue.length ? null : _byValue[value];
+  static final $core.Map<$core.int, ChatPayloadType> _byValue =
+      $pb.ProtobufEnum.initByValue(values);
+  static ChatPayloadType? valueOf($core.int value) => _byValue[value];
 
   const ChatPayloadType._(super.value, super.name);
 }

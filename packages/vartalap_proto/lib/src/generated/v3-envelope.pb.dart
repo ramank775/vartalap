@@ -154,7 +154,9 @@ class Envelope extends $pb.GeneratedMessage {
   ///     3 KEY       a group-key handoff (sent SILENT)
   ///     4 RESEND    "send me that again"
   ///     5 EVENT     server-authored, set by the server only (SILENT)
-  ///     6-15        free, for kinds to come (timeline, live location)
+  ///     7 LOCATION  live location (SYNC_PROTOCOL.md §20): positions,
+  ///                 stops and permissions SILENT, a remote on/off wakes
+  ///     6, 8-15     free, for kinds to come (timeline, presence)
   ///   A frame with no flags is a MESSAGE that wakes.
   @$pb.TagNumber(9)
   $core.int get flags => $_getIZ(3);

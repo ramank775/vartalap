@@ -1,5 +1,5 @@
 import 'ack.dart';
-import 'wire.dart' show FrameClass;
+import 'wire.dart' show FrameClass, kEnvelopeFlagSilent;
 
 /// Transport state per SPIKE_B_SYNC.md §7.
 enum TransportState { connected, connecting, disconnected }
@@ -45,13 +45,27 @@ class FramedOp {
   /// resend request wakes an offline recipient.
   final FrameClass frameClass;
 
+  /// Null: as [frameClass] says. Set where one class holds both kinds,
+  /// as live location does (a remote on/off wakes, a position does not).
+  final bool? wakes;
+
+  /// `Envelope.ttl_sec`; 0 is the server's maximum (30 days).
+  final int ttlSec;
+
   const FramedOp({
     required this.opId,
     required this.payload,
     this.restMethod,
     this.restPath,
     this.frameClass = FrameClass.message,
+    this.wakes,
+    this.ttlSec = 0,
   });
+
+  /// `Envelope.flags`: the class, and SILENT unless the op wakes.
+  int get flags => wakes == null
+      ? frameClass.flags
+      : (frameClass.index << 1) | (wakes! ? 0 : kEnvelopeFlagSilent);
 }
 
 /// Transport contract per SPIKE_B_SYNC.md §7.

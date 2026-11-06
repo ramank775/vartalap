@@ -110,6 +110,11 @@ class ChatStore {
     if (!_changes.isClosed) _changes.add(tables);
   }
 
+  /// [tableChanges] for a write made outside these methods: a feature's
+  /// own SQL on [db], or another engine's on the same file (live
+  /// location's service).
+  void notifyChanged(Set<String> tables) => _notify(tables);
+
   /// Opens (or creates) a database at [path]. Pass `inMemoryDatabasePath`
   /// for tests.
   ///

@@ -13,7 +13,7 @@ export 'src/generated/v3-envelope.pb.dart'
     show Envelope, Ack, WsEnvelope, EnvelopeBatch, AckBatch, WsError, PendingPage;
 export 'src/generated/v3-envelope.pbenum.dart' show AckOutcome, WsType;
 export 'src/generated/v3-chat-payload.pb.dart'
-    show ChatPayload, Attachment, ForwardSource;
+    show ChatPayload, Attachment, ForwardSource, LiveLocationPoint;
 export 'src/generated/v3-chat-payload.pbenum.dart' show ChatPayloadType;
 export 'src/generated/v3-server-event-payload.pb.dart'
     show

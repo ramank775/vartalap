@@ -320,6 +320,7 @@ class SyncScheduler {
       }
     }
 
+    final live = liveLocationWire(op);
     final frame = OutboundFrame(
       kind: op.kind,
       resourceId: op.resourceId,
@@ -331,6 +332,8 @@ class SyncScheduler {
           restMethod: op.restMethod,
           restPath: op.restPath,
           frameClass: frameClassOf(op),
+          wakes: live?.wakes,
+          ttlSec: live?.ttlSec ?? 0,
         ),
       ],
     );
@@ -528,9 +531,44 @@ FrameClass frameClassOf(OutboundOpRow op) {
       pb.ChatPayloadType.TYPE_REACTION_ADD ||
       pb.ChatPayloadType.TYPE_REACTION_REMOVE =>
         FrameClass.mutation,
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE ||
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_STOP ||
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_CONTROL ||
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_PERMISSION =>
+        FrameClass.location,
       _ => FrameClass.message,
     };
   } catch (_) {
     return FrameClass.message;
+  }
+}
+
+/// SYNC_PROTOCOL §20: what a live-location op's envelope adds to its
+/// class. A remote on/off wakes the phone it goes to (the rest of the
+/// class is SILENT), and the server keeps each kind only while it is
+/// worth anything: a position 15 minutes, so a phone that was away gets
+/// the latest few rather than hours of them; a stop as long as the
+/// longest share (8 hours); an on/off an hour. Null for any other op.
+/// ponytail: parses the payload a second time after [frameClassOf].
+({bool wakes, int ttlSec})? liveLocationWire(OutboundOpRow op) {
+  if (op.kind != OpKind.chatPayload ||
+      op.payload.isEmpty ||
+      op.payload[0] == 0x45) {
+    return null;
+  }
+  try {
+    return switch (pb.ChatPayload.fromBuffer(op.payload).type) {
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE =>
+        (wakes: false, ttlSec: 15 * 60),
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_STOP =>
+        (wakes: false, ttlSec: 8 * 60 * 60),
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_CONTROL =>
+        (wakes: true, ttlSec: 60 * 60),
+      pb.ChatPayloadType.TYPE_LIVE_LOCATION_PERMISSION =>
+        (wakes: false, ttlSec: 0),
+      _ => null,
+    };
+  } catch (_) {
+    return null;
   }
 }

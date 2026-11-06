@@ -74,7 +74,7 @@ const int kEnvelopeFlagSilent = 1;
 
 /// `Envelope.flags` bits 1-4, `(flags >> 1) & 15` (decisions 218, 220):
 /// what an op is, which tells the server how long to keep it (a
-/// [receipt]: 7 days). [event] is the server's own. Classes 6-15 are free
+/// [receipt]: 7 days). [event] is the server's own. Classes 8-15 are free
 /// for kinds to come.
 enum FrameClass {
   message,
@@ -82,7 +82,15 @@ enum FrameClass {
   receipt,
   key,
   resend,
-  event;
+  event,
+
+  /// Class 6, the private timeline's (decision 223); held here so that
+  /// [location] is 7.
+  timeline,
+
+  /// Live location (SYNC_PROTOCOL §20): positions, stops and permissions
+  /// go SILENT; a remote on/off wakes ([FramedOp.wakes]).
+  location;
 
   /// A new message, or a resend request (its sender must answer), shows
   /// a notification or needs the phone awake; the rest do not.
