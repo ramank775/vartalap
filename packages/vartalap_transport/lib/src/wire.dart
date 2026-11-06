@@ -84,8 +84,8 @@ enum FrameClass {
   resend,
   event,
 
-  /// Class 6, the private timeline's (decision 223); held here so that
-  /// [location] is 7.
+  /// Class 6, set aside for the private timeline (decision 223), whose
+  /// posts go over REST for now; held here so that [location] is 7.
   timeline,
 
   /// Live location (SYNC_PROTOCOL §21): positions, stops and permissions
