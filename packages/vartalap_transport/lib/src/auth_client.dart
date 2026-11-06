@@ -366,6 +366,74 @@ class AuthClient implements AuthTokenProvider {
     return _decodeJson(resp);
   }
 
+  // ---- invites, blocks, reports (SYNC_PROTOCOL §21) ---------------------
+
+  /// `GET /v3.0/channels/connections`: connections, blocks and the pending
+  /// invites the caller can see.
+  Future<Map<String, dynamic>> getConnections() async {
+    final resp =
+        await _get('/v3.0/channels/connections', headers: _authHeaders());
+    _assertOk(resp, 'getConnections');
+    return _decodeJson(resp);
+  }
+
+  /// `POST /v3.0/channels/invites`: `sent`, or `connected` when they
+  /// already are (or [userId] had invited us). 429 `invite_limit` past
+  /// the cap.
+  Future<String> sendInvite(String userId) async {
+    final resp = await _post('/v3.0/channels/invites',
+        body: {'user_id': userId}, headers: _authHeaders());
+    _assertOk(resp, 'sendInvite');
+    return _decodeJson(resp)['state'] as String;
+  }
+
+  /// `POST /v3.0/channels/{channel_id}/invite/accept`: a 1:1 invite
+  /// answers `{state: connected}`, a group's the group as
+  /// `GET /v3.0/channels/{id}` gives it.
+  Future<Map<String, dynamic>> acceptInvite(String channelId) async {
+    final resp = await _post('/v3.0/channels/$channelId/invite/accept',
+        body: const {}, headers: _authHeaders());
+    _assertOk(resp, 'acceptInvite');
+    return _decodeJson(resp);
+  }
+
+  /// `POST /v3.0/channels/{channel_id}/invite/decline`; [block] also
+  /// blocks the inviter.
+  Future<void> declineInvite(String channelId, {bool block = false}) async {
+    final resp = await _post('/v3.0/channels/$channelId/invite/decline',
+        body: {if (block) 'block': true}, headers: _authHeaders());
+    _assertOk(resp, 'declineInvite');
+  }
+
+  /// `DELETE /v3.0/channels/{channel_id}/invites/{user_id}`.
+  Future<void> cancelInvite(String channelId, String userId) async {
+    final resp = await _client.delete(
+        baseUrl.resolve('/v3.0/channels/$channelId/invites/$userId'),
+        headers: _authHeaders());
+    _assertOk(resp, 'cancelInvite');
+  }
+
+  /// `POST /v3.0/channels/blocks`, or `DELETE .../blocks/{user_id}`.
+  Future<void> setBlocked(String userId, bool blocked) async {
+    final resp = blocked
+        ? await _post('/v3.0/channels/blocks',
+            body: {'user_id': userId}, headers: _authHeaders())
+        : await _client.delete(
+            baseUrl.resolve('/v3.0/channels/blocks/$userId'),
+            headers: _authHeaders());
+    _assertOk(resp, 'setBlocked');
+  }
+
+  /// `POST /v3.0/channels/reports`; [messages] up to the chat's last 5,
+  /// `{author, body, content_type, sent_at}`.
+  Future<void> report(
+      String userId, List<Map<String, Object?>> messages) async {
+    final resp = await _post('/v3.0/channels/reports',
+        body: {'user_id': userId, 'messages': messages},
+        headers: _authHeaders());
+    _assertOk(resp, 'report');
+  }
+
   /// `POST /v3.0/contacts/lookup` — AUTH_CONTRACT §7.2.
   Future<List<ContactMatch>> lookupContacts(
       List<String> phoneHashes) async {

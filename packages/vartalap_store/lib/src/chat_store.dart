@@ -417,7 +417,13 @@ class ChatStore {
           ? const {'outbound_ops', 'messages'}
           // A channel-scoped op rolls back channel_members (a role
           // change) or drops the channel outright (a rejected create).
-          : const {'outbound_ops', 'channel_members', 'channels', 'messages'},
+          : const {
+              'outbound_ops',
+              'channel_members',
+              'channels',
+              'messages',
+              'invites',
+            },
     );
   }
 
@@ -477,6 +483,8 @@ class ChatStore {
           where: 'channel_id = ?',
           whereArgs: [channelId],
         );
+        await txn.delete('invites',
+            where: 'channel_id = ?', whereArgs: [channelId]);
       }
       return;
     }
@@ -583,6 +591,10 @@ class ChatStore {
           where: 'channel_id = ? AND user_id = ?',
           whereArgs: [channelId, userId],
         );
+        // decision 221: an add is an invite
+        await txn.delete('invites',
+            where: 'channel_id = ? AND to_user = ?',
+            whereArgs: [channelId, userId]);
       }
     } else if (kind == OpKind.removeMember) {
       final userId = (op['rest_path'] as String? ?? '').split('/').last;
@@ -669,8 +681,13 @@ class ChatStore {
 
       await _rollbackForTerminalOp(txn, opId, messageId, nowMs);
     });
-    _notify(
-        const {'outbound_ops', 'messages', 'channel_members', 'channels'});
+    _notify(const {
+      'outbound_ops',
+      'messages',
+      'channel_members',
+      'channels',
+      'invites',
+    });
   }
 
   /// User tapped "dismiss" on a failure toast. Marks the terminal op
@@ -2862,6 +2879,146 @@ class ChatStore {
     );
     return controller.stream;
   }
+
+  // --- invites, connections, blocks (decisions 219-221) -------------------
+
+  /// Replace everything this phone knows about invites and connections
+  /// with the server's snapshot (`GET /v3.0/channels/connections`).
+  Future<void> replaceConnections({
+    required Iterable<String> connected,
+    required Iterable<String> blocked,
+    required Iterable<InviteRow> invites,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.delete('invites');
+      await txn.delete('connections');
+      // the row with no user: the server's word has been heard
+      await txn.insert('connections', {'user_id': ''});
+      final blocks = blocked.toSet();
+      for (final userId in {...connected, ...blocks}) {
+        await txn.insert('connections', {
+          'user_id': userId,
+          'connected': connected.contains(userId) ? 1 : 0,
+          'blocked': blocks.contains(userId) ? 1 : 0,
+        });
+      }
+      for (final invite in invites) {
+        await txn.insert('invites', _inviteToRow(invite),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+    _notify(const {'invites', 'connections'});
+  }
+
+  Future<void> putInvite(InviteRow invite) async {
+    await db.insert('invites', _inviteToRow(invite),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    _notify(const {'invites'});
+  }
+
+  /// The invite of [toUser] in [channelId]; every one in it without.
+  Future<void> removeInvites(String channelId, {String? toUser}) async {
+    final removed = await db.delete(
+      'invites',
+      where: 'channel_id = ?${toUser == null ? '' : ' AND to_user = ?'}',
+      whereArgs: [channelId, if (toUser != null) toUser],
+    );
+    if (removed > 0) _notify(const {'invites'});
+  }
+
+  /// Set what is given of [userId]'s row, leaving the rest.
+  Future<void> setConnection(String userId,
+      {bool? connected, bool? blocked}) async {
+    await db.rawInsert(
+        'INSERT OR IGNORE INTO connections (user_id) VALUES (?)', [userId]);
+    await db.update(
+      'connections',
+      {
+        if (connected != null) 'connected': connected ? 1 : 0,
+        if (blocked != null) 'blocked': blocked ? 1 : 0,
+      },
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+    _notify(const {'connections'});
+  }
+
+  /// Oldest first.
+  Future<List<InviteRow>> fetchInvites() async => [
+        for (final r in await db.query('invites', orderBy: 'created_at'))
+          InviteRow(
+            channelId: r['channel_id'] as String,
+            toUser: r['to_user'] as String,
+            fromUser: r['from_user'] as String,
+            name: r['name'] as String?,
+            createdAt: r['created_at'] as int,
+          ),
+      ];
+
+  /// Who we are connected with.
+  Future<Set<String>> connectedUsers() async => {
+        for (final r in await db.query('connections',
+            columns: const ['user_id'], where: 'connected = 1'))
+          r['user_id'] as String,
+      };
+
+  /// Who we blocked.
+  Future<Set<String>> blockedUsers() async => {
+        for (final r in await db.query('connections',
+            columns: const ['user_id'], where: 'blocked = 1'))
+          r['user_id'] as String,
+      };
+
+  /// Where [self] stands with [peer]. Until the server's snapshot first
+  /// lands ([replaceConnections]), every pair counts as connected: a chat
+  /// from before invites keeps its composer offline, and the server is
+  /// the one that refuses (`not_connected`).
+  Future<PeerLink> peerLink(String self, String peer) async {
+    final rows = await db.query('connections',
+        where: 'user_id IN (?, ?)', whereArgs: [peer, '']);
+    final row = rows.where((r) => r['user_id'] == peer).firstOrNull;
+    final heard = rows.length > (row == null ? 0 : 1);
+    final invites = await db.query('invites',
+        where: '(from_user = ? AND to_user = ?) '
+            'OR (from_user = ? AND to_user = ?)',
+        whereArgs: [self, peer, peer, self]);
+    // a group invite between the two says nothing about their 1:1
+    final dm = invites.where((r) => !(r['channel_id'] as String).contains('-'));
+    return (
+      connected: !heard || row?['connected'] == 1,
+      blocked: row?['blocked'] == 1,
+      inviteSent: dm.any((r) => r['from_user'] == self),
+      inviteReceived: dm.any((r) => r['from_user'] == peer),
+    );
+  }
+
+  /// [fetch] now, and again after every write to one of [tables].
+  Stream<T> watchTables<T>(Set<String> tables, Future<T> Function() fetch) {
+    late StreamController<T> controller;
+    StreamSubscription<Set<String>>? changeSub;
+    Future<void> emit() => _safeEmit(controller, fetch);
+    controller = StreamController<T>(
+      onListen: () {
+        changeSub = tableChanges.listen((changed) {
+          if (changed.any(tables.contains)) emit();
+        });
+        emit();
+      },
+      onCancel: () async {
+        await changeSub?.cancel();
+        changeSub = null;
+      },
+    );
+    return controller.stream;
+  }
+
+  static Map<String, Object?> _inviteToRow(InviteRow i) => {
+        'channel_id': i.channelId,
+        'to_user': i.toUser,
+        'from_user': i.fromUser,
+        'name': i.name,
+        'created_at': i.createdAt,
+      };
 
   // --- row marshalling ---------------------------------------------------
 

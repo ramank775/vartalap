@@ -653,6 +653,10 @@ class InboundReceiver {
         await _handleChannelEdited(env, sep.channelEdited);
       case pb.ServerEventPayload_Body.channelDeleted:
         await _handleChannelDeleted(env, sep.channelDeleted);
+      case pb.ServerEventPayload_Body.inviteSent:
+        await _handleInviteSent(env, sep.inviteSent);
+      case pb.ServerEventPayload_Body.inviteAnswered:
+        await _handleInviteAnswered(env, sep.inviteAnswered);
       case pb.ServerEventPayload_Body.typing:
         // Typing should never arrive on the persistent path — it's
         // routed via the ephemeral flag. If we see it here a peer/server
@@ -902,6 +906,64 @@ class InboundReceiver {
       channelId: channelId,
       deletedAtMs: body.deletedAtMs.toInt(),
     );
+    // its invitees hear of it too (decision 221)
+    await store.removeInvites(channelId);
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
+  }
+
+  /// SYNC_PROTOCOL §21 InviteSent (decisions 219, 221). A 1:1 invite
+  /// comes addressed like a DM, so its channel is the pair's. To us, it
+  /// is an incoming invite, announced on [peerMessagesStored] so it
+  /// notifies like a message; into a group of ours, its member list
+  /// shows them as invited.
+  Future<void> _handleInviteSent(
+    InboundEnvelope env,
+    pb.InviteSent body,
+  ) async {
+    final group = body.channelId;
+    final from = env.senderUserId;
+    final at = body.atMs.toInt();
+    InviteRow row(String channelId, String to, {String? name}) => InviteRow(
+        channelId: channelId,
+        toUser: to,
+        fromUser: from,
+        name: name,
+        createdAt: at);
+    if (group.isEmpty || body.users.contains(localUserId)) {
+      final channelId = group.isEmpty ? env.channelId : group;
+      await store.putInvite(row(channelId, localUserId,
+          name: body.name.isEmpty ? null : body.name));
+      _resolveUnknownMembers([from]);
+      if (!_peerMessageCtrl.isClosed) _peerMessageCtrl.add(channelId);
+    } else if (await store.channelExists(group)) {
+      for (final user in body.users) {
+        await store.putInvite(row(group, user));
+      }
+      await _groupEvent(
+          env, GroupEvent(GroupEventKind.invited, users: body.users),
+          at: _eventAt(env));
+      _resolveUnknownMembers(body.users);
+    }
+    await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
+  }
+
+  /// SYNC_PROTOCOL §21 InviteAnswered: an invite is no longer pending. A
+  /// 1:1 one accepted connects us with its actor, and the chat says so.
+  Future<void> _handleInviteAnswered(
+    InboundEnvelope env,
+    pb.InviteAnswered body,
+  ) async {
+    if (body.channelId.isNotEmpty) {
+      await store.removeInvites(body.channelId, toUser: body.user);
+    } else {
+      await store.removeInvites(env.channelId);
+      if (body.answer == pb.InviteAnswer.INVITE_ACCEPTED) {
+        await store.setConnection(env.senderUserId, connected: true);
+        await _ensureDmChannel(env.channelId, env.senderUserId, env);
+        await _groupEvent(env, const GroupEvent(GroupEventKind.accepted),
+            at: _eventAt(env));
+      }
+    }
     await store.markOpIdSeen(env.channelId, env.opId, clock.nowMs());
   }
 
@@ -1006,6 +1068,10 @@ class InboundReceiver {
     pb.ChannelMemberAdded body,
   ) async {
     final nowMs = clock.nowMs();
+    // an accepted invite (decision 221)
+    for (final userId in body.members) {
+      await store.removeInvites(body.channelId, toUser: userId);
+    }
     final existing = await store.db.query(
       'channels',
       columns: const ['channel_id'],

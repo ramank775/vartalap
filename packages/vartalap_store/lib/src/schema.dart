@@ -320,6 +320,28 @@ const List<String> ddl = [
     PRIMARY KEY (label_id, user_id)
   )
   ''',
+
+  // Decisions 219-221 — invite-only. The server's word, mirrored: the
+  // pending invites this phone can see (`channel_id` a group's id or the
+  // pair's DM id), and per person whether we are connected and whether
+  // we blocked them. v10 adds both through [ddl].
+  '''
+  CREATE TABLE IF NOT EXISTS invites (
+    channel_id  TEXT NOT NULL,
+    to_user     TEXT NOT NULL,
+    from_user   TEXT NOT NULL,
+    name        TEXT,
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (channel_id, to_user)
+  )
+  ''',
+  '''
+  CREATE TABLE IF NOT EXISTS connections (
+    user_id    TEXT PRIMARY KEY,
+    connected  INTEGER NOT NULL DEFAULT 0,
+    blocked    INTEGER NOT NULL DEFAULT 0
+  )
+  ''',
 ];
 
 /// Decision 223: the labels a new database, or one upgraded to v9,

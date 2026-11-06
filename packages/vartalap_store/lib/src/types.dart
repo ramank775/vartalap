@@ -452,3 +452,37 @@ class ChannelListEntry {
     return name ?? 'Unnamed group';
   }
 }
+
+/// One pending invite this phone can see (decisions 219-221): to us,
+/// from us, or into a group we are in. A mirror of the server's
+/// `GET /v3.0/channels/connections`, kept current by the invite events.
+class InviteRow {
+  /// A group's id, or for a 1:1 invite the pair's derived DM id.
+  final String channelId;
+  final String toUser;
+  final String fromUser;
+
+  /// A group invite's group name, for an invitee with no copy of it.
+  final String? name;
+  final int createdAt;
+
+  const InviteRow({
+    required this.channelId,
+    required this.toUser,
+    required this.fromUser,
+    this.name,
+    required this.createdAt,
+  });
+
+  /// A group's id is a dashed UUID; a DM id has no dash.
+  bool get isGroup => channelId.contains('-');
+}
+
+/// Where this phone stands with one other person (decision 219).
+typedef PeerLink = ({
+  bool connected,
+  bool blocked,
+  bool inviteSent,
+  bool inviteReceived,
+});
+

@@ -12,8 +12,21 @@ import 'dart:convert';
 const String kGroupEventType = 'application/x-vartalap-group-event';
 
 /// [securityCode]: `users.first`'s phone has a new identity key (decision
-/// 184); written into every chat with them, DMs included.
-enum GroupEventKind { created, added, removed, left, renamed, photo, securityCode }
+/// 184); written into every chat with them, DMs included. [invited]: the
+/// actor invited `users` (a group, or a 1:1 chat: decisions 219, 221);
+/// [accepted]: the actor accepted a 1:1 invite. A group accept is an
+/// [added] with the newcomer as actor and user ("Ravi joined").
+enum GroupEventKind {
+  created,
+  added,
+  removed,
+  left,
+  renamed,
+  photo,
+  securityCode,
+  invited,
+  accepted,
+}
 
 class GroupEvent {
   final GroupEventKind kind;

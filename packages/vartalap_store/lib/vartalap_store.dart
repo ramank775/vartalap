@@ -19,6 +19,7 @@ export 'src/types.dart'
         ChannelListEntry,
         ChannelMemberRow,
         ContactRow,
+        InviteRow,
         kDeleteForEveryoneGrace,
         kDeleteForEveryoneWindow,
         kUndecryptedType,
@@ -31,6 +32,7 @@ export 'src/types.dart'
         OpStatus,
         OpTransport,
         OutboundOpRow,
+        PeerLink,
         StarredMessage,
         undecryptedMessageId,
         uuid7Ms;
