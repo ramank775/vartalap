@@ -45,6 +45,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     ForwardSource? forwardSource,
     $core.bool? isTyping,
     $fixnum.Int64? markerServerTimestampMs,
+    $core.int? timerSec,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
     LiveLocationPoint? liveLocationPoint,
     $core.int? liveLocationDurationSec,
@@ -64,6 +65,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (isTyping != null) result.isTyping = isTyping;
     if (markerServerTimestampMs != null)
       result.markerServerTimestampMs = markerServerTimestampMs;
+    if (timerSec != null) result.timerSec = timerSec;
     if (meta != null) result.meta.addEntries(meta);
     if (liveLocationPoint != null) result.liveLocationPoint = liveLocationPoint;
     if (liveLocationDurationSec != null)
@@ -107,6 +109,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(60, _omitFieldNames ? '' : 'markerServerTimestampMs',
         $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aI(70, _omitFieldNames ? '' : 'timerSec', fieldType: $pb.PbFieldType.OU3)
     ..m<$core.String, $core.String>(100, _omitFieldNames ? '' : 'meta',
         entryClassName: 'ChatPayload.MetaEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -272,45 +275,61 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(60)
   void clearMarkerServerTimestampMs() => $_clearField(60);
 
+  /// Decision 222 (fields 70-79 are the chat track's).
+  ///
+  /// For TYPE_MESSAGE_CREATE: a timed message. Both phones delete it this
+  /// many seconds after its server_timestamp_ms, and ignore edits,
+  /// reactions and replies to it from then on. The envelope's ttl_sec
+  /// carries the same value, so the server drops a copy still undelivered
+  /// then. 0: not timed. SYNC_PROTOCOL §20.3.
+  @$pb.TagNumber(70)
+  $core.int get timerSec => $_getIZ(12);
+  @$pb.TagNumber(70)
+  set timerSec($core.int value) => $_setUnsignedInt32(12, value);
+  @$pb.TagNumber(70)
+  $core.bool hasTimerSec() => $_has(12);
+  @$pb.TagNumber(70)
+  void clearTimerSec() => $_clearField(70);
+
   /// Free-form client metadata. Other clients MAY ignore unknown keys.
   /// Reserved keys:
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(12);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(13);
 
   /// Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   /// For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   @$pb.TagNumber(130)
-  LiveLocationPoint get liveLocationPoint => $_getN(13);
+  LiveLocationPoint get liveLocationPoint => $_getN(14);
   @$pb.TagNumber(130)
   set liveLocationPoint(LiveLocationPoint value) => $_setField(130, value);
   @$pb.TagNumber(130)
-  $core.bool hasLiveLocationPoint() => $_has(13);
+  $core.bool hasLiveLocationPoint() => $_has(14);
   @$pb.TagNumber(130)
   void clearLiveLocationPoint() => $_clearField(130);
   @$pb.TagNumber(130)
-  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(13);
+  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(14);
 
   /// For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
   /// this 1:1 chat on (for `duration_sec`) or off (0).
   @$pb.TagNumber(131)
-  $core.int get liveLocationDurationSec => $_getIZ(14);
+  $core.int get liveLocationDurationSec => $_getIZ(15);
   @$pb.TagNumber(131)
-  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(14, value);
+  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(15, value);
   @$pb.TagNumber(131)
-  $core.bool hasLiveLocationDurationSec() => $_has(14);
+  $core.bool hasLiveLocationDurationSec() => $_has(15);
   @$pb.TagNumber(131)
   void clearLiveLocationDurationSec() => $_clearField(131);
 
   /// For TYPE_LIVE_LOCATION_PERMISSION: may the receiver turn the
   /// sender's live location on and off from now on.
   @$pb.TagNumber(132)
-  $core.bool get liveLocationAllowed => $_getBF(15);
+  $core.bool get liveLocationAllowed => $_getBF(16);
   @$pb.TagNumber(132)
-  set liveLocationAllowed($core.bool value) => $_setBool(15, value);
+  set liveLocationAllowed($core.bool value) => $_setBool(16, value);
   @$pb.TagNumber(132)
-  $core.bool hasLiveLocationAllowed() => $_has(15);
+  $core.bool hasLiveLocationAllowed() => $_has(16);
   @$pb.TagNumber(132)
   void clearLiveLocationAllowed() => $_clearField(132);
 }

@@ -171,6 +171,11 @@ class ChatStore {
               await db.execute(stmt);
             }
           }
+          if (from < 10 && await has('messages')) {
+            for (final stmt in migrateV9ToV10) {
+              await db.execute(stmt);
+            }
+          }
           for (final stmt in ddl) {
             await db.execute(stmt);
           }
@@ -972,10 +977,17 @@ class ChatStore {
     required int clientTimestampMs,
     required int serverTimestampMs,
     required int nowMs,
+    int? timerSec,
   }) async {
     final bumpUnread = senderUserId != localUserId;
     var inserted = false;
     await db.transaction((txn) async {
+      // Decision 222: a timed message whose time is up never shows.
+      if (timerSec != null && serverTimestampMs + timerSec * 1000 <= nowMs) {
+        await txn.rawInsert(
+            _markOpIdSeenSql, [channelId, opId, nowMs, channelId]);
+        return;
+      }
       inserted = await txn.insert(
             'messages',
             {
@@ -995,6 +1007,7 @@ class ChatStore {
               'last_edit_ms': null,
               'tombstoned': 0,
               'tombstone_pending_until': null,
+              'timer_sec': timerSec,
             },
             conflictAlgorithm: ConflictAlgorithm.ignore,
           ) !=
@@ -1227,6 +1240,7 @@ class ChatStore {
         'tombstoned',
         'server_timestamp_ms',
         'last_edit_ms',
+        'timer_sec',
       ],
       where: 'message_id = ?',
       whereArgs: [messageId],
@@ -1241,6 +1255,13 @@ class ChatStore {
     }
     final byAuthor = rows.single['author_user_id'] == sender;
     final live = rows.single['tombstoned'] == 0;
+    // Decision 222: a timed message whose time is up takes nothing more,
+    // even before the sweep has removed it.
+    final timer = rows.single['timer_sec'] as int?;
+    final sentAt = rows.single['server_timestamp_ms'] as int?;
+    if (timer != null && sentAt != null && sentAt + timer * 1000 <= nowMs) {
+      return false;
+    }
     switch (op['kind']) {
       case 'update':
         if (!live || !byAuthor) return false;
@@ -2614,6 +2635,60 @@ class ChatStore {
     _notify(const {'messages', 'reactions', 'channels'});
   }
 
+  /// Decision 222: delete every timed message whose time is up (server
+  /// time plus timer, by this phone's clock), as if it had never come:
+  /// reactions and versions go with it, an unread one stops counting, and
+  /// each chat's preview moves back. Returns the chats it touched.
+  Future<Set<String>> deleteExpiredMessages({
+    required int nowMs,
+    required String localUserId,
+  }) async {
+    final touched = <String>{};
+    await db.transaction((txn) async {
+      final rows = await txn.rawQuery('''
+        SELECT m.message_id, m.channel_id,
+               m.author_user_id != ? AND m.server_timestamp_ms > COALESCE(
+                 (SELECT r.server_timestamp_ms FROM messages r
+                   WHERE r.message_id = c.last_read_message_id), 0) AS unread
+          FROM messages m JOIN channels c ON c.channel_id = m.channel_id
+         WHERE m.timer_sec IS NOT NULL
+           AND m.server_timestamp_ms + m.timer_sec * 1000 <= ?''',
+          [localUserId, nowMs]);
+      for (final r in rows) {
+        await txn.delete('messages',
+            where: 'message_id = ?', whereArgs: [r['message_id']]);
+        touched.add(r['channel_id'] as String);
+        if (r['unread'] == 1) {
+          await txn.rawUpdate(
+              'UPDATE channels SET unread_count = MAX(unread_count - 1, 0) '
+              'WHERE channel_id = ?',
+              [r['channel_id']]);
+        }
+      }
+      for (final c in touched) {
+        await txn.rawUpdate('''
+          UPDATE channels
+             SET last_message_id = COALESCE(
+                   (SELECT message_id FROM messages
+                     WHERE channel_id = channels.channel_id
+                     ORDER BY $_newestFirst LIMIT 1),
+                   last_message_id)
+           WHERE channel_id = ?''', [c]);
+      }
+    });
+    if (touched.isNotEmpty) {
+      _notify(const {'messages', 'reactions', 'channels'});
+    }
+    return touched;
+  }
+
+  /// When the next timed message's time is up; null when none waits.
+  Future<int?> nextExpiryMs() async => (await db.rawQuery(
+          'SELECT MIN(server_timestamp_ms + timer_sec * 1000) AS at '
+          'FROM messages WHERE timer_sec IS NOT NULL '
+          'AND server_timestamp_ms IS NOT NULL'))
+      .single['at'] as int?;
+
   /// Optimistic local reaction toggle plus its outbound op, in one
   /// transaction. Mirrors [applyInboundReactionAdd] /
   /// [applyInboundReactionRemove] for the local user.
@@ -2808,6 +2883,7 @@ class ChatStore {
         'last_edit_ms': m.lastEditMs,
         'tombstoned': m.tombstoned ? 1 : 0,
         'tombstone_pending_until': m.tombstonePendingUntil,
+        'timer_sec': m.timerSec,
       };
 
   static MessageRow _rowToMessage(Map<String, Object?> r) => MessageRow(
@@ -2828,6 +2904,7 @@ class ChatStore {
         starredAtMs: r['starred_at'] as int?,
         attachments: r['attachments'] as List<int>?,
         reactions: _parseReactions(r['reactions'] as String?),
+        timerSec: r['timer_sec'] as int?,
       );
 
   /// Inverse of the `group_concat` in [fetchChannelMessages]. Null for

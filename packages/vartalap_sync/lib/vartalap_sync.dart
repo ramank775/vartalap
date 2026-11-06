@@ -25,5 +25,5 @@ export 'src/inbound_receiver.dart'
         ContactProfile,
         GroupRoster,
         groupRosterFromJson;
-export 'src/sync_scheduler.dart' show SyncScheduler;
+export 'src/sync_scheduler.dart' show SyncScheduler, ttlSecOf;
 export 'src/uuid7.dart' show Uuid7Gen;

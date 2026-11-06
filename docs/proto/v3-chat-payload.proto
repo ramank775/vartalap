@@ -108,6 +108,15 @@ message ChatPayload {
   // receipt needs no message id and works for one still in transit.
   uint64 marker_server_timestamp_ms = 60;
 
+  // Decision 222 (fields 70-79 are the chat track's).
+  //
+  // For TYPE_MESSAGE_CREATE: a timed message. Both phones delete it this
+  // many seconds after its server_timestamp_ms, and ignore edits,
+  // reactions and replies to it from then on. The envelope's ttl_sec
+  // carries the same value, so the server drops a copy still undelivered
+  // then. 0: not timed. SYNC_PROTOCOL §20.3.
+  uint32 timer_sec = 70;
+
   // Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   // For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   LiveLocationPoint live_location_point = 130;

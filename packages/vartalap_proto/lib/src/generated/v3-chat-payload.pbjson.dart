@@ -95,6 +95,7 @@ const ChatPayload$json = {
       '5': 4,
       '10': 'markerServerTimestampMs'
     },
+    {'1': 'timer_sec', '3': 70, '4': 1, '5': 13, '10': 'timerSec'},
     {
       '1': 'live_location_point',
       '3': 130,
@@ -154,13 +155,13 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'GB4gASgJUgVlbW9qaRJJCg5mb3J3YXJkX3NvdXJjZRgoIAEoCzIiLnZhcnRhbGFwLnYzLnBheW'
     'xvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZFNvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlz'
     'VHlwaW5nEjsKGm1hcmtlcl9zZXJ2ZXJfdGltZXN0YW1wX21zGDwgASgEUhdtYXJrZXJTZXJ2ZX'
-    'JUaW1lc3RhbXBNcxJXChNsaXZlX2xvY2F0aW9uX3BvaW50GIIBIAEoCzImLnZhcnRhbGFwLnYz'
-    'LnBheWxvYWQuTGl2ZUxvY2F0aW9uUG9pbnRSEWxpdmVMb2NhdGlvblBvaW50EjwKGmxpdmVfbG'
-    '9jYXRpb25fZHVyYXRpb25fc2VjGIMBIAEoDVIXbGl2ZUxvY2F0aW9uRHVyYXRpb25TZWMSMwoV'
-    'bGl2ZV9sb2NhdGlvbl9hbGxvd2VkGIQBIAEoCFITbGl2ZUxvY2F0aW9uQWxsb3dlZBI+CgRtZX'
-    'RhGGQgAygLMioudmFydGFsYXAudjMucGF5bG9hZC5DaGF0UGF5bG9hZC5NZXRhRW50cnlSBG1l'
-    'dGEaNwoJTWV0YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5EhQKBXZhbHVlGAIgASgJUgV2YWx1ZT'
-    'oCOAFKBAgDEARKBAgUEBU=');
+    'JUaW1lc3RhbXBNcxIbCgl0aW1lcl9zZWMYRiABKA1SCHRpbWVyU2VjElcKE2xpdmVfbG9jYXRp'
+    'b25fcG9pbnQYggEgASgLMiYudmFydGFsYXAudjMucGF5bG9hZC5MaXZlTG9jYXRpb25Qb2ludF'
+    'IRbGl2ZUxvY2F0aW9uUG9pbnQSPAoabGl2ZV9sb2NhdGlvbl9kdXJhdGlvbl9zZWMYgwEgASgN'
+    'UhdsaXZlTG9jYXRpb25EdXJhdGlvblNlYxIzChVsaXZlX2xvY2F0aW9uX2FsbG93ZWQYhAEgAS'
+    'gIUhNsaXZlTG9jYXRpb25BbGxvd2VkEj4KBG1ldGEYZCADKAsyKi52YXJ0YWxhcC52My5wYXls'
+    'b2FkLkNoYXRQYXlsb2FkLk1ldGFFbnRyeVIEbWV0YRo3CglNZXRhRW50cnkSEAoDa2V5GAEgAS'
+    'gJUgNrZXkSFAoFdmFsdWUYAiABKAlSBXZhbHVlOgI4AUoECAMQBEoECBQQFQ==');
 
 @$core.Deprecated('Use liveLocationPointDescriptor instead')
 const LiveLocationPoint$json = {

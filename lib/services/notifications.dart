@@ -11,6 +11,7 @@ library vartalap.services.notifications;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show max;
 import 'dart:ui' show AppLifecycleState;
 
 import 'package:flutter/foundation.dart';
@@ -34,6 +35,7 @@ NotificationDetails _details({
   String? tag,
   StyleInformation? style,
   bool summary = false,
+  int? timeoutAfter,
 }) =>
     NotificationDetails(
       android: AndroidNotificationDetails(
@@ -50,6 +52,7 @@ NotificationDetails _details({
         // The chats alert; the summary never does.
         groupAlertBehavior:
             summary ? GroupAlertBehavior.children : GroupAlertBehavior.all,
+        timeoutAfter: timeoutAfter,
       ),
     );
 
@@ -239,6 +242,12 @@ class MessageNotifications {
             );
     }
 
+    // Decision 222: a timed line takes the chat's notification with it
+    // when its time is up, the app running or not.
+    final expiry = lines
+        .map((m) => m.expiresAtMs)
+        .whereType<int>()
+        .fold<int?>(null, (a, b) => a == null || b < a ? b : a);
     return _plugin.show(
       id: _chatId,
       title: chat.title,
@@ -246,6 +255,9 @@ class MessageNotifications {
       payload: chat.channelId,
       notificationDetails: _details(
         tag: chat.channelId,
+        timeoutAfter: expiry == null
+            ? null
+            : max(1, expiry - DateTime.now().millisecondsSinceEpoch),
         style: MessagingStyleInformation(
           const Person(name: 'You'),
           conversationTitle: group ? chat.title : null,

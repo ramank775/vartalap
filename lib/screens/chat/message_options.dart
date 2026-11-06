@@ -1,8 +1,10 @@
 /// Decision 222's message features, the parts of the chat screen that are
-/// dialogs and sheets: delete for me / for everyone, edit history.
+/// dialogs and sheets: delete for me / for everyone, edit history, the
+/// message timer.
 library vartalap.screens.chat.message_options;
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/services/chat_service.dart' show kMessageTimers;
 import 'package:vartalap_store/vartalap_store.dart';
 
 /// What the user picked in [confirmDeleteMessages].
@@ -89,6 +91,46 @@ Future<void> showEditHistory(
               },
             ),
           ),
+        );
+      },
+    );
+
+/// Decision 222: the composer's message timer. The pick, in seconds (0
+/// is Off), or null when dismissed.
+Future<int?> pickMessageTimer(BuildContext context, int current) =>
+    showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: SingleChildScrollView(
+              child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ListTile(
+                title: Text('Message timer',
+                    style: Theme.of(ctx).textTheme.titleMedium),
+                subtitle: const Text('The message disappears from both '
+                    'phones this long after it is sent.'),
+              ),
+              // Radio glyphs on plain tiles, as in the mute sheet.
+              for (final MapEntry(key: sec, value: label)
+                  in kMessageTimers.entries)
+                ListTile(
+                  leading: Icon(
+                    sec == current
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    color: sec == current ? scheme.primary : null,
+                  ),
+                  title: Text(label),
+                  onTap: () => Navigator.of(ctx).pop(sec),
+                ),
+            ],
+          )),
         );
       },
     );

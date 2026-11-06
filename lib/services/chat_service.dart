@@ -15,7 +15,7 @@ library vartalap.services.chat_service;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' show min;
+import 'dart:math' show max, min;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -45,6 +45,7 @@ Uint8List _encodeChatPayload({
   required String body,
   String contentType = 'text/plain',
   String? replyToMessageId,
+  int timerSec = 0,
 }) =>
     pb.ChatPayload(
       version: 1,
@@ -56,7 +57,18 @@ Uint8List _encodeChatPayload({
       contentType: contentType == 'text/plain' ? null : contentType,
       replyToMessageId:
           replyToMessageId == null ? null : uuidBytes(replyToMessageId),
+      timerSec: timerSec == 0 ? null : timerSec,
     ).writeToBuffer();
+
+/// Decision 222: the timers a message can be sent with, in seconds (0 is
+/// Off), and how the composer names them.
+const Map<int, String> kMessageTimers = {
+  0: 'Off',
+  60: '1 minute',
+  300: '5 minutes',
+  3600: '1 hour',
+  86400: '1 day',
+};
 
 /// The other four ChatPayload types (SYNC_PROTOCOL §6a,
 /// docs/proto/v3-chat-payload.proto). Same envelope, same opacity to
@@ -421,12 +433,15 @@ class ChatService with TimelineService {
   /// "Performance targets").
   /// [contentType] other than `text/plain` marks a contact, location
   /// or event carried as standard text in [body] (decision 133).
+  /// [timerSec]: a timed message (decision 222), gone from both phones
+  /// that long after the server takes it.
   Future<void> sendMessage({
     required String channelId,
     required String body,
     required String authorUserId,
     String? replyToMessageId,
     String contentType = 'text/plain',
+    int timerSec = 0,
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -447,6 +462,7 @@ class ChatService with TimelineService {
       lastEditMs: null,
       tombstoned: false,
       tombstonePendingUntil: null,
+      timerSec: timerSec == 0 ? null : timerSec,
     );
 
     final op = OutboundOpRow(
@@ -461,6 +477,7 @@ class ChatService with TimelineService {
         body: body,
         contentType: contentType,
         replyToMessageId: replyToMessageId,
+        timerSec: timerSec,
       ),
       status: OpStatus.pending,
       attempts: 0,
@@ -1349,6 +1366,63 @@ class ChatService with TimelineService {
   /// only. Nothing is sent and there is nothing to undo.
   Future<void> deleteForMe(List<String> messageIds) =>
       _store.deleteMessagesLocal(messageIds);
+
+  StreamSubscription<Set<String>>? _expirySub;
+  Timer? _expiryTimer;
+  Timer? _rearm;
+
+  /// Decision 222: timed messages leave this phone when their time is up.
+  /// Deletes what is due now, then keeps one timer armed for the next,
+  /// re-armed a second after messages change (once per burst: a pull
+  /// writes hundreds). Started per account by `main.dart`; [stopExpiry]
+  /// before the store closes.
+  void startExpiry() {
+    _expirySub ??= _store.tableChanges
+        .where((t) => t.contains('messages'))
+        .listen((_) => _rearm ??= Timer(const Duration(seconds: 1), () {
+              _rearm = null;
+              _armExpiry();
+            }));
+    unawaited(_sweepExpired());
+  }
+
+  Future<void> stopExpiry() async {
+    await _expirySub?.cancel();
+    _expirySub = null;
+    _rearm?.cancel();
+    _rearm = null;
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+  }
+
+  Future<void> _sweepExpired() async {
+    final self = _authClient.currentUserId;
+    if (self == null || _expirySub == null) return;
+    try {
+      await _store.deleteExpiredMessages(
+          nowMs: _clock.nowMs(), localUserId: self);
+    } catch (e) {
+      // Not re-armed: the next change to messages tries again.
+      // ignore: avoid_print
+      print('ChatService: timed message sweep failed: $e');
+      return;
+    }
+    await _armExpiry();
+  }
+
+  Future<void> _armExpiry() async {
+    if (_expirySub == null) return;
+    final int? next;
+    try {
+      next = await _store.nextExpiryMs();
+    } catch (_) {
+      return; // the store closed under us
+    }
+    _expiryTimer?.cancel();
+    if (next == null || _expirySub == null) return;
+    _expiryTimer = Timer(
+        Duration(milliseconds: max(0, next - _clock.nowMs())), _sweepExpired);
+  }
 
   /// Decision 222: [messageId]'s versions, newest (current) first.
   Future<List<MessageVersion>> messageVersions(String messageId) =>

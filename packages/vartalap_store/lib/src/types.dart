@@ -248,6 +248,15 @@ class MessageRow {
   /// ([ChatStore.fetchChannelMessages]); empty from every other read.
   final List<MessageReaction> reactions;
 
+  /// Decision 222: a timed message's timer; null when not timed.
+  final int? timerSec;
+
+  /// When a timed message goes: its timer after its server time. Null
+  /// when not timed, or not sent yet (its timer has not started).
+  int? get expiresAtMs => timerSec == null || serverTimestampMs == null
+      ? null
+      : serverTimestampMs! + timerSec! * 1000;
+
   const MessageRow({
     required this.messageId,
     required this.channelId,
@@ -266,6 +275,7 @@ class MessageRow {
     this.starredAtMs,
     this.attachments,
     this.reactions = const [],
+    this.timerSec,
   });
 }
 

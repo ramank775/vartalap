@@ -685,11 +685,13 @@ class RecordedEnvelope {
   final String channelId;
   final Uint8List payload;
   final String? rejectReason;
+  final int ttlSec;
   RecordedEnvelope({
     required this.opId,
     required this.channelId,
     required this.payload,
     required this.rejectReason,
+    this.ttlSec = 0,
   });
 }
 
@@ -2748,6 +2750,7 @@ class MockServer {
       channelId: channelId,
       payload: Uint8List.fromList(env.payload),
       rejectReason: null,
+      ttlSec: env.ttlSec,
     ));
     _recordStamp(env.payload, now);
 

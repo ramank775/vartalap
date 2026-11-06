@@ -94,6 +94,52 @@ void main() {
         ['meet at 7', 'meet at 6', 'meet at 5']);
   });
 
+  group('timed messages', () {
+    test(
+        'a timed send carries its timer; the sweep deletes it when due, '
+        'not before', () async {
+      await chat.sendMessage(
+          channelId: dm, body: 'OTP 1234', authorUserId: self, timerSec: 1);
+      final m = await newest();
+      expect(m.timerSec, 1);
+      final op = (await store.db.query('outbound_ops')).single;
+      expect(
+          ttlSecOf(OutboundOpRow(
+            opId: op['op_id'] as String,
+            transport: OpTransport.ws,
+            kind: OpKind.chatPayload,
+            restMethod: null,
+            restPath: null,
+            resourceId: dm,
+            payload: op['payload'] as List<int>,
+            status: OpStatus.pending,
+            attempts: 0,
+            nextRetryAt: 0,
+            dispatchedAt: null,
+            lastError: null,
+            acknowledgedAt: null,
+            createdAt: 0,
+            targetMessageId: m.messageId,
+            targetChannelId: dm,
+          )),
+          1);
+      await store.applyAckSuccess(
+          opId: op['op_id'] as String,
+          messageId: m.messageId,
+          serverTimestampMs: t0,
+          nowMs: t0);
+
+      chat.startExpiry();
+      addTearDown(chat.stopExpiry);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(await store.fetchMessage(m.messageId), isNotNull);
+      // Its second is up; the armed timer fires on real time.
+      clock.advance(const Duration(seconds: 1));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(await store.fetchMessage(m.messageId), isNull);
+    });
+  });
+
   group('delete for everyone within 5 minutes', () {
     test(
         'offered for an unsent message, and for one sent under 5 minutes '

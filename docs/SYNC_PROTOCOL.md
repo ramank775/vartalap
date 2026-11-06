@@ -1927,6 +1927,28 @@ earlier than the message's last applied edit (they arrived out of
 order) only joins the history; the body stays the newer one. A delete
 for everyone takes the history with it. Edits stay unlimited in time.
 
+### 20.3 Timed messages
+
+A `TYPE_MESSAGE_CREATE` may carry `timer_sec` (ChatPayload field 70):
+1 minute, 5 minutes, 1 hour or 1 day in the composer. Its expiry is
+`server_timestamp_ms + timer_sec * 1000`, the same on both phones; the
+sender's copy starts counting when its ACK brings the stamp.
+
+- The envelope's `ttl_sec` is set to the same value (and the seal's
+  authenticated context binds it, §6a.7), so the server drops a copy
+  still undelivered when it expires (`expiryOf`); no server change.
+- Each phone deletes the message at its expiry (a timer armed for the
+  next one while the app runs, a sweep at every account open), with its
+  reactions and versions; an unread one stops counting as unread. One
+  that arrives already expired is never stored. Edits, reactions and
+  deletes for it are ignored once it has expired, even before the sweep
+  ran; a reply quoting it finds nothing to quote.
+- A notification showing a timed line is posted with Android's
+  `timeoutAfter` at the earliest such expiry, so it leaves the shade on
+  time even with the app dead (taking the chat's other lines with it).
+- The sender's re-send log (decision 188) refuses and drops a timed
+  message past its expiry.
+
 ---
 
 ## 21. Live location (decision 223)

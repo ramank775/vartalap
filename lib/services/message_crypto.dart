@@ -70,6 +70,7 @@ class MessageCrypto {
     if (_isResendRequest(op.payload)) return op.payload;
     final payload = Uint8List.fromList(op.payload);
     final retryOf = op.retryOf ?? '';
+    final ttlSec = ttlSecOf(op);
     Future<void> persist(Transaction txn, Uint8List sealed) async {
       await ChatStore.storeSealedPayload(txn, op.opId, sealed);
       // A re-send is never re-sent again.
@@ -79,6 +80,9 @@ class MessageCrypto {
           'kind': op.kind,
           'peer': peer,
           'payload': base64.encode(payload),
+          // Nor re-sent, nor kept, past its ttl_sec (a timed message,
+          // decision 222; a live-location op).
+          if (ttlSec > 0) 'ttl': ttlSec,
         });
       }
     }
@@ -88,10 +92,11 @@ class MessageCrypto {
             channelId: op.resourceId,
             peer: peer,
             payload: payload,
+            ttlSec: ttlSec,
             retryOf: retryOf,
             persist: persist)
         : await _sealGroup(op.opId, op.resourceId, payload,
-            retryOf: retryOf, persist: persist);
+            ttlSec: ttlSec, retryOf: retryOf, persist: persist);
     return sealed!;
   }
 
@@ -121,6 +126,7 @@ class MessageCrypto {
 
   Future<Uint8List?> _sealGroup(String opId, String channelId, Uint8List payload,
       {bool ephemeral = false,
+      int ttlSec = 0,
       bool onlyIfDistributed = false,
       String retryOf = '',
       Future<void> Function(Transaction txn, Uint8List sealed)? persist}) async {
@@ -134,6 +140,7 @@ class MessageCrypto {
       newOpId: _newOpId,
       sendKey: _sendKey,
       ephemeral: ephemeral,
+      ttlSec: ttlSec,
       onlyIfDistributed: onlyIfDistributed,
       retryOf: retryOf,
       persist: persist,

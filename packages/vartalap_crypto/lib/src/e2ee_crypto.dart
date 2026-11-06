@@ -410,21 +410,31 @@ class E2eeCrypto {
             final bytes = await records.read('sent', opId);
             if (bytes == null) return null;
             final op = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-            if (op['resent'] == true) return null;
+            if (op['resent'] == true || _expired(op)) return null;
             await records.write(
                 'sent', opId, utf8.encode(jsonEncode({...op, 'resent': true})));
             return op;
           }));
 
-  /// Drop logged ops sent before [cutoffMs] (the server's own retention).
+  /// A timed message's (decision 222) whose time is up.
+  static bool _expired(Map<String, dynamic> op) {
+    final at = op['at'], ttl = op['ttl'];
+    return at is int &&
+        ttl is int &&
+        at + ttl * 1000 <= DateTime.now().millisecondsSinceEpoch;
+  }
+
+  /// Drop logged ops sent before [cutoffMs] (the server's own retention),
+  /// and timed messages whose time is up.
   Future<void> forgetSentBefore(int cutoffMs) => _serial(() async {
         final stale = <String>[];
         for (final opId in await _records.keys('sent')) {
           final bytes = await _records.read('sent', opId);
-          final at = bytes == null
-              ? 0
-              : (jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>)['at'];
-          if (at is! int || at < cutoffMs) stale.add(opId);
+          final op = bytes == null
+              ? const <String, dynamic>{}
+              : jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+          final at = op['at'];
+          if (at is! int || at < cutoffMs || _expired(op)) stale.add(opId);
         }
         if (stale.isEmpty) return;
         await _db.transaction((txn) async {

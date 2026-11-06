@@ -186,6 +186,11 @@ void main() {
     final starred = await store.fetchStarredMessages();
     expect(starred.single.message.body, 'kept');
     expect(starred.single.message.starredAtMs, 42);
+    // On to the latest: v10's timed messages column too (decision 222).
+    expect(
+        (await store.db.rawQuery('PRAGMA table_info(messages)'))
+            .map((c) => c['name']),
+        contains('timer_sec'));
   });
 
   test('a v4 database migrates to v5: queued ops keep their payload and gain '

@@ -118,6 +118,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// Message being replied to, if any.
   MessageRow? _replyTo;
 
+  /// Decision 222: the next message's timer, seconds; 0 is Off. Back to
+  /// Off once it is sent.
+  int _timerSec = 0;
+
   /// The voice note being recorded; null while the composer is text.
   AudioRecorder? _recorder;
   DateTime _recordingSince = DateTime.now();
@@ -1348,8 +1352,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
           body: body,
           authorUserId: userId,
           replyToMessageId: _replyTo?.messageId,
+          timerSec: _timerSec,
         );
         _toBottom();
+        _timerSec = 0;
       }
       if (mounted) {
         setState(() {
@@ -1695,6 +1701,14 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                 : DateTime.now().difference(_recordingSince),
             onStopRecording: (send) => _stopRecording(send: send),
             editing: _editingMessageId != null,
+            timerSec: _timerSec,
+            onTimer: () async {
+              final picked = await pickMessageTimer(context, _timerSec);
+              if (picked != null && mounted) {
+                setState(() => _timerSec = picked);
+              }
+            },
+            onClearTimer: () => setState(() => _timerSec = 0),
             replyPreview: _replyTo == null ? null : _preview(_replyTo!),
             onCancelCompose:
                 (_editingMessageId != null || _replyTo != null)
@@ -1793,6 +1807,12 @@ class _MessageInput extends StatelessWidget {
   /// Non-null while editing or replying; clears both.
   final VoidCallback? onCancelCompose;
 
+  /// Decision 222: the next message's timer (0: Off), the button that
+  /// picks it and the ✕ that turns it off.
+  final int timerSec;
+  final VoidCallback onTimer;
+  final VoidCallback onClearTimer;
+
   const _MessageInput({
     required this.controller,
     required this.focusNode,
@@ -1806,6 +1826,9 @@ class _MessageInput extends StatelessWidget {
     this.editing = false,
     this.replyPreview,
     this.onCancelCompose,
+    required this.timerSec,
+    required this.onTimer,
+    required this.onClearTimer,
   });
 
   /// Height of the box and of the round button beside it.
@@ -1886,6 +1909,30 @@ class _MessageInput extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (timerSec > 0 && !editing)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 4, 0, 0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.timer_outlined,
+                          size: 16, color: scheme.primary),
+                      const SizedBox(width: kSpaceSm),
+                      Expanded(
+                        child: Text(
+                          'Disappears ${kMessageTimers[timerSec]} after '
+                          'sending',
+                          style: TextStyle(fontSize: 13, color: muted),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Timer off',
+                        onPressed: onClearTimer,
+                      ),
+                    ],
+                  ),
+                ),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -1919,18 +1966,25 @@ class _MessageInput extends StatelessWidget {
                     color: muted,
                     onPressed: sending ? null : onAttach,
                   ),
-                  // WhatsApp hides the camera once there's text.
+                  // WhatsApp hides the camera once there's text; the
+                  // message's timer takes its place (decision 222).
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: controller,
-                    builder: (context, value, _) =>
-                        value.text.isEmpty && !editing
+                    builder: (context, value, _) => editing
+                        ? const SizedBox(width: kSpaceXs)
+                        : value.text.isEmpty
                             ? IconButton(
                                 icon: const Icon(Icons.photo_camera_outlined),
                                 tooltip: 'Camera',
                                 color: muted,
                                 onPressed: sending ? null : onCamera,
                               )
-                            : const SizedBox(width: kSpaceXs),
+                            : IconButton(
+                                icon: const Icon(Icons.timer_outlined),
+                                tooltip: 'Message timer',
+                                color: timerSec > 0 ? scheme.primary : muted,
+                                onPressed: sending ? null : onTimer,
+                              ),
                   ),
                 ],
               ),
@@ -2348,6 +2402,7 @@ class _MessageBubble extends StatelessWidget {
     ).format(context);
 
     final starred = message.starredAtMs != null && !tombstoned;
+    final timed = message.timerSec != null && !tombstoned;
 
     // Time + tick (+ "edited", + star); white when it sits on a photo.
     Widget metaIn(Color color) => Row(
@@ -2370,6 +2425,11 @@ class _MessageBubble extends StatelessWidget {
             if (starred) ...[
               Icon(Icons.star,
                   size: 12, color: color, semanticLabel: 'Starred'),
+              const SizedBox(width: 3),
+            ],
+            if (timed) ...[
+              Icon(Icons.timer_outlined,
+                  size: 12, color: color, semanticLabel: 'Timed message'),
               const SizedBox(width: 3),
             ],
             Text(timeStr, style: TextStyle(fontSize: 11, color: color)),
@@ -2411,6 +2471,7 @@ class _MessageBubble extends StatelessWidget {
           const WidgetSpan(child: SizedBox(width: 4)),
         ],
         if (starred) const WidgetSpan(child: SizedBox(width: 15)),
+        if (timed) const WidgetSpan(child: SizedBox(width: 15)),
         TextSpan(text: timeStr),
         if (isMine && !tombstoned) const WidgetSpan(child: SizedBox(width: 18)),
       ],

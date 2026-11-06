@@ -333,7 +333,7 @@ class SyncScheduler {
           restPath: op.restPath,
           frameClass: frameClassOf(op),
           wakes: live?.wakes,
-          ttlSec: live?.ttlSec ?? 0,
+          ttlSec: ttlSecOf(op),
         ),
       ],
     );
@@ -570,5 +570,24 @@ FrameClass frameClassOf(OutboundOpRow op) {
     };
   } catch (_) {
     return null;
+  }
+}
+
+/// The `Envelope.ttl_sec` of a queued op (0: the server's 30 days); the
+/// seal binds the same value, so the two must agree. A timed message's
+/// timer (decision 222), a live-location op's keep time (§21).
+int ttlSecOf(OutboundOpRow op) {
+  final live = liveLocationWire(op);
+  if (live != null) return live.ttlSec;
+  if (op.kind != OpKind.chatPayload ||
+      op.payload.isEmpty ||
+      op.payload[0] == 0x45) {
+    return 0;
+  }
+  try {
+    final p = pb.ChatPayload.fromBuffer(op.payload);
+    return p.type == pb.ChatPayloadType.TYPE_MESSAGE_CREATE ? p.timerSec : 0;
+  } catch (_) {
+    return 0;
   }
 }

@@ -757,6 +757,33 @@ void main() {
       );
     });
 
+    // ---- 7c2 ------------------------------------------------------------
+    test('7c2. a timed message: the envelope\'s ttl_sec is its timer, sealed '
+        'with it, and the peer opens it with its timer (decision 222)',
+        () async {
+      await h.chat.sendMessage(
+        channelId: dmChannel,
+        body: 'OTP 424242',
+        authorUserId: h.authService.currentUserId!,
+        timerSec: 300,
+      );
+      await h.waitFor(() =>
+          h.peerSaw(pb.ChatPayloadType.TYPE_MESSAGE_CREATE, body: 'OTP 424242'));
+      expect(
+        h.peerInboxSeen
+            .where((p) => p.body == 'OTP 424242')
+            .map((p) => p.timerSec),
+        [300],
+        reason: 'the peer could open it only if the seal bound the same '
+            'ttl_sec the envelope carries',
+      );
+      final mine = (await h.store.fetchChannelMessages(dmChannel))
+          .firstWhere((m) => m.body == 'OTP 424242');
+      expect(mine.timerSec, 300);
+      expect(h.mock.envelopes.where((e) => e.ttlSec == 300), hasLength(1),
+          reason: 'the server drops a copy still undelivered at its time');
+    });
+
     // ---- 7d -------------------------------------------------------------
     test('7d. delete own: undo inside the window sends nothing; letting it '
         'elapse sends MESSAGE_DELETE', () async {

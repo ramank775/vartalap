@@ -254,7 +254,8 @@ class AppServices {
       clock: Clock.system,
     )
       ..onRead = notifications.cancelChat
-      ..crypto = crypto;
+      ..crypto = crypto
+      ..startExpiry();
     await chatService.loadPrivacy();
     await rebuildInboundReceiverForUser(userId, adoptGroups: adoptGroups);
     // A push wake has seconds; the foreground publishes.
@@ -298,6 +299,7 @@ class AppServices {
     chatService.bindTypingSource(null);
     chatService.bindDeliverySource(null);
     chatService.stopPresence();
+    await chatService.stopExpiry();
     await receiver?.stop();
     await scheduler?.stop();
     scheduler = null;
@@ -417,6 +419,7 @@ class AppServices {
     inboundReceiver = null;
     chatService.bindTypingSource(null);
     chatService.bindDeliverySource(null);
+    await chatService.stopExpiry();
     notifications.bindSource(null);
     if (prev != null) {
       await prev.stop();

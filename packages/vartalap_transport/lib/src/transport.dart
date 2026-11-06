@@ -49,7 +49,8 @@ class FramedOp {
   /// as live location does (a remote on/off wakes, a position does not).
   final bool? wakes;
 
-  /// `Envelope.ttl_sec`; 0 is the server's maximum (30 days).
+  /// `Envelope.ttl_sec`; 0 is the server's maximum (30 days). A timed
+  /// message's timer (decision 222), a live-location op's keep time.
   final int ttlSec;
 
   const FramedOp({

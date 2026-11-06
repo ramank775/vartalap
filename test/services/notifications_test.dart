@@ -118,6 +118,37 @@ void main() {
         reason: 'Android bundles more than one chat under a summary');
   });
 
+  test('decision 222: a chat showing a timed line goes from the shade when '
+      'its time is up, app running or not', () async {
+    await message(_dm, _asha, 'plain');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await store.applyInboundMessage(
+      localUserId: _self,
+      channelId: _trip,
+      opId: 'op-timed',
+      messageId: 'm-timed',
+      senderUserId: _asha,
+      body: 'OTP 1234',
+      contentType: null,
+      attachments: null,
+      forwardSource: null,
+      replyToMessageId: null,
+      clientTimestampMs: now,
+      serverTimestampMs: now,
+      nowMs: now,
+      timerSec: 60,
+    );
+
+    await notifications.showUnread();
+
+    expect(plugin.chats.singleWhere((s) => s.payload == _dm).android!
+        .timeoutAfter, isNull);
+    expect(
+        plugin.chats.singleWhere((s) => s.payload == _trip).android!
+            .timeoutAfter,
+        inInclusiveRange(50000, 60000));
+  });
+
   test('muted chats and deleted lines stay out', () async {
     await message(_dm, _asha, 'one');
     await message(_dm, _asha, 'two');

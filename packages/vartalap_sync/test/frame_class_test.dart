@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/src/sync_scheduler.dart'
-    show frameClassOf, liveLocationWire;
+    show frameClassOf, liveLocationWire, ttlSecOf;
 import 'package:vartalap_transport/src/ws_transport.dart' show opFrame;
 import 'package:vartalap_transport/vartalap_transport.dart';
 
@@ -116,5 +116,33 @@ void main() {
             _payload(pb.ChatPayloadType.TYPE_MESSAGE_CREATE))),
         isNull,
         reason: 'a share itself is a message');
+  });
+
+  test('decision 222: a timed message\'s timer is its envelope ttl_sec; '
+      'ttlSecOf, which the seal binds, agrees with live location too', () {
+    final timed = _op(
+        OpKind.chatPayload,
+        pb.ChatPayload(
+                version: 1,
+                type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+                timerSec: 300)
+            .writeToBuffer());
+    expect(ttlSecOf(timed), 300);
+    expect(
+        ttlSecOf(_op(OpKind.chatPayload,
+            _payload(pb.ChatPayloadType.TYPE_MESSAGE_CREATE))),
+        0);
+    expect(ttlSecOf(_op(OpKind.chatPayload, [0x45, 2, 5, 0x08, 7])), 0);
+    expect(
+        ttlSecOf(_op(OpKind.chatPayload,
+            _payload(pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE))),
+        15 * 60);
+    expect(
+        opFrame(OutboundFrame(
+          kind: OpKind.chatPayload,
+          resourceId: _group,
+          ops: [FramedOp(opId: _opId, payload: const [1], ttlSec: 300)],
+        )).ops.envelopes.single.ttlSec,
+        300);
   });
 }

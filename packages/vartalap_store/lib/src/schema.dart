@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 9;
+const int schemaVersion = 10;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -110,7 +110,11 @@ const List<String> ddl = [
 
     -- Starred messages: when the user starred it, NULL when not.
     -- Local-only, like pin and mute; never leaves the device.
-    starred_at              INTEGER
+    starred_at              INTEGER,
+
+    -- Decision 222: a timed message goes from this phone timer_sec
+    -- after its server_timestamp_ms. NULL: not timed.
+    timer_sec               INTEGER
   )
   ''',
   '''
@@ -127,6 +131,11 @@ const List<String> ddl = [
   CREATE INDEX IF NOT EXISTS idx_messages_tombstone_pending
     ON messages(tombstone_pending_until)
     WHERE tombstone_pending_until IS NOT NULL
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_messages_timed
+    ON messages(server_timestamp_ms)
+    WHERE timer_sec IS NOT NULL
   ''',
   '''
   CREATE INDEX IF NOT EXISTS idx_messages_starred
@@ -353,4 +362,10 @@ const List<String> migrateV4ToV5 = [
 const List<String> migrateV5ToV6 = [
   'ALTER TABLE channel_members ADD COLUMN delivered_up_to INTEGER',
   'ALTER TABLE channel_members ADD COLUMN read_up_to INTEGER',
+];
+
+/// v9 → v10 (decision 222): `messages.timer_sec`, timed messages. Run
+/// before [ddl], which then creates its index.
+const List<String> migrateV9ToV10 = [
+  'ALTER TABLE messages ADD COLUMN timer_sec INTEGER',
 ];

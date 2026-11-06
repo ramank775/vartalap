@@ -497,6 +497,7 @@ class InboundReceiver {
           clientTimestampMs: env.clientTimestampMs,
           serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
+          timerSec: chat.timerSec == 0 ? null : chat.timerSec,
         );
         if (env.senderUserId != localUserId && !_peerMessageCtrl.isClosed) {
           _peerMessageCtrl.add(channelId);

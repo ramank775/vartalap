@@ -18,7 +18,7 @@ void main() {
   tearDown(() => store.close());
 
   Future<void> inbound(String id, String author, String body, int at,
-          {String? opId}) =>
+          {String? opId, int? timerSec, int? nowMs}) =>
       store.applyInboundMessage(
         localUserId: 'u-self',
         channelId: 'c-1',
@@ -32,7 +32,8 @@ void main() {
         replyToMessageId: null,
         clientTimestampMs: at,
         serverTimestampMs: at,
-        nowMs: at,
+        nowMs: nowMs ?? at,
+        timerSec: timerSec,
       );
 
   group('delete for everyone within 5 minutes (SYNC_PROTOCOL §20.1)', () {
@@ -222,6 +223,122 @@ void main() {
       final m = (await store.fetchMessage('m-1'))!;
       expect([m.body, m.isEdited, m.lastEditMs], ['v0', false, null]);
       expect(await versions(), ['v0@1000']);
+    });
+  });
+
+  group('timed messages', () {
+    test(
+        'a timed message goes at its server time plus its timer, and an '
+        'unread one stops counting', () async {
+      await inbound('m-0', 'u-peer', 'hello', 500);
+      await store.markChannelRead('c-1', 600);
+      await inbound('m-1', 'u-peer', 'OTP 1234', 1000, timerSec: 60);
+      final m = (await store.fetchMessage('m-1'))!;
+      expect([m.timerSec, m.expiresAtMs], [60, 61000]);
+      expect(await store.nextExpiryMs(), 61000);
+      expect((await store.fetchChannelList()).single.unreadCount, 1);
+
+      expect(
+          await store.deleteExpiredMessages(
+              nowMs: 60999, localUserId: 'u-self'),
+          isEmpty);
+      expect(
+          await store.deleteExpiredMessages(
+              nowMs: 61000, localUserId: 'u-self'),
+          {'c-1'});
+      expect(await store.fetchMessage('m-1'), isNull);
+      final chat = (await store.fetchChannelList()).single;
+      expect(chat.unreadCount, 0);
+      expect(chat.lastMessagePreview, 'hello');
+      expect(await store.nextExpiryMs(), isNull);
+    });
+
+    test('one whose time was up before it arrived is never stored', () async {
+      await inbound('m-1', 'u-peer', 'OTP 1234', 1000,
+          timerSec: 60, nowMs: 61000);
+      expect(await store.fetchMessage('m-1'), isNull);
+      expect(await store.hasSeenOpId('c-1', 'op-m-1'), isTrue);
+    });
+
+    test(
+        'edits and reactions to one whose time is up are ignored, even '
+        'before the sweep', () async {
+      await inbound('m-1', 'u-peer', 'OTP 1234', 1000, timerSec: 60);
+      expect(
+          await store.applyInboundMessageUpdate(
+              channelId: 'c-1',
+              opId: 'op-edit',
+              messageId: 'm-1',
+              senderUserId: 'u-peer',
+              body: 'OTP 9999',
+              contentType: null,
+              attachments: null,
+              serverTimestampMs: 61500,
+              nowMs: 61500),
+          isFalse);
+      expect(
+          await store.applyInboundReactionAdd(
+              channelId: 'c-1',
+              opId: 'op-react',
+              messageId: 'm-1',
+              senderUserId: 'u-other',
+              emoji: '👍',
+              serverTimestampMs: 61500,
+              nowMs: 61500),
+          isFalse);
+      expect((await store.fetchMessage('m-1'))!.body, 'OTP 1234');
+    });
+
+    test('our own timed message starts its timer when the server takes it',
+        () async {
+      await store.enqueueLocalMessage(
+        message: const MessageRow(
+          messageId: 'm-own',
+          channelId: 'c-1',
+          authorUserId: 'u-self',
+          body: 'code 42',
+          contentType: null,
+          replyToMessageId: null,
+          clientTimestampMs: 1000,
+          serverTimestampMs: null,
+          state: MessageState.pending,
+          stateUpdatedAt: 1000,
+          isEdited: false,
+          lastEditMs: null,
+          tombstoned: false,
+          tombstonePendingUntil: null,
+          timerSec: 300,
+        ),
+        op: const OutboundOpRow(
+          opId: 'op-own',
+          transport: OpTransport.ws,
+          kind: OpKind.chatPayload,
+          restMethod: null,
+          restPath: null,
+          resourceId: 'c-1',
+          payload: [1],
+          status: OpStatus.pending,
+          attempts: 0,
+          nextRetryAt: 1000,
+          dispatchedAt: null,
+          lastError: null,
+          acknowledgedAt: null,
+          createdAt: 1000,
+          targetMessageId: 'm-own',
+          targetChannelId: 'c-1',
+        ),
+        nowMs: 1000,
+      );
+      expect(await store.nextExpiryMs(), isNull,
+          reason: 'not sent yet: nothing to count from');
+      await store.applyAckSuccess(
+          opId: 'op-own',
+          messageId: 'm-own',
+          serverTimestampMs: 5000,
+          nowMs: 5000);
+      expect((await store.fetchMessage('m-own'))!.expiresAtMs, 305000);
+      await store.deleteExpiredMessages(nowMs: 305000, localUserId: 'u-self');
+      expect(await store.fetchMessage('m-own'), isNull);
     });
   });
 

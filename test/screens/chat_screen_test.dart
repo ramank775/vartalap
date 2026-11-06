@@ -140,6 +140,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
+  /// Pumps until [done]: a store write's re-emit crosses sqflite's
+  /// isolate, slow on a busy machine.
+  Future<void> until(
+      WidgetTester tester, Future<bool> Function() done) async {
+    for (var i = 0; i < 25 && !await done(); i++) {
+      await settle(tester);
+    }
+  }
+
+  Future<void> untilGone(WidgetTester tester, Finder finder) =>
+      until(tester, () async => finder.evaluate().isEmpty);
+
   /// The selection's Delete, then the dialog's "Delete for everyone".
   Future<void> deleteForEveryone(WidgetTester tester) async {
     await tester.tap(find.byTooltip('Delete'));
@@ -484,7 +496,7 @@ void main() {
     expect(find.text('Delete for everyone'), findsNothing);
 
     await tester.tap(find.text('Delete for me'));
-    await settle(tester);
+    await untilGone(tester, find.textContaining('sent long ago'));
     expect(find.textContaining('sent long ago'), findsNothing);
     expect(await q(tester, () => store.fetchMessage(mMine2)), isNull);
     expect((await ops(tester)).length, opsBefore);
@@ -498,7 +510,7 @@ void main() {
     await tester.tap(find.byTooltip('Delete'));
     await settle(tester);
     await tester.tap(find.text('Delete for me'));
-    await settle(tester);
+    await untilGone(tester, find.textContaining('their message'));
     expect(await q(tester, () => store.fetchMessage(mPeer)), isNull);
     expect(find.textContaining('their message'), findsNothing);
   });
@@ -528,6 +540,35 @@ void main() {
     expect(current.dy, lessThan(original.dy));
     expect(find.textContaining('Current'), findsOneWidget);
     expect(find.textContaining('Original'), findsOneWidget);
+  });
+
+  testWidgets('decision 222: the composer\'s timer sends one timed message, '
+      'then turns itself off', (tester) async {
+    await pumpChat(tester);
+    expect(find.byTooltip('Message timer'), findsNothing,
+        reason: 'the camera has the spot while there is nothing typed');
+    await tester.enterText(find.byType(TextField), 'OTP 1234');
+    await settle(tester);
+    await tester.tap(find.byTooltip('Message timer'));
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('1 day'), findsOneWidget);
+    await tester.tap(find.text('5 minutes'));
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Disappears 5 minutes after sending'), findsOneWidget);
+
+    final opsBefore = (await ops(tester)).length;
+    await tester.tap(find.byIcon(Icons.send_rounded));
+    await until(tester, () async => (await ops(tester)).length > opsBefore);
+    await until(tester,
+        () async => find.byIcon(Icons.timer_outlined).evaluate().length == 1);
+    final sent = (await ops(tester)).skip(opsBefore).single;
+    expect(_payload(sent).timerSec, 300);
+    expect(find.text('Disappears 5 minutes after sending'), findsNothing);
+    expect(find.byIcon(Icons.timer_outlined), findsOneWidget,
+        reason: 'the bubble wears the timer; the composer is back to the '
+            'camera');
   });
 
   testWidgets('an inbound image attachment renders inline; any other mime '
