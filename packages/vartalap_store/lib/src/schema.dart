@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 8;
+const int schemaVersion = 9;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -296,7 +296,7 @@ const List<String> ddl = [
 
   // Decision 223 — labels the user tags contacts with. Private: they
   // never leave the phone; a timeline post's audience is resolved from
-  // them here. v8 adds these through [ddl]; [seedLabels] fills in the
+  // them here. v9 adds these through [ddl]; [seedLabels] fills in the
   // defaults once.
   '''
   CREATE TABLE IF NOT EXISTS labels (
@@ -313,7 +313,7 @@ const List<String> ddl = [
   ''',
 ];
 
-/// Decision 223: the labels a new database, or one upgraded to v8,
+/// Decision 223: the labels a new database, or one upgraded to v9,
 /// starts with. Once only: the user may rename or delete them.
 const List<String> seedLabels = [
   "INSERT INTO labels (name) VALUES ('Family'), ('Friends'), ('Close')",

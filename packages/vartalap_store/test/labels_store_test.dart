@@ -1,4 +1,4 @@
-/// Labels on the phone (decision 223): the v8 migration, label upkeep,
+/// Labels on the phone (decision 223): the v9 migration, label upkeep,
 /// and who a timeline post to some labels reaches.
 library;
 
@@ -37,23 +37,23 @@ void main() {
         ['Family', 'Friends', 'Close']);
   });
 
-  test('a v7 database migrates to v8: rows kept, the defaults seeded once',
+  test('a v8 database migrates to v9: rows kept, the defaults seeded once',
       () async {
-    final dir = await Directory.systemTemp.createTemp('vartalap_v7');
+    final dir = await Directory.systemTemp.createTemp('vartalap_v8');
     addTearDown(() => dir.deleteSync(recursive: true));
-    final path = '${dir.path}/v7.db';
+    final path = '${dir.path}/v8.db';
     sqfliteFfiInit();
-    final v7 = await databaseFactoryFfi.openDatabase(path,
+    final v8 = await databaseFactoryFfi.openDatabase(path,
         options: OpenDatabaseOptions(
-          version: 7,
+          version: 8,
           onCreate: (db, _) => db.execute('''
             CREATE TABLE contacts (user_id TEXT PRIMARY KEY, username TEXT,
               display_name TEXT, avatar_url TEXT, status_text TEXT,
               phone_hash TEXT, contact_book_name TEXT,
               last_refreshed_ms INTEGER NOT NULL)'''),
         ));
-    await v7.insert('contacts', {'user_id': _asha, 'last_refreshed_ms': 1});
-    await v7.close();
+    await v8.insert('contacts', {'user_id': _asha, 'last_refreshed_ms': 1});
+    await v8.close();
 
     var store = await ChatStore.open(path: path);
     expect((await store.fetchContacts()).single.userId, _asha);

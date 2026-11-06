@@ -169,7 +169,7 @@ class ChatStore {
           for (final stmt in ddl) {
             await db.execute(stmt);
           }
-          if (from < 8) {
+          if (from < 9) {
             for (final stmt in seedLabels) {
               await db.execute(stmt);
             }
