@@ -656,7 +656,7 @@ class InboundReceiver {
         // Typing should never arrive on the persistent path — it's
         // routed via the ephemeral flag. If we see it here a peer/server
         // didn't set the flag; treat as no-op rather than persisting.
-      // Presence is ephemeral too (SYNC_PROTOCOL §21); ChatService reads it.
+      // Presence is ephemeral too (SYNC_PROTOCOL §22); ChatService reads it.
       case pb.ServerEventPayload_Body.presence:
       case pb.ServerEventPayload_Body.notSet:
         _logServerEventFallback(env, sep);

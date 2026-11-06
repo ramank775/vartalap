@@ -369,7 +369,7 @@ class AuthService {
   }
 
   /// Who sees this account's last seen and online: `everyone`,
-  /// `contacts` or `nobody` (SYNC_PROTOCOL §21). The server keeps it and
+  /// `contacts` or `nobody` (SYNC_PROTOCOL §22). The server keeps it and
   /// enforces it, so it is read from there. Throws when offline.
   Future<String> presenceSetting() async =>
       (await _client.getOwnProfile())['presence'] as String? ?? 'everyone';

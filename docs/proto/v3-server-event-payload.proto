@@ -87,7 +87,7 @@ message ServerEventPayload {
     UsernameChanged username_changed = 16;
     MessageStateChanged message_state_changed = 17;
     Typing typing = 18;
-    // 140-149: presence (decision 223, track F; SYNC_PROTOCOL §21).
+    // 140-149: presence (decision 223, track F; SYNC_PROTOCOL §22).
     Presence presence = 140;
   }
 }
@@ -318,7 +318,7 @@ message MessageStateChanged {
 }
 
 // EPHEMERAL, frame class 8 PRESENCE (decision 223, track F; SYNC_PROTOCOL
-// §21). Never stored, never pushed to a phone that is offline.
+// §22). Never stored, never pushed to a phone that is offline.
 //
 // Server to client: whether `user_id` is online and when it was last
 // seen, as the owner's "Last seen and online" setting allows this viewer

@@ -29,7 +29,7 @@ class PresencePrivacyRows extends StatefulWidget {
 }
 
 class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
-  /// Null while loading; the server holds it (SYNC_PROTOCOL §21).
+  /// Null while loading; the server holds it (SYNC_PROTOCOL §22).
   String? _presence;
   bool _loadFailed = false;
 

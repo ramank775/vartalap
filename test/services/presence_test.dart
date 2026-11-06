@@ -1,4 +1,4 @@
-/// Decision 223, track F: last seen and online (SYNC_PROTOCOL §21) and
+/// Decision 223, track F: last seen and online (SYNC_PROTOCOL §22) and
 /// the two privacy switches, as ChatService handles them.
 library vartalap.services.presence_test;
 

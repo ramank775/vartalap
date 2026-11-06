@@ -106,7 +106,7 @@ Uint8List _encodeReceipt(pb.ChatPayloadType type, int marker,
       groupId: groupId == null ? null : uuidBytes(groupId),
     ).writeToBuffer();
 
-/// A presence op's payload (SYNC_PROTOCOL §21): whether the app is on
+/// A presence op's payload (SYNC_PROTOCOL §22): whether the app is on
 /// screen, as the `0x53` `Presence` the server reads.
 Uint8List _encodePresence(bool onScreen) => Uint8List.fromList([
       0x53,
@@ -118,7 +118,7 @@ Uint8List _encodePresence(bool onScreen) => Uint8List.fromList([
     ]);
 
 /// A DM peer's presence as the server lets this phone see it
-/// (SYNC_PROTOCOL §21): online, else when last seen (ms since epoch).
+/// (SYNC_PROTOCOL §22): online, else when last seen (ms since epoch).
 typedef PeerPresence = ({bool online, int lastSeenMs});
 
 /// SharedPreferences keys of the Settings › Privacy switches (decision 223).
@@ -287,7 +287,7 @@ class ChatService with TimelineService {
         .setBool(kTypingIndicatorPrefKey, on);
   }
 
-  // ---- Presence (SYNC_PROTOCOL §21) -------------------------------------
+  // ---- Presence (SYNC_PROTOCOL §22) -------------------------------------
 
   /// The watched DM peer's presence as the server lets us see it; null:
   /// show nothing.

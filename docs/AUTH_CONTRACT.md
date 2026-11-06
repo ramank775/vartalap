@@ -675,7 +675,7 @@ Fetch the authenticated user's profile.
 ```
 
 `presence` is who sees the user's last seen and online
-(`everyone`, the default, `contacts` or `nobody`; SYNC_PROTOCOL §21).
+(`everyone`, the default, `contacts` or `nobody`; SYNC_PROTOCOL §22).
 
 `username` is `null` only if the user has not yet completed the
 mandatory username-pick step (§2.4) — a `null` here is exactly the
@@ -791,7 +791,7 @@ starts the 90-day clock.
 free-form. `null` clears them. They are NOT subject to the
 username rate limit; they share the §10.6 "other profile fields"
 budget (50/hour). `presence` (`everyone` | `contacts` | `nobody`,
-SYNC_PROTOCOL §21) shares that budget; any other value is 400, and
+SYNC_PROTOCOL §22) shares that budget; any other value is 400, and
 whoever watches the user's presence sees the change at once.
 
 ### 4.6 `POST /v3.0/auth/session/revoke`
@@ -1395,7 +1395,7 @@ effort and logged on failure; the account is gone once step 1 commits):
    other personal field is erased (`phone`, `phoneHash`, `displayName`,
    `avatarUrl`, `statusText`, `presence`, `lastSeenAt`,
    `usernameKeyHash`, `usernameChangedAt`, `createdAt`), and the DM
-   contacts presence keeps (SYNC_PROTOCOL §21) go both ways. Only
+   contacts presence keeps (SYNC_PROTOCOL §22) go both ways. Only
    `user_id` and `username` remain, both reserved forever (8.3). Every lookup skips the row, so the phone is free for
    a fresh signup with a new `user_id` and `username: null`.
 2. Every session is revoked and every device's published keys are

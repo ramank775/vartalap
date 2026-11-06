@@ -365,7 +365,7 @@ void main() {
 
       // ---- 5b -----------------------------------------------------------
       test('5b. last seen and online between A and B, as each allows '
-          '(decision 223, SYNC_PROTOCOL §21)', () async {
+          '(decision 223, SYNC_PROTOCOL §22)', () async {
         // Both apps are "on screen" (ChatService's default) and told the
         // server so when their sockets opened.
         await a.chat.watchPresence(dmChannel);

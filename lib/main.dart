@@ -933,7 +933,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     final onScreen = state == AppLifecycleState.resumed ||
         state == AppLifecycleState.inactive;
     _markOnScreen(onScreen);
-    // last seen and online (SYNC_PROTOCOL §21) follow the same screen
+    // last seen and online (SYNC_PROTOCOL §22) follow the same screen
     if (services.store != null) services.chatService.setOnScreen(onScreen);
     if (state == AppLifecycleState.resumed) {
       // the user may have changed it in Settings meanwhile

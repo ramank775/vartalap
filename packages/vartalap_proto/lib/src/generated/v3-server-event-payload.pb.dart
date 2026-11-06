@@ -294,7 +294,7 @@ class ServerEventPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(18)
   Typing ensureTyping() => $_ensure(10);
 
-  /// 140-149: presence (decision 223, track F; SYNC_PROTOCOL §21).
+  /// 140-149: presence (decision 223, track F; SYNC_PROTOCOL §22).
   @$pb.TagNumber(140)
   Presence get presence => $_getN(11);
   @$pb.TagNumber(140)
@@ -1201,7 +1201,7 @@ class MessageStateChanged extends $pb.GeneratedMessage {
 }
 
 /// EPHEMERAL, frame class 8 PRESENCE (decision 223, track F; SYNC_PROTOCOL
-/// §21). Never stored, never pushed to a phone that is offline.
+/// §22). Never stored, never pushed to a phone that is offline.
 ///
 /// Server to client: whether `user_id` is online and when it was last
 /// seen, as the owner's "Last seen and online" setting allows this viewer

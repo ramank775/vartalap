@@ -1,4 +1,4 @@
-/// The DM header's second line (SYNC_PROTOCOL §21): "typing…", else
+/// The DM header's second line (SYNC_PROTOCOL §22): "typing…", else
 /// "online" or "last seen today at 10:42", else nothing, as WhatsApp.
 library vartalap.screens.chat.presence_line;
 
