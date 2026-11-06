@@ -363,6 +363,72 @@ void main() {
         );
       });
 
+      // ---- 5b -----------------------------------------------------------
+      test('5b. last seen and online between A and B, as each allows '
+          '(decision 223, SYNC_PROTOCOL §21)', () async {
+        // Both apps are "on screen" (ChatService's default) and told the
+        // server so when their sockets opened.
+        await a.chat.watchPresence(dmChannel);
+        await a.waitFor(() => a.chat.presence.value?.online == true);
+        expect(a.chat.presence.value?.online, isTrue, reason: 'B is online');
+
+        final left = DateTime.now().millisecondsSinceEpoch;
+        b.chat.setOnScreen(false);
+        await a.waitFor(() => a.chat.presence.value?.online == false);
+        final seen = a.chat.presence.value;
+        expect(seen?.online, isFalse, reason: 'B put the app away');
+        expect(seen!.lastSeenMs, closeTo(left, 5000),
+            reason: 'last seen is when B left the app');
+
+        b.chat.setOnScreen(true);
+        await a.waitFor(() => a.chat.presence.value?.online == true);
+        expect(a.chat.presence.value?.online, isTrue);
+        await b.goOffline();
+        await a.waitFor(() => a.chat.presence.value?.online == false);
+        expect(a.chat.presence.value?.online, isFalse,
+            reason: 'B closed the socket');
+        await b.goOnline();
+        await a.waitFor(() => a.chat.presence.value?.online == true);
+
+        // B hides it: A is told at once, and hears nothing after.
+        await b.authService.setPresenceSetting('nobody');
+        await a.waitFor(() => a.chat.presence.value == null);
+        expect(a.chat.presence.value, isNull);
+        b.chat.setOnScreen(false);
+        await a.pump();
+        await a.pump();
+        expect(a.chat.presence.value, isNull, reason: 'not even the change');
+
+        // Reciprocity: A hides hers, so cannot see B's.
+        await b.authService.setPresenceSetting('everyone');
+        b.chat.setOnScreen(true);
+        await a.authService.setPresenceSetting('nobody');
+        await a.chat.watchPresence(dmChannel);
+        await a.pump();
+        await a.pump();
+        expect(a.chat.presence.value, isNull,
+            reason: 'who shares none sees none');
+
+        // My contacts: each must have written to the other in their DM.
+        await a.authService.setPresenceSetting('everyone');
+        await b.authService.setPresenceSetting('contacts');
+        await a.chat.watchPresence(dmChannel);
+        await a.pump();
+        await a.pump();
+        expect(a.chat.presence.value, isNull,
+            reason: 'A wrote to B, but B never wrote back');
+        await b.sendAndSettle(dmChannel, 'B writes back');
+        await a.waitForAsync(() async {
+          await a.chat.watchPresence(dmChannel);
+          await a.pump();
+          return a.chat.presence.value?.online == true;
+        });
+        expect(a.chat.presence.value?.online, isTrue,
+            reason: 'now they are contacts');
+        await b.authService.setPresenceSetting('everyone');
+        await a.chat.watchPresence(null);
+      });
+
       // ---- 6 ------------------------------------------------------------
       test('6. A creates a group with B → B sees it', () async {
         groupChannelId = await a.chat.createGroup(
