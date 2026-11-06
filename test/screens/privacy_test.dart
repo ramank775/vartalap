@@ -1,4 +1,4 @@
-/// Decision 223, track F: Settings › Privacy and the DM header's
+/// Decision 223, track F: Settings › Privacy's presence rows and the DM header's
 /// "online" / "last seen" line.
 library vartalap.screens.privacy_test;
 
@@ -66,8 +66,8 @@ void main() {
 
   /// Real time for the store, then a frame.
   Future<void> settle(WidgetTester tester) async {
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pump();
   }
 
@@ -110,8 +110,8 @@ void main() {
       expect(presenceText(context, null), isNull);
       expect(presenceText(context, (online: false, lastSeenMs: 0)), isNull);
       expect(at(DateTime(2026, 11, 6, 10, 42)), 'last seen today at 10:42 AM');
-      expect(at(DateTime(2026, 11, 5, 22, 5)),
-          'last seen yesterday at 10:05 PM');
+      expect(
+          at(DateTime(2026, 11, 5, 22, 5)), 'last seen yesterday at 10:05 PM');
       expect(at(DateTime(2026, 11, 2, 9, 0)), 'last seen Monday at 9:00 AM');
       expect(at(DateTime(2026, 10, 12, 9, 0)), 'last seen Oct 12, 2026');
     });
@@ -153,7 +153,11 @@ void main() {
     await openChat(tester);
     final auth = _FakeAuthService();
     await tester.pumpWidget(MaterialApp(
-      home: PrivacyPage(authService: auth, chatService: chat),
+      home: Scaffold(
+        body: ListView(children: [
+          PresencePrivacyRows(authService: auth, chatService: chat),
+        ]),
+      ),
     ));
     await tester.pumpAndSettle();
     expect(find.text('Everyone'), findsOneWidget);
@@ -180,7 +184,12 @@ void main() {
   testWidgets('Privacy: the read receipts and typing switches', (tester) async {
     await openChat(tester);
     await tester.pumpWidget(MaterialApp(
-      home: PrivacyPage(authService: _FakeAuthService(), chatService: chat),
+      home: Scaffold(
+        body: ListView(children: [
+          PresencePrivacyRows(
+              authService: _FakeAuthService(), chatService: chat),
+        ]),
+      ),
     ));
     await tester.pumpAndSettle();
     expect(find.textContaining('Read receipts are always sent for group'),
@@ -194,8 +203,8 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getBool(kReadReceiptsPrefKey), isFalse);
     expect(prefs.getBool(kTypingIndicatorPrefKey), isFalse);
-    final switches = tester.widgetList<SwitchListTile>(
-        find.byType(SwitchListTile));
+    final switches =
+        tester.widgetList<SwitchListTile>(find.byType(SwitchListTile));
     expect(switches.map((s) => s.value), [false, false]);
   });
 }

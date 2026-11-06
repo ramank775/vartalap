@@ -58,13 +58,11 @@ class _PresenceLineState extends State<PresenceLine> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      ValueListenableBuilder<PeerPresence?>(
+  Widget build(BuildContext context) => ValueListenableBuilder<PeerPresence?>(
         valueListenable: widget.chatService.presence,
         builder: (context, presence, _) {
-          final text = widget.typing
-              ? 'typing…'
-              : presenceText(context, presence);
+          final text =
+              widget.typing ? 'typing…' : presenceText(context, presence);
           if (text == null) return const SizedBox.shrink();
           return Text(
             text,

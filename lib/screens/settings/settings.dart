@@ -144,19 +144,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: 'Log out, delete account',
             onTap: () => _open(_AccountPage(authService: auth)),
           ),
-          if (chat != null)
-            _Row(
-              icon: Icons.lock_outline,
-              title: 'Privacy',
-              subtitle: 'Last seen and online, read receipts',
-              onTap: () =>
-                  _open(PrivacyPage(authService: auth, chatService: chat)),
-            ),
           _Row(
             icon: Icons.lock_outline,
             title: 'Privacy',
-            subtitle: 'Who can find me by my number',
-            onTap: () => _open(_PrivacyPage(authService: auth)),
+            subtitle: chat == null
+                ? 'Who can find me by my number'
+                : 'Find me by number, last seen, read receipts',
+            onTap: () =>
+                _open(_PrivacyPage(authService: auth, chatService: chat)),
           ),
           _Row(
             icon: Icons.chat_outlined,
@@ -258,7 +253,10 @@ class _Page extends StatelessWidget {
 
 class _PrivacyPage extends StatefulWidget {
   final AuthService authService;
-  const _PrivacyPage({required this.authService});
+
+  /// Last seen, read receipts and typing (track F) need it.
+  final ChatService? chatService;
+  const _PrivacyPage({required this.authService, this.chatService});
 
   @override
   State<_PrivacyPage> createState() => _PrivacyPageState();
@@ -290,6 +288,9 @@ class _PrivacyPageState extends State<_PrivacyPage> {
               if (mounted) setState(() {});
             },
           ),
+          if (widget.chatService case final chat?)
+            PresencePrivacyRows(
+                authService: widget.authService, chatService: chat),
         ],
       );
 }

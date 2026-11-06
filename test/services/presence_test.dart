@@ -112,8 +112,7 @@ void main() {
     expect(chat.presence.value, isNull, reason: 'the server says nothing');
 
     await push(presenceFrame(bob, online: true, ephemeral: false));
-    await push(presenceFrame(bob,
-        online: true, flags: FrameClass.event.flags));
+    await push(presenceFrame(bob, online: true, flags: FrameClass.event.flags));
     expect(chat.presence.value, isNull, reason: 'only an ephemeral PRESENCE');
 
     // another chat took over; the first one's close leaves it alone
@@ -159,16 +158,15 @@ void main() {
 
   test('both switches are on by default and stay as set', () async {
     await chat.loadPrivacy();
-    expect([chat.readReceipts.value, chat.typingIndicator.value],
-        [true, true]);
+    expect([chat.readReceipts.value, chat.typingIndicator.value], [true, true]);
     await chat.setReadReceipts(false);
     await chat.setTypingIndicator(false);
     chat
       ..readReceipts.value = true
       ..typingIndicator.value = true;
     await chat.loadPrivacy();
-    expect([chat.readReceipts.value, chat.typingIndicator.value],
-        [false, false]);
+    expect(
+        [chat.readReceipts.value, chat.typingIndicator.value], [false, false]);
   });
 }
 
