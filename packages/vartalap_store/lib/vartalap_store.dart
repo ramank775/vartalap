@@ -18,6 +18,8 @@ export 'src/types.dart'
         ChannelListEntry,
         ChannelMemberRow,
         ContactRow,
+        kDeleteForEveryoneGrace,
+        kDeleteForEveryoneWindow,
         kUndecryptedType,
         kVoiceNoteType,
         MessageReaction,
@@ -28,4 +30,5 @@ export 'src/types.dart'
         OpTransport,
         OutboundOpRow,
         StarredMessage,
-        undecryptedMessageId;
+        undecryptedMessageId,
+        uuid7Ms;

@@ -1883,3 +1883,36 @@ the point.
 | 14 | Recipient-enforced authorization | Chat-content authorship, message existence, reaction state checked client-side from local event log | Server has no state to enforce against; recipient's local log is authoritative. |
 | 15 | First-byte payload discrimination | `payload[0] == 0x53` → `ServerEventPayload`; otherwise `ChatPayload` | Lets server-emitted envelopes share the same `Envelope` proto without needing a separate WsType. |
 | 16 | Ordering is client-side | Clients order by `(server_timestamp_ms, op_id)`; no `resource_seq`, no `delivery_sequence`, no `out_of_order`; early ops wait for their message (§6b) | Server stays stateless (DECISIONS 127): nothing to lose on a restart, nothing to reset. |
+
+---
+
+## 20. Message features (decision 222)
+
+Client-only rules over the existing payload: the server relays them
+like any other op and knows nothing of them.
+
+### 20.1 Delete for everyone within 5 minutes; delete for me
+
+A `TYPE_MESSAGE_DELETE` counts only if it was made within 5 minutes of
+the message being sent. "Made" is the delete op's UUIDv7 time (for a
+re-send, decision 188, the op it stands for); "sent" is the message's
+`server_timestamp_ms`. A receiving phone applies a delete iff
+
+    made - sent <= 5 min + 1 min grace
+
+and otherwise drops it silently (still recording `op_id_seen`). The
+delete's own server time plays no part, so a delete pressed at 4:59
+while offline still works when it arrives hours later.
+
+The sender offers "Delete for everyone" only on its own, not deleted
+messages that are either not acknowledged yet (no server time: the
+delete always counts, being made before the stamp) or acknowledged less
+than 5 minutes ago by its own clock. Both sides compare the same two
+numbers, the sender's clock against the server's stamp, so a sender
+whose clock runs off the server's only shifts its own window; the grace
+covers a dialog left open and the 5-second Undo (§9): a delete
+committed after its Undo window (the app was killed during it) carries
+the window's end in its op id, not the commit time.
+
+"Delete for me" removes messages from this phone only, any message, any
+age; nothing is sent.

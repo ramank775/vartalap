@@ -1063,10 +1063,14 @@ class ChatStore {
 
   /// §5.4 — TYPE_MESSAGE_DELETE apply with §6a.4 authorship gate.
   ///
-  /// Gate: the row is authored by [senderUserId]. Gate miss → silent
-  /// drop; `op_id_seen` still written. A row we don't hold yet parks the
-  /// delete, so the message lands already tombstoned (§6b). Returns
-  /// `true` iff the tombstone applied now.
+  /// Gate: the row is authored by [senderUserId], and the delete was
+  /// made within [kDeleteForEveryoneWindow] (plus [kDeleteForEveryoneGrace])
+  /// of the message's server time (decision 222, SYNC_PROTOCOL §20.1).
+  /// [madeAtMs] is when the sender made the delete: its op id's UUIDv7
+  /// time, or the op a re-send stands for; null reads it from [opId].
+  /// Gate miss → silent drop; `op_id_seen` still written. A row we don't
+  /// hold yet parks the delete, so the message lands already tombstoned
+  /// (§6b). Returns `true` iff the tombstone applied now.
   Future<bool> applyInboundMessageDelete({
     required String channelId,
     required String opId,
@@ -1074,6 +1078,7 @@ class ChatStore {
     required String senderUserId,
     required int serverTimestampMs,
     required int nowMs,
+    int? madeAtMs,
   }) =>
       _applyInboundTargeted({
         'op_id': opId,
@@ -1082,6 +1087,7 @@ class ChatStore {
         'kind': 'delete',
         'sender_user_id': senderUserId,
         'server_timestamp_ms': serverTimestampMs,
+        if (madeAtMs != null) 'made_at_ms': madeAtMs,
       }, nowMs);
 
   /// §5.4 — TYPE_REACTION_ADD apply. Target must not be tombstoned;
@@ -1163,13 +1169,16 @@ class ChatStore {
     final sender = op['sender_user_id'] as String;
     final rows = await txn.query(
       'messages',
-      columns: const ['author_user_id', 'tombstoned'],
+      columns: const ['author_user_id', 'tombstoned', 'server_timestamp_ms'],
       where: 'message_id = ?',
       whereArgs: [messageId],
       limit: 1,
     );
     if (rows.isEmpty) {
-      await _park(txn, op, nowMs);
+      // ponytail: a parked delete is judged by its own op id's time; a
+      // re-send (decision 188) that also beat its message loses the
+      // original's. Add a pending_ops column if that pair ever matters.
+      await _park(txn, {...op}..remove('made_at_ms'), nowMs);
       return false;
     }
     final byAuthor = rows.single['author_user_id'] == sender;
@@ -1192,6 +1201,16 @@ class ChatStore {
         );
       case 'delete':
         if (!byAuthor) return false;
+        final made =
+            op['made_at_ms'] as int? ?? uuid7Ms(op['op_id'] as String);
+        final sent = rows.single['server_timestamp_ms'] as int?;
+        if (made != null &&
+            sent != null &&
+            made - sent >
+                (kDeleteForEveryoneWindow + kDeleteForEveryoneGrace)
+                    .inMilliseconds) {
+          return false;
+        }
         await txn.update(
           'messages',
           {
@@ -2494,6 +2513,35 @@ class ChatStore {
       whereArgs: [channelId, nowMs],
     );
     return rows.map((r) => r['message_id'] as String).toList();
+  }
+
+  /// "Delete for me" (decision 222): the rows go from this phone only and
+  /// nothing is sent; their reactions go with them. Each chat's preview
+  /// moves to the message before; a chat left with none keeps pointing at
+  /// the erased row, so it stays listed as after Clear chat.
+  Future<void> deleteMessagesLocal(List<String> messageIds) async {
+    if (messageIds.isEmpty) return;
+    final marks = List.filled(messageIds.length, '?').join(', ');
+    await db.transaction((txn) async {
+      final channels = await txn.query('messages',
+          distinct: true,
+          columns: const ['channel_id'],
+          where: 'message_id IN ($marks)',
+          whereArgs: messageIds);
+      await txn.delete('messages',
+          where: 'message_id IN ($marks)', whereArgs: messageIds);
+      for (final c in channels) {
+        await txn.rawUpdate('''
+          UPDATE channels
+             SET last_message_id = COALESCE(
+                   (SELECT message_id FROM messages
+                     WHERE channel_id = channels.channel_id
+                     ORDER BY $_newestFirst LIMIT 1),
+                   last_message_id)
+           WHERE channel_id = ?''', [c['channel_id']]);
+      }
+    });
+    _notify(const {'messages', 'reactions', 'channels'});
   }
 
   /// Optimistic local reaction toggle plus its outbound op, in one

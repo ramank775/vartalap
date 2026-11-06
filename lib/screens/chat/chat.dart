@@ -16,6 +16,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
+import 'package:vartalap/screens/chat/message_options.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat/voice_note.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
@@ -811,17 +812,32 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
               _startEdit(one);
             },
           ),
-        if (sel.every((m) => _isMine(m) && !m.tombstoned))
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Delete for everyone',
-            onPressed: () {
-              _clearSelection();
-              _deleteMessages(sel);
-            },
-          ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Delete',
+          onPressed: () => _confirmDelete(sel),
+        ),
       ],
     );
+  }
+
+  /// Decision 222: "Delete for me" for anything, "Delete for everyone"
+  /// only when every selected message still qualifies.
+  Future<void> _confirmDelete(List<MessageRow> sel) async {
+    final self = widget.authService.currentUserId;
+    final choice = await confirmDeleteMessages(
+      context,
+      count: sel.length,
+      forEveryone:
+          sel.every((m) => widget.chatService.canDeleteForEveryone(m, self)),
+    );
+    if (choice == null || !mounted) return;
+    _clearSelection();
+    if (choice == DeleteChoice.forEveryone) {
+      await _deleteMessages(sel);
+    } else {
+      await widget.chatService.deleteForMe([for (final m in sel) m.messageId]);
+    }
   }
 
   Future<void> _toggleReaction(MessageRow msg, String emoji) async {

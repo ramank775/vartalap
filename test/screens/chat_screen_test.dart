@@ -140,6 +140,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
+  /// The selection's Delete, then the dialog's "Delete for everyone".
+  Future<void> deleteForEveryone(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Delete'));
+    await settle(tester);
+    await tester.tap(find.text('Delete for everyone'));
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+
   testWidgets('a bubble shows the server time, not the sender\'s clock',
       (tester) async {
     await pumpChat(tester);
@@ -176,7 +184,7 @@ void main() {
     expect(find.byTooltip('Reply'), findsOneWidget);
     expect(find.byTooltip('Copy'), findsOneWidget);
     expect(find.byTooltip('Edit'), findsOneWidget);
-    expect(find.byTooltip('Delete for everyone'), findsOneWidget);
+    expect(find.byTooltip('Delete'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Cancel')); // let go of it
     await tester.pump(const Duration(milliseconds: 400));
@@ -191,7 +199,13 @@ void main() {
           "from the author, so editing someone else's message would be a "
           'button that provably does nothing.',
     );
-    expect(find.byTooltip('Delete for everyone'), findsNothing);
+    await tester.tap(find.byTooltip('Delete'));
+    await settle(tester);
+    expect(find.text('Delete for me'), findsOneWidget);
+    expect(find.text('Delete for everyone'), findsNothing,
+        reason: 'not mine to delete for everyone');
+    await tester.tap(find.text('Cancel'));
+    await settle(tester);
   });
 
   testWidgets('tapping more messages while selecting adds them; the '
@@ -207,8 +221,8 @@ void main() {
     expect(find.byTooltip('Reply'), findsNothing,
         reason: 'Reply and Edit need exactly one message.');
     expect(find.byTooltip('Edit'), findsNothing);
-    expect(find.byTooltip('Delete for everyone'), findsNothing,
-        reason: 'One of the two is not mine to delete.');
+    expect(find.byTooltip('Delete'), findsOneWidget,
+        reason: 'Delete for me fits any message.');
 
     await tester.tap(find.textContaining('their message'));
     await settle(tester);
@@ -261,8 +275,7 @@ void main() {
     await longPress(tester, 'my own message');
     await tester.tap(find.textContaining('my second message'));
     await settle(tester);
-    await tester.tap(find.byTooltip('Delete for everyone'));
-    await tester.pump(const Duration(milliseconds: 400));
+    await deleteForEveryone(tester);
     await settle(tester);
     await tester.pump(const Duration(milliseconds: 500));
 
@@ -384,8 +397,7 @@ void main() {
     final opsBefore = (await ops(tester)).length;
     await longPress(tester, 'my own message');
 
-    await tester.tap(find.byTooltip('Delete for everyone'));
-    await tester.pump(const Duration(milliseconds: 400));
+    await deleteForEveryone(tester);
     await settle(tester);
 
     // The snackbar is only shown once the local tombstone has landed,
@@ -425,8 +437,7 @@ void main() {
     final opsBefore = (await ops(tester)).length;
     await longPress(tester, 'my own message');
 
-    await tester.tap(find.byTooltip('Delete for everyone'));
-    await tester.pump(const Duration(milliseconds: 400));
+    await deleteForEveryone(tester);
     await settle(tester);
     expect((await ops(tester)).length, opsBefore);
 
@@ -443,6 +454,53 @@ void main() {
       (await q(tester, () => store.fetchMessage(mMine)))?.tombstoned,
       isTrue,
     );
+  });
+
+  testWidgets('decision 222: an own message sent over 5 minutes ago offers '
+      'only Delete for me, which removes it here and sends nothing',
+      (tester) async {
+    await pumpChat(tester, seed: () async {
+      await store.applyInboundMessage(
+        localUserId: localUserId,
+        channelId: channelId,
+        opId: 'seed-old',
+        messageId: mMine2,
+        senderUserId: localUserId,
+        body: 'sent long ago',
+        contentType: null,
+        attachments: null,
+        forwardSource: null,
+        replyToMessageId: null,
+        clientTimestampMs: _seedBase - 600000,
+        serverTimestampMs: _seedBase - 600000,
+        nowMs: _seedBase,
+      );
+    });
+    final opsBefore = (await ops(tester)).length;
+    await longPress(tester, 'sent long ago');
+    await tester.tap(find.byTooltip('Delete'));
+    await settle(tester);
+    expect(find.text('Delete message?'), findsOneWidget);
+    expect(find.text('Delete for everyone'), findsNothing);
+
+    await tester.tap(find.text('Delete for me'));
+    await settle(tester);
+    expect(find.textContaining('sent long ago'), findsNothing);
+    expect(await q(tester, () => store.fetchMessage(mMine2)), isNull);
+    expect((await ops(tester)).length, opsBefore);
+    expect(find.text('UNDO'), findsNothing);
+  });
+
+  testWidgets('Delete for me works on someone else\'s message too',
+      (tester) async {
+    await pumpChat(tester);
+    await longPress(tester, 'their message');
+    await tester.tap(find.byTooltip('Delete'));
+    await settle(tester);
+    await tester.tap(find.text('Delete for me'));
+    await settle(tester);
+    expect(await q(tester, () => store.fetchMessage(mPeer)), isNull);
+    expect(find.textContaining('their message'), findsNothing);
   });
 
   testWidgets('an inbound image attachment renders inline; any other mime '
@@ -860,10 +918,14 @@ Future<void> _insert(
       attachments: null,
       forwardSource: null,
       replyToMessageId: null,
-      clientTimestampMs: 1000 + seq,
-      serverTimestampMs: 1000 + seq,
-      nowMs: 1000 + seq,
+      clientTimestampMs: _seedBase + seq,
+      serverTimestampMs: _seedBase + seq,
+      nowMs: _seedBase + seq,
     );
+
+/// Seeded messages were sent a minute ago: young enough for "Delete for
+/// everyone" (decision 222).
+final int _seedBase = DateTime.now().millisecondsSinceEpoch - 60000;
 
 class _FakeAuthService extends AuthService {
   _FakeAuthService()

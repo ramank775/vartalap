@@ -1078,15 +1078,18 @@ class ChatService {
   /// One outbound WS op carrying a ChatPayload. [kind] is local-only
   /// bookkeeping (see [OpKind.messageEdit]); the wire shape is the same
   /// for every type.
+  /// [madeAtMs]: when the user acted, if earlier than [nowMs]; the op id
+  /// carries it (a delete is judged by it, decision 222).
   OutboundOpRow _chatOp({
     required String kind,
     required String channelId,
     required String messageId,
     required Uint8List payload,
     required int nowMs,
+    int? madeAtMs,
   }) =>
       OutboundOpRow(
-        opId: _uuidGen.next(nowMs: nowMs),
+        opId: _uuidGen.next(nowMs: madeAtMs ?? nowMs),
         transport: OpTransport.ws,
         kind: kind,
         restMethod: null,
@@ -1181,6 +1184,22 @@ class ChatService {
     _scheduler.tickSoon();
   }
 
+  /// Decision 222: "Delete for everyone" fits [m] — the user's own, not
+  /// deleted, and not yet sent or sent less than
+  /// [kDeleteForEveryoneWindow] ago by this phone's clock. Receivers judge
+  /// the delete by the same two times (SYNC_PROTOCOL §20.1).
+  bool canDeleteForEveryone(MessageRow m, String? selfUserId) {
+    if (m.authorUserId != selfUserId || m.tombstoned) return false;
+    final sent = m.serverTimestampMs;
+    return sent == null ||
+        _clock.nowMs() - sent < kDeleteForEveryoneWindow.inMilliseconds;
+  }
+
+  /// "Delete for me" (decision 222): any message, gone from this phone
+  /// only. Nothing is sent and there is nothing to undo.
+  Future<void> deleteForMe(List<String> messageIds) =>
+      _store.deleteMessagesLocal(messageIds);
+
   /// Decision 11 — delete for everyone, with a [undoWindow] during
   /// which nothing has been sent. The caller is responsible for calling
   /// [commitDelete] when the window elapses (or [undoDelete] before
@@ -1210,6 +1229,10 @@ class ChatService {
     required String messageId,
   }) async {
     final now = _clock.nowMs();
+    // Receivers judge a delete by its op id's time (decision 222): one
+    // committed late (the app was killed in the window) still carries
+    // the window's end, not the commit's.
+    final until = (await _store.fetchMessage(messageId))?.tombstonePendingUntil;
     final committed = await _store.commitTombstone(
       messageId: messageId,
       op: _chatOp(
@@ -1221,6 +1244,7 @@ class ChatService {
           messageId: messageId,
         ),
         nowMs: now,
+        madeAtMs: until == null ? null : min(now, until),
       ),
     );
     if (committed) _scheduler.tickSoon();

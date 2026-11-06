@@ -19,6 +19,24 @@ const String kUndecryptedType = 'application/x-vartalap-undecrypted';
 String undecryptedMessageId(String senderUserId, String opId) =>
     'undecrypted:$senderUserId:$opId';
 
+/// Decision 222: "Delete for everyone" is offered only this long after a
+/// message was sent (its server time). A message not yet sent can always
+/// be deleted.
+const Duration kDeleteForEveryoneWindow = Duration(minutes: 5);
+
+/// What a receiving phone allows on top of [kDeleteForEveryoneWindow]
+/// when it judges a delete by the time its op id was minted: a choice left
+/// open in the sender's dialog, the sender's clock running a little off the
+/// server's. SYNC_PROTOCOL §20.1.
+const Duration kDeleteForEveryoneGrace = Duration(minutes: 1);
+
+/// The milliseconds in a UUIDv7's first 48 bits: when its minter made it.
+/// Null for an id that is not one.
+int? uuid7Ms(String id) =>
+    id.length == 36 && id[14] == '7'
+        ? int.tryParse(id.substring(0, 8) + id.substring(9, 13), radix: 16)
+        : null;
+
 /// `messages.message_state` — SPIKE_A_SCHEMA.md §5.1.
 enum MessageState {
   /// Local author tapped send; sitting in undo window or queued but

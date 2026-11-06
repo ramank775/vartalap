@@ -505,6 +505,9 @@ class InboundReceiver {
           senderUserId: env.senderUserId,
           serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
+          // Decision 222: judged by when the sender made it; a re-send
+          // stands for the op it re-sends.
+          madeAtMs: uuid7Ms(retryOf.isNotEmpty ? retryOf : opId),
         );
       case pb.ChatPayloadType.TYPE_REACTION_ADD:
         await store.applyInboundReactionAdd(

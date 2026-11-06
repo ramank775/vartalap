@@ -206,6 +206,54 @@ void main() {
     fail('message was not tombstoned within timeout');
   });
 
+  test('decision 222: a delete counts only if its op id was minted within '
+      '5 minutes (plus grace) of the message, however late it arrives',
+      () async {
+    const sent = 1700000000000;
+    String op7(int ms) {
+      final h = ms.toRadixString(16).padLeft(12, '0');
+      return '${h.substring(0, 8)}-${h.substring(8)}-7000-8000-000000000001';
+    }
+
+    for (final id in ['m-young', 'm-old']) {
+      pushes.add(_makeEnvelope(
+        opId: 'op-seed-$id',
+        senderUserId: _peerUserId,
+        payload: _chatPayload(
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: _mid(id),
+          body: id,
+        ),
+        serverTimestampMs: sent,
+      ));
+      await _settle(store, _mid(id), present: true);
+    }
+    // Pressed at 4:59 while offline, delivered two hours later.
+    pushes.add(_makeEnvelope(
+      opId: op7(sent + 299000),
+      senderUserId: _peerUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+        messageId: _mid('m-young'),
+      ),
+      serverTimestampMs: sent + 7200000,
+    ));
+    // Pressed at 10:00, delivered at once.
+    pushes.add(_makeEnvelope(
+      opId: op7(sent + 600000),
+      senderUserId: _peerUserId,
+      payload: _chatPayload(
+        type: pb.ChatPayloadType.TYPE_MESSAGE_DELETE,
+        messageId: _mid('m-old'),
+      ),
+      serverTimestampMs: sent + 600000,
+    ));
+    await _pumpQueue();
+
+    expect((await store.fetchMessage(_mid('m-young')))!.tombstoned, isTrue);
+    expect((await store.fetchMessage(_mid('m-old')))!.tombstoned, isFalse);
+  });
+
   test('decision 218: a message id that is not 16 bytes is malformed, '
       'dropped', () async {
     pushes.add(_makeEnvelope(
