@@ -458,23 +458,28 @@ void main() {
         expect(a.chat.presence.value, isNull,
             reason: 'who shares none sees none');
 
-        // My contacts: each must have written to the other in their DM.
+        // My contacts: people connected by an accepted invite (2d), as A
+        // and B are (decision 219).
         await a.authService.setPresenceSetting('everyone');
         await b.authService.setPresenceSetting('contacts');
-        await a.chat.watchPresence(dmChannel);
-        await a.pump();
-        await a.pump();
-        expect(a.chat.presence.value, isNull,
-            reason: 'A wrote to B, but B never wrote back');
-        await b.sendAndSettle(dmChannel, 'B writes back');
         await a.waitForAsync(() async {
           await a.chat.watchPresence(dmChannel);
           await a.pump();
           return a.chat.presence.value?.online == true;
         });
         expect(a.chat.presence.value?.online, isTrue,
-            reason: 'now they are contacts');
+            reason: 'A and B are connected');
+
+        // A block hides it both ways, whatever the setting.
         await b.authService.setPresenceSetting('everyone');
+        await b.chat.setBlocked(a.userId, true);
+        await a.waitForAsync(() async {
+          await a.chat.watchPresence(dmChannel);
+          await a.pump();
+          return a.chat.presence.value == null;
+        });
+        expect(a.chat.presence.value, isNull, reason: 'B blocked A');
+        await b.chat.setBlocked(a.userId, false);
         await a.chat.watchPresence(null);
       });
 
