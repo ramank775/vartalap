@@ -16,6 +16,13 @@ import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 
+/// The longest voice note (decision 223, wave 2): 15 minutes of AAC at
+/// [kVoiceNoteBitRate] is about 3.6 MB, far inside the 25 MB upload limit.
+const Duration kMaxVoiceNote = Duration(minutes: 15);
+
+/// Voice notes are recorded as mono AAC-LC at this many bits a second.
+const int kVoiceNoteBitRate = 32000;
+
 /// `00:07`, `14:59` — the recording timer and the bubble's time.
 String mmss(Duration d) => '${d.inMinutes.toString().padLeft(2, '0')}:'
     '${(d.inSeconds % 60).toString().padLeft(2, '0')}';

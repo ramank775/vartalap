@@ -130,8 +130,8 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   AudioRecorder? _recorder;
   DateTime _recordingSince = DateTime.now();
   Timer? _recordingTicker;
-  // Owner: one minute, then it sends itself.
-  static const Duration _maxVoiceNote = Duration(minutes: 1);
+  // Then it sends itself ([kMaxVoiceNote]).
+  static const Duration _maxVoiceNote = kMaxVoiceNote;
 
   /// The one delete sitting in its undo window. Committing is ours to
   /// do — the timer outlives the snackbar, and [dispose] flushes — so a
@@ -1368,7 +1368,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       await recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
-          bitRate: 32000,
+          bitRate: kVoiceNoteBitRate,
           sampleRate: 16000,
           numChannels: 1,
         ),
