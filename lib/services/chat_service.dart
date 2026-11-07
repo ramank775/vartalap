@@ -51,6 +51,7 @@ Uint8List _encodeChatPayload({
   String? replyToMessageId,
   int timerSec = 0,
   SealedSecret? secure,
+  pb.ChatLinkPreview? linkPreview,
 }) =>
     pb.ChatPayload(
       version: 1,
@@ -68,6 +69,7 @@ Uint8List _encodeChatPayload({
       secureBox: secure?.box,
       secureKey: secure?.key,
       secureTitle: secure == null || body.isEmpty ? null : body,
+      linkPreview: linkPreview,
     ).writeToBuffer();
 
 /// A secure message's sealed secret (decision 222, [sealSecret]).
@@ -161,6 +163,7 @@ typedef PeerPresence = ({bool online, int lastSeenMs});
 /// SharedPreferences keys of the Settings › Privacy switches (decision 223).
 const String kReadReceiptsPrefKey = 'privacy.read_receipts';
 const String kTypingIndicatorPrefKey = 'privacy.typing_indicator';
+const String kLinkPreviewsPrefKey = 'privacy.link_previews';
 
 /// AUTH_CONTRACT §7.2: the most phone hashes one lookup may carry.
 const int kContactLookupBatch = 5000;
@@ -314,12 +317,16 @@ class ChatService with TimelineService, AlbumService {
   /// Off: no "typing…" goes out, and none shows.
   final ValueNotifier<bool> typingIndicator = ValueNotifier(true);
 
+  /// Off: the composer fetches no link preview (SYNC_PROTOCOL §27).
+  final ValueNotifier<bool> linkPreviews = ValueNotifier(true);
+
   /// Read both switches. Per phone, like the theme. Unreadable: both on.
   Future<void> loadPrivacy() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       readReceipts.value = prefs.getBool(kReadReceiptsPrefKey) ?? true;
       typingIndicator.value = prefs.getBool(kTypingIndicatorPrefKey) ?? true;
+      linkPreviews.value = prefs.getBool(kLinkPreviewsPrefKey) ?? true;
     } catch (_) {/* no platform channel: a plain test, keep the defaults */}
   }
 
@@ -333,6 +340,12 @@ class ChatService with TimelineService, AlbumService {
     typingIndicator.value = on;
     await (await SharedPreferences.getInstance())
         .setBool(kTypingIndicatorPrefKey, on);
+  }
+
+  Future<void> setLinkPreviews(bool on) async {
+    linkPreviews.value = on;
+    await (await SharedPreferences.getInstance())
+        .setBool(kLinkPreviewsPrefKey, on);
   }
 
   // ---- Last seen by labels (SYNC_PROTOCOL §22, decision 226) ------------
@@ -537,7 +550,8 @@ class ChatService with TimelineService, AlbumService {
   /// or event carried as standard text in [body] (decision 133).
   /// [timerSec]: a timed message (decision 222), gone from both phones
   /// that long after the server takes it. [secure]: see [sendSecure];
-  /// [body] is then its title, or empty.
+  /// [body] is then its title, or empty. [linkPreview]: the composer's
+  /// preview of the first link in [body] (SYNC_PROTOCOL §27).
   Future<void> sendMessage({
     required String channelId,
     required String body,
@@ -546,6 +560,7 @@ class ChatService with TimelineService, AlbumService {
     String contentType = 'text/plain',
     int timerSec = 0,
     SealedSecret? secure,
+    pb.ChatLinkPreview? linkPreview,
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -571,6 +586,7 @@ class ChatService with TimelineService, AlbumService {
           ? null
           : pb.ChatPayload(secureBox: secure.box, secureKey: secure.key)
               .writeToBuffer(),
+      linkPreview: linkPreview?.writeToBuffer(),
     );
 
     final op = OutboundOpRow(
@@ -587,6 +603,7 @@ class ChatService with TimelineService, AlbumService {
         replyToMessageId: replyToMessageId,
         timerSec: timerSec,
         secure: secure,
+        linkPreview: linkPreview,
       ),
       status: OpStatus.pending,
       attempts: 0,
@@ -708,6 +725,7 @@ class ChatService with TimelineService, AlbumService {
             tombstonePendingUntil: null,
             attachments: m.attachments,
             secure: m.secure,
+            linkPreview: m.linkPreview,
             forwardSource: source.writeToBuffer(),
           ),
           op: _chatOp(
@@ -732,6 +750,9 @@ class ChatService with TimelineService, AlbumService {
               secureKey: secure != null && secure.hasSecureKey()
                   ? secure.secureKey
                   : null,
+              linkPreview: m.linkPreview == null
+                  ? null
+                  : pb.ChatLinkPreview.fromBuffer(m.linkPreview!),
             ).writeToBuffer(),
           ),
           nowMs: now,
