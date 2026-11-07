@@ -274,6 +274,10 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Cousins');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
+    // a new label opens straight on choosing its people
+    expect(find.byType(LabelMembersScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(find.text('Cousins'), findsOneWidget);
 
     await tester.tap(find.byTooltip('More').first);

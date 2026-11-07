@@ -13,9 +13,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chats/chats.dart';
+import 'package:vartalap/screens/labels/labels.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/chat_action_sheets.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
@@ -473,11 +475,32 @@ void main() {
               find.byType(PopupMenuItem<String>)))
             (t.child! as Text).data,
         ],
-        ['New group', 'Starred messages', 'Read all', 'Settings'],
+        ['New group', 'Labels', 'Starred messages', 'Read all', 'Settings'],
       );
       await tester.tap(find.text('Read all'));
       await tester.pumpAndSettle();
       expect(svc.calls, ['markRead(c-a)']);
+    });
+
+    testWidgets('the menu opens Labels, the one place to manage them',
+        (tester) async {
+      await _pumpChats(tester, _FakeChatService(channels: chats));
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(PopupMenuItem<String>, 'Labels'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LabelsScreen), findsOneWidget);
+    });
+
+    testWidgets("WhatsApp's density: 72dp rows, 52dp avatars, 32dp chips",
+        (tester) async {
+      await _pumpChats(tester, _FakeChatService(channels: chats));
+      expect(tester.getSize(find.byType(ChannelTile).first).height, 72);
+      expect(tester.getSize(find.byType(ChoiceChip).first).height, 32);
+      final avatar = find.descendant(
+          of: find.byType(ChannelTile).first, matching: find.byType(Avator));
+      expect(tester.getSize(avatar).width, kChatRowAvatar);
+      expect(find.byType(Divider), findsNothing, reason: 'no row lines');
     });
 
     testWidgets('search finds chats by name, then messages with the words '
