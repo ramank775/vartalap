@@ -2206,6 +2206,13 @@ identity checks, by its frame class (`flags` bits 1-4):
 4. The pair is connected: relayed.
 5. Otherwise `ACK_PERMANENT` with reason `not_connected`.
 
+A presence op (class PRESENCE, §22) is the exception to step 5: it is
+never refused `not_connected`, so the sender's own on-screen state is
+recorded even while it has a chat open with someone not yet connected.
+Who may see whom stays profile-ms's `canSee` (a "My contacts" setting
+means connections); a block (step 3) still keeps the op from asking
+about the blocker.
+
 Group envelopes are not gated: membership (§6a.3) already is, and an
 invitee is not a member. Ephemeral envelopes follow the same rules and
 are, as always, never acked. The gateway caches a passing answer for the
