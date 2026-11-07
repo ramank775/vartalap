@@ -64,10 +64,11 @@ class _TimelineScreenState extends State<TimelineScreen> {
     }
   }
 
-  Future<void> _compose() async {
+  Future<void> _compose({bool photo = false}) async {
     final posted = await Navigator.of(context).push(MaterialPageRoute<bool>(
       fullscreenDialog: true,
-      builder: (_) => PostComposerScreen(chatService: widget.chatService),
+      builder: (_) =>
+          PostComposerScreen(chatService: widget.chatService, photo: photo),
     ));
     if (posted == true) await _load();
   }
@@ -114,12 +115,25 @@ class _TimelineScreenState extends State<TimelineScreen> {
         ],
       ),
       body: _body(),
-      floatingActionButton: FloatingActionButton.extended(
-        // Chats' button lives in the same tab stack: no shared hero.
-        heroTag: null,
-        onPressed: _compose,
-        icon: const Icon(Icons.edit),
-        label: const Text('New post', style: TextStyle(fontSize: 18)),
+      // WhatsApp's pair: a small pencil for words over the camera.
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            // Chats' button lives in the same tab stack: no shared hero.
+            heroTag: null,
+            tooltip: 'Write a post',
+            onPressed: _compose,
+            child: const Icon(Icons.edit),
+          ),
+          const SizedBox(height: kSpaceMd),
+          FloatingActionButton(
+            heroTag: null,
+            tooltip: 'Photo post',
+            onPressed: () => _compose(photo: true),
+            child: const Icon(Icons.photo_camera),
+          ),
+        ],
       ),
     );
   }
@@ -150,8 +164,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
               ),
             ])
           : ListView.separated(
-              // Clear of the post button.
-              padding: const EdgeInsets.only(bottom: 96),
+              // Clear of the post buttons.
+              padding: const EdgeInsets.only(bottom: 136),
               itemCount: posts.length,
               separatorBuilder: (_, __) => const Divider(height: 1, indent: 0),
               itemBuilder: (_, i) => PostCard(
@@ -252,7 +266,7 @@ class PostCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final name = mine ? 'You' : _name(post.author);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: kSpaceMd),
+      padding: const EdgeInsets.symmetric(vertical: kSpaceSm + kSpaceXs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

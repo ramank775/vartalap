@@ -33,7 +33,7 @@ Future<void> _pump(WidgetTester tester, Widget home) async {
 }
 
 void main() {
-  testWidgets('Timeline is a tab next to Chats, with a big New post button',
+  testWidgets('Timeline is a tab next to Chats, with pencil and camera buttons',
       (tester) async {
     final svc = _FakeChat()..hasNew = true;
     await _pump(
@@ -52,9 +52,23 @@ void main() {
     expect(svc.calls, contains('load'));
     expect(find.byType(Badge), findsNothing, reason: 'seen');
 
-    await tester.tap(find.text('New post'));
+    await tester.tap(find.byTooltip('Write a post'));
     await tester.pumpAndSettle();
-    expect(find.byType(PostComposerScreen), findsOneWidget);
+    expect(
+        tester
+            .widget<PostComposerScreen>(find.byType(PostComposerScreen))
+            .photo,
+        isFalse);
+    await tester.tap(find.byTooltip('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Photo post'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<PostComposerScreen>(find.byType(PostComposerScreen))
+            .photo,
+        isTrue);
   });
 
   testWidgets('a post: ours lists who reacted; theirs offers the reactions',
@@ -105,39 +119,138 @@ void main() {
     expect(find.text('No posts yet'), findsOneWidget);
   });
 
-  testWidgets('the composer starts at the last audience and posts to it',
+  IconButton send(WidgetTester tester) => tester.widget<IconButton>(find
+      .ancestor(of: find.byTooltip('Send'), matching: find.byType(IconButton)));
+
+  testWidgets('a text post: words on a colour, to the last audience',
       (tester) async {
     final svc = _FakeChat()..lastAudience = {1};
+    await _pump(tester, PostComposerScreen(chatService: svc));
+
+    expect(find.widgetWithText(TextButton, 'Family'), findsOneWidget,
+        reason: 'the audience pill starts at the last one used');
+    expect(send(tester).onPressed, isNull, reason: 'nothing to post yet');
+
+    Color background() =>
+        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor!;
+    expect(background(), kPostColors.first);
+    await tester.tap(find.byTooltip('Background colour'));
+    await tester.pump();
+    expect(background(), kPostColors[1]);
+    for (var i = 1; i < kPostColors.length; i++) {
+      await tester.tap(find.byTooltip('Background colour'));
+    }
+    await tester.pump();
+    expect(background(), kPostColors.first, reason: 'the palette wraps around');
+
+    TextStyle style() =>
+        tester.widget<EditableText>(find.byType(EditableText)).style;
+    final font = style().fontFamily;
+    await tester.tap(find.byTooltip('Font'));
+    await tester.pump();
+    expect(style().fontFamily, isNot(font));
+
+    await tester.enterText(find.byType(TextField), 'Reached Pune');
+    await tester.pump();
+    final big = style().fontSize!;
+    expect(send(tester).onPressed, isNotNull);
+    await tester.enterText(find.byType(TextField), 'Reached Pune. ' * 10);
+    await tester.pump();
+    expect(style().fontSize, lessThan(big), reason: 'it shrinks as it grows');
+    await tester.enterText(find.byType(TextField), 'Reached Pune');
+
+    await tester.tap(find.byTooltip('Emoji'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('🙏'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reached Pune🙏'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+    expect(svc.calls.last, 'post(Reached Pune🙏, [], {1})');
+  });
+
+  testWidgets('the audience pill picks all contacts or labels, with a count',
+      (tester) async {
+    final svc = _FakeChat();
+    await _pump(tester, PostComposerScreen(chatService: svc));
+    await tester.enterText(find.byType(TextField), 'hello');
+
+    await tester.tap(find.widgetWithText(TextButton, 'All contacts'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 people will see this'), findsOneWidget);
+    CheckboxListTile tile(String text) => tester
+        .widget<CheckboxListTile>(find.widgetWithText(CheckboxListTile, text));
+    expect(tile('All contacts').value, isTrue);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 person will see this'), findsOneWidget);
+    expect(tile('All contacts').value, isFalse);
+    await tester.tap(find.text('Friends'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 people will see this'), findsOneWidget);
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, 'Family, Friends'), findsOneWidget);
+
+    // Back to everyone; dismissing the sheet keeps what was there.
+    await tester.tap(find.widgetWithText(TextButton, 'Family, Friends'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('All contacts').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'All contacts'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Close'));
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, 'All contacts'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+    expect(svc.calls.last, 'post(hello, [], null)');
+  });
+
+  testWidgets('a photo post: gallery or camera, a caption, then send',
+      (tester) async {
+    final svc = _FakeChat()..lastAudience = {1};
+    final asked = <String>[];
     await _pump(
         tester,
         PostComposerScreen(
           chatService: svc,
-          pickPhotos: (max) async => ['/photos/a.jpg'],
+          photo: true,
+          pickPhotos: (camera, max) async {
+            asked.add('${camera ? 'camera' : 'gallery'} $max');
+            return camera
+                ? ['/photos/c.jpg']
+                : ['/photos/a.jpg', '/photos/b.jpg'];
+          },
         ));
+    expect(send(tester).onPressed, isNull, reason: 'no photo yet');
+    expect(find.byType(TextField), findsNothing, reason: 'no caption yet');
 
-    final family =
-        tester.widget<FilterChip>(find.widgetWithText(FilterChip, 'Family'));
-    expect(family.selected, isTrue, reason: 'last used');
-    expect(find.text('1 person will see this'), findsOneWidget);
-
-    FilledButton post() => tester.widget<FilledButton>(find.ancestor(
-        of: find.text('Post'), matching: find.byType(FilledButton)));
-    expect(post().onPressed, isNull, reason: 'nothing to post yet');
-
-    await tester.enterText(find.byType(TextField), 'Reached Pune');
-    await tester.tap(find.text('Add photos'));
+    await tester.tap(find.text('Choose from gallery'));
     await tester.pumpAndSettle();
-    expect(post().onPressed, isNotNull);
+    expect(send(tester).onPressed, isNotNull, reason: 'a photo is enough');
+    await tester.tap(find.byTooltip('Take a photo'));
+    await tester.pumpAndSettle();
+    expect(asked, ['gallery 10', 'camera 8']);
 
-    await tester.tap(find.text('All contacts'));
+    // A tap on a thumbnail shows that one; Remove takes it.
+    await tester.tap(find
+        .descendant(
+            of: find.byType(ListView), matching: find.byType(GestureDetector))
+        .at(1));
     await tester.pumpAndSettle();
-    expect(find.text('2 people will see this'), findsOneWidget);
-    await tester.tap(find.text('Family'));
+    await tester.tap(find.byTooltip('Remove photo'));
     await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Post'));
+    await tester.enterText(find.byType(TextField), 'Diwali');
+    await tester.tap(find.byTooltip('Send'));
     await tester.pumpAndSettle();
-    expect(svc.calls.last, 'post(Reached Pune, [/photos/a.jpg], {1})');
+    expect(svc.calls.last, 'post(Diwali, [/photos/a.jpg, /photos/c.jpg], {1})');
   });
 
   testWidgets('nobody to share with: the composer says so and will not post',
@@ -147,12 +260,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'hello');
     await tester.pumpAndSettle();
     expect(find.textContaining('Nobody here yet'), findsOneWidget);
-    expect(
-        tester
-            .widget<FilledButton>(find.ancestor(
-                of: find.text('Post'), matching: find.byType(FilledButton)))
-            .onPressed,
-        isNull);
+    expect(send(tester).onPressed, isNull);
   });
 
   testWidgets('labels: add, rename and delete', (tester) async {
