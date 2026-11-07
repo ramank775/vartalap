@@ -220,22 +220,11 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
   }
 
   Future<void> _create() async {
-    final picked = await showDialog<(String, String?)>(
-      context: context,
-      builder: (_) => const NewAlbumDialog(),
-    );
-    if (picked == null || !mounted) return;
-    try {
-      final album = await widget.chatService.createAlbum(
+    final album = await newAlbum(context,
+        chatService: widget.chatService,
         channelId: widget.channelId,
-        peer: widget.peer,
-        title: picked.$1,
-        date: picked.$2,
-      );
-      if (mounted) await _open(album);
-    } catch (e) {
-      if (mounted) _toast(context, _failure(e, 'make the album'));
-    }
+        peer: widget.peer);
+    if (album != null && mounted) await _open(album);
   }
 
   @override
@@ -288,6 +277,33 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
                       ),
                     ),
     );
+  }
+}
+
+/// New album: its name and day, then the album made; null when the user
+/// cancelled or the server refused (which a toast says). Also the chat's
+/// attach sheet › Album › New album.
+Future<Album?> newAlbum(
+  BuildContext context, {
+  required ChatService chatService,
+  required String channelId,
+  String? peer,
+}) async {
+  final picked = await showDialog<(String, String?)>(
+    context: context,
+    builder: (_) => const NewAlbumDialog(),
+  );
+  if (picked == null || !context.mounted) return null;
+  try {
+    return await chatService.createAlbum(
+      channelId: channelId,
+      peer: peer,
+      title: picked.$1,
+      date: picked.$2,
+    );
+  } catch (e) {
+    if (context.mounted) _toast(context, _failure(e, 'make the album'));
+    return null;
   }
 }
 

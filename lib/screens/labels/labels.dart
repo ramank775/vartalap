@@ -402,3 +402,12 @@ class _LabelPickerState extends State<LabelPicker> {
         ],
       );
 }
+
+/// A chat's ⋮ › Add to label: the same picker as [ContactLabelsTile].
+Future<void> pickContactLabels(
+    BuildContext context, ChatService chatService, String userId) async {
+  final labels = await chatService.watchLabels().first;
+  if (!context.mounted) return;
+  await ContactLabelsTile(chatService: chatService, userId: userId)
+      ._pick(context, labels);
+}

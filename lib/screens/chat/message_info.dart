@@ -29,10 +29,9 @@ class MessageInfoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final colors = VartalapTheme.chatColorsOf(context);
-    final preview = message.contentType == kSecureType
-        ? '🔒 Secure message'
-        : messagePreview(message.body ?? '', message.contentType,
-            attachment: message.attachments != null);
+    // Whole, however long: "Read more" is the chat's, not this screen's.
+    final preview = messagePreview(message.body ?? '', message.contentType,
+        attachment: message.attachments != null);
     return Scaffold(
       appBar: AppBar(title: const Text('Message info')),
       body: StreamBuilder<List<MessageReceipt>>(
@@ -55,15 +54,13 @@ class MessageInfoScreen extends StatelessWidget {
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: Container(
-                    padding: const EdgeInsets.fromLTRB(12, 7, 12, 6),
+                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
                     decoration: BoxDecoration(
                       color: colors.senderBubble,
                       borderRadius: BorderRadius.circular(kRadiusMd),
                     ),
                     child: Text(
                       preview,
-                      maxLines: 6,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: colors.senderText, fontSize: 16),
                     ),
                   ),

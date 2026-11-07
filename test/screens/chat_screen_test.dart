@@ -16,6 +16,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart'
+    show EmojiPicker;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vartalap/screens/albums/albums.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -51,6 +55,10 @@ void main() {
   late SyncScheduler scheduler;
   late ChatService chat;
 
+  /// The signed-in user in the test group: its composer shows.
+  Future<void> joinGroup() => store.insertChannelMember(
+      channelId: channelId, userId: localUserId, role: 'member', joinedAt: 1);
+
   /// sqflite_ffi resolves its futures off the widget-test fake clock, so
   /// every DB-touching beat needs a real-time breather before the next
   /// pump. One helper, used after every interaction.
@@ -68,6 +76,7 @@ void main() {
     WidgetTester tester, {
     Future<void> Function()? seed,
     String? initialMessageId,
+    String kind = 'dm',
   }) async {
     await tester.runAsync(() async {
       store = await ChatStore.open(path: inMemoryDatabasePath);
@@ -92,7 +101,7 @@ void main() {
 
       await store.insertChannel(
         channelId: channelId,
-        kind: 'one_to_one',
+        kind: kind == 'group' ? 'group' : 'one_to_one',
         ownerUserId: localUserId,
         createdAt: 1000,
       );
@@ -114,7 +123,7 @@ void main() {
       home: ChatScreen(
         channelId: channelId,
         channelName: 'Peer',
-        channelKind: 'dm',
+        channelKind: kind,
         chatService: chat,
         authService: _FakeAuthService(),
         undoWindow: undoWindow,
@@ -672,11 +681,12 @@ void main() {
           tester,
           () async =>
               (await ops(tester)).length > opsBefore &&
-              find.textContaining('Tap to view').evaluate().isNotEmpty);
+              find.text('Unlock with your phone lock').evaluate().isNotEmpty);
       final p = _payload((await ops(tester)).skip(opsBefore).single);
       expect([p.contentType, p.hasBody(), p.secureKey.length],
           [kSecureType, false, 32]);
-      expect(find.textContaining('Secure message. Tap to view'), findsOneWidget);
+      expect(find.text('Secure message'), findsOneWidget);
+      expect(find.text('Unlock with your phone lock'), findsOneWidget);
       expect(find.textContaining('9876'), findsNothing);
     });
 
@@ -729,8 +739,7 @@ void main() {
           seed: () => inboundSecret(sealSecret('OTP 555666')));
       phone(tester);
 
-      await tester.tap(find.textContaining('Secure message. Tap to view'),
-          warnIfMissed: false);
+      await tester.tap(find.text('View'));
       await settle(tester);
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('OTP 555666'), findsOneWidget);
@@ -754,8 +763,7 @@ void main() {
       await pumpChat(tester,
           seed: () => inboundSecret(sealSecret('OTP 555666')));
       phone(tester, lock: false);
-      await tester.tap(find.textContaining('Secure message. Tap to view'),
-          warnIfMissed: false);
+      await tester.tap(find.text('View'));
       await settle(tester);
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('Set a screen lock'), findsOneWidget);
@@ -770,9 +778,8 @@ void main() {
         await inboundSecret(sealSecret('code 1985', password: 'tulip'));
       });
       phone(tester);
-      await tester.tap(
-          find.textContaining('Secure message. Tap and enter the password'),
-          warnIfMissed: false);
+      expect(find.text('Enter the password'), findsOneWidget);
+      await tester.tap(find.text('View'));
       await settle(tester);
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -1050,6 +1057,318 @@ void main() {
     );
   });
 
+  testWidgets('a very long text shows its start and "Read more", which '
+      'opens it in place; a search shows it whole', (tester) async {
+    final long = [for (var i = 0; i < 150; i++) 'word$i'].join(' ');
+    await pumpChat(tester,
+        seed: () => _insert(store, 'm-long', peerUserId, long, 3));
+    final inList = find.descendant(
+        of: find.byType(ListView), matching: find.textContaining('word149'));
+    expect(find.text('Read more'), findsOneWidget);
+    expect(find.textContaining('word0 word1 '), findsOneWidget);
+    expect(inList, findsNothing);
+    expect(find.textContaining('their message'), findsOneWidget,
+        reason: 'A short text is never cut.');
+
+    await tester.tap(find.text('Read more'));
+    await tester.pump();
+    expect(find.text('Read more'), findsNothing);
+    expect(inList, findsOneWidget);
+  });
+
+  testWidgets('a long text found by search is shown whole', (tester) async {
+    final long = [for (var i = 0; i < 150; i++) 'word$i'].join(' ');
+    await pumpChat(tester,
+        seed: () => _insert(store, 'm-long', peerUserId, long, 3));
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('Search'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.byType(EditableText)),
+        'word149');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await settle(tester);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Read more'), findsNothing);
+    expect(
+        find.descendant(
+            of: find.byType(ListView),
+            matching: find.textContaining('word149')),
+        findsOneWidget);
+  });
+
+  testWidgets('the attach sheet is compact: four to a row, as tall as its '
+      'two rows', (tester) async {
+    await pumpChat(tester, kind: 'group', seed: joinGroup);
+    await tester.tap(find.byTooltip('Attach'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    for (final label in [
+      'Camera',
+      'Gallery',
+      'Document',
+      'Audio',
+      'Contact',
+      'Location',
+      'Event',
+      'Album',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(tester.getTopLeft(find.text('Audio')).dy,
+        tester.getTopLeft(find.text('Camera')).dy,
+        reason: 'four to a row');
+    expect(tester.getSize(find.byType(GridView)).height, lessThan(240));
+  });
+
+  testWidgets('Attach › Album: New album asks its name; Add to an album '
+      "opens the chat's albums", (tester) async {
+    await pumpChat(tester, kind: 'group', seed: joinGroup);
+    Future<void> album(String choice) async {
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Album'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text(choice));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    await album('New album');
+    expect(find.byType(NewAlbumDialog), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await album('Add to an album');
+    expect(find.byType(AlbumsScreen), findsOneWidget);
+  });
+
+  group('emoji panel', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    /// The panel reads its recents behind zero-length timers, which only
+    /// a pump that moves the clock runs.
+    Future<void> load(WidgetTester tester) async {
+      for (var i = 0; i < 3; i++) {
+        await settle(tester);
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    testWidgets('the smiley swaps the keyboard for the panel; an emoji lands '
+        'at the cursor and is kept as recent; back and the keyboard icon '
+        'close it', (tester) async {
+      await pumpChat(tester);
+      final input = tester.widget<TextField>(find.byType(TextField));
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), 'ab');
+      input.controller!.selection = const TextSelection.collapsed(offset: 1);
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+
+      await tester.tap(find.byTooltip('Emoji'));
+      await load(tester);
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(find.byType(EmojiPicker), findsOneWidget);
+      expect(find.byTooltip('Keyboard'), findsOneWidget);
+      expect(find.text('Emoji you use will show here'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.tag_faces));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('\u{1F600}').first);
+      await load(tester);
+      expect(input.controller!.text, 'a\u{1F600}b');
+      final prefs = await q(tester, SharedPreferences.getInstance);
+      expect(prefs.getString('recent'), contains('\u{1F600}'));
+      // The panel's tab bar finishes moving (the package leaves its
+      // ticker running if it is closed mid-move).
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // Back closes the panel, not the chat.
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.byType(EmojiPicker), findsNothing);
+      expect(find.byTooltip('Emoji'), findsOneWidget);
+      expect(find.byType(ChatScreen), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Emoji'));
+      await load(tester);
+      await tester.tap(find.byTooltip('Keyboard'));
+      await tester.pump();
+      expect(find.byType(EmojiPicker), findsNothing);
+      expect(tester.testTextInput.isVisible, isTrue);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('a tap on the field brings the keyboard back over the panel',
+        (tester) async {
+      await pumpChat(tester);
+      await tester.tap(find.byTooltip('Emoji'));
+      await load(tester);
+      expect(find.byType(EmojiPicker), findsOneWidget);
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(find.byType(EmojiPicker), findsNothing);
+      expect(tester.testTextInput.isVisible, isTrue);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+  });
+
+  group('the chat menu', () {
+    /// The open menu's items.
+    List<String> shown(WidgetTester tester) => [
+          for (final e in find
+              .descendant(
+                  of: find.byType(PopupMenuItem<VoidCallback>),
+                  matching: find.byType(Text))
+              .evaluate())
+            (e.widget as Text).data!,
+        ];
+
+    Future<List<String>> menu(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      return shown(tester);
+    }
+
+    Future<void> pick(WidgetTester tester, String label) async {
+      await tester.tap(find.text(label).last);
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    Future<void> members(List<(String, String)> roles) async {
+      for (final (user, role) in roles) {
+        await store.insertChannelMember(
+            channelId: channelId, userId: user, role: role, joinedAt: 1);
+      }
+    }
+
+    testWidgets('a 1:1 chat: View contact, Search, Media, Albums, Mute, Add '
+        'to label; More holds Report, Block and Clear chat', (tester) async {
+      await pumpChat(tester, seed: () async {
+        await members([(localUserId, 'member'), (peerUserId, 'member')]);
+        await store.setConnection(peerUserId, connected: true);
+      });
+      expect(find.byIcon(Icons.search), findsNothing,
+          reason: 'Search is in the menu, for 1:1 chats and groups alike');
+      expect(await menu(tester), [
+        'View contact',
+        'Search',
+        'Media, links and docs',
+        'Albums',
+        'Mute notifications',
+        'Add to label',
+        'More',
+      ]);
+      await pick(tester, 'More');
+      expect(shown(tester), ['Report', 'Block', 'Clear chat']);
+
+      await pick(tester, 'Clear chat');
+      expect(find.text('Clear history?'), findsOneWidget);
+      await tester.tap(find.text('Clear'));
+      await untilGone(tester, find.textContaining('their message'));
+      expect(find.text('No messages yet'), findsOneWidget);
+    });
+
+    testWidgets('a 1:1 chat whose other person is not known yet offers no '
+        'Albums, label, Report or Block', (tester) async {
+      await pumpChat(tester);
+      expect(await menu(tester), [
+        'View contact',
+        'Search',
+        'Media, links and docs',
+        'Mute notifications',
+        'More',
+      ]);
+      await pick(tester, 'More');
+      expect(shown(tester), ['Clear chat']);
+    });
+
+    testWidgets('a group: Group info, Group media, Search, Albums, Mute; '
+        "More holds Exit group and Clear chat; its owner's exit names who "
+        'takes over', (tester) async {
+      await pumpChat(tester,
+          kind: 'group',
+          seed: () => members([(localUserId, 'owner'), (peerUserId, 'admin')]));
+      expect(await menu(tester), [
+        'Group info',
+        'Group media',
+        'Search',
+        'Albums',
+        'Mute notifications',
+        'More',
+      ]);
+      await pick(tester, 'More');
+      expect(shown(tester), ['Exit group', 'Clear chat']);
+
+      final opsBefore = (await ops(tester)).length;
+      await pick(tester, 'Exit group');
+      expect(find.textContaining('will become the owner'), findsOneWidget);
+      await tester.tap(find.text('Exit group').last);
+      await until(
+          tester,
+          () async =>
+              find.textContaining('no longer a member').evaluate().isNotEmpty);
+      expect(find.textContaining('no longer a member'), findsOneWidget);
+      expect((await ops(tester)).length, opsBefore + 1);
+
+      await menu(tester);
+      await pick(tester, 'More');
+      expect(shown(tester), ['Clear chat']);
+    });
+
+    testWidgets('Mute notifications picks a length; then Unmute is one tap',
+        (tester) async {
+      await pumpChat(tester);
+      Future<int?> mutedUntil() async =>
+          (await q(tester, () => store.fetchChannel(channelId)))?.mutedUntilMs;
+      await menu(tester);
+      await pick(tester, 'Mute notifications');
+      await tester.tap(find.text('Always'));
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(await mutedUntil(), kMuteAlways);
+
+      expect(await menu(tester), contains('Unmute notifications'));
+      await pick(tester, 'Unmute notifications');
+      expect(await mutedUntil(), isNull);
+      expect(await menu(tester), contains('Mute notifications'));
+    });
+
+    testWidgets('Search opens the search bar; Group info its screen',
+        (tester) async {
+      await pumpChat(tester, kind: 'group', seed: joinGroup);
+      await menu(tester);
+      await pick(tester, 'Search');
+      expect(find.text('Search…'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await menu(tester);
+      await pick(tester, 'Group info');
+      expect(find.text('Group info'), findsOneWidget);
+    });
+
+    testWidgets("Albums opens the chat's albums", (tester) async {
+      await pumpChat(tester, kind: 'group', seed: joinGroup);
+      await menu(tester);
+      await pick(tester, 'Albums');
+      expect(find.byType(AlbumsScreen), findsOneWidget);
+    });
+  });
+
   group('in-chat search', () {
     final searchField = find.descendant(
         of: find.byType(AppBar), matching: find.byType(EditableText));
@@ -1101,8 +1420,12 @@ void main() {
     }
 
     Future<void> openSearch(WidgetTester tester) async {
-      await tester.tap(find.byTooltip('Search in conversation'));
+      await tester.tap(find.byTooltip('More options'));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Search'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
     }
 
     testWidgets('the search icon turns the app bar into a search field; '
@@ -1115,7 +1438,7 @@ void main() {
 
       await openSearch(tester);
       expect(find.text('Search…'), findsOneWidget);
-      expect(find.byTooltip('Search in conversation'), findsNothing);
+      expect(find.byTooltip('More options'), findsNothing);
       expect(up, findsOneWidget);
       expect(down, findsOneWidget);
       expect(tester.widget<EditableText>(searchField).focusNode.hasFocus,
@@ -1125,7 +1448,7 @@ void main() {
 
       await tester.tap(find.byTooltip('Back'));
       await tester.pump();
-      expect(find.byTooltip('Search in conversation'), findsOneWidget);
+      expect(find.byTooltip('More options'), findsOneWidget);
       expect(find.text('Search…'), findsNothing);
       expect(
         tester.widget<EditableText>(find.byType(EditableText)).focusNode
@@ -1140,7 +1463,7 @@ void main() {
       await openSearch(tester);
       await tester.binding.handlePopRoute();
       await tester.pump();
-      expect(find.byTooltip('Search in conversation'), findsOneWidget);
+      expect(find.byTooltip('More options'), findsOneWidget);
       expect(find.text('Search…'), findsNothing);
     });
 

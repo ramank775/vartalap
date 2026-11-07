@@ -4,6 +4,15 @@ library vartalap.screens.chat.chat;
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart'
+    show
+        BottomActionBarConfig,
+        CategoryExtraTab,
+        CategoryViewConfig,
+        Config,
+        EmojiPicker,
+        EmojiViewConfig,
+        SkinToneConfig;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +23,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:vartalap_crypto/vartalap_crypto.dart' show SecureUnlock;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
+import 'package:vartalap/screens/albums/albums.dart';
 import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/forward.dart';
 import 'package:vartalap/screens/chat/message_info.dart';
@@ -24,7 +34,9 @@ import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat/video_view.dart';
 import 'package:vartalap/screens/chat/voice_note.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
+import 'package:vartalap/screens/chat_info/media.dart';
 import 'package:vartalap/screens/invites/invites.dart';
+import 'package:vartalap/screens/labels/labels.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
@@ -34,6 +46,7 @@ import 'package:vartalap/utils/rich_message.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/chat_action_sheets.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 
@@ -129,6 +142,19 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// Decision 222: the next message's timer and secure options. Back to
   /// none once it is sent.
   ComposeOptions _options = kNoComposeOptions;
+
+  /// WhatsApp's emoji panel, in the keyboard's place and as tall as the
+  /// keyboard last was.
+  bool _emojiOpen = false;
+  // ponytail: a typical keyboard's height until this phone's is seen.
+  double _keyboardHeight = 280;
+
+  /// Long texts the user opened with "Read more".
+  final Set<String> _expanded = {};
+
+  /// The chat's ⋮; [_menuMore] while it shows its "More" page.
+  final GlobalKey<PopupMenuButtonState<VoidCallback>> _menuKey = GlobalKey();
+  bool _menuMore = false;
 
   /// The voice note being recorded; null while the composer is text.
   AudioRecorder? _recorder;
@@ -478,6 +504,253 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     }
   }
 
+  /// The title row, and the menu's View contact / Group info.
+  void _openChatInfo() {
+    Navigator.of(context).push(
+      MaterialPageRoute<String>(
+        builder: (_) => ChatInfoScreen(
+          channelId: widget.channelId,
+          channelName: _title,
+          channelKind: widget.channelKind,
+          chatService: widget.chatService,
+          authService: widget.authService,
+        ),
+      ),
+    ).then((result) {
+      // A rename, member change or mute made in there.
+      _loadMemberNames();
+      if (result == 'search' && mounted) _openSearch();
+    });
+  }
+
+  void _push(Widget screen) => Navigator.of(context)
+      .push(MaterialPageRoute<void>(builder: (_) => screen));
+
+  /// WhatsApp's ⋮ over a chat, holding only what this app can do; its
+  /// "More" shows the rarer actions in the same place.
+  List<(String, VoidCallback)> _menuItems() {
+    final group = widget.channelKind == 'group';
+    final peer = _peerUserId;
+    if (_menuMore) {
+      return [
+        if (peer != null) ...[
+          (
+            'Report',
+            () => showReportDialog(
+                  context,
+                  chatService: widget.chatService,
+                  userId: peer,
+                  name: _title,
+                  channelId: widget.channelId,
+                )
+          ),
+          (_link?.blocked == true ? 'Unblock' : 'Block', _toggleBlock),
+        ],
+        if (group && _members != null && _canSend) ('Exit group', _exitGroup),
+        (
+          'Clear chat',
+          () => confirmClearHistory(
+                context: context,
+                chatService: widget.chatService,
+                channelId: widget.channelId,
+                isGroup: group,
+              )
+        ),
+      ];
+    }
+    void media() => _push(MediaScreen(
+        channelId: widget.channelId, chatService: widget.chatService));
+    return [
+      (group ? 'Group info' : 'View contact', _openChatInfo),
+      if (group) ('Group media', media),
+      ('Search', _openSearch),
+      if (!group) ('Media, links and docs', media),
+      // A 1:1 chat's wait for its other person, as in chat info.
+      if (group || peer != null) ('Albums', _openAlbums),
+      if (muteLabel(_channel?.mutedUntilMs) == null)
+        ('Mute notifications', _mute)
+      else
+        ('Unmute notifications', () => _mute(off: true)),
+      if (peer != null)
+        (
+          'Add to label',
+          () => pickContactLabels(context, widget.chatService, peer)
+        ),
+      (
+        'More',
+        () {
+          _menuMore = true;
+          _menuKey.currentState?.showButtonMenu();
+        }
+      ),
+    ];
+  }
+
+  void _openAlbums() => _push(AlbumsScreen(
+        chatService: widget.chatService,
+        channelId: widget.channelId,
+        peer: widget.channelKind == 'group' ? null : _peerUserId,
+      ));
+
+  /// Attach › Album (decision 233): make a new album, or open the chat's
+  /// albums to add photos to one.
+  Future<void> _albumChoice() async {
+    final create = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_photo_alternate_outlined),
+              title: const Text('New album'),
+              subtitle: const Text('For a family day or an occasion'),
+              onTap: () => Navigator.of(ctx).pop(true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Add to an album'),
+              subtitle: const Text("Pick one of this chat's albums"),
+              onTap: () => Navigator.of(ctx).pop(false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (create == null || !mounted) return;
+    if (!create) return _openAlbums();
+    final album = await newAlbum(context,
+        chatService: widget.chatService,
+        channelId: widget.channelId,
+        peer: widget.channelKind == 'group' ? null : _peerUserId);
+    if (album == null || !mounted) return;
+    _push(AlbumScreen(
+      chatService: widget.chatService,
+      channelId: album.channelId,
+      albumId: album.albumId,
+      album: album,
+    ));
+  }
+
+  /// Mute picks a length on frame f's sheet; Unmute is one tap.
+  Future<void> _mute({bool off = false}) async {
+    if (off) {
+      await widget.chatService.setMuted(widget.channelId, null);
+    } else {
+      await showMuteSheet(
+        context: context,
+        chatService: widget.chatService,
+        channelIds: [widget.channelId],
+        mutedUntilMs: null,
+      );
+    }
+    await _loadMemberNames(); // re-reads the channel row's mute
+  }
+
+  /// Group info's Leave group, from the chat's menu. Decision 9: an
+  /// owner's confirm names who takes over.
+  Future<void> _exitGroup() async {
+    final me = widget.authService.currentUserId ?? '';
+    final members = _members ?? const <ChannelMemberRow>[];
+    final owner = members.any((m) => m.userId == me && m.role == 'owner');
+    final heir = owner ? successorAfterOwnerLeaves(members, me) : null;
+    final exit = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Exit $_title?'),
+        content: Text(
+          'You will stop receiving messages. The chat and its history '
+          'stay on this phone until you delete it. Other members stay in '
+          'the group and can add you back.'
+          '${heir == null ? '' : ' ${_memberNames[heir.userId] ?? 'Unknown'} '
+              'will become the owner.'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              'Exit group',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (exit != true) return;
+    try {
+      await widget.chatService.leaveGroup(widget.channelId, selfUserId: me);
+    } catch (_) {
+      _toast("Couldn't exit the group. Try again.");
+      return;
+    }
+    await _loadMemberNames();
+  }
+
+  /// The composer's smiley: the keyboard goes and the emoji panel takes
+  /// its place; the keyboard icon brings the keyboard back. The field
+  /// keeps its focus, so emoji land at the cursor.
+  void _toggleEmoji() {
+    if (_emojiOpen) {
+      setState(() => _emojiOpen = false);
+      if (_inputFocus.hasFocus) {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      } else {
+        _inputFocus.requestFocus();
+      }
+      return;
+    }
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom -
+        MediaQuery.viewPaddingOf(context).bottom;
+    if (keyboard > 120) _keyboardHeight = keyboard;
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    setState(() => _emojiOpen = true);
+  }
+
+  /// The emoji panel, under the composer and above the system
+  /// navigation bar. Recently used ones come first.
+  Widget _emojiPanel(ColorScheme scheme) {
+    final bg = scheme.surfaceContainerLow;
+    return ColoredBox(
+      color: bg,
+      child: SafeArea(
+        top: false,
+        child: EmojiPicker(
+          textEditingController: _input,
+          config: Config(
+            height: _keyboardHeight,
+            emojiViewConfig: EmojiViewConfig(
+              // Eight a row, not the package's ten: easier to hit.
+              columns: 8,
+              emojiSizeMax: 30,
+              backgroundColor: bg,
+              noRecents: Text(
+                'Emoji you use will show here',
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+            ),
+            categoryViewConfig: CategoryViewConfig(
+              backgroundColor: bg,
+              indicatorColor: scheme.primary,
+              iconColorSelected: scheme.primary,
+              iconColor: scheme.onSurfaceVariant,
+              backspaceColor: scheme.onSurfaceVariant,
+              extraTab: CategoryExtraTab.BACKSPACE,
+            ),
+            skinToneConfig: SkinToneConfig(
+              dialogBackgroundColor: scheme.surfaceContainerHighest,
+              indicatorColor: scheme.onSurfaceVariant,
+            ),
+            bottomActionBarConfig: const BottomActionBarConfig(enabled: false),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// "Dev_Two, Asha, You" under a group's name (WhatsApp).
   String? get _memberLine {
     final members = _members;
@@ -539,7 +812,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// Opening search takes the keyboard, even from the composer
   /// (`autofocus` won't take it from a focused field).
   void _openSearch() {
-    setState(() => _searchOpen = true);
+    setState(() {
+      _searchOpen = true;
+      _emojiOpen = false;
+    });
     _searchFocus.requestFocus();
   }
 
@@ -767,6 +1043,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     // Otherwise the keyboard stays up over the actions; Edit and Reply
     // ask for it again. The search field may hold it too.
     FocusManager.instance.primaryFocus?.unfocus();
+    _emojiOpen = false;
     _toggleSelected(msg);
   }
 
@@ -1066,9 +1343,10 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   /// gallery for photos and videos (photos we can size for the bubble),
   /// the system file picker for everything else (Audio is the same
   /// picker showing only audio), and the text-format kinds — contact,
-  /// location, event (decision 133).
+  /// location, event (decision 133) — and the chat's albums (decision
+  /// 233), once a 1:1 chat knows its other person.
   Future<void> _onAttach({String? preset}) async {
-    const options = [
+    final options = [
       (Icons.photo_camera_outlined, 'Camera', 'camera'),
       (Icons.image_outlined, 'Gallery', 'gallery'),
       (Icons.insert_drive_file_outlined, 'Document', 'file'),
@@ -1076,17 +1354,27 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       (Icons.person_outline, 'Contact', 'contact'),
       (Icons.location_on_outlined, 'Location', 'location'),
       (Icons.event_outlined, 'Event', 'event'),
+      if (widget.channelKind == 'group' || _peerUserId != null)
+        (Icons.photo_library_outlined, 'Album', 'album'),
     ];
     final choice = preset ?? await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) {
         final scheme = Theme.of(ctx).colorScheme;
+        // WhatsApp's compact sheet: four to a row, rows just taller
+        // than their circle and label, the sheet as tall as they are.
         return SafeArea(
-          child: GridView.count(
-            crossAxisCount: 3,
+          child: GridView(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              // A circle, its label, a little air; more for a bigger font.
+              mainAxisExtent: 72 + MediaQuery.textScalerOf(ctx).scale(20),
+              mainAxisSpacing: kSpaceXs,
+            ),
             shrinkWrap: true,
-            padding: const EdgeInsets.all(kSpaceLg),
-            mainAxisSpacing: kSpaceMd,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(
+                kSpaceSm, kSpaceMd, kSpaceSm, kSpaceSm),
             children: [
               for (final (icon, label, value) in options)
                 InkWell(
@@ -1100,8 +1388,8 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                         backgroundColor: scheme.primaryContainer,
                         child: Icon(icon, color: scheme.onPrimaryContainer),
                       ),
-                      const SizedBox(height: kSpaceSm),
-                      Text(label),
+                      const SizedBox(height: 6),
+                      Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
@@ -1118,6 +1406,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
           sendCurrent: (p) => _sendRich(p.toUri(), kLocationType));
     }
     if (choice == 'event') return _shareEvent();
+    if (choice == 'album') return _albumChoice();
 
     String? sourcePath;
     // Camera and gallery media: a photo is sized here (HD or not), a video
@@ -1325,6 +1614,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     setState(() {
       _recorder = recorder;
       _recordingSince = DateTime.now();
+      _emojiOpen = false;
     });
     _recordingTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (DateTime.now().difference(_recordingSince) >= _maxVoiceNote) {
@@ -1456,13 +1746,16 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
             for (final id in _selectedIds)
               ..._lastMessages.where((m) => m.messageId == id),
           ];
-    // Back closes the selection, then search, first, like WhatsApp.
+    // Back closes the selection, the emoji panel, then search, first,
+    // like WhatsApp.
     return PopScope(
-      canPop: selected.isEmpty && !_searchOpen,
+      canPop: selected.isEmpty && !_searchOpen && !_emojiOpen,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (selected.isNotEmpty) {
           _clearSelection();
+        } else if (_emojiOpen) {
+          setState(() => _emojiOpen = false);
         } else {
           _closeSearch();
         }
@@ -1473,23 +1766,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
           : _searchOpen ? _searchBar(onBar) : AppBar(
         titleSpacing: 0,
         title: InkWell(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<String>(
-                builder: (_) => ChatInfoScreen(
-                  channelId: widget.channelId,
-                  channelName: _title,
-                  channelKind: widget.channelKind,
-                  chatService: widget.chatService,
-                  authService: widget.authService,
-                ),
-              ),
-            ).then((result) {
-              // A rename or member change made in there.
-              if (widget.channelKind == 'group') _loadMemberNames();
-              if (result == 'search' && mounted) _openSearch();
-            });
-          },
+          onTap: _openChatInfo,
           child: Row(
             children: [
               Avator(
@@ -1545,22 +1822,29 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
             ],
           ),
         ),
+        // Search lives in the menu, for a 1:1 chat and a group alike.
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Search in conversation',
-            onPressed: _openSearch,
-          ),
-          if (_peerUserId != null)
-            PopupMenuButton<void>(
-              tooltip: 'More options',
-              itemBuilder: (_) => [
-                PopupMenuItem<void>(
-                  onTap: _toggleBlock,
-                  child: Text(_link?.blocked == true ? 'Unblock' : 'Block'),
+          PopupMenuButton<VoidCallback>(
+            key: _menuKey,
+            tooltip: 'More options',
+            onCanceled: () => _menuMore = false,
+            onSelected: (action) {
+              _menuMore = false;
+              action();
+            },
+            itemBuilder: (_) => [
+              for (final (label, action) in _menuItems())
+                PopupMenuItem(
+                  value: action,
+                  child: label == 'More'
+                      ? const Row(children: [
+                          Expanded(child: Text('More')),
+                          Icon(Icons.arrow_right),
+                        ])
+                      : Text(label),
                 ),
-              ],
-            ),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -1662,14 +1946,17 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                         : () => showEditHistory(context,
                             widget.chatService.messageVersions(msg.messageId)),
                     onLongPress: () => _select(msg),
-                    // While selecting, a tap adds or removes a message; a
-                    // secure one opens on a tap (decision 222).
-                    onTap: selecting
-                        ? () => _toggleSelected(msg)
-                        : msg.contentType == kSecureType && !msg.tombstoned
-                            ? () => revealSecret(
-                                context, widget.chatService, msg)
-                            : null,
+                    // While selecting, a tap adds or removes a message.
+                    onTap: selecting ? () => _toggleSelected(msg) : null,
+                    // Decision 222: a secure one opens from its card.
+                    onReveal: msg.contentType == kSecureType && !msg.tombstoned
+                        ? () => revealSecret(context, widget.chatService, msg)
+                        : null,
+                    // A long text opens in place; a search shows it whole.
+                    onReadMore: _expanded.contains(msg.messageId) ||
+                            _searchQuery.isNotEmpty
+                        ? null
+                        : () => setState(() => _expanded.add(msg.messageId)),
                     onReactionTap: (emoji) => _toggleReaction(msg, emoji),
                     onRetry:
                         failedOpId == null ? null : () => _retry(failedOpId),
@@ -1787,10 +2074,16 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
               chatService: widget.chatService,
               authService: widget.authService,
             )
-          else
+          else ...[
           _MessageInput(
             controller: _input,
             focusNode: _inputFocus,
+            emojiOpen: _emojiOpen,
+            onEmoji: _toggleEmoji,
+            // A tap on the field brings the keyboard back over the panel.
+            onFieldTap: () {
+              if (_emojiOpen) setState(() => _emojiOpen = false);
+            },
             sending: _sending,
             onSend: _onSend,
             onAttach: _onAttach,
@@ -1816,6 +2109,8 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                     ? _cancelCompose
                     : null,
           ),
+          if (_emojiOpen) _emojiPanel(scheme),
+          ],
         ],
       ),
     ),
@@ -1836,7 +2131,7 @@ class _CenterChip extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: kSpaceXl,
-          vertical: kSpaceSm,
+          vertical: 6,
         ),
         child: Container(
           padding: const EdgeInsets.symmetric(
@@ -1914,9 +2209,18 @@ class _MessageInput extends StatelessWidget {
   final VoidCallback onOptions;
   final VoidCallback onClearOptions;
 
+  /// The smiley at the field's left end (a keyboard while the emoji
+  /// panel is open), and a tap on the field itself.
+  final bool emojiOpen;
+  final VoidCallback onEmoji;
+  final VoidCallback onFieldTap;
+
   const _MessageInput({
     required this.controller,
     required this.focusNode,
+    required this.emojiOpen,
+    required this.onEmoji,
+    required this.onFieldTap,
     required this.sending,
     required this.onSend,
     required this.onAttach,
@@ -2043,10 +2347,19 @@ class _MessageInput extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    icon: Icon(emojiOpen
+                        ? Icons.keyboard_outlined
+                        : Icons.emoji_emotions_outlined),
+                    tooltip: emojiOpen ? 'Keyboard' : 'Emoji',
+                    color: muted,
+                    onPressed: onEmoji,
+                  ),
                   Expanded(
                     child: TextField(
                       controller: controller,
                       focusNode: focusNode,
+                      onTap: onFieldTap,
                       minLines: 1,
                       maxLines: 5,
                       textCapitalization: TextCapitalization.sentences,
@@ -2060,7 +2373,7 @@ class _MessageInput extends StatelessWidget {
                         hintText: 'Message',
                         hintStyle: TextStyle(color: muted),
                         contentPadding:
-                            const EdgeInsets.fromLTRB(18, 13, 0, 13),
+                            const EdgeInsets.fromLTRB(0, 13, 0, 13),
                       ),
                     ),
                   ),
@@ -2101,8 +2414,11 @@ class _MessageInput extends StatelessWidget {
             ],
           );
 
+    // With the emoji panel open, the panel keeps clear of the system
+    // navigation bar instead.
     return SafeArea(
       top: false,
+      bottom: !emojiOpen,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
         child: Row(
@@ -2415,6 +2731,19 @@ const _matchStyle =
 /// WhatsApp's words for a message that has not decrypted yet.
 const _waitingText = 'Waiting for this message. This may take a while.';
 
+/// A text longer than this (UTF-16 units) shows only its start, with
+/// "Read more"; the start ends at a word near [_readMoreShown]
+/// characters.
+const _readMoreOver = 700;
+const _readMoreShown = 500;
+
+String _readMoreCut(String body) {
+  final start = body.characters.take(_readMoreShown).toString();
+  final space = start.lastIndexOf(RegExp(r'\s'));
+  return (space > _readMoreShown * 0.8 ? start.substring(0, space) : start)
+      .trimRight();
+}
+
 class _MessageBubble extends StatelessWidget {
   final MessageRow message;
   final bool isMine;
@@ -2446,6 +2775,12 @@ class _MessageBubble extends StatelessWidget {
   /// A tap on the bubble itself (letting go of a selection).
   final VoidCallback? onTap;
 
+  /// Opens a secure message (its card's View).
+  final VoidCallback? onReveal;
+
+  /// Set while a long text may be cut short; "Read more" calls it.
+  final VoidCallback? onReadMore;
+
   /// Tapping the reply quote jumps to the message it quotes.
   final VoidCallback? onReplyTap;
 
@@ -2474,6 +2809,8 @@ class _MessageBubble extends StatelessWidget {
     this.onMessageContact,
     this.link,
     this.onTap,
+    this.onReveal,
+    this.onReadMore,
     this.onReplyTap,
     this.onEditedTap,
     this.onRsvp,
@@ -2498,15 +2835,8 @@ class _MessageBubble extends StatelessWidget {
     final failed = onRetry != null;
     final tombstoned = message.tombstoned;
     final waiting = message.contentType == kUndecryptedType;
-    // Decision 222: never the secret, only how it opens.
-    final secure = !tombstoned && message.contentType == kSecureType
-        ? switch (ChatService.secureUnlock(message)) {
-            SecureUnlock.screenLock => 'Secure message. Tap to view',
-            SecureUnlock.password =>
-              'Secure message. Tap and enter the password',
-            null => 'Secure message. Update Vartalap to open it',
-          }
-        : null;
+    // Decision 222: a card saying how it opens, never the secret.
+    final secure = !tombstoned && message.contentType == kSecureType;
     // A contact / location / event renders as a card, never its body.
     final rich = !tombstoned && isRichType(message.contentType);
 
@@ -2573,8 +2903,12 @@ class _MessageBubble extends StatelessWidget {
     // Photos, files, voice notes and cards sit in a tight frame, and
     // without a caption they carry the time themselves (WhatsApp): on
     // the photo, beside the voice note's length, above a card's buttons.
-    final media = attachments.isNotEmpty || rich;
-    final selfTimed = media && (rich || body.isEmpty);
+    final media = attachments.isNotEmpty || rich || secure;
+    final selfTimed = media && (rich || secure || body.isEmpty);
+    // WhatsApp cuts a very long text short, "Read more" at its end.
+    final cut = onReadMore != null && body.length > _readMoreOver
+        ? _readMoreCut(body)
+        : null;
     Widget pad(Widget child) => media
         ? Padding(
             padding: const EdgeInsets.fromLTRB(6, 4, 6, 2),
@@ -2620,9 +2954,11 @@ class _MessageBubble extends StatelessWidget {
       color: highlighted
           ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
           : Colors.transparent,
+      // WhatsApp's rhythm: 2 px between one sender's bubbles, 8 px
+      // when the sender changes.
       padding: EdgeInsets.only(
-        top: showTail ? 8 : 2,
-        bottom: 2,
+        top: showTail ? 7 : 1,
+        bottom: 1,
         // The list has no side padding, so a highlight runs edge to
         // edge; the 8 px gutter lives here instead.
         left: isMine ? 72 : 8,
@@ -2654,7 +2990,7 @@ class _MessageBubble extends StatelessWidget {
             // The tail is drawn outside the box, so both sides match.
             padding: media
                 ? const EdgeInsets.all(4)
-                : const EdgeInsets.fromLTRB(12, 7, 12, 6),
+                : const EdgeInsets.fromLTRB(10, 6, 10, 6),
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.68,
@@ -2720,6 +3056,13 @@ class _MessageBubble extends StatelessWidget {
                       onRsvp: onRsvp,
                       nameOf: nameOf,
                     ),
+                  if (secure)
+                    _SecureCard(
+                      unlock: ChatService.secureUnlock(message),
+                      tint: fg,
+                      footer: meta,
+                      onView: onReveal,
+                    ),
                   if (!selfTimed)
                     pad(withMeta(
                       tombstoned
@@ -2757,21 +3100,34 @@ class _MessageBubble extends StatelessWidget {
                                     const TextSpan(text: ' $_waitingText'),
                                   ],
                                 )
-                              : secure != null
+                              : cut != null
                                   ? TextSpan(children: [
+                                      _marked(cut, searchQuery),
+                                      const TextSpan(text: '… '),
                                       WidgetSpan(
-                                        alignment: PlaceholderAlignment.middle,
-                                        child: Icon(Icons.lock_outline,
-                                            size: 16, color: fg),
+                                        alignment: PlaceholderAlignment.baseline,
+                                        baseline: TextBaseline.alphabetic,
+                                        child: GestureDetector(
+                                          onTap: onReadMore,
+                                          child: Text(
+                                            'Read more',
+                                            style: TextStyle(
+                                              color: chatColors.linkText,
+                                              fontSize: 16,
+                                              height: 1.35,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                      TextSpan(text: ' $secure'),
                                     ])
                                   : _marked(body, searchQuery),
+                      // A screen reader gets a long text whole.
                       tombstoned
                           ? 'This message was deleted'
                           : waiting
                               ? _waitingText
-                              : secure ?? body,
+                              : body,
                     )),
                   if (failed)
                     pad(Padding(
@@ -2892,6 +3248,102 @@ class _ForwardedLabel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A secure message (decision 222): a card that plainly opens on a tap
+/// and says how, never the secret. The secret shows in a dialog, so
+/// closing it leaves this card as it was.
+class _SecureCard extends StatelessWidget {
+  final SecureUnlock? unlock;
+  final Color tint;
+
+  /// The bubble's time + tick, above the View button.
+  final Widget footer;
+  final VoidCallback? onView;
+
+  const _SecureCard({
+    required this.unlock,
+    required this.tint,
+    required this.footer,
+    this.onView,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // The shape of rich_messages.dart's cards (location, album).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: onView,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: tint.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.lock_outline, color: tint),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Secure message',
+                        style: TextStyle(
+                          color: tint,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        switch (unlock) {
+                          SecureUnlock.screenLock =>
+                            'Unlock with your phone lock',
+                          SecureUnlock.password => 'Enter the password',
+                          null => 'Update Vartalap to open it',
+                        },
+                        style: TextStyle(
+                          color: tint.withValues(alpha: 0.75),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 2, 6, 4),
+          child: Align(alignment: Alignment.centerRight, child: footer),
+        ),
+        Divider(height: 1, thickness: 1, color: tint.withValues(alpha: 0.15)),
+        TextButton(
+          onPressed: onView,
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.primary,
+            minimumSize: const Size.fromHeight(40),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: const RoundedRectangleBorder(),
+            textStyle:
+                const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          child: const Text('View'),
+        ),
+      ],
     );
   }
 }
