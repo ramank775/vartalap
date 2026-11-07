@@ -3,6 +3,7 @@
 library vartalap.services.presence_test;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:flutter_test/flutter_test.dart';
@@ -128,6 +129,26 @@ void main() {
     expect(chat.presence.value, isNull, reason: 'nobody watched');
   });
 
+  test('a socket already up when the account opens hears we are on screen',
+      () async {
+    // Found on the emulators: the app's socket connects before the account
+    // opens, and `state` does not replay, so nobody ever saw us online.
+    final up = _UpAlready();
+    final opened = ChatService(
+      store: store,
+      scheduler: scheduler,
+      authClient: AuthClient(baseUrl: Uri.parse('http://localhost'))
+        ..restoreSession(accesskey: 'a', userId: self),
+      wsTransport: up,
+      uuidGen: Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(self)),
+      clock: FakeClock(5000),
+    );
+    addTearDown(opened.stopPresence);
+    expect(up.sent, hasLength(1));
+    final body = pb.ServerEventPayload.fromBuffer(up.sent.single.sublist(1));
+    expect(body.presence.online, isTrue);
+  });
+
   test('a group watches nobody', () async {
     await chat.watchPresence('0190aaaa-bbbb-7ccc-8ddd-eeeeffff0009');
     await push(presenceFrame(bob, online: true));
@@ -182,4 +203,30 @@ class _Offline implements Transport {
 
   @override
   Future<void> send(OutboundFrame frame) async {}
+}
+
+/// A socket that is already connected and records what goes out.
+class _UpAlready extends WsTransport {
+  _UpAlready()
+      : super(
+          endpoint: Uri.parse('ws://example.invalid/wss'),
+          auth: AuthClient(baseUrl: Uri.parse('http://example.invalid')),
+        );
+
+  final sent = <Uint8List>[];
+
+  @override
+  TransportState get currentState => TransportState.connected;
+
+  @override
+  bool sendEphemeral({
+    required String opId,
+    required String channelId,
+    required Uint8List payload,
+    String? peer,
+    int flags = 0,
+  }) {
+    sent.add(payload);
+    return true;
+  }
 }

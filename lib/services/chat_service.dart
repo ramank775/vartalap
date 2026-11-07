@@ -288,6 +288,11 @@ class ChatService with TimelineService, AlbumService {
       }),
       _wsTransport.pushes.listen(_onPresence),
     ];
+    // The socket starts with the app, so it can be up before an account
+    // (and this service) opens: `state` has no replay, say it now.
+    if (_wsTransport.currentState == TransportState.connected) {
+      _sendPresence();
+    }
   }
 
   // ---- Settings › Privacy (decision 223, track F) -----------------------
