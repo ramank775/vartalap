@@ -1281,6 +1281,32 @@ void main() {
     // still a member: a listing changes nothing
     await receiver.adoptGroups({grp: roster('Ignored')});
     expect((await store.fetchChannel(grp))!.name, 'Renamed while away');
+
+    // left again, the leave still queued: a listing from before it
+    // does not put us back
+    await store.removeChannelMember(
+        channelId: grp, userId: _selfUserId, removedAtMs: 6);
+    await store.enqueueOutboundOp(OutboundOpRow(
+      opId: 'op-leave',
+      transport: OpTransport.rest,
+      kind: OpKind.removeMember,
+      restMethod: 'DELETE',
+      restPath: '/v3.0/channels/$grp/members/$_selfUserId',
+      resourceId: grp,
+      payload: const [],
+      status: OpStatus.pending,
+      attempts: 0,
+      nextRetryAt: 0,
+      dispatchedAt: null,
+      lastError: null,
+      acknowledgedAt: null,
+      createdAt: 0,
+      targetMessageId: null,
+      targetChannelId: grp,
+    ));
+    await receiver.adoptGroups({grp: roster('Stale')});
+    expect((await store.fetchChannelMembers(grp)).map((m) => m.userId),
+        isNot(contains(_selfUserId)));
   });
 
   test(

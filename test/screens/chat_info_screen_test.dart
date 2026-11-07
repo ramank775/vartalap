@@ -12,6 +12,7 @@ import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
 void main() {
@@ -176,6 +177,8 @@ void main() {
         findsOneWidget);
     expect(find.text('Ravi'), findsNothing);
     expect(find.text('Leave group'), findsNothing);
+    expect(find.byType(EditableAvator), findsNothing,
+        reason: 'not ours to change any more');
     await _scrollTo(tester, 'Delete chat');
     expect(find.textContaining('erases its messages on this phone'),
         findsOneWidget);

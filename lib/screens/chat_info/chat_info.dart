@@ -239,8 +239,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                         height: kAvatarXl,
                       );
                       // Frame e: only a group photo is ours to change.
-                      // A DM's avatar belongs to the peer.
-                      if (!_isGroup) return avatar;
+                      // A DM's avatar belongs to the peer; a group we
+                      // left is not ours to change either.
+                      if (!_isGroup || left) return avatar;
                       return EditableAvator(
                         avatar: avatar,
                         busy: _settingPhoto,

@@ -1229,6 +1229,14 @@ class InboundReceiver {
     if (!roster.roles.containsKey(localUserId)) return;
     final members = await store.fetchChannelMembers(channelId);
     if (members.any((m) => m.userId == localUserId)) return;
+    // Our own leave not sent yet: the listing predates it.
+    final leaving = await store.db.query('outbound_ops',
+        columns: const ['op_id'],
+        where: "target_channel_id = ? AND kind = ? AND rest_path LIKE ? "
+            "AND status IN ('pending', 'in_flight', 'retrying')",
+        whereArgs: [channelId, OpKind.removeMember, '%/members/$localUserId'],
+        limit: 1);
+    if (leaving.isNotEmpty) return;
     final now = clock.nowMs();
     for (final m in members) {
       if (roster.roles.containsKey(m.userId)) continue;
