@@ -137,6 +137,13 @@ void main() {
       expect(opened, everyElement(accountDbPath(dir.path, alice)));
     });
 
+    test('the timed-message sweeper runs once an account is open', () async {
+      // Decision 222: opening an account rebuilds the inbound receiver right
+      // after starting the sweeper; the rebuild must not stop it.
+      await services.openAccount(alice, adoptGroups: false);
+      expect(services.chatService.expiryRunning, isTrue);
+    });
+
     test('another user gets an empty store of their own', () async {
       await services.openAccount(alice, adoptGroups: false);
       await addContact();

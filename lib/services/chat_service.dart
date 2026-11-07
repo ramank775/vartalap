@@ -20,7 +20,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
-import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/timeline_client.dart';
@@ -1774,6 +1774,10 @@ class ChatService with TimelineService {
             }));
     unawaited(_sweepExpired());
   }
+
+  /// Whether the timed-message sweeper is running ([startExpiry]).
+  @visibleForTesting
+  bool get expiryRunning => _expirySub != null;
 
   Future<void> stopExpiry() async {
     await _expirySub?.cancel();

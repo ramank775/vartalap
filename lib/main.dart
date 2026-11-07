@@ -421,7 +421,6 @@ class AppServices {
     inboundReceiver = null;
     chatService.bindTypingSource(null);
     chatService.bindDeliverySource(null);
-    await chatService.stopExpiry();
     notifications.bindSource(null);
     if (prev != null) {
       await prev.stop();
