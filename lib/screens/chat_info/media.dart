@@ -1,6 +1,6 @@
-/// "Media, links and docs" — WhatsApp's three tabs over one channel:
-/// photos and videos in a grid, documents, and messages with links,
-/// each under month headers, newest first.
+/// "Media, links and docs" — WhatsApp's tabs over one channel: photos
+/// and videos in a grid, documents, secure messages, and messages with
+/// links, each under month headers, newest first.
 ///
 /// Thumbnails come off the same [AssetCache] the chat bubbles use, so
 /// opening this screen after scrolling the thread costs no network.
@@ -73,11 +73,15 @@ class MediaScreen extends StatefulWidget {
   /// widgets fall through to [AssetCache.instance].
   final AssetCache? cache;
 
+  /// Who sent a secure message ("You" for the user).
+  final String Function(String userId)? nameOf;
+
   const MediaScreen({
     super.key,
     required this.channelId,
     required this.chatService,
     this.cache,
+    this.nameOf,
   });
 
   @override
@@ -88,17 +92,23 @@ class _MediaScreenState extends State<MediaScreen> {
   late final _media = widget.chatService.fetchMedia(widget.channelId);
   late final _docs = widget.chatService.fetchFiles(widget.channelId);
   late final _links = widget.chatService.fetchLinks(widget.channelId);
+  late final _secure = widget.chatService.fetchSecure(widget.channelId);
 
   @override
   Widget build(BuildContext context) {
     final cache = widget.cache;
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Media, links and docs'),
           bottom: const TabBar(
-            tabs: [Tab(text: 'Media'), Tab(text: 'Docs'), Tab(text: 'Links')],
+            tabs: [
+              Tab(text: 'Media'),
+              Tab(text: 'Docs'),
+              Tab(text: 'Secure'),
+              Tab(text: 'Links'),
+            ],
           ),
         ),
         body: TabBarView(
@@ -131,6 +141,19 @@ class _MediaScreenState extends State<MediaScreen> {
               section: (rows) => SliverList.builder(
                 itemCount: rows.length,
                 itemBuilder: (_, i) => _DocRow(message: rows[i], cache: cache),
+              ),
+            ),
+            _MonthlyTab(
+              rows: _secure,
+              empty: const _Empty(
+                icon: Icons.lock_outline,
+                title: 'No secure messages',
+                line: 'Secure messages sent in this chat show up here.',
+              ),
+              section: (rows) => SliverList.builder(
+                itemCount: rows.length,
+                itemBuilder: (_, i) =>
+                    _SecureRow(message: rows[i], nameOf: widget.nameOf),
               ),
             ),
             _MonthlyTab(
@@ -345,6 +368,33 @@ class _DocRow extends StatelessWidget {
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(details),
       onTap: a == null ? null : () => _open(context, a, cache),
+    );
+  }
+}
+
+/// A secure message (SYNC_PROTOCOL §20.4): its title, who sent it and
+/// when, never its secret. A tap goes back to it in the chat (the screen
+/// pops with its message id), to be opened there as usual.
+class _SecureRow extends StatelessWidget {
+  final MessageRow message;
+  final String Function(String userId)? nameOf;
+  const _SecureRow({required this.message, this.nameOf});
+
+  @override
+  Widget build(BuildContext context) {
+    final title = message.body ?? '';
+    return ListTile(
+      leading: const _Badge(child: Icon(Icons.lock_outline)),
+      title: Text(
+        title.isEmpty ? 'Secure message' : title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text([
+        if (nameOf != null) nameOf!(message.authorUserId),
+        DateFormat.yMMMd().format(_sentAt(message)),
+      ].join(' · ')),
+      onTap: () => Navigator.of(context).pop(message.messageId),
     );
   }
 }

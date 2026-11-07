@@ -130,11 +130,17 @@ class SecureScreen {
 
 /// What the composer sends its next message with (decision 222): a timer
 /// (seconds, 0 is Off), and whether it goes secure, opened with the
-/// receiver's screen lock or, with [password], only with that.
-typedef ComposeOptions = ({int timerSec, bool secure, String? password});
+/// receiver's screen lock or, with [password], only with that, and
+/// under what title (seen without unlocking, SYNC_PROTOCOL §20.4).
+typedef ComposeOptions = ({
+  int timerSec,
+  bool secure,
+  String? password,
+  String? title,
+});
 
 const ComposeOptions kNoComposeOptions =
-    (timerSec: 0, secure: false, password: null);
+    (timerSec: 0, secure: false, password: null, title: null);
 
 /// The shortest password a secure message takes.
 const int kMinSecurePassword = 4;
@@ -142,9 +148,8 @@ const int kMinSecurePassword = 4;
 /// One line for the composer: what [o] will do to the next message.
 String composeOptionsText(ComposeOptions o) => [
       if (o.secure)
-        o.password == null
-            ? 'Secure: opens with their screen lock'
-            : 'Secure: opens with your password',
+        '${o.title == null ? 'Secure' : 'Secure "${o.title}"'}: '
+            '${o.password == null ? 'opens with their screen lock' : 'opens with your password'}',
       if (o.timerSec > 0)
         'Disappears ${kMessageTimers[o.timerSec]} after sending',
     ].join(' · ');
@@ -181,10 +186,12 @@ class _ComposeOptionsSheetState extends State<_ComposeOptionsSheet> {
   late bool _secure = widget.current.secure;
   late bool _byPassword = widget.current.password != null || !widget.lockSet;
   late final _password = TextEditingController(text: widget.current.password);
+  late final _title = TextEditingController(text: widget.current.title);
 
   @override
   void dispose() {
     _password.dispose();
+    _title.dispose();
     super.dispose();
   }
 
@@ -225,6 +232,19 @@ class _ComposeOptionsSheetState extends State<_ComposeOptionsSheet> {
                 onChanged: (v) => setState(() => _secure = v),
               ),
               if (_secure) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: TextField(
+                    controller: _title,
+                    maxLength: kSecureTitleMax,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Title (optional)',
+                      hintText: 'Netflix password, Bank OTP…',
+                      helperText: 'Visible without unlocking',
+                    ),
+                  ),
+                ),
                 _radio(
                     !_byPassword,
                     'Opens with their screen lock',
@@ -279,6 +299,10 @@ class _ComposeOptionsSheetState extends State<_ComposeOptionsSheet> {
                                 secure: _secure,
                                 password: _secure && _byPassword
                                     ? _password.text
+                                    : null,
+                                title: _secure &&
+                                        secureTitle(_title.text).isNotEmpty
+                                    ? secureTitle(_title.text)
                                     : null,
                               ))
                           : null,

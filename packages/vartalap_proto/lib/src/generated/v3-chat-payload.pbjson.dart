@@ -123,6 +123,7 @@ const ChatPayload$json = {
       '6': '.vartalap.v3.payload.EventRsvp',
       '10': 'eventRsvp'
     },
+    {'1': 'secure_title', '3': 74, '4': 1, '5': 9, '10': 'secureTitle'},
     {
       '1': 'live_location_point',
       '3': 130,
@@ -185,13 +186,13 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'JUaW1lc3RhbXBNcxIbCgl0aW1lcl9zZWMYRiABKA1SCHRpbWVyU2VjEh0KCnNlY3VyZV9ib3gY'
     'RyABKAxSCXNlY3VyZUJveBIdCgpzZWN1cmVfa2V5GEggASgMUglzZWN1cmVLZXkSPQoKZXZlbn'
     'RfcnN2cBhJIAEoDjIeLnZhcnRhbGFwLnYzLnBheWxvYWQuRXZlbnRSc3ZwUglldmVudFJzdnAS'
-    'VwoTbGl2ZV9sb2NhdGlvbl9wb2ludBiCASABKAsyJi52YXJ0YWxhcC52My5wYXlsb2FkLkxpdm'
-    'VMb2NhdGlvblBvaW50UhFsaXZlTG9jYXRpb25Qb2ludBI8ChpsaXZlX2xvY2F0aW9uX2R1cmF0'
-    'aW9uX3NlYxiDASABKA1SF2xpdmVMb2NhdGlvbkR1cmF0aW9uU2VjEjMKFWxpdmVfbG9jYXRpb2'
-    '5fYWxsb3dlZBiEASABKAhSE2xpdmVMb2NhdGlvbkFsbG93ZWQSPgoEbWV0YRhkIAMoCzIqLnZh'
-    'cnRhbGFwLnYzLnBheWxvYWQuQ2hhdFBheWxvYWQuTWV0YUVudHJ5UgRtZXRhGjcKCU1ldGFFbn'
-    'RyeRIQCgNrZXkYASABKAlSA2tleRIUCgV2YWx1ZRgCIAEoCVIFdmFsdWU6AjgBSgQIAxAESgQI'
-    'FBAV');
+    'IQoMc2VjdXJlX3RpdGxlGEogASgJUgtzZWN1cmVUaXRsZRJXChNsaXZlX2xvY2F0aW9uX3BvaW'
+    '50GIIBIAEoCzImLnZhcnRhbGFwLnYzLnBheWxvYWQuTGl2ZUxvY2F0aW9uUG9pbnRSEWxpdmVM'
+    'b2NhdGlvblBvaW50EjwKGmxpdmVfbG9jYXRpb25fZHVyYXRpb25fc2VjGIMBIAEoDVIXbGl2ZU'
+    'xvY2F0aW9uRHVyYXRpb25TZWMSMwoVbGl2ZV9sb2NhdGlvbl9hbGxvd2VkGIQBIAEoCFITbGl2'
+    'ZUxvY2F0aW9uQWxsb3dlZBI+CgRtZXRhGGQgAygLMioudmFydGFsYXAudjMucGF5bG9hZC5DaG'
+    'F0UGF5bG9hZC5NZXRhRW50cnlSBG1ldGEaNwoJTWV0YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5'
+    'EhQKBXZhbHVlGAIgASgJUgV2YWx1ZToCOAFKBAgDEARKBAgUEBU=');
 
 @$core.Deprecated('Use liveLocationPointDescriptor instead')
 const LiveLocationPoint$json = {

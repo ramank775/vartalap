@@ -519,7 +519,9 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     ).then((result) {
       // A rename, member change or mute made in there.
       _loadMemberNames();
-      if (result == 'search' && mounted) _openSearch();
+      if (result == null || !mounted) return;
+      // Search, or a message picked under Media (a secure one).
+      result == 'search' ? _openSearch() : _jumpToMessage(result);
     });
   }
 
@@ -558,8 +560,20 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
         ),
       ];
     }
-    void media() => _push(MediaScreen(
-        channelId: widget.channelId, chatService: widget.chatService));
+    void media() => Navigator.of(context)
+            .push(MaterialPageRoute<String>(
+              builder: (_) => MediaScreen(
+                channelId: widget.channelId,
+                chatService: widget.chatService,
+                nameOf: (id) => id == widget.authService.currentUserId
+                    ? 'You'
+                    : _memberNames[id] ?? widget.channelName,
+              ),
+            ))
+            // A secure message picked there: show it here.
+            .then((id) {
+          if (id != null && mounted) _jumpToMessage(id);
+        });
     return [
       (group ? 'Group info' : 'View contact', _openChatInfo),
       if (group) ('Group media', media),
@@ -1008,6 +1022,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       !msg.tombstoned &&
       (msg.body ?? '').isNotEmpty &&
       !isRichType(msg.contentType) &&
+      msg.contentType != kSecureType && // its body is its title
       (msg.attachments == null || msg.serverTimestampMs != null);
 
   bool _isMine(MessageRow msg) =>
@@ -1035,7 +1050,8 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   bool _canCopy(MessageRow msg) =>
       !msg.tombstoned &&
       (msg.body ?? '').isNotEmpty &&
-      !isRichType(msg.contentType);
+      !isRichType(msg.contentType) &&
+      msg.contentType != kSecureType;
 
   /// Long-press: starts a selection, or adds/removes while one is open.
   void _select(MessageRow msg) {
@@ -1691,6 +1707,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
           secret: _input.text,
           authorUserId: userId,
           password: options.password,
+          title: options.title,
           replyToMessageId: _replyTo?.messageId,
           timerSec: options.timerSec,
         );
@@ -3058,6 +3075,7 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   if (secure)
                     _SecureCard(
+                      title: body,
                       unlock: ChatService.secureUnlock(message),
                       tint: fg,
                       footer: meta,
@@ -3256,6 +3274,8 @@ class _ForwardedLabel extends StatelessWidget {
 /// and says how, never the secret. The secret shows in a dialog, so
 /// closing it leaves this card as it was.
 class _SecureCard extends StatelessWidget {
+  /// What the sender called it; '' for none (SYNC_PROTOCOL §20.4).
+  final String title;
   final SecureUnlock? unlock;
   final Color tint;
 
@@ -3264,6 +3284,7 @@ class _SecureCard extends StatelessWidget {
   final VoidCallback? onView;
 
   const _SecureCard({
+    required this.title,
     required this.unlock,
     required this.tint,
     required this.footer,
@@ -3300,7 +3321,9 @@ class _SecureCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'Secure message',
+                        title.isEmpty ? 'Secure message' : title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: tint,
                           fontSize: 16,

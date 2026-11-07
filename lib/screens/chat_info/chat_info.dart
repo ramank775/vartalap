@@ -345,14 +345,25 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                         : (count == 0
                             ? 'Nothing shared yet'
                             : '$count ${count == 1 ? "item" : "items"}'),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
+                    onTap: () => Navigator.of(context)
+                        .push(
+                      MaterialPageRoute<String>(
                         builder: (_) => MediaScreen(
                           channelId: widget.channelId,
                           chatService: widget.chatService,
+                          nameOf: (id) => id == localUserId
+                              ? 'You'
+                              : _names[id] ?? 'Unknown',
                         ),
                       ),
-                    ),
+                    )
+                        // A secure message picked there: back to the chat,
+                        // which shows it.
+                        .then((messageId) {
+                      if (messageId != null && context.mounted) {
+                        Navigator.of(context).pop(messageId);
+                      }
+                    }),
                   );
                 },
               ),

@@ -21,8 +21,22 @@ String undecryptedMessageId(String senderUserId, String opId) =>
 
 /// `content_type` of a secure message (decision 222): its secret is in
 /// [MessageRow.secure], never in `body`, so no preview, notification or
-/// search ever holds it.
+/// search ever holds it. Its `body` holds its optional title, which is
+/// meant to be seen (SYNC_PROTOCOL §20.4).
 const String kSecureType = 'application/x-vartalap-secure';
+
+/// The most characters a secure message's title keeps.
+const int kSecureTitleMax = 60;
+
+/// A secure message's [title] on one line, cut to [kSecureTitleMax]
+/// characters; '' for none. Applied by its sender and its receivers.
+String secureTitle(String? title) {
+  final line = (title ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+  final chars = line.runes;
+  return chars.length <= kSecureTitleMax
+      ? line
+      : String.fromCharCodes(chars.take(kSecureTitleMax)).trimRight();
+}
 
 /// Decision 222: "Delete for everyone" is offered only this long after a
 /// message was sent (its server time). A message not yet sent can always

@@ -168,6 +168,7 @@ void main() {
         at: t0 + 1);
     final secret = await received('m-3',
         at: t0 + 2,
+        body: 'Bank OTP', // its title (SYNC_PROTOCOL §20.4)
         contentType: kSecureType,
         secure: pb.ChatPayload(secureBox: sealed.box, secureKey: sealed.key));
 
@@ -195,6 +196,7 @@ void main() {
           reason: 'decision 222: copied byte for byte, never re-sealed');
       expect(sent[2].secureKey, sealed.key);
       expect(sent[2].hasBody(), isFalse);
+      expect(sent[2].secureTitle, 'Bank OTP', reason: 'its title goes too');
     }
     final mine = [
       for (final m in await store.fetchChannelMessages(group))

@@ -415,12 +415,23 @@ void main() {
       await seed('m-gone', 'text/plain',
           body: 'https://deleted.dev', attachment: false, sent: 900,
           tombstoned: true);
+      await seed('m-secure', kSecureType,
+          body: 'Bank OTP', attachment: false, sent: 950);
+      await seed('m-secure-2', kSecureType, attachment: false, sent: 960);
+      await seed('m-secure-gone', kSecureType,
+          attachment: false, sent: 970, tombstoned: true);
     });
     tearDown(() => store.close());
 
     test('media holds photos and videos, newest by server time', () async {
       final media = await store.fetchChannelMedia('c-1');
       expect(media.map((m) => m.messageId), ['m-vid', 'm-img']);
+    });
+
+    test('secure messages, newest first, not deleted ones', () async {
+      final secure = await store.fetchChannelSecure('c-1');
+      expect(secure.map((m) => m.messageId), ['m-secure-2', 'm-secure']);
+      expect(secure.last.body, 'Bank OTP');
     });
 
     test('docs leave out media and voice notes, not audio files', () async {

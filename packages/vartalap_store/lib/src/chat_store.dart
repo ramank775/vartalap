@@ -2315,6 +2315,22 @@ class ChatStore {
     return rows.map(_rowToMessage).toList();
   }
 
+  /// Secure messages in [channelId] (decision 222), newest first — the
+  /// "Secure" tab. Their rows hold the title at most, never the secret.
+  Future<List<MessageRow>> fetchChannelSecure(
+    String channelId, {
+    int limit = 200,
+  }) async {
+    final rows = await db.query(
+      'messages',
+      where: 'channel_id = ? AND tombstoned = 0 AND content_type = ?',
+      whereArgs: [channelId, kSecureType],
+      orderBy: _newestFirst,
+      limit: limit,
+    );
+    return rows.map(_rowToMessage).toList();
+  }
+
   /// An http(s) URL in message text, less trailing punctuation: `see
   /// https://x.dev.` links `https://x.dev`.
   static final RegExp linkPattern = RegExp(

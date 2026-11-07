@@ -478,7 +478,15 @@ class InboundReceiver {
           opId: opId,
           messageId: messageId,
           senderUserId: env.senderUserId,
-          body: chat.hasBody() ? chat.body : null,
+          // A secure message's body is its title, nothing else
+          // (SYNC_PROTOCOL §20.4).
+          body: chat.secureBox.isNotEmpty
+              ? (secureTitle(chat.secureTitle).isEmpty
+                  ? null
+                  : secureTitle(chat.secureTitle))
+              : chat.hasBody()
+                  ? chat.body
+                  : null,
           contentType: chat.hasContentType() ? chat.contentType : null,
           attachments: chat.attachments.isEmpty
               ? null

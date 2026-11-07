@@ -278,6 +278,35 @@ void main() {
     expect(secure.secureKey, List.filled(32, 7));
   });
 
+  test('SYNC_PROTOCOL 20.4: a secure message\'s title is kept as its body, '
+      'on one line and cut to 60 characters; a body beside the box is not '
+      'kept', () async {
+    for (final (id, title) in [
+      ('m-titled', 'Netflix\npassword'),
+      ('m-long', 'x' * 70),
+    ]) {
+      pushes.add(_makeEnvelope(
+        opId: 'op-$id',
+        senderUserId: _peerUserId,
+        payload: pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: uuidBytes(_mid(id)),
+          contentType: kSecureType,
+          body: 'not a secure message body',
+          secureBox: [1, 1, 9, 9],
+          secureKey: List.filled(32, 7),
+          secureTitle: title,
+        ).writeToBuffer(),
+        serverTimestampMs: 5000,
+      ));
+      await _settle(store, _mid(id), present: true);
+    }
+    expect((await store.fetchMessage(_mid('m-titled')))!.body,
+        'Netflix password');
+    expect((await store.fetchMessage(_mid('m-long')))!.body, 'x' * 60);
+  });
+
   test('SYNC_PROTOCOL 25.1: a forward is stored as one, with or without '
       'its source; a create never is', () async {
     for (final (id, type, source) in [

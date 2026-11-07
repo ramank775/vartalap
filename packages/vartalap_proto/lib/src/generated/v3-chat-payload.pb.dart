@@ -49,6 +49,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     $core.List<$core.int>? secureBox,
     $core.List<$core.int>? secureKey,
     EventRsvp? eventRsvp,
+    $core.String? secureTitle,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
     LiveLocationPoint? liveLocationPoint,
     $core.int? liveLocationDurationSec,
@@ -72,6 +73,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (secureBox != null) result.secureBox = secureBox;
     if (secureKey != null) result.secureKey = secureKey;
     if (eventRsvp != null) result.eventRsvp = eventRsvp;
+    if (secureTitle != null) result.secureTitle = secureTitle;
     if (meta != null) result.meta.addEntries(meta);
     if (liveLocationPoint != null) result.liveLocationPoint = liveLocationPoint;
     if (liveLocationDurationSec != null)
@@ -122,6 +124,7 @@ class ChatPayload extends $pb.GeneratedMessage {
         72, _omitFieldNames ? '' : 'secureKey', $pb.PbFieldType.OY)
     ..aE<EventRsvp>(73, _omitFieldNames ? '' : 'eventRsvp',
         enumValues: EventRsvp.values)
+    ..aOS(74, _omitFieldNames ? '' : 'secureTitle')
     ..m<$core.String, $core.String>(100, _omitFieldNames ? '' : 'meta',
         entryClassName: 'ChatPayload.MetaEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -341,45 +344,60 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(73)
   void clearEventRsvp() => $_clearField(73);
 
+  /// Beside secure_box: the secure message's title ("Netflix password"),
+  /// at most 60 characters, shown on its card, in the chat list and in
+  /// notifications before it is opened. Not sealed: anyone who sees the
+  /// chat sees it (it is still end-to-end encrypted with the rest of the
+  /// payload). A forward keeps it. Older builds ignore it and show an
+  /// untitled card. SYNC_PROTOCOL §20.4.
+  @$pb.TagNumber(74)
+  $core.String get secureTitle => $_getSZ(16);
+  @$pb.TagNumber(74)
+  set secureTitle($core.String value) => $_setString(16, value);
+  @$pb.TagNumber(74)
+  $core.bool hasSecureTitle() => $_has(16);
+  @$pb.TagNumber(74)
+  void clearSecureTitle() => $_clearField(74);
+
   /// Free-form client metadata. Other clients MAY ignore unknown keys.
   /// Reserved keys:
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(16);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(17);
 
   /// Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   /// For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   @$pb.TagNumber(130)
-  LiveLocationPoint get liveLocationPoint => $_getN(17);
+  LiveLocationPoint get liveLocationPoint => $_getN(18);
   @$pb.TagNumber(130)
   set liveLocationPoint(LiveLocationPoint value) => $_setField(130, value);
   @$pb.TagNumber(130)
-  $core.bool hasLiveLocationPoint() => $_has(17);
+  $core.bool hasLiveLocationPoint() => $_has(18);
   @$pb.TagNumber(130)
   void clearLiveLocationPoint() => $_clearField(130);
   @$pb.TagNumber(130)
-  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(17);
+  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(18);
 
   /// For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
   /// this 1:1 chat on (for `duration_sec`) or off (0).
   @$pb.TagNumber(131)
-  $core.int get liveLocationDurationSec => $_getIZ(18);
+  $core.int get liveLocationDurationSec => $_getIZ(19);
   @$pb.TagNumber(131)
-  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(18, value);
+  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(19, value);
   @$pb.TagNumber(131)
-  $core.bool hasLiveLocationDurationSec() => $_has(18);
+  $core.bool hasLiveLocationDurationSec() => $_has(19);
   @$pb.TagNumber(131)
   void clearLiveLocationDurationSec() => $_clearField(131);
 
   /// For TYPE_LIVE_LOCATION_PERMISSION: may the receiver turn the
   /// sender's live location on and off from now on.
   @$pb.TagNumber(132)
-  $core.bool get liveLocationAllowed => $_getBF(19);
+  $core.bool get liveLocationAllowed => $_getBF(20);
   @$pb.TagNumber(132)
-  set liveLocationAllowed($core.bool value) => $_setBool(19, value);
+  set liveLocationAllowed($core.bool value) => $_setBool(20, value);
   @$pb.TagNumber(132)
-  $core.bool hasLiveLocationAllowed() => $_has(19);
+  $core.bool hasLiveLocationAllowed() => $_has(20);
   @$pb.TagNumber(132)
   void clearLiveLocationAllowed() => $_clearField(132);
 }

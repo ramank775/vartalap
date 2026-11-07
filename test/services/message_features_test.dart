@@ -178,6 +178,33 @@ void main() {
       await expectLater(
           chat.openSecure(m, password: 'rose'), throwsA(isA<SecretLocked>()));
     });
+
+    test(
+        'a title rides beside the box, not in a body; this phone keeps it '
+        'as the body, on one line and at most 60 characters', () async {
+      await chat.sendSecure(
+          channelId: dm,
+          secret: '4417 0000',
+          authorUserId: self,
+          title: '  Bank\n OTP  ');
+      var p = await sentPayload();
+      expect([p.hasBody(), p.secureTitle], [false, 'Bank OTP']);
+      expect((await newest()).body, 'Bank OTP');
+      expect(await store.searchMessages(query: '4417'), isEmpty);
+
+      await chat.sendSecure(
+          channelId: dm,
+          secret: 'x',
+          authorUserId: self,
+          title: 'a' * 61);
+      p = await sentPayload();
+      expect(p.secureTitle, 'a' * kSecureTitleMax);
+
+      await chat.sendSecure(
+          channelId: dm, secret: 'y', authorUserId: self, title: '   ');
+      p = await sentPayload();
+      expect([p.hasSecureTitle(), (await newest()).body], [false, null]);
+    });
   });
 
   group('delete for everyone within 5 minutes', () {

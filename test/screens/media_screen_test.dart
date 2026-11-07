@@ -105,6 +105,46 @@ void main() {
     expect(find.text('Tickets: https://example.com/t?id=1.'), findsOneWidget);
   });
 
+  testWidgets('Secure lists each secure message by title, sender and '
+      'date, never its secret; a tap goes back to it in the chat',
+      (tester) async {
+    final when = DateTime(2025, 9, 15);
+    String? picked;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () async => picked = await Navigator.of(context).push(
+            MaterialPageRoute<String>(
+              builder: (_) => MediaScreen(
+                channelId: 'c-1',
+                chatService: _FakeChatService(secure: [
+                  _row('m-1', kSecureType, when, body: 'Bank OTP'),
+                  _row('m-2', kSecureType, when),
+                ]),
+                nameOf: (id) => id == 'u-peer' ? 'Asha' : 'You',
+              ),
+            ),
+          ),
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Secure'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bank OTP'), findsOneWidget);
+    expect(find.text('Secure message'), findsOneWidget, reason: 'untitled');
+    expect(find.text('Asha · Sep 15, 2025'), findsNWidgets(2));
+    expect(find.byIcon(Icons.lock_outline), findsNWidgets(2));
+
+    await tester.tap(find.text('Bank OTP'));
+    await tester.pumpAndSettle();
+    expect(picked, 'm-1');
+    expect(find.byType(MediaScreen), findsNothing);
+  });
+
   testWidgets('each tab has its own empty state', (tester) async {
     await pump(tester, _FakeChatService());
 
@@ -112,6 +152,9 @@ void main() {
     await tester.tap(find.text('Docs'));
     await tester.pumpAndSettle();
     expect(find.text('No docs'), findsOneWidget);
+    await tester.tap(find.text('Secure'));
+    await tester.pumpAndSettle();
+    expect(find.text('No secure messages'), findsOneWidget);
     await tester.tap(find.text('Links'));
     await tester.pumpAndSettle();
     expect(find.text('No links'), findsOneWidget);
@@ -192,12 +235,17 @@ class _FakeChatService implements ChatService {
   final List<MessageRow> media;
   final List<MessageRow> files;
   final List<MessageRow> links;
+  final List<MessageRow> secure;
 
   _FakeChatService({
     this.media = const [],
     this.files = const [],
     this.links = const [],
+    this.secure = const [],
   });
+
+  @override
+  Future<List<MessageRow>> fetchSecure(String channelId) async => secure;
 
   @override
   Future<List<MessageRow>> fetchMedia(String channelId) async => media;

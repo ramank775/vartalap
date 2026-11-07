@@ -690,6 +690,45 @@ void main() {
       expect(find.textContaining('9876'), findsNothing);
     });
 
+    testWidgets('a title, typed under "Visible without unlocking", travels '
+        'beside the box and heads the card; no Copy or Edit', (tester) async {
+      await pumpChat(tester);
+      phone(tester);
+      await tester.enterText(find.byType(TextField), 'PIN 9876');
+      await settle(tester);
+      await openOptions(tester);
+      await tester.tap(find.text('Secure message'));
+      await settle(tester);
+      expect(find.text('Visible without unlocking'), findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Title (optional)'), 'Bank OTP');
+      await settle(tester);
+      await tester.ensureVisible(find.text('Done'));
+      await tester.tap(find.text('Done'));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Secure "Bank OTP": opens with their screen lock'),
+          findsOneWidget);
+
+      final opsBefore = (await ops(tester)).length;
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await until(
+          tester,
+          () async =>
+              (await ops(tester)).length > opsBefore &&
+              find.text('Bank OTP').evaluate().isNotEmpty);
+      final p = _payload((await ops(tester)).skip(opsBefore).single);
+      expect([p.hasBody(), p.secureTitle], [false, 'Bank OTP']);
+      expect(find.text('Bank OTP'), findsOneWidget);
+      expect(find.text('Unlock with your phone lock'), findsOneWidget);
+      expect(find.textContaining('9876'), findsNothing);
+
+      await longPress(tester, 'Bank OTP');
+      final items = await moreItems(tester);
+      expect(items, isNot(contains('Copy')));
+      expect(items, isNot(contains('Edit')));
+    });
+
     testWidgets('a phone with no screen lock offers the password way only',
         (tester) async {
       await pumpChat(tester);
@@ -753,6 +792,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('OTP 555666'), findsNothing);
       expect(calls.last, 'noCapture:false');
+      expect(find.text('Secure message'), findsOneWidget,
+          reason: 'hidden again, it is the card it was');
+      expect(find.text('View'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 31));
       await settle(tester);
@@ -803,7 +845,10 @@ void main() {
       await wait(find.text('code 1985'));
       expect(find.text('code 1985'), findsOneWidget);
       await tester.tap(find.text('Close'));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('code 1985'), findsNothing);
+      expect(find.text('Enter the password'), findsOneWidget);
     });
   });
 
@@ -1359,6 +1404,10 @@ void main() {
       await menu(tester);
       await pick(tester, 'Group info');
       expect(find.text('Group info'), findsOneWidget);
+      // Its store reads finish before the test does.
+      for (var i = 0; i < 5; i++) {
+        await settle(tester);
+      }
     });
 
     testWidgets("Albums opens the chat's albums", (tester) async {

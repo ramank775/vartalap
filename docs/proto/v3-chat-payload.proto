@@ -134,6 +134,14 @@ message ChatPayload {
   // For TYPE_EVENT_RSVP: the answer.
   EventRsvp event_rsvp = 73;
 
+  // Beside secure_box: the secure message's title ("Netflix password"),
+  // at most 60 characters, shown on its card, in the chat list and in
+  // notifications before it is opened. Not sealed: anyone who sees the
+  // chat sees it (it is still end-to-end encrypted with the rest of the
+  // payload). A forward keeps it. Older builds ignore it and show an
+  // untitled card. SYNC_PROTOCOL §20.4.
+  string secure_title = 74;
+
   // Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   // For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   LiveLocationPoint live_location_point = 130;

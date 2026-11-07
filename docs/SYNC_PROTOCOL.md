@@ -1990,10 +1990,22 @@ back from the text (decision 222).
 - Revealed for 30 seconds with screenshots and recording blocked
   (`FLAG_SECURE`); Copy clears the clipboard 60 seconds later. Never in a
   notification, the chat list or a reply quote ("🔒 Secure message"), never
-  found by search (there is no body). Not editable. Combines with
+  found by search (the secret is never in `body`). Not editable. Combines with
   `timer_sec` (§20.3).
 - Each phone keeps the box and key in `messages.secure` (schema v11); a
   delete for everyone clears it.
+- **Title (optional, `secure_title`, field 74).** A label such as
+  "Netflix password", at most 60 characters (a receiver cuts a longer
+  one), so the receiver knows what it is before opening it. It is not
+  sealed in the box: anyone who sees the chat sees it, though it is end
+  to end encrypted with the rest of the payload; the composer says
+  "Visible without unlocking". It shows on the message's card and as
+  "🔒 Netflix password" in the chat list, notifications and reply quotes,
+  and in-chat search finds it; the secret still never does. `body` stays
+  empty on the wire; each phone keeps the title in `messages.body` (no
+  schema change), which is why the previews need nothing new. A forward
+  carries it along with the box. Older builds ignore the field and show
+  an untitled secure message.
 
 ---
 

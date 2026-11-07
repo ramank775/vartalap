@@ -56,8 +56,9 @@ Uint8List _encodeChatPayload({
       version: 1,
       type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
       messageId: uuidBytes(messageId),
-      // A secure message has none (decision 222).
-      body: body.isEmpty ? null : body,
+      // A secure message has none (decision 222); its [body] is its
+      // title, which goes beside the box.
+      body: body.isEmpty || secure != null ? null : body,
       // Plain text is the proto's default: not sent (decision 218), and a
       // receiver stores none, which reads as text.
       contentType: contentType == 'text/plain' ? null : contentType,
@@ -66,6 +67,7 @@ Uint8List _encodeChatPayload({
       timerSec: timerSec == 0 ? null : timerSec,
       secureBox: secure?.box,
       secureKey: secure?.key,
+      secureTitle: secure == null || body.isEmpty ? null : body,
     ).writeToBuffer();
 
 /// A secure message's sealed secret (decision 222, [sealSecret]).
@@ -534,7 +536,8 @@ class ChatService with TimelineService, AlbumService {
   /// [contentType] other than `text/plain` marks a contact, location
   /// or event carried as standard text in [body] (decision 133).
   /// [timerSec]: a timed message (decision 222), gone from both phones
-  /// that long after the server takes it. [secure]: see [sendSecure].
+  /// that long after the server takes it. [secure]: see [sendSecure];
+  /// [body] is then its title, or empty.
   Future<void> sendMessage({
     required String channelId,
     required String body,
@@ -552,7 +555,7 @@ class ChatService with TimelineService, AlbumService {
       messageId: messageId,
       channelId: channelId,
       authorUserId: authorUserId,
-      body: secure == null ? body : null,
+      body: secure == null || body.isNotEmpty ? body : null,
       contentType: contentType,
       replyToMessageId: replyToMessageId,
       clientTimestampMs: now,
@@ -608,18 +611,21 @@ class ChatService with TimelineService, AlbumService {
   /// Without a [password] it opens with the receiving phone's screen lock
   /// (its random key rides inside the end-to-end encrypted payload); with
   /// one, only with that password (Argon2id, off this isolate), which the
-  /// sender passes on another way. The secret is never in `body`.
+  /// sender passes on another way. The secret is never in `body`; its
+  /// optional [title] is (at most [kSecureTitleMax] characters), shown
+  /// without unlocking (SYNC_PROTOCOL §20.4).
   Future<void> sendSecure({
     required String channelId,
     required String secret,
     required String authorUserId,
     String? password,
+    String? title,
     String? replyToMessageId,
     int timerSec = 0,
   }) async =>
       sendMessage(
         channelId: channelId,
-        body: '',
+        body: secureTitle(title),
         authorUserId: authorUserId,
         replyToMessageId: replyToMessageId,
         contentType: kSecureType,
@@ -713,7 +719,10 @@ class ChatService with TimelineService, AlbumService {
               version: 1,
               type: pb.ChatPayloadType.TYPE_MESSAGE_FORWARD,
               messageId: uuidBytes(messageId),
-              body: (m.body ?? '').isEmpty ? null : m.body,
+              // A secure message's body is its title (§20.4).
+              body: (m.body ?? '').isEmpty || secure != null ? null : m.body,
+              secureTitle:
+                  secure == null || (m.body ?? '').isEmpty ? null : m.body,
               contentType: m.contentType == 'text/plain' ? null : m.contentType,
               attachments: m.attachments == null
                   ? null
@@ -2073,6 +2082,10 @@ class ChatService with TimelineService, AlbumService {
   /// newest first — the "Links" tab.
   Future<List<MessageRow>> fetchLinks(String channelId) =>
       _store.fetchChannelLinks(channelId);
+
+  /// Secure messages in [channelId], newest first — the "Secure" tab.
+  Future<List<MessageRow>> fetchSecure(String channelId) =>
+      _store.fetchChannelSecure(channelId);
 
   /// Star or unstar messages — local-only, like pin and mute.
   Future<void> setStarred(List<String> messageIds, bool starred) =>

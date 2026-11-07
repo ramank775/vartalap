@@ -30,7 +30,8 @@ String messagePreview(
     kAlbumType => '🖼️ Album: ${AlbumNote.parse(body)?.title ?? ''}',
     kEventType => '📅 ${EventInfo.parse(body)?.title ?? 'Event'}',
     kUndecryptedType => 'Waiting for this message',
-    kSecureType => '🔒 Secure message',
+    // Its title, never its secret (SYNC_PROTOCOL §20.4).
+    kSecureType => '🔒 ${body.isEmpty ? 'Secure message' : body}',
     _ => body,
   };
 }

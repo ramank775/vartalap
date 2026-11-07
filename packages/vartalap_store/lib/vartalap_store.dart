@@ -23,6 +23,8 @@ export 'src/types.dart'
         kDeleteForEveryoneGrace,
         kDeleteForEveryoneWindow,
         kSecureType,
+        kSecureTitleMax,
+        secureTitle,
         kUndecryptedType,
         kVoiceNoteType,
         MessageReaction,
