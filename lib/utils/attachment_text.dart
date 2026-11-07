@@ -19,7 +19,7 @@ String messagePreview(
             'image' => ('📷', 'Photo'),
             'video' => ('🎥', 'Video'),
             'audio' => ('🎵', 'Audio'),
-            _ => ('📄', 'File'),
+            _ => ('📄', 'Document'),
           };
     return '$glyph ${body.isEmpty ? kind : body}';
   }

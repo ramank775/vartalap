@@ -57,7 +57,7 @@ void main() {
         .toIcs(uid: 'u', stamp: DateTime(2026));
     expect(messagePreview(ics, kEventType, attachment: false), '📅 Nets');
     expect(messagePreview('hi', 'text/plain', attachment: false), 'hi');
-    expect(messagePreview('', 'text/plain', attachment: true), '📄 File');
+    expect(messagePreview('', 'text/plain', attachment: true), '📄 Document');
     expect(messagePreview('Sunset', 'image/jpeg', attachment: true),
         '📷 Sunset');
   });
