@@ -442,6 +442,8 @@ void showInviteError(BuildContext context, Object error) {
     AuthClientException(errorCode: 'invite_limit') =>
       'You have too many invites waiting for an answer. Cancel one, or '
           'wait until someone answers.',
+    AuthClientException(errorCode: 'rate_limited') =>
+      'You have sent too many reports today. Please try again tomorrow.',
     AuthClientException(statusCode: 404) =>
       'This invite is no longer available.',
     AuthClientException() => 'Something went wrong. Please try again.',

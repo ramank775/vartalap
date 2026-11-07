@@ -185,6 +185,25 @@ void main() {
     expect(chat.calls.last, 'report($_ravi, null, false)');
   });
 
+  testWidgets('Report past the daily limit says so in plain words',
+      (tester) async {
+    final chat = _FakeChatService()
+      ..reportError =
+          const AuthClientException('report', 429, 'rate_limited', null);
+    await tester.pumpWidget(_app(Builder(
+      builder: (context) => TextButton(
+        onPressed: () => showReportDialog(context,
+            chatService: chat, userId: _ravi, name: 'Ravi'),
+        child: const Text('report'),
+      ),
+    )));
+    await tester.tap(find.text('report'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Report'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('too many reports today'), findsOneWidget);
+  });
+
   testWidgets('Settings › Privacy › Blocked contacts, with Unblock',
       (tester) async {
     final chat = _FakeChatService(blocked: {_ravi});
@@ -269,10 +288,13 @@ class _FakeChatService implements ChatService {
     calls.add('block($userId, $blocked)');
   }
 
+  AuthClientException? reportError;
+
   @override
   Future<void> report(String userId,
       {String? channelId, bool block = false}) async {
     calls.add('report($userId, $channelId, $block)');
+    if (reportError case final e?) throw e;
   }
 
   @override

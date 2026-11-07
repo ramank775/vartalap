@@ -1457,18 +1457,23 @@ class ChatService with TimelineService {
             .where((m) => m.contentType != kGroupEventType && !m.tombstoned)
             .take(5)
             .toList();
-    await _authClient.report(userId, [
-      for (final m in messages.reversed)
-        {
-          'author': m.authorUserId,
-          'body': (m.body ?? '').length > 4096
-              ? m.body!.substring(0, 4096)
-              : m.body ?? '',
-          if (m.contentType != null) 'content_type': m.contentType,
-          'sent_at': m.displayTimestampMs,
-        },
-    ]);
-    if (block) await setBlocked(userId, true);
+    // "Report and block" blocks even when the report cannot go (a 429
+    // past the daily limit, no network): the block is what protects.
+    try {
+      await _authClient.report(userId, [
+        for (final m in messages.reversed)
+          {
+            'author': m.authorUserId,
+            'body': (m.body ?? '').length > 4096
+                ? m.body!.substring(0, 4096)
+                : m.body ?? '',
+            if (m.contentType != null) 'content_type': m.contentType,
+            'sent_at': m.displayTimestampMs,
+          },
+      ]);
+    } finally {
+      if (block) await setBlocked(userId, true);
+    }
   }
 
   /// Active members of [channelId], joined with the local contact row
