@@ -39,8 +39,19 @@ class GroupCreateScreen extends StatelessWidget {
       );
 }
 
+/// Whether [contact] matches what was typed in a picker's search: part
+/// of their name or of their @username, any case.
+bool contactMatches(ContactRow contact, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return true;
+  final handle = q.startsWith('@') ? q.substring(1) : q;
+  return contact.displayLabel.toLowerCase().contains(q) ||
+      (contact.username ?? '').toLowerCase().contains(handle);
+}
+
 /// Contacts on Vartalap, tap to pick; the picked ones line up along the
-/// top and [onDone] gets them in the order they were picked.
+/// top and [onDone] gets them in the order they were picked. A search
+/// field above the list narrows it by name or @username.
 class MemberPickerScreen extends StatefulWidget {
   final ChatService chatService;
   final String title;
@@ -74,10 +85,19 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
     ];
   }();
   final List<ContactRow> _picked = [];
+  final TextEditingController _search = TextEditingController();
 
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  /// Picking from a search clears it, back to everyone (WhatsApp).
   void _toggle(ContactRow c) => setState(() {
         if (!_picked.any((p) => p.userId == c.userId)) {
           _picked.add(c);
+          _search.clear();
         } else {
           _picked.removeWhere((p) => p.userId == c.userId);
         }
@@ -140,8 +160,25 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
               ),
             );
           }
+          final shown = [
+            for (final c in contacts)
+              if (contactMatches(c, _search.text)) c,
+          ];
           return Column(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
+                child: TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search name or @username',
+                    isDense: true,
+                  ),
+                ),
+              ),
               if (_picked.isNotEmpty) ...[
                 SizedBox(
                   height: 92,
@@ -158,14 +195,24 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
                 const Divider(height: 1, indent: 0),
               ],
               Expanded(
-                child: ListView.builder(
-                  itemCount: contacts.length,
-                  itemBuilder: (_, i) => _ContactTile(
-                    contact: contacts[i],
-                    picked: _picked.any((p) => p.userId == contacts[i].userId),
-                    onTap: () => _toggle(contacts[i]),
-                  ),
-                ),
+                child: shown.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(kSpaceXl),
+                        child: Text(
+                          'No one found for "${_search.text.trim()}"',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: scheme.onSurfaceVariant),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: shown.length,
+                        itemBuilder: (_, i) => _ContactTile(
+                          contact: shown[i],
+                          picked:
+                              _picked.any((p) => p.userId == shown[i].userId),
+                          onTap: () => _toggle(shown[i]),
+                        ),
+                      ),
               ),
             ],
           );
