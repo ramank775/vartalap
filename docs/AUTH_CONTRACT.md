@@ -423,8 +423,7 @@ account) and login (phone has an account).
 {
   "sessionId": "01f0a3b4-7c2d-7000-8abc-def012345678",
   "resendAfterSec": 30,
-  "expiresInSec": 600,
-  "isExistingAccount": true
+  "expiresInSec": 600
 }
 ```
 
@@ -433,18 +432,19 @@ account) and login (phone has an account).
 | `sessionId` | string (UUIDv7) | Opaque token identifying this OTP attempt. Client sends back in `/verify`. |
 | `resendAfterSec` | integer | Seconds the client MUST wait before calling `/send` or `/resend` again for this phone. Default 30. |
 | `expiresInSec` | integer | OTP code lifetime from now. Default 600 (10 min). |
-| `isExistingAccount` | boolean | `true` if the phone is bound to a `user_id`. Used by client to skip username-pick UI on `/verify`. **Not authoritative** — server still validates on `/verify`. |
 
 **Idempotency.** Two `/send` for the same `phone` within
 `resendAfterSec` MUST return the same `sessionId` and MUST NOT mint
 a second OTP code or send a second SMS. Defuses double-tap UX and
 prevents SMS-gateway double-billing.
 
-**Information-leak constraint.** `isExistingAccount` is the only
-existence signal; it is necessary for client UX (show username-pick
-field on signup, hide on login). It is rate-limited at the same
-budget as `/send` itself (§10), so an attacker cannot enumerate a
-phonebook via `isExistingAccount` faster than via OTP-spamming.
+**Information-leak constraint (decision 234).** Nothing in `/send` or
+`/resend` depends on whether the phone has an account: same status
+codes, same body shape (no `isExistingAccount`; builds up to 85 read
+it with a default of `false` and never branched on it), same rate-limit
+budgets, same work. The client learns whether the account is new only
+from `/verify` (`isNew`, `username`; `username: null` means the
+choose-username step is next, §2.4).
 
 **Errors:** see §11.
 
@@ -1517,7 +1517,7 @@ other users have cached — still resolve correctly.
 
 | Field | Type | Required | Constraint |
 |---|---|---|---|
-| `newPhone` | string | yes | E.164 format. Server rejects non-E.164 with `INVALID_PHONE_FORMAT`. Server rejects if `newPhone` equals the user's current `phone` with `SAME_PHONE`. Server rejects if `newPhone` is bound to another `user_id` with `PHONE_TAKEN`. |
+| `newPhone` | string | yes | E.164 format. Server rejects non-E.164 with `INVALID_PHONE_FORMAT`. Server rejects if `newPhone` equals the user's current `phone` with `SAME_PHONE`. A number bound to another `user_id` is texted like a free one; `PHONE_TAKEN` is answered only by rebind verify (decision 234). |
 
 **Success response `200 OK`:**
 ```json
@@ -1558,8 +1558,9 @@ no need to re-prove ownership of the old number).
 **Server side-effects:**
 1. Validate the OTP code, attempt count (§10), and that the
    `rebindSessionId` is bound to the authenticated `user_id`.
-2. Race check: re-validate that `newPhone` is not now bound to
-   another `user_id` (in case someone signed up on it between
+2. Once the code is proven (so the answer reveals nothing to a
+   stranger): check that `newPhone` is not bound to another
+   `user_id` (an existing account, or one that signed up between
    start and verify). On collision: reject with `PHONE_TAKEN`,
    the rebind is aborted.
 3. `UPDATE users SET phone_key=:newPhoneKey WHERE user_id=:p` in a
@@ -1757,7 +1758,7 @@ Every error response, on every endpoint, uses this shape:
 | 404 | `USER_NOT_FOUND` | GET /v3.0/users/*, GET /v3.0/users/by-username/* | prefix or username unrecognized, tombstoned, or (by-username) a `usernameKey` mismatch (§7.6, deliberately indistinguishable) |
 | 409 | `USERNAME_TAKEN` | profile patch | username collides with active user or tombstone |
 | 409 | `USERNAME_RESERVED` | profile patch | username is on the reserved-word list (§2.4) |
-| 409 | `PHONE_TAKEN` | rebind start, rebind verify | newPhone is bound to another user_id |
+| 409 | `PHONE_TAKEN` | rebind verify only (decision 234) | newPhone is bound to another user_id |
 | 409 | `SAME_PHONE` | rebind start | newPhone equals current phone |
 | 410 | `SESSION_EXPIRED` | OTP verify | `sessionId` past `expiresInSec` |
 | 410 | `SESSION_CONSUMED` | OTP verify | session already verified successfully |
@@ -1797,8 +1798,9 @@ by:
 ### 11.4 No information leaks
 
 - `/send` MUST NOT distinguish "phone is registered" from "phone is
-  unregistered" via HTTP status or error code. Both return 200 with
-  `isExistingAccount` (which is itself rate-limited via §10.1).
+  unregistered" via HTTP status or error code. Both return the same 200
+  body (decision 234; rate-limited via §10.1). The same holds for
+  `/resend` and for rebind start (`PHONE_TAKEN` only at rebind verify).
 - `/contacts/lookup` MUST NOT distinguish "no such user" from "user
   exists but has hidden their account" — there is no "hide account"
   feature in v3.0; if it lands later, it MUST be implemented as
@@ -2089,7 +2091,7 @@ ship in v3.0.
 1. CLIENT: POST /v3.0/auth/otp/send
    { phone: "+919876543210", deviceId: "01f0a3b4-…" }
    ← 200 { sessionId: "01f0…", resendAfterSec: 30,
-           expiresInSec: 600, isExistingAccount: false }
+           expiresInSec: 600 }
 
 2. SMS arrives.
 
@@ -2154,10 +2156,10 @@ ship in v3.0.
 1. CLIENT: POST /v3.0/auth/otp/send
    { phone: "+919876543210", deviceId: "01f0a3b4-…" }
    ← 200 { sessionId: "01f0…", resendAfterSec: 30,
-           expiresInSec: 600, isExistingAccount: true }
+           expiresInSec: 600 }
 
-2. SMS arrives. (CLIENT MAY use isExistingAccount=true to skip the
-   "welcome new user" UI on the OTP entry screen.)
+2. SMS arrives. (Identical to signup: nothing before /verify says the
+   account exists, decision 234.)
 
 3. CLIENT: POST /v3.0/auth/otp/verify
    { sessionId: "01f0…", code: "123456",

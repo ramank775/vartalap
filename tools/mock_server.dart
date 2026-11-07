@@ -1650,14 +1650,12 @@ class MockServer {
       createdAt: DateTime.now().millisecondsSinceEpoch,
     );
 
-    final existing = state.usersByPhone.containsKey(phone);
-    _log('OTP send: phone=$phone sessionId=$sessionId code=000000 existing=$existing');
+    _log('OTP send: phone=$phone sessionId=$sessionId code=000000');
 
     _respondJson(req, 200, {
       'sessionId': sessionId,
       'resendAfterSec': 30,
       'expiresInSec': 600,
-      'isExistingAccount': existing,
     });
   }
 
@@ -1682,7 +1680,6 @@ class MockServer {
       'sessionId': session.sessionId,
       'resendAfterSec': 30,
       'expiresInSec': 600,
-      'isExistingAccount': state.usersByPhone.containsKey(session.phone),
     });
   }
 

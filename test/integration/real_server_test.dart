@@ -99,6 +99,40 @@ void main() {
         await c.shutdown();
       });
 
+      // ---- 0 (decision 234) ---------------------------------------------
+      test('0. send says nothing about the account; verify does', () async {
+        final base = Uri.parse(baseUrl);
+        final phone = _freshPhone();
+        Future<OtpVerifyResult> login() async {
+          final c = AuthClient(baseUrl: base)..setDeviceId('it-0');
+          final sent = await c.sendOtp(phone: phone);
+          final dev = await http.get(base.resolve(
+              '/v3.0/auth/dev/otp?phone=${Uri.encodeQueryComponent(phone)}'));
+          final code =
+              (jsonDecode(dev.body) as Map<String, dynamic>)['code'] as String;
+          return c.verifyOtp(
+              phone: phone, code: code, sessionId: sent.sessionId);
+        }
+
+        // the raw send body is the same shape for a new and a known number
+        Future<Set<String>> sendKeys(String p) async {
+          final r = await http.post(base.resolve('/v3.0/auth/otp/send'),
+              headers: {'content-type': 'application/json'},
+              body: jsonEncode({'phone': p, 'deviceId': 'it-0'}));
+          expect(r.statusCode, 200);
+          return (jsonDecode(r.body) as Map<String, dynamic>).keys.toSet();
+        }
+
+        final first = await login();
+        expect(first.isNewUser, isTrue);
+        expect(first.username, isNull);
+        final again = await login();
+        expect(again.isNewUser, isFalse);
+        expect(again.userId, first.userId);
+        expect(await sendKeys(phone), await sendKeys(_freshPhone()));
+        expect(await sendKeys(phone), isNot(contains('isExistingAccount')));
+      });
+
       // ---- 1 ------------------------------------------------------------
       test('1. OTP → verify → username, for both clients', () async {
         await a.login();

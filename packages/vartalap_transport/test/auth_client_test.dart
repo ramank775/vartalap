@@ -33,7 +33,6 @@ void main() {
           'sessionId': 'sess-123',
           'resendAfterSec': 30,
           'expiresInSec': 600,
-          'isExistingAccount': true,
         });
       };
 
@@ -41,7 +40,6 @@ void main() {
       expect(result.sessionId, 'sess-123');
       expect(result.retryAfter, const Duration(seconds: 30));
       expect(result.expiresIn, const Duration(seconds: 600));
-      expect(result.isExistingAccount, true);
     });
 
     test('429 throws AuthClientException with rate-limit info', () async {
@@ -79,7 +77,6 @@ void main() {
           'sessionId': 'sess-123',
           'resendAfterSec': 30,
           'expiresInSec': 540,
-          'isExistingAccount': false,
         });
       };
       final result = await client.resendOtp(

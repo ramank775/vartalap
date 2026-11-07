@@ -675,20 +675,17 @@ class OtpSendResult {
   final String sessionId;
   final Duration retryAfter;
   final Duration expiresIn;
-  final bool isExistingAccount;
 
   const OtpSendResult({
     required this.sessionId,
     required this.retryAfter,
     required this.expiresIn,
-    this.isExistingAccount = false,
   });
 
   factory OtpSendResult._fromJson(Map<String, dynamic> json) => OtpSendResult(
         sessionId: json['sessionId'] as String,
         retryAfter: Duration(seconds: json['resendAfterSec'] as int),
         expiresIn: Duration(seconds: json['expiresInSec'] as int),
-        isExistingAccount: json['isExistingAccount'] as bool? ?? false,
       );
 }
 
