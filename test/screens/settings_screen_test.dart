@@ -51,6 +51,9 @@ void main() {
       expect(find.text(row), findsOneWidget, reason: row);
     }
     expect(find.text('Appearance'), findsNothing);
+    // WhatsApp's density: a two-line row 56-64dp, not the theme's 80
+    final row = tester.getSize(find.widgetWithText(ListTile, 'Account'));
+    expect(row.height, inInclusiveRange(56, 64));
 
     await tester.tap(find.text('Help'));
     await tester.pumpAndSettle();

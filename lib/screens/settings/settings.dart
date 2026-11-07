@@ -27,6 +27,7 @@ import 'package:vartalap/services/v2_archive.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/compact_tiles.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
 
@@ -110,7 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
+      body: compactTiles(ListView(
         children: [
           ListTile(
             contentPadding: const EdgeInsets.symmetric(
@@ -205,7 +206,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => _open(_HelpPage(config: widget.config)),
           ),
         ],
-      ),
+      )),
     );
   }
 }
@@ -243,7 +244,7 @@ class _Page extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(title)),
-        body: ListView(children: children),
+        body: compactTiles(ListView(children: children)),
       );
 }
 

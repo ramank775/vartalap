@@ -1,6 +1,8 @@
 /// New-chat picker — two tabs.
 ///
-/// Contacts tab: pick a contact to start (or resume) a DM.
+/// Contacts tab: pick a contact to start (or resume) a DM; under them,
+/// WhatsApp's "Invite to Vartalap": the address book's people not on
+/// Vartalap, each inviting through the phone's own SMS app.
 /// Groups tab: pinned "New group" row at the top, then the list of
 /// groups the current user is in. Tap a group to open it (re-enter
 /// after clearing messages, or jump into a silent group).
@@ -15,6 +17,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
@@ -24,17 +27,38 @@ import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/device_contacts.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/compact_tiles.dart';
 import 'package:vartalap/utils/username.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
 
+/// What an invite says (the owner's words).
+const String kInviteText = "Let's chat on Vartalap, a private messenger. "
+    'Get it here: https://vartalap.one9x.org';
+
+/// The phone's own SMS app, to [phone], with [kInviteText] filled in.
+/// No SEND_SMS permission: the user sends it. `query` by hand, since
+/// `queryParameters` writes spaces as `+`, which SMS apps keep.
+Uri smsInviteUri(String phone) => Uri(
+    scheme: 'sms',
+    path: phone,
+    query: 'body=${Uri.encodeComponent(kInviteText)}');
+
+/// Someone in the address book who is not on Vartalap.
+typedef Invitee = ({String name, String phone});
+
 class NewChatScreen extends StatefulWidget {
   final ChatService chatService;
   final AuthService authService;
+
+  /// The address book; replaced by tests.
+  final Future<(List<String>, Map<String, String>)> Function() readContacts;
+
   const NewChatScreen({
     super.key,
     required this.chatService,
     required this.authService,
+    this.readContacts = readDeviceContacts,
   });
 
   @override
@@ -81,6 +105,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
               _ContactsTab(
                 chatService: widget.chatService,
                 authService: widget.authService,
+                readContacts: widget.readContacts,
               ),
               _GroupsTab(
                 chatService: widget.chatService,
@@ -101,10 +126,12 @@ class _NewChatScreenState extends State<NewChatScreen> {
 class _ContactsTab extends StatefulWidget {
   final ChatService chatService;
   final AuthService authService;
+  final Future<(List<String>, Map<String, String>)> Function() readContacts;
 
   const _ContactsTab({
     required this.chatService,
     required this.authService,
+    required this.readContacts,
   });
 
   @override
@@ -124,6 +151,10 @@ class _ContactsTabState extends State<_ContactsTab>
   /// search match digits the user types without the number ever being
   /// rendered or stored (AUTH_CONTRACT §2.5).
   final Map<String, String> _phoneByHash = {};
+
+  /// The address book's numbers the lookup did not find, by name. Stay
+  /// on this phone like every number: only hashes ever leave it.
+  List<Invitee> _invitable = const [];
 
   @override
   void initState() {
@@ -176,15 +207,56 @@ class _ContactsTabState extends State<_ContactsTab>
   }
 
   Future<List<ContactRow>> _fetchAndDiscover() async {
-    final (phones, names) = await readDeviceContacts();
+    final (phones, names) = await widget.readContacts();
     _phoneByHash
       ..clear()
       ..addEntries(phones
           .map((p) => MapEntry(sha256.convert(utf8.encode(p)).toString(), p)));
-    return widget.chatService.discoverContacts(
+    final found = await widget.chatService.discoverContacts(
       normalizedPhones: phones,
       contactBookNamesByPhone: names,
     );
+    // Someone on Vartalap with a second number (a landline) is not
+    // invited: their saved name is already among the found.
+    final onVartalap = {for (final c in found) c.phoneHash};
+    final foundNames = {
+      for (final c in found)
+        if (c.contactBookName != null) c.contactBookName,
+    };
+    _invitable = [
+      for (final MapEntry(key: hash, value: phone) in _phoneByHash.entries)
+        if (!onVartalap.contains(hash) && !foundNames.contains(names[phone]))
+          (name: names[phone] ?? phone, phone: phone),
+    ]..sort((a, b) {
+        // names A-Z, then the numbers saved without one
+        final bare = (a.name == a.phone ? 1 : 0) - (b.name == b.phone ? 1 : 0);
+        return bare != 0
+            ? bare
+            : a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+    return found;
+  }
+
+  /// The invite list under the same search: name or the number's digits.
+  List<Invitee> _filterInvites() {
+    final q = _search.text.trim().toLowerCase();
+    if (q.isEmpty) return _invitable;
+    final digits = q.replaceAll(RegExp(r'[^0-9]'), '');
+    return [
+      for (final i in _invitable)
+        if (i.name.toLowerCase().contains(q) ||
+            (digits.isNotEmpty && i.phone.contains(digits)))
+          i,
+    ];
+  }
+
+  Future<void> _invite(Invitee who) async {
+    final opened =
+        await launchUrl(smsInviteUri(who.phone)).catchError((_) => false);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No app for text messages found')));
+    }
   }
 
   /// Contacts tab filter — contact-book name, `@username`, and the
@@ -300,7 +372,7 @@ class _ContactsTabState extends State<_ContactsTab>
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
-                  hintText: 'Search name, @username or phone',
+                  hintText: 'Search name, @username or number',
                   isDense: true,
                 ),
               ),
@@ -312,6 +384,8 @@ class _ContactsTabState extends State<_ContactsTab>
                 onTap: _onContactTap,
                 onRetry: _loadContacts,
                 filter: _filter,
+                invites: _filterInvites,
+                onInvite: _invite,
                 footer: _FindByUsername(
                   chatService: widget.chatService,
                   authService: widget.authService,
@@ -332,7 +406,12 @@ class _ContactsList extends StatelessWidget {
   final VoidCallback onRetry;
   final List<ContactRow> Function(List<ContactRow>) filter;
 
-  /// Pinned below the rows — the "Not in your contacts" escape hatch.
+  /// The invite section's rows, read once the lookup is done.
+  final List<Invitee> Function() invites;
+  final ValueChanged<Invitee> onInvite;
+
+  /// Below the rows — the "Not in your contacts" escape hatch — and
+  /// above the invite section, which can run to thousands.
   final Widget footer;
 
   const _ContactsList({
@@ -341,6 +420,8 @@ class _ContactsList extends StatelessWidget {
     required this.onTap,
     required this.onRetry,
     required this.filter,
+    required this.invites,
+    required this.onInvite,
     required this.footer,
   });
 
@@ -400,7 +481,8 @@ class _ContactsList extends StatelessWidget {
         }
 
         final contacts = filter(snapshot.data ?? []);
-        if (contacts.isEmpty) {
+        final invites = this.invites();
+        if (contacts.isEmpty && invites.isEmpty) {
           // Scrolls so the Find-by-username footer can come up above the
           // keyboard instead of overflowing under it.
           return Center(
@@ -448,17 +530,38 @@ class _ContactsList extends StatelessWidget {
           );
         }
 
-        return ListView.builder(
-          itemCount: contacts.length + 1,
+        // Lazy: an address book of thousands builds only what shows.
+        return compactTiles(ListView.builder(
+          itemCount: contacts.length +
+              1 +
+              (invites.isEmpty ? 0 : invites.length + 1),
           itemBuilder: (ctx, i) {
-            if (i == contacts.length) return footer;
-            final contact = contacts[i];
-            return _ContactTile(
-              contact: contact,
-              onTap: creating ? null : () => onTap(contact),
-            );
+            if (i < contacts.length) {
+              final contact = contacts[i];
+              return _ContactTile(
+                contact: contact,
+                onTap: creating ? null : () => onTap(contact),
+              );
+            }
+            i -= contacts.length;
+            if (i == 0) return footer;
+            if (i == 1) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
+                child: Text(
+                  'Invite to Vartalap',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              );
+            }
+            final who = invites[i - 2];
+            return _InviteTile(who: who, onInvite: () => onInvite(who));
           },
-        );
+        ));
       },
     );
   }
@@ -500,6 +603,28 @@ class _ContactTile extends StatelessWidget {
       onTap: onTap,
     );
   }
+}
+
+/// An address-book entry not on Vartalap: its name, the number (the
+/// user's own, from their own address book), and Invite.
+class _InviteTile extends StatelessWidget {
+  final Invitee who;
+  final VoidCallback onInvite;
+  const _InviteTile({required this.who, required this.onInvite});
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        leading: Avator(
+          text: who.name,
+          seed: who.phone,
+          width: kAvatarMd,
+          height: kAvatarMd,
+        ),
+        title: Text(who.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: who.name == who.phone ? null : Text(who.phone),
+        trailing: TextButton(onPressed: onInvite, child: const Text('Invite')),
+        onTap: onInvite,
+      );
 }
 
 // ---------------------------------------------------------------------------
@@ -868,7 +993,7 @@ class _GroupsTabState extends State<_GroupsTab> {
         }
         final groups = snapshot.data ?? const [];
 
-        return ListView.separated(
+        return compactTiles(ListView.separated(
           itemCount: groups.length + 1,
           separatorBuilder: (_, __) => const Divider(height: 1),
           itemBuilder: (ctx, i) {
@@ -893,7 +1018,7 @@ class _GroupsTabState extends State<_GroupsTab> {
               onTap: () => _openGroup(context, group),
             );
           },
-        );
+        ));
       },
     );
   }
