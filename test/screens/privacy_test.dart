@@ -1,11 +1,15 @@
 /// Decision 223, track F: Settings › Privacy's presence rows and the DM header's
-/// "online" / "last seen" line.
+/// "online" / "last seen" line; last seen by labels (decision 226).
 library vartalap.screens.privacy_test;
+
+import 'dart:convert';
 
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/screens/chat/presence_line.dart';
@@ -27,7 +31,20 @@ void main() {
   late WsTransport ws;
   late ChatService chat;
 
+  /// The bodies of `PATCH /users/me`; [offline] fails every request.
+  final patches = <Map<String, dynamic>>[];
+  var offline = false;
+  final server = MockClient((req) async {
+    if (offline) throw http.ClientException('offline');
+    if (req.method == 'PATCH') {
+      patches.add(jsonDecode(req.body) as Map<String, dynamic>);
+    }
+    return http.Response('{}', 200);
+  });
+
   Future<void> openChat(WidgetTester tester) async {
+    patches.clear();
+    offline = false;
     SharedPreferences.setMockInitialValues({});
     await tester.runAsync(() async {
       store = await ChatStore.open(path: inMemoryDatabasePath);
@@ -51,8 +68,9 @@ void main() {
         restTransport: _Offline(),
         backoff: const FixedBackoff(Duration(milliseconds: 10)),
       ),
-      authClient: AuthClient(baseUrl: Uri.parse('http://localhost'))
-        ..restoreSession(accesskey: 'a', userId: self),
+      authClient:
+          AuthClient(baseUrl: Uri.parse('http://localhost'), httpClient: server)
+            ..restoreSession(accesskey: 'a', userId: self),
       wsTransport: ws,
       uuidGen: Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(self)),
       clock: Clock.system,
@@ -151,34 +169,90 @@ void main() {
   testWidgets('Privacy: last seen from the server, changed through it',
       (tester) async {
     await openChat(tester);
-    final auth = _FakeAuthService();
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: ListView(children: [
-          PresencePrivacyRows(authService: auth, chatService: chat),
+          PresencePrivacyRows(authService: _FakeAuthService(), chatService: chat),
         ]),
       ),
     ));
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(find.text('Everyone'), findsOneWidget);
 
     await tester.tap(find.text('Last seen and online'));
     await tester.pumpAndSettle();
     expect(find.text('My contacts'), findsOneWidget);
+    expect(find.text('My contacts except…'), findsOneWidget);
+    expect(find.text('Only share with…'), findsOneWidget);
     expect(find.textContaining("you won't be able to see other people's"),
         findsOneWidget);
     await tester.tap(find.text('Nobody'));
+    await settle(tester);
+    await settle(tester);
     await tester.pumpAndSettle();
-    expect(auth.sent, ['nobody']);
+    expect(patches, [
+      {'presence': 'nobody'}
+    ]);
     expect(find.text('Nobody'), findsOneWidget);
 
-    auth.offline = true;
+    offline = true;
     await tester.tap(find.text('Last seen and online'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('My contacts'));
+    await settle(tester);
     await tester.pumpAndSettle();
     expect(find.textContaining("Couldn't change it"), findsOneWidget);
     expect(find.text('Nobody'), findsOneWidget, reason: 'unchanged');
+  });
+
+  testWidgets('Privacy: only share with the people in labels (decision 226)',
+      (tester) async {
+    await openChat(tester);
+    final family = (await tester.runAsync(chat.fetchLabels))!
+        .firstWhere((l) => l.name == 'Family');
+    await tester.runAsync(() => chat.setLabelMembers(family.labelId, {bob}));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListView(children: [
+          PresencePrivacyRows(authService: _FakeAuthService(), chatService: chat),
+        ]),
+      ),
+    ));
+    await settle(tester);
+
+    await tester.tap(find.text('Last seen and online'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Only share with…'));
+    await tester.pumpAndSettle();
+    expect(find.text('Only share with'), findsOneWidget, reason: 'the picker');
+    expect(find.text('1 person'), findsOneWidget);
+    await tester.tap(find.text('Family'));
+    await tester.pump();
+    await tester.tap(find.text('OK'));
+    for (var i = 0; i < 3; i++) {
+      await settle(tester);
+    }
+    await tester.pumpAndSettle();
+    expect(patches.last, {
+      'presence': 'only',
+      'presenceUsers': [bob],
+    });
+    expect(find.text('Only share with Family'), findsOneWidget);
+
+    // the picked one again opens its labels, ticked
+    await tester.tap(find.text('Last seen and online'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Only share with…'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<CheckboxListTile>(
+                find.widgetWithText(CheckboxListTile, 'Family'))
+            .value,
+        isTrue);
+    await tester.tap(find.text('OK'));
+    await settle(tester);
+    await settle(tester);
   });
 
   testWidgets('Privacy: the read receipts and typing switches', (tester) async {
@@ -191,6 +265,7 @@ void main() {
         ]),
       ),
     ));
+    await settle(tester);
     await tester.pumpAndSettle();
     expect(find.textContaining('Read receipts are always sent for group'),
         findsOneWidget);
@@ -210,9 +285,6 @@ void main() {
 }
 
 class _FakeAuthService extends AuthService {
-  final sent = <String>[];
-  bool offline = false;
-
   _FakeAuthService()
       : super(
           client: AuthClient(baseUrl: Uri.parse('https://example.invalid')),
@@ -221,12 +293,6 @@ class _FakeAuthService extends AuthService {
 
   @override
   Future<String> presenceSetting() async => 'everyone';
-
-  @override
-  Future<void> setPresenceSetting(String value) async {
-    if (offline) throw StateError('offline');
-    sent.add(value);
-  }
 }
 
 class _NoopStorage implements FlutterSecureStorage {

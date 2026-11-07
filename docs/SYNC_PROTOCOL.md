@@ -2117,8 +2117,21 @@ No wire change: the server never sees either switch.
 
 Each account has `presence` (`PATCH /v3.0/users/me`, AUTH_CONTRACT
 §4.5): who sees its last seen and online, `everyone` (the default),
-`contacts` or `nobody`. The server enforces it; nothing it may not show
-ever leaves the server, not even the timing of a change.
+`contacts`, `nobody`, `only` or `except`. The server enforces it;
+nothing it may not show ever leaves the server, not even the timing of a
+change.
+
+- **By label** (WhatsApp's "Only share with…" and "My contacts
+  except…"): `only` shares with the contacts in `presenceUsers`,
+  `except` with every contact but them. The phone picks labels and sends
+  `{presence, presenceUsers}`: every user id carrying one of them,
+  sorted, at most 1,000 (decision 226: the server never sees a label).
+  It keeps the picked labels and the last list sent, and sends the list
+  again whenever a label's people change (or a send failed: retried on
+  the next change or account open). `presenceUsers` comes with `only` /
+  `except` only, and a plain setting drops it (`users.presenceUsers`,
+  both backends). A new list under the same setting refreshes the
+  watchers as a new setting does (§22.3 case 3).
 
 - **Online** is a socket whose app said it is on screen (§22.3). A socket
   alone is not online: the app keeps its socket in the background.
@@ -2132,7 +2145,8 @@ ever leaves the server, not even the timing of a change.
   presence op about someone who blocked the asker.
 - **Reciprocity** (WhatsApp): A sees B's presence only while B shares
   with A and A shares with B. `nobody` sees nobody's; `contacts` sees
-  only contacts' (and only those sharing).
+  only contacts' (and only those sharing); `only` / `except` see only
+  those they share with.
 
 ### 22.3 The wire: frame class 8 PRESENCE
 

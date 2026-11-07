@@ -1,18 +1,87 @@
 /// Labels (decision 223): Family, Friends, Close and any the user adds.
 /// They stay on this phone: they pick who a timeline post goes to and
-/// filter the chat list, and the server never learns of them.
+/// who sees your last seen, and filter the chat list; the server never
+/// learns of them (it gets user ids).
 library vartalap.screens.labels;
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/compact_tiles.dart';
 import 'package:vartalap/widgets/name_dialog.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
 String _people(int n) => n == 1 ? '1 person' : '$n people';
 
-/// Add, rename and delete labels; tap one to choose who is in it.
+Future<String?> _askName(BuildContext context, String title,
+        [String initial = '']) =>
+    showDialog<String>(
+      context: context,
+      builder: (_) => NameDialog(
+          title: title, initial: initial, maxLength: 30, hint: 'Label name'),
+    );
+
+/// Rename [label]; the new name, or null when unchanged.
+Future<String?> _rename(
+    BuildContext context, ChatService chat, Label label) async {
+  final name = await _askName(context, 'Rename label', label.name);
+  if (name == null || name.isEmpty || name == label.name) return null;
+  await chat.renameLabel(label.labelId, name);
+  return name;
+}
+
+/// Delete [label] once confirmed; whether it went.
+Future<bool> _delete(
+    BuildContext context, ChatService chat, Label label) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('Delete "${label.name}"?'),
+      content: const Text('The people in it and your chats with them stay. '
+          'Only the label goes.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  await chat.deleteLabel(label.labelId);
+  return true;
+}
+
+/// Rename and Delete, behind ⋮.
+Widget _labelMenu(BuildContext context, ChatService chat, Label label,
+        {VoidCallback? onDeleted,
+        ValueChanged<String>? onRenamed,
+        Color? iconColor}) =>
+    PopupMenuButton<String>(
+      tooltip: 'More',
+      iconColor: iconColor,
+      onSelected: (v) async {
+        if (v == 'rename') {
+          final name = await _rename(context, chat, label);
+          if (name != null) onRenamed?.call(name);
+        } else if (await _delete(context, chat, label)) {
+          onDeleted?.call();
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: 'rename', child: Text('Rename')),
+        PopupMenuItem(value: 'delete', child: Text('Delete')),
+      ],
+    );
+
+/// The one place labels are managed (WhatsApp's Lists): each with how
+/// many people carry it; add, rename, delete; tap one to choose who is
+/// in it.
 class LabelsScreen extends StatefulWidget {
   final ChatService chatService;
 
@@ -25,90 +94,60 @@ class LabelsScreen extends StatefulWidget {
 class _LabelsScreenState extends State<LabelsScreen> {
   late final Stream<List<Label>> _labels = widget.chatService.watchLabels();
 
-  Future<String?> _askName(String title, [String initial = '']) =>
-      showDialog<String>(
-        context: context,
-        builder: (_) => NameDialog(
-            title: title, initial: initial, maxLength: 30, hint: 'Label name'),
-      );
+  void _open(Label label) => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => LabelMembersScreen(
+            chatService: widget.chatService, label: label),
+      ));
 
+  /// A new label goes straight to choosing its people.
   Future<void> _add() async {
-    final name = await _askName('New label');
-    if (name != null && name.isNotEmpty) {
-      await widget.chatService.createLabel(name);
-    }
-  }
-
-  Future<void> _rename(Label label) async {
-    final name = await _askName('Rename label', label.name);
-    if (name != null && name.isNotEmpty && name != label.name) {
-      await widget.chatService.renameLabel(label.labelId, name);
-    }
-  }
-
-  Future<void> _delete(Label label) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Delete "${label.name}"?'),
-        content: const Text('The people in it and your chats with them stay. '
-            'Only the label goes.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) await widget.chatService.deleteLabel(label.labelId);
+    final name = await _askName(context, 'New label');
+    if (name == null || name.isEmpty) return;
+    final id = await widget.chatService.createLabel(name);
+    if (mounted) _open(Label(labelId: id, name: name));
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final chat = widget.chatService;
     return Scaffold(
       appBar: AppBar(title: const Text('Labels')),
       body: StreamBuilder<List<Label>>(
         stream: _labels,
         builder: (context, snap) {
           final labels = snap.data ?? const <Label>[];
-          return ListView(
-            padding: const EdgeInsets.only(bottom: 96),
+          return compactTiles(ListView(
+            // the FAB, then Android's own bar (edge to edge)
+            padding: EdgeInsets.only(
+                bottom: 88 + MediaQuery.paddingOf(context).bottom),
             children: [
               Padding(
-                padding: const EdgeInsets.all(kSpaceMd),
+                padding: const EdgeInsets.fromLTRB(
+                    kSpaceMd, kSpaceSm, kSpaceMd, kSpaceSm),
                 child: Text(
-                  'Labels stay on this phone. Use them to choose who sees a '
-                  'timeline post, and to find chats quickly.',
+                  'Labels stay on this phone. Use them to find chats '
+                  'quickly, and to choose who sees a timeline post or '
+                  'your last seen.',
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ),
+              if (snap.hasData && labels.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(kSpaceMd),
+                  child: Text('No labels yet. Tap New label to make one.',
+                      style: TextStyle(color: scheme.onSurfaceVariant)),
+                ),
               for (final label in labels)
                 ListTile(
                   leading: Icon(Icons.label_outline, color: scheme.primary),
                   title: Text(label.name),
                   subtitle: Text(_people(label.userIds.length)),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => LabelMembersScreen(
-                        chatService: widget.chatService, label: label),
-                  )),
-                  trailing: PopupMenuButton<String>(
-                    tooltip: 'More',
-                    onSelected: (v) =>
-                        v == 'rename' ? _rename(label) : _delete(label),
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'rename', child: Text('Rename')),
-                      PopupMenuItem(value: 'delete', child: Text('Delete')),
-                    ],
-                  ),
+                  onTap: () => _open(label),
+                  trailing: _labelMenu(context, chat, label),
                 ),
             ],
-          );
+          ));
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -120,8 +159,9 @@ class _LabelsScreenState extends State<LabelsScreen> {
   }
 }
 
-/// Who carries one label: every contact, ticked or not. Each tick is
-/// saved at once, so there is no Save to forget.
+/// Who carries one label: its people first, then every other contact,
+/// with a search. Each tick is saved at once, so there is no Save to
+/// forget. Rename and Delete sit in ⋮.
 class LabelMembersScreen extends StatefulWidget {
   final ChatService chatService;
   final Label label;
@@ -137,9 +177,22 @@ class LabelMembersScreen extends StatefulWidget {
 }
 
 class _LabelMembersScreenState extends State<LabelMembersScreen> {
-  late final Future<List<ContactRow>> _contacts =
-      widget.chatService.discoverContacts();
   late final Set<String> _members = {...widget.label.userIds};
+  late String _name = widget.label.name;
+  final _search = TextEditingController();
+
+  /// Ordered once, so a tick does not move the row under the finger.
+  late final Future<List<ContactRow>> _contacts =
+      widget.chatService.discoverContacts().then((all) => [
+            ...all.where((c) => _members.contains(c.userId)),
+            ...all.where((c) => !_members.contains(c.userId)),
+          ]);
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   Future<void> _toggle(String userId, bool on) async {
     setState(() => on ? _members.add(userId) : _members.remove(userId));
@@ -149,8 +202,31 @@ class _LabelMembersScreenState extends State<LabelMembersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final q = _search.text.trim().toLowerCase();
     return Scaffold(
-      appBar: AppBar(title: Text(widget.label.name)),
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_name),
+            Text(_people(_members.length),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).appBarTheme.foregroundColor)),
+          ],
+        ),
+        actions: [
+          _labelMenu(
+            context,
+            widget.chatService,
+            Label(labelId: widget.label.labelId, name: _name),
+            onRenamed: (name) => setState(() => _name = name),
+            onDeleted: () => Navigator.of(context).pop(),
+            // M3 colours it onSurfaceVariant, dark on the green bar
+            iconColor: Theme.of(context).appBarTheme.foregroundColor,
+          ),
+        ],
+      ),
       body: FutureBuilder<List<ContactRow>>(
         future: _contacts,
         builder: (context, snap) {
@@ -165,23 +241,49 @@ class _LabelMembersScreenState extends State<LabelMembersScreen> {
               ),
             );
           }
-          return ListView(
-            children: [
-              for (final c in contacts)
-                CheckboxListTile(
-                  value: _members.contains(c.userId),
-                  onChanged: (on) => _toggle(c.userId, on ?? false),
-                  secondary: Avator(
-                    text: c.displayLabel,
-                    seed: personSeed(context, c.userId),
-                    avatarUrl: c.avatarUrl,
-                    width: kAvatarMd,
-                    height: kAvatarMd,
-                  ),
-                  title: Text(c.displayLabel),
+          final shown = q.isEmpty
+              ? contacts
+              : [
+                  for (final c in contacts)
+                    if (c.displayLabel.toLowerCase().contains(q) ||
+                        (c.username ?? '').toLowerCase().contains(q))
+                      c,
+                ];
+          return Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
+              child: TextField(
+                controller: _search,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search name or @username',
+                  isDense: true,
                 ),
-            ],
-          );
+              ),
+            ),
+            Expanded(
+              child: compactTiles(ListView.builder(
+                itemCount: shown.length,
+                itemBuilder: (context, i) {
+                  final c = shown[i];
+                  return CheckboxListTile(
+                    value: _members.contains(c.userId),
+                    onChanged: (on) => _toggle(c.userId, on ?? false),
+                    secondary: Avator(
+                      text: c.displayLabel,
+                      seed: personSeed(context, c.userId),
+                      avatarUrl: c.avatarUrl,
+                      width: kAvatarMd,
+                      height: kAvatarMd,
+                    ),
+                    title: Text(c.displayLabel),
+                  );
+                },
+              )),
+            ),
+          ]);
         },
       ),
     );
@@ -223,7 +325,7 @@ class ContactLabelsTile extends StatelessWidget {
   Future<void> _pick(BuildContext context, List<Label> labels) async {
     final picked = await showDialog<Set<int>>(
       context: context,
-      builder: (_) => _LabelPicker(
+      builder: (_) => LabelPicker(
         labels: labels,
         initial: {
           for (final l in labels)
@@ -238,36 +340,46 @@ class ContactLabelsTile extends StatelessWidget {
   }
 }
 
-class _LabelPicker extends StatefulWidget {
+/// Tick labels: a person's, or whose people see your last seen.
+class LabelPicker extends StatefulWidget {
+  final String title;
   final List<Label> labels;
   final Set<int> initial;
   final VoidCallback onManage;
 
-  const _LabelPicker({
+  const LabelPicker({
+    super.key,
+    this.title = 'Labels',
     required this.labels,
     required this.initial,
     required this.onManage,
   });
 
   @override
-  State<_LabelPicker> createState() => _LabelPickerState();
+  State<LabelPicker> createState() => _LabelPickerState();
 }
 
-class _LabelPickerState extends State<_LabelPicker> {
+class _LabelPickerState extends State<LabelPicker> {
   late final Set<int> _picked = {...widget.initial};
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Labels'),
+        title: Text(widget.title),
         contentPadding: const EdgeInsets.only(top: kSpaceSm),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (widget.labels.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(kSpaceMd),
+                  child: Text('No labels yet. Make one in Manage labels.'),
+                ),
               for (final l in widget.labels)
                 CheckboxListTile(
                   value: _picked.contains(l.labelId),
                   title: Text(l.name),
+                  subtitle: Text(_people(l.userIds.length)),
                   onChanged: (on) => setState(() => on == true
                       ? _picked.add(l.labelId)
                       : _picked.remove(l.labelId)),

@@ -260,10 +260,13 @@ class AuthClient implements AuthTokenProvider {
     ({String? value})? avatarUrl,
     ({String? value})? statusText,
     String? presence,
+    List<String>? presenceUsers,
   }) async {
     final body = <String, dynamic>{};
-    // SYNC_PROTOCOL §22: who sees last seen and online
+    // SYNC_PROTOCOL §22: who sees last seen and online, and whom `only` /
+    // `except` names
     if (presence != null) body['presence'] = presence;
+    if (presenceUsers != null) body['presenceUsers'] = presenceUsers;
     if (username != null) body['username'] = username.value;
     if (usernameKey != null) body['usernameKey'] = usernameKey.value;
     if (displayName != null) body['displayName'] = displayName.value;

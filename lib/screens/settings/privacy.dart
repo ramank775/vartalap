@@ -1,21 +1,34 @@
 /// Settings › Privacy's presence rows (decision 223, track F): who sees
-/// your last seen and online, and the read receipts and typing switches,
-/// in WhatsApp's words; and its Blocked contacts (decision 219).
+/// your last seen and online (everyone, contacts, nobody, or by label:
+/// "My contacts except…", "Only share with…"), and the read receipts and
+/// typing switches, in WhatsApp's words; and its Blocked contacts
+/// (decision 219).
 library vartalap.screens.settings.privacy;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/invites/invites.dart';
+import 'package:vartalap/screens/labels/labels.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
+import 'package:vartalap/widgets/compact_tiles.dart';
+import 'package:vartalap_store/vartalap_store.dart';
 
-/// The server's values and how the page says them.
+/// The server's values and how the page says them, in the picker's
+/// order (WhatsApp's, plus its "Only share with…").
 const Map<String, String> kPresenceLabels = {
   'everyone': 'Everyone',
   'contacts': 'My contacts',
+  'except': 'My contacts except…',
+  'only': 'Only share with…',
   'nobody': 'Nobody',
 };
+
+/// The two settings that name people, by label.
+const Set<String> kPresenceByLabel = {'only', 'except'};
 
 class PresencePrivacyRows extends StatefulWidget {
   final AuthService authService;
@@ -36,20 +49,54 @@ class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
   String? _presence;
   bool _loadFailed = false;
 
+  /// The labels behind `only` / `except`, saved on this phone only.
+  Set<int> _picked = const {};
+  List<Label> _labels = const [];
+  StreamSubscription<List<Label>>? _labelsSub;
+
   @override
   void initState() {
     super.initState();
+    _labelsSub = widget.chatService
+        .watchLabels()
+        .listen((labels) => setState(() => _labels = labels));
     _load();
+  }
+
+  @override
+  void dispose() {
+    _labelsSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loadFailed = false);
     try {
       final value = await widget.authService.presenceSetting();
-      if (mounted) setState(() => _presence = value);
+      final saved = await widget.chatService.presenceLabels();
+      if (mounted) {
+        setState(() {
+          _presence = value;
+          _picked = saved?.labels ?? const {};
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadFailed = true);
     }
+  }
+
+  /// "Only share with Family, Close": the picked labels that still exist.
+  String _subtitle() {
+    if (_loadFailed) return "Couldn't load, tap to try again";
+    final presence = _presence;
+    if (presence == null) return 'Loading…';
+    final names = [
+      for (final l in _labels)
+        if (_picked.contains(l.labelId)) l.name
+    ];
+    final label = kPresenceLabels[presence] ?? presence;
+    if (!kPresenceByLabel.contains(presence) || names.isEmpty) return label;
+    return '${label.substring(0, label.length - 1)} ${names.join(', ')}';
   }
 
   Future<void> _pickPresence() async {
@@ -64,12 +111,17 @@ class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
         children: [
           RadioGroup<String>(
             groupValue: _presence,
-            onChanged: (value) => Navigator.of(ctx).pop(value),
+            // null: the picked "only" / "except" again, to change labels
+            onChanged: (value) => Navigator.of(ctx).pop(value ?? _presence),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (final MapEntry(:key, :value) in kPresenceLabels.entries)
-                  RadioListTile<String>(title: Text(value), value: key),
+                  RadioListTile<String>(
+                    title: Text(value),
+                    value: key,
+                    toggleable: kPresenceByLabel.contains(key),
+                  ),
               ],
             ),
           ),
@@ -83,10 +135,33 @@ class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
         ],
       ),
     );
-    if (picked == null || picked == _presence) return;
+    if (picked == null || !mounted) return;
+    Set<int>? labelIds;
+    if (kPresenceByLabel.contains(picked)) {
+      labelIds = await showDialog<Set<int>>(
+        context: context,
+        builder: (_) => LabelPicker(
+          title: kPresenceLabels[picked]!.replaceAll('…', ''),
+          labels: _labels,
+          initial: picked == _presence ? _picked : const {},
+          onManage: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => LabelsScreen(chatService: widget.chatService))),
+        ),
+      );
+      // ponytail: no labels picked is a cancel, not "share with nobody";
+      // Nobody is its own row.
+      if (labelIds == null || labelIds.isEmpty) return;
+    } else if (picked == _presence) {
+      return;
+    }
     try {
-      await widget.authService.setPresenceSetting(picked);
-      if (mounted) setState(() => _presence = picked);
+      await widget.chatService.setPresence(picked, labelIds);
+      if (mounted) {
+        setState(() {
+          _presence = picked;
+          _picked = labelIds ?? const {};
+        });
+      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -104,9 +179,7 @@ class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
       children: [
         ListTile(
           title: const Text('Last seen and online'),
-          subtitle: Text(_loadFailed
-              ? "Couldn't load, tap to try again"
-              : kPresenceLabels[_presence] ?? 'Loading…'),
+          subtitle: Text(_subtitle()),
           onTap: _pickPresence,
         ),
         const Divider(height: 1),
@@ -204,7 +277,7 @@ class _BlockedScreenState extends State<BlockedScreen> {
               ),
             );
           }
-          return ListView(children: [
+          return compactTiles(ListView(children: [
             for (final userId in blocked)
               ListTile(
                 leading: Avator(
@@ -225,7 +298,7 @@ class _BlockedScreenState extends State<BlockedScreen> {
                   child: const Text('Unblock'),
                 ),
               ),
-          ]);
+          ]));
         },
       ),
     );

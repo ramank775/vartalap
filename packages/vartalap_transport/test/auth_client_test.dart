@@ -316,6 +316,22 @@ void main() {
         reason: '§4.5: an absent key means "unchanged".',
       );
     });
+
+    test('presence by label sends the user ids, never a label (§22)',
+        () async {
+      client.restoreSession(accesskey: 'ak', userId: 'u');
+      Map<String, dynamic>? sent;
+      server.handler = (req) async {
+        sent = jsonDecode(await utf8.decodeStream(req)) as Map<String, dynamic>;
+        _respond(req, 200, {'user_id': 'u'});
+      };
+      await client.patchOwnProfile(
+          presence: 'only', presenceUsers: ['00000000a', '00000000b']);
+      expect(sent, {
+        'presence': 'only',
+        'presenceUsers': ['00000000a', '00000000b'],
+      });
+    });
   });
 
   group('lookupByUsername', () {

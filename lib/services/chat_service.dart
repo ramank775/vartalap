@@ -20,7 +20,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart' as fixnum;
-import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show ValueNotifier, listEquals, visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/timeline_client.dart';
@@ -293,6 +294,12 @@ class ChatService with TimelineService, AlbumService {
     if (_wsTransport.currentState == TransportState.connected) {
       _sendPresence();
     }
+    // Last seen by labels: a label's people changed (or a send failed
+    // last time), so the server's list is stale.
+    _presenceSubs.add(_store.tableChanges.listen((tables) {
+      if (tables.contains('labels')) unawaited(_resendPresenceUsers());
+    }));
+    unawaited(_resendPresenceUsers());
   }
 
   // ---- Settings › Privacy (decision 223, track F) -----------------------
@@ -324,6 +331,67 @@ class ChatService with TimelineService, AlbumService {
     typingIndicator.value = on;
     await (await SharedPreferences.getInstance())
         .setBool(kTypingIndicatorPrefKey, on);
+  }
+
+  // ---- Last seen by labels (SYNC_PROTOCOL §22, decision 226) ------------
+
+  String get _presenceLabelsKey =>
+      'v3.presenceLabels.${_authClient.currentUserId}';
+
+  /// The `only` / `except` setting as this phone made it: the labels
+  /// picked and the user ids last sent for them. The server holds only
+  /// the ids; null for a plain setting, or when nothing was saved here.
+  Future<({String mode, Set<int> labels, List<String> users})?>
+      presenceLabels() async {
+    try {
+      final saved =
+          (await SharedPreferences.getInstance()).getString(_presenceLabelsKey);
+      if (saved == null) return null;
+      final json = jsonDecode(saved) as Map<String, dynamic>;
+      return (
+        mode: json['mode'] as String,
+        labels: {for (final id in json['labels'] as List) id as int},
+        users: [for (final u in json['users'] as List) u as String],
+      );
+    } catch (_) {
+      return null; // no platform channel (a plain test), or unreadable
+    }
+  }
+
+  /// Who sees our last seen and online: a plain [mode], or `only` /
+  /// `except` with everyone in [labelIds], resolved here (the server
+  /// never sees a label) and sent again whenever those labels change.
+  /// Server first: throws when offline, and nothing changes.
+  Future<void> setPresence(String mode, [Set<int>? labelIds]) async {
+    final users = labelIds == null ? null : await _labelMembers(labelIds);
+    await _authClient.patchOwnProfile(presence: mode, presenceUsers: users);
+    final prefs = await SharedPreferences.getInstance();
+    if (labelIds == null) {
+      await prefs.remove(_presenceLabelsKey);
+    } else {
+      await prefs.setString(_presenceLabelsKey,
+          jsonEncode({'mode': mode, 'labels': [...labelIds], 'users': users}));
+    }
+  }
+
+  /// Everyone carrying any of [labelIds], sorted. The server keeps to
+  /// contacts, so no filtering here.
+  Future<List<String>> _labelMembers(Set<int> labelIds) async => {
+        for (final l in await _store.fetchLabels())
+          if (labelIds.contains(l.labelId)) ...l.userIds,
+      }.toList()
+        ..sort();
+
+  /// The saved labels' people differ from what the server has: send them.
+  /// Offline, the next label change or account open tries again.
+  Future<void> _resendPresenceUsers() async {
+    final saved = await presenceLabels();
+    if (saved == null) return;
+    try {
+      final users = await _labelMembers(saved.labels);
+      if (listEquals(users, saved.users)) return;
+      await setPresence(saved.mode, saved.labels);
+    } catch (_) {}
   }
 
   // ---- Presence (SYNC_PROTOCOL §22) -------------------------------------
