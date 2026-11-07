@@ -538,6 +538,33 @@ void main() {
           reason: 'SYNC_PROTOCOL §10.2 CHANNEL_MEMBER_REMOVED: the remaining '
               'members must drop the leaver from their local roster.',
         );
+        // SYNC_PROTOCOL §24.1: the leaver keeps the chat, read only.
+        expect(await b.hasChannel(groupChannelId), isTrue);
+        expect(
+            (await b.chat.fetchChannelMembers(groupChannelId))
+                .map((m) => m.userId),
+            isNot(contains(b.userId)));
+      });
+
+      // ---- 7a -----------------------------------------------------------
+      test('7a. A invites B back → B accepts → a member again in the chat '
+          'B kept (§24.1)', () async {
+        await a.chat.addMembers(groupChannelId, [b.userId]);
+        await b.acceptGroupInvite(groupChannelId);
+        await b.waitForAsync(() async =>
+            (await b.chat.fetchChannelMembers(groupChannelId))
+                .any((m) => m.userId == b.userId));
+        expect(
+          {
+            for (final m in await b.chat.fetchChannelMembers(groupChannelId))
+              m.userId: m.role,
+          },
+          {a.userId: 'owner', b.userId: 'member'},
+          reason: "the accept's answer is the roster, though B's own accept "
+              'brings B no ChannelMemberAdded',
+        );
+        await a.waitForAsync(() async =>
+            (await a.chat.fetchChannelMembers(groupChannelId)).length == 2);
       });
 
       // ---- 8 ------------------------------------------------------------
@@ -708,8 +735,8 @@ void main() {
         );
         expect(
           await a.hasChannel(trioChannelId),
-          isFalse,
-          reason: 'leaveGroup drops the local channel row right away.',
+          isTrue,
+          reason: 'the leaver keeps the chat, read only (§24.1).',
         );
 
         // Which member inherits depends on the join order the server
@@ -742,6 +769,16 @@ void main() {
                 "${p.label}'s roster.",
           );
         }
+      });
+
+      // ---- 8d2 ----------------------------------------------------------
+      test('8d2. a profile edit reaches a connection in no group with the '
+          'editor (§24.2)', () async {
+        // A left the trio: A and C are connected and share no group.
+        final name = 'Asha ${_freshUsername()}';
+        await a.authService.setDisplayName(name);
+        await c.waitForAsync(() async => (await c.store.fetchContacts())
+            .any((x) => x.userId == a.userId && x.displayName == name));
       });
 
       // ---- 8e -----------------------------------------------------------
