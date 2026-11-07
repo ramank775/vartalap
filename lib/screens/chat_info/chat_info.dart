@@ -219,6 +219,10 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
           // Decision 81: the owner and every admin manage the group; a
           // plain member sees no controls at all.
           final canManage = _roleOf(members, localUserId) != 'member';
+          // We left, or were removed: the chat stays, read only.
+          final left = _isGroup &&
+              snap.hasData &&
+              !members.any((m) => m.userId == localUserId);
           return ListView(
             children: [
               const SizedBox(height: kSpaceXl),
@@ -266,9 +270,11 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                     ),
                     const SizedBox(height: kSpaceXs),
                     Text(
-                      _isGroup
-                          ? 'Group · ${_memberCount(members.length)}'
-                          : peer!.contact?.tildeName ?? 'Direct message',
+                      left
+                          ? 'Group'
+                          : _isGroup
+                              ? 'Group · ${_memberCount(members.length)}'
+                              : peer!.contact?.tildeName ?? 'Direct message',
                       style: textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -363,7 +369,17 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   peerUserId: peer.userId,
                   peerName: peer.contact?.displayLabel ?? _name,
                 ),
-              if (_isGroup) ...[
+              if (left) ...[
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.all(kSpaceLg),
+                  child: Text(
+                    "You're no longer a member of this group",
+                    style: textTheme.bodyMedium
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              ] else if (_isGroup) ...[
                 const Divider(),
                 _MembersSection(
                   members: members,
@@ -398,12 +414,15 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
               _InfoTile(
                 icon: Icons.delete_outline,
                 title: 'Delete chat',
-                subtitle: _isGroup
-                    ? 'Removes it from Chats. You stay a member and the '
-                        'group stays under Groups.'
-                    : 'Removes it from Chats. The contact stays in '
-                        'Contacts.',
-                onTap: () => _deleteChat(context),
+                subtitle: left
+                    ? 'Removes it from Chats and erases its messages on '
+                        'this phone.'
+                    : _isGroup
+                        ? 'Removes it from Chats. You stay a member and the '
+                            'group stays under Groups.'
+                        : 'Removes it from Chats. The contact stays in '
+                            'Contacts.',
+                onTap: () => _deleteChat(context, left: left),
               ),
               // WhatsApp's two red rows at the bottom (decision 219)
               if (!_isGroup && peer!.userId.isNotEmpty) ...[
@@ -431,13 +450,13 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   ),
                 ),
               ],
-              if (_isGroup) ...[
+              if (_isGroup && !left) ...[
                 const Divider(),
                 _InfoTile(
                   icon: Icons.exit_to_app,
                   title: 'Leave group',
-                  subtitle: 'You stop receiving messages. The group '
-                      'disappears from Groups too.',
+                  subtitle: 'You stop receiving messages. The chat and its '
+                      'history stay on this phone.',
                   iconColor: scheme.error,
                   titleColor: scheme.error,
                   onTap: () => _confirmLeave(context, members),
@@ -468,12 +487,13 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   /// Local-only, so nothing can fail, but it erases history for good —
   /// so it confirms first, with the chat list's dialog. Pops straight
   /// out to the chat list.
-  Future<void> _deleteChat(BuildContext context) async {
+  Future<void> _deleteChat(BuildContext context, {bool left = false}) async {
     final deleted = await confirmDeleteChat(
       context: context,
       chatService: widget.chatService,
       channelIds: [widget.channelId],
       isGroup: _isGroup,
+      member: !left,
     );
     if (!deleted || !context.mounted) return;
     // Pop chat info and the chat screen underneath it.
@@ -593,8 +613,8 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       builder: (ctx) => AlertDialog(
         title: Text('Leave $_name?'),
         content: Text(
-          'You will stop receiving messages and the group will be '
-          'removed from Groups and from Chats. Other members stay in '
+          'You will stop receiving messages. The chat and its history '
+          'stay on this phone until you delete it. Other members stay in '
           'the group and can add you back. Applies right away and '
           'syncs when you are online.'
           '${successorName == null ? '' : ' $successorName will become '
@@ -620,8 +640,8 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 );
                 return;
               }
-              if (!context.mounted) return;
-              Navigator.of(context).popUntil((route) => route.isFirst);
+              // WhatsApp stays here: now read only, with Delete chat.
+              if (mounted) setState(_reloadMembers);
             },
             child: Text(
               'Leave group',

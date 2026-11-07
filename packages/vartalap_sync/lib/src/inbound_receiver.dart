@@ -1122,8 +1122,7 @@ class InboundReceiver {
   }
 
   /// §10.2 ChannelMemberRemoved. Soft-deletes the row; if the local user
-  /// was the one removed, also tombstone the channel locally so it falls
-  /// off the chat list (the user has been kicked).
+  /// was the one removed, the chat stays with its history, read only.
   Future<void> _handleChannelMemberRemoved(
     InboundEnvelope env,
     pb.ChannelMemberRemoved body,
@@ -1144,7 +1143,7 @@ class InboundReceiver {
       );
       // Removed by someone else, we keep the chat and its history, read
       // only (WhatsApp). Our own leave never gets here: the fanout skips
-      // the device that left, and leaving deletes the chat there.
+      // the device that left, which wrote its own "You left".
       await _groupEvent(
           env,
           GroupEvent(
@@ -1193,7 +1192,10 @@ class InboundReceiver {
   }
 
   Future<void> _materializeGroup(String channelId, GroupRoster roster) async {
-    if (await store.channelExists(channelId)) return;
+    if (await store.channelExists(channelId)) {
+      await _rejoin(channelId, roster);
+      return;
+    }
     final owner = roster.roles.entries
             .where((e) => e.value == 'owner')
             .map((e) => e.key)
@@ -1215,6 +1217,36 @@ class InboundReceiver {
         joinedAt: roster.createdAt,
       );
     }
+    _resolveUnknownMembers(roster.roles.keys);
+  }
+
+  /// A group we left or were removed from, whose chat we kept, that the
+  /// server lists us in again (an invite we accepted; our own accept
+  /// brings no ChannelMemberAdded here, the actor's device is skipped):
+  /// its roster, name and photo are the server's now. A group we are
+  /// still in is left alone.
+  Future<void> _rejoin(String channelId, GroupRoster roster) async {
+    if (!roster.roles.containsKey(localUserId)) return;
+    final members = await store.fetchChannelMembers(channelId);
+    if (members.any((m) => m.userId == localUserId)) return;
+    final now = clock.nowMs();
+    for (final m in members) {
+      if (roster.roles.containsKey(m.userId)) continue;
+      await store.removeChannelMember(
+          channelId: channelId, userId: m.userId, removedAtMs: now);
+    }
+    for (final MapEntry(key: userId, value: role) in roster.roles.entries) {
+      await store.upsertChannelMember(
+          channelId: channelId, userId: userId, role: role, joinedAt: now);
+    }
+    await store.applyChannelEdit(
+      channelId: channelId,
+      name: (value: roster.name),
+      avatarUrl: (value: roster.avatarUrl),
+      editedAtMs: now,
+    );
+    await store.db.update('channels', {'tombstoned': 0},
+        where: 'channel_id = ?', whereArgs: [channelId]);
     _resolveUnknownMembers(roster.roles.keys);
   }
 

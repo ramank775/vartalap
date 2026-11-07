@@ -1070,12 +1070,13 @@ class ChatService with TimelineService {
   /// Leave a group (decision 9/80): `DELETE /v3.0/channels/{id}/members/
   /// {selfUserId}`, for owners too — the server promotes the
   /// longest-standing admin (else the longest-standing member) and
-  /// re-announces them as owner. Locally the channel row is dropped
-  /// straight away (cascading members + messages) for an optimistic UI.
+  /// re-announces them as owner. Locally we stop being a member at once
+  /// and the chat says "You left"; the chat and its history stay, read
+  /// only (WhatsApp), until the user deletes it. A terminal reject puts
+  /// us back, like any [removeMember].
   ///
-  /// The server's eventual `ChannelMemberRemoved` fanout reaches the
-  /// remaining members; the leaver's own copy of that fanout is a no-op
-  /// because the local channel row is already gone.
+  /// The server's `ChannelMemberRemoved` fanout reaches the remaining
+  /// members; it skips the device that left.
   Future<void> leaveGroup(
     String channelId, {
     required String selfUserId,
@@ -1087,7 +1088,15 @@ class ChatService with TimelineService {
         method: 'DELETE',
         path: '/v3.0/channels/$channelId/members/$selfUserId',
         payload: const [],
-        applyLocal: (_) => _store.leaveGroupLocal(channelId),
+        applyLocal: (opId) async {
+          await _store.removeChannelMember(
+            channelId: channelId,
+            userId: selfUserId,
+            removedAtMs: _clock.nowMs(),
+          );
+          await _ownGroupEvent(channelId, opId,
+              GroupEvent(GroupEventKind.left, users: [selfUserId]));
+        },
       );
 
   /// Delete a group for everyone (decision 9, owner only):

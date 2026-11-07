@@ -1253,6 +1253,36 @@ void main() {
     expect((await store.fetchChannel(grp))!.name, 'New name');
   });
 
+  test('a group we left, kept read only, is ours again when the server '
+      'lists us (an accepted invite)', () async {
+    const grp = 'c-grp-rejoin';
+    await store.insertChannel(
+        channelId: grp, kind: 'group', ownerUserId: _peerUserId, createdAt: 1);
+    await store.insertChannelMember(
+        channelId: grp, userId: _peerUserId, role: 'owner', joinedAt: 1);
+    await store.insertChannelMember(
+        channelId: grp, userId: _selfUserId, role: 'member', joinedAt: 1);
+    await store.removeChannelMember(
+        channelId: grp, userId: _selfUserId, removedAtMs: 5);
+    GroupRoster roster(String name) => (
+          name: name,
+          avatarUrl: null,
+          roles: {_thirdUserId: 'owner', _selfUserId: 'member'},
+          createdAt: 1,
+        );
+
+    await receiver.adoptGroups({grp: roster('Renamed while away')});
+    final members = await store.fetchChannelMembers(grp);
+    expect({for (final m in members) m.userId: m.role},
+        {_thirdUserId: 'owner', _selfUserId: 'member'},
+        reason: 'the server roster: the peer left while we were out');
+    expect((await store.fetchChannel(grp))!.name, 'Renamed while away');
+
+    // still a member: a listing changes nothing
+    await receiver.adoptGroups({grp: roster('Ignored')});
+    expect((await store.fetchChannel(grp))!.name, 'Renamed while away');
+  });
+
   test(
     'added to a group this device has never seen: fetched with its roles, '
     'and its messages apply',

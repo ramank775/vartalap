@@ -17,7 +17,7 @@ import 'package:vartalap_store/vartalap_store.dart';
 void main() {
   testWidgets('a group shows both actions, worded and coloured apart',
       (tester) async {
-    await _pumpInfo(tester, _FakeChatService(), kind: 'group');
+    await _pumpInfo(tester, _FakeChatService(members: _self), kind: 'group');
     await _scrollTo(tester, 'Leave group');
 
     expect(find.text('Group info'), findsOneWidget);
@@ -37,7 +37,7 @@ void main() {
 
   testWidgets('nothing on the screen is disabled or "Coming soon"',
       (tester) async {
-    await _pumpInfo(tester, _FakeChatService(), kind: 'group');
+    await _pumpInfo(tester, _FakeChatService(members: _self), kind: 'group');
 
     expect(find.textContaining('Coming soon'), findsNothing);
     for (final tile in tester.widgetList<ListTile>(find.byType(ListTile))) {
@@ -47,7 +47,7 @@ void main() {
 
   testWidgets('Media tile reports the empty state when nothing is shared',
       (tester) async {
-    await _pumpInfo(tester, _FakeChatService(), kind: 'group');
+    await _pumpInfo(tester, _FakeChatService(members: _self), kind: 'group');
 
     expect(find.text('Media, links and docs'), findsOneWidget);
     expect(find.text('Nothing shared yet'), findsOneWidget);
@@ -57,6 +57,7 @@ void main() {
     await _pumpInfo(
       tester,
       _FakeChatService(
+        members: _self,
         media: [_imageMessage('m-1'), _imageMessage('m-2')],
         files: [_imageMessage('m-3')],
         links: [_imageMessage('m-4')],
@@ -71,7 +72,7 @@ void main() {
       (tester) async {
     await _pumpInfo(
       tester,
-      _FakeChatService(mutedUntilMs: kMuteAlways),
+      _FakeChatService(mutedUntilMs: kMuteAlways, members: _self),
       kind: 'group',
     );
 
@@ -85,7 +86,7 @@ void main() {
   });
 
   testWidgets('an unmuted group reads "On" and shows no bar', (tester) async {
-    await _pumpInfo(tester, _FakeChatService(), kind: 'group');
+    await _pumpInfo(tester, _FakeChatService(members: _self), kind: 'group');
 
     expect(find.text('On'), findsOneWidget);
     expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
@@ -93,7 +94,7 @@ void main() {
 
   testWidgets('Delete chat confirms, then deletes locally — never leaves',
       (tester) async {
-    final svc = _FakeChatService();
+    final svc = _FakeChatService(members: _self);
     await _pumpInfo(tester, svc, kind: 'group');
     await _scrollTo(tester, 'Delete chat');
 
@@ -118,7 +119,7 @@ void main() {
   });
 
   testWidgets('Leave group confirms with the frame e2 copy', (tester) async {
-    final svc = _FakeChatService();
+    final svc = _FakeChatService(members: _self);
     await _pumpInfo(tester, svc, kind: 'group', name: 'Kothrud Flat 3B');
     await _scrollTo(tester, 'Leave group');
 
@@ -145,7 +146,7 @@ void main() {
 
   testWidgets('confirming Leave group calls leaveGroup, not deleteChat',
       (tester) async {
-    final svc = _FakeChatService();
+    final svc = _FakeChatService(members: _self);
     await _pumpInfo(tester, svc, kind: 'group');
     await _scrollTo(tester, 'Leave group');
 
@@ -155,6 +156,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(svc.calls, ['leaveGroup(c-1,u-self)']);
+  });
+
+  testWidgets('after leaving, group info is read only and keeps the chat',
+      (tester) async {
+    final svc = _FakeChatService(members: _roster(selfRole: 'member'));
+    await _pumpInfo(tester, svc, kind: 'group');
+    await _scrollTo(tester, 'Leave group');
+    await tester.tap(find.text('Leave group'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('stay on this phone until you delete it'),
+        findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Leave group'));
+    await tester.pumpAndSettle();
+
+    // Still here, like WhatsApp: no members, no Leave, Delete chat only.
+    expect(find.text('Group info'), findsOneWidget);
+    expect(find.text("You're no longer a member of this group"),
+        findsOneWidget);
+    expect(find.text('Ravi'), findsNothing);
+    expect(find.text('Leave group'), findsNothing);
+    await _scrollTo(tester, 'Delete chat');
+    expect(find.textContaining('erases its messages on this phone'),
+        findsOneWidget);
+    await tester.tap(find.text('Delete chat'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('You stay in the group'), findsNothing);
+    await tester.tap(find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.text('Delete chat'),
+    ));
+    await tester.pumpAndSettle();
+    expect(svc.calls, ['leaveGroup(c-1,u-self)', 'deleteChat(c-1)']);
   });
 
   // ---- decisions 9 / 80 / 81: roles -------------------------------------
@@ -375,6 +408,9 @@ void main() {
 
 const String _channelId = 'c-1';
 
+/// A group where we are a plain member and alone.
+final List<ChannelMemberRow> _self = [_member('u-self', 'member', 100)];
+
 Future<void> _pumpInfo(
   WidgetTester tester,
   ChatService service, {
@@ -467,7 +503,7 @@ class _FakeChatService implements ChatService {
   final List<MessageRow> media;
   final List<MessageRow> files;
   final List<MessageRow> links;
-  final List<ChannelMemberRow> members;
+  List<ChannelMemberRow> members;
   final List<InviteRow> invites;
   int? mutedUntilMs;
   final ChannelListEntry? channel;
@@ -561,6 +597,10 @@ class _FakeChatService implements ChatService {
     required String selfUserId,
   }) async {
     calls.add('leaveGroup($channelId,$selfUserId)');
+    members = [
+      for (final m in members)
+        if (m.userId != selfUserId) m,
+    ];
   }
 
   @override

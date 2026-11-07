@@ -35,7 +35,7 @@ void main() {
       // Gone from Chats...
       expect(await store.fetchChannelList(), isEmpty);
       // ...but the channel row, the membership and the Groups listing
-      // all survive. This is what separates it from leaveGroupLocal.
+      // all survive: deleting a chat is never a leave.
       expect(
         await store.db
             .query('channels', where: 'channel_id = ?', whereArgs: ['g-1']),

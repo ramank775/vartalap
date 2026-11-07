@@ -85,6 +85,8 @@ Future<bool> confirmDeleteChat({
   required ChatService chatService,
   required List<String> channelIds,
   required bool isGroup,
+  // false: a group we left, or were removed from
+  bool member = true,
 }) async {
   final one = channelIds.length == 1;
   final confirmed = await showDialog<bool>(
@@ -98,14 +100,16 @@ Future<bool> confirmDeleteChat({
             ? 'Their messages will be erased from this phone. You stay in '
                 'any groups, contacts stay in Contacts, and a chat comes '
                 'back the next time someone writes.'
-            : isGroup
-                ? 'Its messages will be erased from this phone. You stay '
-                    'in the group, and the chat comes back the next time '
-                    'someone writes. To leave, use Leave group in group '
-                    'info.'
-                : 'Its messages will be erased from this phone. The '
-                    'contact stays in Contacts, and the chat comes back '
-                    'the next time either of you writes.',
+            : isGroup && !member
+                ? 'Its messages will be erased from this phone.'
+                : isGroup
+                    ? 'Its messages will be erased from this phone. You '
+                        'stay in the group, and the chat comes back the next '
+                        'time someone writes. To leave, use Leave group in '
+                        'group info.'
+                    : 'Its messages will be erased from this phone. The '
+                        'contact stays in Contacts, and the chat comes back '
+                        'the next time either of you writes.',
       ),
       actions: [
         TextButton(

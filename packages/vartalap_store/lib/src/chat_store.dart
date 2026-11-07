@@ -1703,12 +1703,11 @@ class ChatStore {
     _notify(const {'channel_members'});
   }
 
-  /// Mark a channel tombstoned without dropping the row or its members.
-  /// Used when the local user has been removed from a channel by someone
-  /// else — the chat-list query filters on `tombstoned = 0` so the
-  /// channel disappears from the UI, while history remains queryable
-  /// for diagnostic / undo paths. Distinct from [leaveGroupLocal], which
-  /// hard-deletes the row (cascading members + messages).
+  /// Mark a channel tombstoned without dropping the row or its members:
+  /// a group its owner deleted (decision 9). The chat-list query filters
+  /// on `tombstoned = 0` so the channel disappears from the UI, while
+  /// history remains queryable for diagnostic / undo paths. Leaving, or
+  /// being removed, does not tombstone: that chat stays, read only.
   Future<void> tombstoneChannel(String channelId) async {
     await db.update(
       'channels',
@@ -2150,46 +2149,12 @@ class ChatStore {
     _notify(const {'messages', 'channels'});
   }
 
-  /// Local-only group leave. Drops the channel row (cascades members,
-  /// messages, reactions via FK ON DELETE CASCADE). Throws if [channelId]
-  /// is a DM — DM channels must remain consistent across both sides
-  /// because the channel_id is the stable address for incoming messages
-  /// from the peer; deleting and recreating would fork the conversation.
-  ///
-  /// The server-side fanout is the caller's responsibility — see
-  /// `ChatService.leaveGroup`, which enqueues the outbound
-  /// `OpKind.deleteChannel` op before invoking this method for
-  /// optimistic local removal.
-  Future<void> leaveGroupLocal(String channelId) async {
-    final rows = await db.query(
-      'channels',
-      columns: const ['kind'],
-      where: 'channel_id = ?',
-      whereArgs: [channelId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return;
-    final kind = rows.single['kind'] as String;
-    if (kind != 'group') {
-      throw StateError(
-        'leaveGroupLocal called on non-group channel ($kind). '
-        'DM channels must not be deleted — clear messages instead.',
-      );
-    }
-    await db.delete(
-      'channels',
-      where: 'channel_id = ?',
-      whereArgs: [channelId],
-    );
-    _notify(const {'channels', 'channel_members', 'messages'});
-  }
-
   /// Owner "Delete group" (decision 9) — the optimistic local half of
   /// `DELETE /v3.0/channels/{id}`. Tombstones rather than hard-deletes,
   /// exactly like the inbound `ChannelDeleted` this action will fan to
   /// everyone else ([applyChannelDelete]), so the owner's own copy of
   /// that fanout is a no-op instead of resurrecting anything. Throws on
-  /// a non-group channel, same rule as [leaveGroupLocal].
+  /// a non-group channel: DM channels cannot be deleted.
   Future<void> deleteGroupLocal(String channelId) async {
     final rows = await db.query(
       'channels',
@@ -2235,8 +2200,7 @@ class ChatStore {
     _notify(const {'channels'});
   }
 
-  /// "Delete chat" — local-only, and deliberately *not*
-  /// [leaveGroupLocal]. Erases history and hides the row from the chat
+  /// "Delete chat" — local-only, and never a leave. Erases history and hides the row from the chat
   /// list (`deleted_locally`; a cleared chat alone stays listed); the
   /// channel row, its membership and its place in the Groups listing
   /// all survive, and the next message in either direction clears
