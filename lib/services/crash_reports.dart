@@ -1,13 +1,13 @@
 /// Crash and error reports, the app's own (decision 214 took Sentry out).
 ///
 /// Uncaught Dart errors (here) and Android crashes (`Application.kt`) are
-/// written to files on the phone. On the next start the home screen sends
-/// them if the user turned on Settings › Privacy › "Send crash reports
-/// automatically", else asks once; either way they then leave the phone.
-/// A report is the app build, Android version, device model, the time and
-/// the error's type and stack frames, never its message, so no chat text,
-/// number, contact or key goes with it. The server keeps them 30 days
-/// (chat-server `POST /v3.0/crash-reports`).
+/// written to files on the phone. On the next start the home screen asks
+/// once; on Send it opens the phone's email app with them filled in, to
+/// [kCrashReportsTo], for the user to read and send (owner: "start with a
+/// simple mail"). Either way they then leave the phone. A report is the
+/// app build, Android version, device model, the time and the error's type
+/// and stack frames, never its message, so no chat text, number, contact
+/// or key goes with it. Our server receives none.
 library vartalap.services.crash_reports;
 
 import 'dart:io';
@@ -16,11 +16,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:vartalap_transport/vartalap_transport.dart';
 
-/// Off unless the user turns it on (opt-in).
-const kCrashReportsAutoKey = 'crash_reports_auto';
+/// The project's address, as on the website.
+const kCrashReportsTo = 'vartalap@one9x.org';
 
 class CrashReports {
   /// `<files dir>/crash_reports`, where `Application.kt` writes too. Each
@@ -30,14 +28,22 @@ class CrashReports {
   /// `<version>+<build number>` of the build that is running.
   final String build;
 
-  /// Posts one report to the server; set once signed in.
-  Future<void> Function(Map<String, Object> report)? send;
+  /// MainActivity's `vartalap/intents`: `email` (an email app) or `share`
+  /// (the share sheet) with `to`, `subject` and `body`; false when nothing
+  /// took it.
+  Future<bool> Function(String method, Map<String, String> mail) handOff =
+      (method, mail) async =>
+          await const MethodChannel('vartalap/intents')
+              .invokeMethod<bool>(method, mail) ??
+          false;
 
   /// The Android version and device model, asked of `MainActivity`.
-  Future<Map<String, String>> Function() device = () async =>
-      Map<String, String>.from(await const MethodChannel('vartalap/crash')
-              .invokeMapMethod<String, String>('device') ??
-          const {});
+  Future<Map<String, String>> Function() device =
+      () async => Map<String, String>.from(
+            await const MethodChannel('vartalap/crash')
+                    .invokeMapMethod<String, String>('device') ??
+                const {},
+          );
 
   CrashReports(this.dir, {this.build = ''});
 
@@ -47,8 +53,9 @@ class CrashReports {
   /// A crash loop must not fill the phone.
   static const maxWaiting = 10;
 
-  /// The server's limit on a trace.
-  static const maxTrace = 16000;
+  /// What goes in the mail's body at most, in characters: about 150
+  /// stack frames, well inside what mail apps take from an intent.
+  static const maxBody = 10000;
 
   final _seen = <String>{};
 
@@ -63,8 +70,10 @@ class CrashReports {
     } catch (_) {
       return; // nowhere to keep them: the app runs without
     }
-    final reports = instance =
-        CrashReports(Directory('${files.path}/crash_reports'), build: build);
+    final reports = instance = CrashReports(
+      Directory('${files.path}/crash_reports'),
+      build: build,
+    );
     final flutter = FlutterError.onError;
     FlutterError.onError = (details) {
       reports.record(details.exception, details.stack);
@@ -106,72 +115,79 @@ class CrashReports {
       ..sort((a, b) => a.path.compareTo(b.path));
   }
 
-  /// On the home screen at start: what waits is sent when the user said
-  /// always, else asked about once. A report that cannot reach the server
-  /// stays for the next start; one it refuses goes.
+  /// On the home screen at start: what waits is asked about once. Send
+  /// opens an email app with all of it, newest first, else the share
+  /// sheet; the phone cannot know whether the user sends it, so a hand-off
+  /// counts as sent. Nothing took it: kept for the next start.
   Future<void> offer(BuildContext context) async {
     final reports = waiting();
-    final send = this.send;
-    if (reports.isEmpty || send == null) return;
-    var auto = false;
-    try {
-      auto = (await SharedPreferences.getInstance())
-              .getBool(kCrashReportsAutoKey) ??
-          false;
-    } catch (_) {}
-    if (!auto) {
-      if (!context.mounted) return;
-      final crashed = reports.any((f) => f.path.endsWith('.android.txt'));
-      final ok = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          content: Text(
-            '${crashed ? 'Vartalap closed unexpectedly.' : 'Vartalap ran into a problem.'}'
-            ' Send a report to help fix it?\n\n'
-            'It has no messages, phone numbers or contacts.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text("Don't send"),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Send'),
-            ),
-          ],
+    if (reports.isEmpty || !context.mounted) return;
+    final crashed = reports.any((f) => f.path.endsWith('.android.txt'));
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        content: Text(
+          '${crashed ? 'Vartalap closed unexpectedly.' : 'Vartalap ran into a problem.'}'
+          ' Send a report to help fix it? It opens your email app, where '
+          'you can read the report before you send it.\n\n'
+          'It has no messages, phone numbers or contacts.',
         ),
-      );
-      if (ok != true) {
-        for (final f in reports) {
-          f.deleteSync();
-        }
-        return;
-      }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text("Don't send"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final device = await this.device().catchError((_) => <String, String>{});
+      final mail = this.mail(reports, device);
+      var taken = false;
+      try {
+        taken = await handOff('email', mail) || await handOff('share', mail);
+      } catch (_) {}
+      if (!taken) return;
     }
-    final device = await this.device().catchError((_) => <String, String>{});
-    for (final file in reports) {
+    for (final f in reports) {
+      f.deleteSync();
+    }
+  }
+
+  /// One mail for [reports], newest first, its body cut at [maxBody].
+  Map<String, String> mail(List<File> reports, Map<String, String> device) {
+    var newestBuild = '';
+    final body = StringBuffer(
+      'Android ${device['android'] ?? '?'}, '
+      '${device['model'] ?? '?'}\n',
+    );
+    for (final file in reports.reversed) {
       final [ms, kind, ...] = file.uri.pathSegments.last.split('.');
       final text = file.readAsStringSync();
       final cut = text.indexOf('\n');
-      final trace = text.substring(cut + 1);
-      try {
-        await send({
-          'at': int.tryParse(ms) ?? 0,
-          'kind': kind,
-          'build': text.substring(0, cut < 0 ? 0 : cut),
-          'android': device['android'] ?? '',
-          'model': device['model'] ?? '',
-          'trace':
-              trace.length > maxTrace ? trace.substring(0, maxTrace) : trace,
-        });
-      } on AuthClientException catch (e) {
-        if (e.statusCode >= 500) return;
-      } catch (_) {
-        return; // offline: next start
-      }
-      file.deleteSync();
+      final made = cut < 0 ? '' : text.substring(0, cut);
+      if (newestBuild.isEmpty) newestBuild = made;
+      final at = DateTime.fromMillisecondsSinceEpoch(
+        int.tryParse(ms) ?? 0,
+        isUtc: true,
+      );
+      body.write(
+        '\n${at.toIso8601String()}, build $made, '
+        '${kind == 'android' ? 'Android crash' : 'Dart error'}:\n'
+        '${text.substring(cut + 1)}\n',
+      );
     }
+    final text = body.toString();
+    return {
+      'to': kCrashReportsTo,
+      'subject':
+          'Vartalap crash report (build ${(newestBuild.isEmpty ? build : newestBuild).split('+').last})',
+      'body': text.length > maxBody ? text.substring(0, maxBody) : text,
+    };
   }
 }

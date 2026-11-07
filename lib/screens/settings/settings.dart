@@ -294,7 +294,6 @@ class _PrivacyPageState extends State<_PrivacyPage> {
             const Divider(height: 1),
             BlockedContactsRow(chatService: chat),
           ],
-          const CrashReportsSwitch(),
         ],
       );
 }

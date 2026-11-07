@@ -149,7 +149,7 @@ class MainActivity: FlutterActivity() {
         MethodChannel(messenger, "vartalap/secure")
             .setMethodCallHandler { call, result -> SecureScreen.handle(this, call, result) }
         // Pre-filled hand-offs to the system apps, from shared contact
-        // and event cards. false = no app installed takes it.
+        // and event cards and crash reports. false = no app installed takes it.
         MethodChannel(messenger, "vartalap/intents")
             .setMethodCallHandler { call, result ->
                 val intent = when (call.method) {
@@ -177,6 +177,20 @@ class MainActivity: FlutterActivity() {
                                 ContactsContract.Intents.Insert.TERTIARY_PHONE,
                             ).zip(phones).forEach { (key, number) -> putExtra(key, number) }
                         }
+                    // A crash report (lib/services/crash_reports.dart): an
+                    // email app, as Android's docs address one; else the
+                    // share sheet, whose chooser always opens.
+                    "email" -> Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:"))
+                        .putExtra(Intent.EXTRA_EMAIL, arrayOf(call.argument<String>("to")))
+                        .putExtra(Intent.EXTRA_SUBJECT, call.argument<String>("subject"))
+                        .putExtra(Intent.EXTRA_TEXT, call.argument<String>("body"))
+                    "share" -> Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_EMAIL, arrayOf(call.argument<String>("to")))
+                            .putExtra(Intent.EXTRA_SUBJECT, call.argument<String>("subject"))
+                            .putExtra(Intent.EXTRA_TEXT, call.argument<String>("body")),
+                        null
+                    )
                     else -> null
                 }
                 if (intent == null) {

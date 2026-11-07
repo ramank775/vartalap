@@ -349,17 +349,18 @@ first launch.
 **Superseded (DECISIONS 214, 2026-11-03): Sentry is removed from the app.**
 No DSN was ever provisioned, and `sentry_flutter` 10 needs Android 8.0.
 Play Console vitals covers Play installs. **Replaced by the app's own
-reports (2026-11-06):** uncaught Dart errors (`FlutterError.onError`,
-`PlatformDispatcher.onError`, in every engine) and Android crashes (a
-Kotlin uncaught-exception handler in `Application.kt`) are written to
-files on the phone, as their type and stack frames, never the message. On
-the next start the app asks once whether to send them ("Vartalap closed
-unexpectedly. Send a report to help fix it?"), or sends them without
-asking when Settings › Privacy › "Send crash reports automatically" is on
-(off by default). They go to chat-server `POST /v3.0/crash-reports`, which
-keeps them 30 days without the sender. No SDK, no Google, Android 7.0
-keeps working (`lib/services/crash_reports.dart`). The original decision
-follows.
+reports, by email (2026-11-06, owner: "start with a simple mail"):**
+uncaught Dart errors (`FlutterError.onError`, `PlatformDispatcher.onError`,
+in every engine) and Android crashes (a Kotlin uncaught-exception handler
+in `Application.kt`) are written to files on the phone, as their type and
+stack frames, never the message. On the next start the app asks once
+("Vartalap closed unexpectedly. Send a report to help fix it? It opens
+your email app, where you can read the report before you send it."). Send
+opens an email app to vartalap@one9x.org with the build, Android version,
+model, time and trace filled in (the share sheet when there is no email
+app); the user reads it and taps send. No SDK, no Google, no server part,
+Android 7.0 keeps working (`lib/services/crash_reports.dart`). The original
+decision follows.
 
 Sentry via `sentry_flutter`. User opts in via a settings toggle, default OFF.
 DSN is configured at build time but Sentry is **not initialized** until the

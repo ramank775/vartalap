@@ -561,7 +561,6 @@ Future<AppServices> initializeApp({
   // Every call to our server says which build this is (decision 192).
   final httpClient = AppBuildClient(configStore.appBuild, apiUrl.host);
   final authClient = AuthClient(baseUrl: apiUrl, httpClient: httpClient);
-  CrashReports.instance?.send = authClient.sendCrashReport;
   final authService = AuthService(client: authClient);
   await authService.init(
       hasAccountDatabase: (userId) =>

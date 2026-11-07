@@ -822,23 +822,6 @@ void main() {
         await a.waitForAsync(() async => await a.opCount() == 0);
       });
 
-      test('8g. a crash report reaches the server; one too big does not '
-          '(decision 214)', () async {
-        final report = <String, Object>{
-          'at': DateTime.now().millisecondsSinceEpoch,
-          'kind': 'android',
-          'build': '3.0.0+90',
-          'android': '7.0 (API 24)',
-          'model': 'Xiaomi Redmi 4',
-          'trace': 'java.lang.IllegalStateException\n\tat a.b(C.kt:1)',
-        };
-        await a.authClient.sendCrashReport(report);
-        await expectLater(
-            a.authClient.sendCrashReport({...report, 'trace': 'x' * 16001}),
-            throwsA(isA<AuthClientException>()
-                .having((e) => e.statusCode, 'statusCode', 400)));
-      });
-
       // ---- 9 ------------------------------------------------------------
       test('9. both log out → session revoked, local store kept', () async {
         await a.authService.logout();
