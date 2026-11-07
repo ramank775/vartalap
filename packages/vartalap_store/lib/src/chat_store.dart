@@ -190,6 +190,11 @@ class ChatStore {
               await db.execute(stmt);
             }
           }
+          if (from < 14 && await has('messages')) {
+            for (final stmt in migrateV13ToV14) {
+              await db.execute(stmt);
+            }
+          }
           for (final stmt in ddl) {
             await db.execute(stmt);
           }
@@ -1010,6 +1015,7 @@ class ChatStore {
     required int nowMs,
     int? timerSec,
     Uint8List? secure,
+    Uint8List? linkPreview,
   }) async {
     final bumpUnread = senderUserId != localUserId;
     var inserted = false;
@@ -1041,6 +1047,7 @@ class ChatStore {
               'tombstone_pending_until': null,
               'timer_sec': timerSec,
               'secure': secure,
+              'link_preview': linkPreview,
             },
             conflictAlgorithm: ConflictAlgorithm.ignore,
           ) !=
@@ -1378,6 +1385,7 @@ class ChatStore {
             'content_type': null,
             'attachments': null,
             'secure': null,
+            'link_preview': null,
             'state_updated_at': nowMs,
           },
           where: 'message_id = ?',
@@ -2821,6 +2829,7 @@ class ChatStore {
               'content_type': null,
               'attachments': null,
               'secure': null,
+              'link_preview': null,
               'rollback_body': null,
             },
             where: 'message_id = ?',
@@ -3163,6 +3172,9 @@ class ChatStore {
         'tombstone_pending_until': m.tombstonePendingUntil,
         'timer_sec': m.timerSec,
         'secure': m.secure == null ? null : Uint8List.fromList(m.secure!),
+        'link_preview': m.linkPreview == null
+            ? null
+            : Uint8List.fromList(m.linkPreview!),
       };
 
   static MessageRow _rowToMessage(Map<String, Object?> r) => MessageRow(
@@ -3185,6 +3197,7 @@ class ChatStore {
         reactions: _parseReactions(r['reactions'] as String?),
         timerSec: r['timer_sec'] as int?,
         secure: r['secure'] as List<int>?,
+        linkPreview: r['link_preview'] as List<int>?,
         forwardSource: r['forward_source'] as List<int>?,
         rsvps: {
           for (final (user, going) in _parsePairs(r['rsvps'] as String?))

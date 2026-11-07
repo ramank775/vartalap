@@ -275,6 +275,10 @@ class MessageRow {
   /// [attachments]. Null for any other message.
   final List<int>? secure;
 
+  /// SYNC_PROTOCOL §27: a `ChatLinkPreview` protobuf, callers decode; null
+  /// when the message has none.
+  final List<int>? linkPreview;
+
   /// A forwarded message's `ForwardSource` protobuf (SYNC_PROTOCOL §25),
   /// callers decode; null for one that is not a forward.
   final List<int>? forwardSource;
@@ -309,6 +313,7 @@ class MessageRow {
     this.reactions = const [],
     this.timerSec,
     this.secure,
+    this.linkPreview,
     this.forwardSource,
     this.rsvps = const {},
   });

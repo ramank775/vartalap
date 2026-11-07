@@ -125,6 +125,14 @@ const ChatPayload$json = {
     },
     {'1': 'secure_title', '3': 74, '4': 1, '5': 9, '10': 'secureTitle'},
     {
+      '1': 'link_preview',
+      '3': 75,
+      '4': 1,
+      '5': 11,
+      '6': '.vartalap.v3.payload.ChatLinkPreview',
+      '10': 'linkPreview'
+    },
+    {
       '1': 'live_location_point',
       '3': 130,
       '4': 1,
@@ -186,13 +194,14 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'JUaW1lc3RhbXBNcxIbCgl0aW1lcl9zZWMYRiABKA1SCHRpbWVyU2VjEh0KCnNlY3VyZV9ib3gY'
     'RyABKAxSCXNlY3VyZUJveBIdCgpzZWN1cmVfa2V5GEggASgMUglzZWN1cmVLZXkSPQoKZXZlbn'
     'RfcnN2cBhJIAEoDjIeLnZhcnRhbGFwLnYzLnBheWxvYWQuRXZlbnRSc3ZwUglldmVudFJzdnAS'
-    'IQoMc2VjdXJlX3RpdGxlGEogASgJUgtzZWN1cmVUaXRsZRJXChNsaXZlX2xvY2F0aW9uX3BvaW'
-    '50GIIBIAEoCzImLnZhcnRhbGFwLnYzLnBheWxvYWQuTGl2ZUxvY2F0aW9uUG9pbnRSEWxpdmVM'
-    'b2NhdGlvblBvaW50EjwKGmxpdmVfbG9jYXRpb25fZHVyYXRpb25fc2VjGIMBIAEoDVIXbGl2ZU'
-    'xvY2F0aW9uRHVyYXRpb25TZWMSMwoVbGl2ZV9sb2NhdGlvbl9hbGxvd2VkGIQBIAEoCFITbGl2'
-    'ZUxvY2F0aW9uQWxsb3dlZBI+CgRtZXRhGGQgAygLMioudmFydGFsYXAudjMucGF5bG9hZC5DaG'
-    'F0UGF5bG9hZC5NZXRhRW50cnlSBG1ldGEaNwoJTWV0YUVudHJ5EhAKA2tleRgBIAEoCVIDa2V5'
-    'EhQKBXZhbHVlGAIgASgJUgV2YWx1ZToCOAFKBAgDEARKBAgUEBU=');
+    'IQoMc2VjdXJlX3RpdGxlGEogASgJUgtzZWN1cmVUaXRsZRJHCgxsaW5rX3ByZXZpZXcYSyABKA'
+    'syJC52YXJ0YWxhcC52My5wYXlsb2FkLkNoYXRMaW5rUHJldmlld1ILbGlua1ByZXZpZXcSVwoT'
+    'bGl2ZV9sb2NhdGlvbl9wb2ludBiCASABKAsyJi52YXJ0YWxhcC52My5wYXlsb2FkLkxpdmVMb2'
+    'NhdGlvblBvaW50UhFsaXZlTG9jYXRpb25Qb2ludBI8ChpsaXZlX2xvY2F0aW9uX2R1cmF0aW9u'
+    'X3NlYxiDASABKA1SF2xpdmVMb2NhdGlvbkR1cmF0aW9uU2VjEjMKFWxpdmVfbG9jYXRpb25fYW'
+    'xsb3dlZBiEASABKAhSE2xpdmVMb2NhdGlvbkFsbG93ZWQSPgoEbWV0YRhkIAMoCzIqLnZhcnRh'
+    'bGFwLnYzLnBheWxvYWQuQ2hhdFBheWxvYWQuTWV0YUVudHJ5UgRtZXRhGjcKCU1ldGFFbnRyeR'
+    'IQCgNrZXkYASABKAlSA2tleRIUCgV2YWx1ZRgCIAEoCVIFdmFsdWU6AjgBSgQIAxAESgQIFBAV');
 
 @$core.Deprecated('Use liveLocationPointDescriptor instead')
 const LiveLocationPoint$json = {
@@ -209,6 +218,24 @@ const LiveLocationPoint$json = {
 final $typed_data.Uint8List liveLocationPointDescriptor = $convert.base64Decode(
     'ChFMaXZlTG9jYXRpb25Qb2ludBIQCgNsYXQYASABKAFSA2xhdBIQCgNsbmcYAiABKAFSA2xuZx'
     'IdCgphY2N1cmFjeV9tGAMgASgNUglhY2N1cmFjeU0SEwoFYXRfbXMYBCABKARSBGF0TXM=');
+
+@$core.Deprecated('Use chatLinkPreviewDescriptor instead')
+const ChatLinkPreview$json = {
+  '1': 'ChatLinkPreview',
+  '2': [
+    {'1': 'url', '3': 1, '4': 1, '5': 9, '10': 'url'},
+    {'1': 'title', '3': 2, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'description', '3': 3, '4': 1, '5': 9, '10': 'description'},
+    {'1': 'site_name', '3': 4, '4': 1, '5': 9, '10': 'siteName'},
+    {'1': 'image_jpeg', '3': 5, '4': 1, '5': 12, '10': 'imageJpeg'},
+  ],
+};
+
+/// Descriptor for `ChatLinkPreview`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List chatLinkPreviewDescriptor = $convert.base64Decode(
+    'Cg9DaGF0TGlua1ByZXZpZXcSEAoDdXJsGAEgASgJUgN1cmwSFAoFdGl0bGUYAiABKAlSBXRpdG'
+    'xlEiAKC2Rlc2NyaXB0aW9uGAMgASgJUgtkZXNjcmlwdGlvbhIbCglzaXRlX25hbWUYBCABKAlS'
+    'CHNpdGVOYW1lEh0KCmltYWdlX2pwZWcYBSABKAxSCWltYWdlSnBlZw==');
 
 @$core.Deprecated('Use attachmentDescriptor instead')
 const Attachment$json = {

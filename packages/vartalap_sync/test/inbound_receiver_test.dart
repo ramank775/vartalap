@@ -307,6 +307,39 @@ void main() {
     expect((await store.fetchMessage(_mid('m-long')))!.body, 'x' * 60);
   });
 
+  test('SYNC_PROTOCOL 27: a link preview is stored with its message; one '
+      'over the limits is dropped and the text kept', () async {
+    for (final (id, image) in [
+      ('m-preview', List.filled(1000, 1)),
+      ('m-preview-big', List.filled(64 * 1024 + 1, 1)),
+    ]) {
+      pushes.add(_makeEnvelope(
+        opId: 'op-$id',
+        senderUserId: _peerUserId,
+        payload: pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          messageId: uuidBytes(_mid(id)),
+          body: 'see https://example.com/a',
+          linkPreview: pb.ChatLinkPreview(
+            url: 'https://example.com/a',
+            title: 'A page',
+            imageJpeg: image,
+          ),
+        ).writeToBuffer(),
+        serverTimestampMs: 5500,
+      ));
+      await _settle(store, _mid(id), present: true);
+    }
+    final kept = (await store.fetchMessage(_mid('m-preview')))!;
+    final p = pb.ChatLinkPreview.fromBuffer(kept.linkPreview!);
+    expect([p.url, p.title, p.imageJpeg.length],
+        ['https://example.com/a', 'A page', 1000]);
+    final big = (await store.fetchMessage(_mid('m-preview-big')))!;
+    expect(big.body, 'see https://example.com/a');
+    expect(big.linkPreview, isNull);
+  });
+
   test('SYNC_PROTOCOL 25.1: a forward is stored as one, with or without '
       'its source; a create never is', () async {
     for (final (id, type, source) in [

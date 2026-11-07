@@ -142,6 +142,12 @@ message ChatPayload {
   // untitled card. SYNC_PROTOCOL §20.4.
   string secure_title = 74;
 
+  // For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_FORWARD of plain text: a preview
+  // of the first http(s) URL in `body`, fetched by the SENDER's phone
+  // only; receivers never contact the site. Older builds ignore it.
+  // SYNC_PROTOCOL §27.
+  ChatLinkPreview link_preview = 75;
+
   // Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   // For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   LiveLocationPoint live_location_point = 130;
@@ -264,6 +270,16 @@ message LiveLocationPoint {
   double lng = 2;
   uint32 accuracy_m = 3;     // 0 = unknown
   uint64 at_ms = 4;          // when the sharer's phone took this fix
+}
+
+// A link preview (SYNC_PROTOCOL §27). A receiver drops one whose
+// image_jpeg is over 64 KB or whose text is over its limits.
+message ChatLinkPreview {
+  string url = 1;            // the URL as it is in the body
+  string title = 2;
+  string description = 3;
+  string site_name = 4;
+  bytes image_jpeg = 5;      // at most 300 px on its long side
 }
 
 message Attachment {

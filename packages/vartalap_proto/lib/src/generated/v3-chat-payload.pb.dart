@@ -50,6 +50,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     $core.List<$core.int>? secureKey,
     EventRsvp? eventRsvp,
     $core.String? secureTitle,
+    ChatLinkPreview? linkPreview,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
     LiveLocationPoint? liveLocationPoint,
     $core.int? liveLocationDurationSec,
@@ -74,6 +75,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (secureKey != null) result.secureKey = secureKey;
     if (eventRsvp != null) result.eventRsvp = eventRsvp;
     if (secureTitle != null) result.secureTitle = secureTitle;
+    if (linkPreview != null) result.linkPreview = linkPreview;
     if (meta != null) result.meta.addEntries(meta);
     if (liveLocationPoint != null) result.liveLocationPoint = liveLocationPoint;
     if (liveLocationDurationSec != null)
@@ -125,6 +127,8 @@ class ChatPayload extends $pb.GeneratedMessage {
     ..aE<EventRsvp>(73, _omitFieldNames ? '' : 'eventRsvp',
         enumValues: EventRsvp.values)
     ..aOS(74, _omitFieldNames ? '' : 'secureTitle')
+    ..aOM<ChatLinkPreview>(75, _omitFieldNames ? '' : 'linkPreview',
+        subBuilder: ChatLinkPreview.create)
     ..m<$core.String, $core.String>(100, _omitFieldNames ? '' : 'meta',
         entryClassName: 'ChatPayload.MetaEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -359,45 +363,60 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(74)
   void clearSecureTitle() => $_clearField(74);
 
+  /// For TYPE_MESSAGE_CREATE, TYPE_MESSAGE_FORWARD of plain text: a preview
+  /// of the first http(s) URL in `body`, fetched by the SENDER's phone
+  /// only; receivers never contact the site. Older builds ignore it.
+  /// SYNC_PROTOCOL §27.
+  @$pb.TagNumber(75)
+  ChatLinkPreview get linkPreview => $_getN(17);
+  @$pb.TagNumber(75)
+  set linkPreview(ChatLinkPreview value) => $_setField(75, value);
+  @$pb.TagNumber(75)
+  $core.bool hasLinkPreview() => $_has(17);
+  @$pb.TagNumber(75)
+  void clearLinkPreview() => $_clearField(75);
+  @$pb.TagNumber(75)
+  ChatLinkPreview ensureLinkPreview() => $_ensure(17);
+
   /// Free-form client metadata. Other clients MAY ignore unknown keys.
   /// Reserved keys:
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(17);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(18);
 
   /// Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   /// For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   @$pb.TagNumber(130)
-  LiveLocationPoint get liveLocationPoint => $_getN(18);
+  LiveLocationPoint get liveLocationPoint => $_getN(19);
   @$pb.TagNumber(130)
   set liveLocationPoint(LiveLocationPoint value) => $_setField(130, value);
   @$pb.TagNumber(130)
-  $core.bool hasLiveLocationPoint() => $_has(18);
+  $core.bool hasLiveLocationPoint() => $_has(19);
   @$pb.TagNumber(130)
   void clearLiveLocationPoint() => $_clearField(130);
   @$pb.TagNumber(130)
-  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(18);
+  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(19);
 
   /// For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
   /// this 1:1 chat on (for `duration_sec`) or off (0).
   @$pb.TagNumber(131)
-  $core.int get liveLocationDurationSec => $_getIZ(19);
+  $core.int get liveLocationDurationSec => $_getIZ(20);
   @$pb.TagNumber(131)
-  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(19, value);
+  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(20, value);
   @$pb.TagNumber(131)
-  $core.bool hasLiveLocationDurationSec() => $_has(19);
+  $core.bool hasLiveLocationDurationSec() => $_has(20);
   @$pb.TagNumber(131)
   void clearLiveLocationDurationSec() => $_clearField(131);
 
   /// For TYPE_LIVE_LOCATION_PERMISSION: may the receiver turn the
   /// sender's live location on and off from now on.
   @$pb.TagNumber(132)
-  $core.bool get liveLocationAllowed => $_getBF(20);
+  $core.bool get liveLocationAllowed => $_getBF(21);
   @$pb.TagNumber(132)
-  set liveLocationAllowed($core.bool value) => $_setBool(20, value);
+  set liveLocationAllowed($core.bool value) => $_setBool(21, value);
   @$pb.TagNumber(132)
-  $core.bool hasLiveLocationAllowed() => $_has(20);
+  $core.bool hasLiveLocationAllowed() => $_has(21);
   @$pb.TagNumber(132)
   void clearLiveLocationAllowed() => $_clearField(132);
 }
@@ -493,6 +512,112 @@ class LiveLocationPoint extends $pb.GeneratedMessage {
   $core.bool hasAtMs() => $_has(3);
   @$pb.TagNumber(4)
   void clearAtMs() => $_clearField(4);
+}
+
+/// A link preview (SYNC_PROTOCOL §27). A receiver drops one whose
+/// image_jpeg is over 64 KB or whose text is over its limits.
+class ChatLinkPreview extends $pb.GeneratedMessage {
+  factory ChatLinkPreview({
+    $core.String? url,
+    $core.String? title,
+    $core.String? description,
+    $core.String? siteName,
+    $core.List<$core.int>? imageJpeg,
+  }) {
+    final result = create();
+    if (url != null) result.url = url;
+    if (title != null) result.title = title;
+    if (description != null) result.description = description;
+    if (siteName != null) result.siteName = siteName;
+    if (imageJpeg != null) result.imageJpeg = imageJpeg;
+    return result;
+  }
+
+  ChatLinkPreview._();
+
+  factory ChatLinkPreview.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory ChatLinkPreview.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ChatLinkPreview',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'url')
+    ..aOS(2, _omitFieldNames ? '' : 'title')
+    ..aOS(3, _omitFieldNames ? '' : 'description')
+    ..aOS(4, _omitFieldNames ? '' : 'siteName')
+    ..a<$core.List<$core.int>>(
+        5, _omitFieldNames ? '' : 'imageJpeg', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ChatLinkPreview clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ChatLinkPreview copyWith(void Function(ChatLinkPreview) updates) =>
+      super.copyWith((message) => updates(message as ChatLinkPreview))
+          as ChatLinkPreview;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ChatLinkPreview create() => ChatLinkPreview._();
+  @$core.override
+  ChatLinkPreview createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static ChatLinkPreview getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ChatLinkPreview>(create);
+  static ChatLinkPreview? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get url => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set url($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUrl() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUrl() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get title => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set title($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTitle() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTitle() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get description => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set description($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasDescription() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearDescription() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get siteName => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set siteName($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasSiteName() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSiteName() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.List<$core.int> get imageJpeg => $_getN(4);
+  @$pb.TagNumber(5)
+  set imageJpeg($core.List<$core.int> value) => $_setBytes(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasImageJpeg() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearImageJpeg() => $_clearField(5);
 }
 
 class Attachment extends $pb.GeneratedMessage {

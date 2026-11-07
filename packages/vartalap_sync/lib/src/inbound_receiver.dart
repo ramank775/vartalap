@@ -515,6 +515,7 @@ class InboundReceiver {
                       secureBox: chat.secureBox,
                       secureKey: chat.hasSecureKey() ? chat.secureKey : null)
                   .writeToBuffer()),
+          linkPreview: _linkPreview(chat),
         );
         if (env.senderUserId != localUserId && !_peerMessageCtrl.isClosed) {
           _peerMessageCtrl.add(channelId);
@@ -1367,4 +1368,19 @@ class InboundReceiver {
       '(op_id_seen NOT recorded; later release will apply)',
     );
   }
+}
+
+/// SYNC_PROTOCOL §27: a received link preview as stored, or null when it
+/// has none or is over the limits (dropped whole; the text still shows).
+Uint8List? _linkPreview(pb.ChatPayload chat) {
+  if (!chat.hasLinkPreview()) return null;
+  final p = chat.linkPreview;
+  if (p.imageJpeg.length > 64 * 1024 ||
+      p.url.length > 2048 ||
+      p.title.length > 1024 ||
+      p.description.length > 2048 ||
+      p.siteName.length > 256) {
+    return null;
+  }
+  return p.writeToBuffer();
 }
