@@ -801,8 +801,11 @@ class ChatService with TimelineService, AlbumService {
   /// Trim 4 deleted the server-side DM row, and with it the server's
   /// only way to know that two people who have only ever DM'd share a
   /// conversation — so `PROFILE_EDITED` / `USERNAME_CHANGED` fanout
-  /// (SYNC_PROTOCOL §10.3) now reaches group co-members only, and a
-  /// DM-only peer's name, handle and avatar would go stale forever.
+  /// (SYNC_PROTOCOL §10.3) reached group co-members only, and a DM-only
+  /// peer's name, handle and avatar went stale until this pull. Since
+  /// chat-server rc.5 (decision 237) the fanout reaches connections too,
+  /// in under a second; this stays for an older server and for an event
+  /// that expired unread.
   ///
   /// ponytail: pull on open instead of a subscription or a poll. One
   /// cheap read when the user looks at the chat is the whole fix; it

@@ -32,6 +32,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/main.dart' show pullPendingPages;
 import 'package:vartalap/services/album_client.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/live_location.dart';
@@ -845,6 +846,46 @@ void main() {
         await a.authService.setDisplayName(name);
         await c.waitForAsync(() async => (await c.store.fetchContacts())
             .any((x) => x.userId == a.userId && x.displayName == name));
+        expect(
+            (await c.store.fetchContacts())
+                .any((x) => x.userId == a.userId && x.displayName == name),
+            isTrue,
+            reason: 'chat-server rc.4 sent it to group co-members only');
+      });
+
+      // ---- 8d3 ----------------------------------------------------------
+      test('8d3. a new photo reaches a co-member online within seconds and a '
+          'connection offline at their next pull (decision 245)', () async {
+        await c.goOffline();
+        // The phone's whole path: upload to media-ms, then the PATCH.
+        final file = File('${a.tmpDir.path}/me.png')
+          ..writeAsBytesSync(base64Decode(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8'
+              'z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
+        final sent = DateTime.now();
+        await a.chat.setOwnAvatar(file.path);
+        await a.waitForAsync(() async => await a.opCount() == 0);
+        final photo = (await a.authClient.getOwnProfile())['avatarUrl'];
+        expect(photo, isA<String>(), reason: 'the PATCH went out');
+        // ignore: avoid_print
+        print('8d3: uploaded and patched after '
+            '${DateTime.now().difference(sent).inMilliseconds} ms');
+        Future<bool> has(_Client p) async => (await p.store.fetchContacts())
+            .any((x) => x.userId == a.userId && x.avatarUrl == photo);
+        await b.waitForAsync(() => has(b));
+        expect(await has(b), isTrue);
+        // ignore: avoid_print
+        print('8d3: online co-member had the photo after '
+            '${DateTime.now().difference(sent).inMilliseconds} ms');
+        // And can fetch it, as its avatar does.
+        AssetCache.dirProvider = () async => b.tmpDir;
+        expect(await b.chat.assets.bytes(photo as String),
+            file.readAsBytesSync());
+        expect(await has(c), isFalse);
+        await c.goOnline();
+        await c.waitForAsync(() => has(c));
+        expect(await has(c), isTrue,
+            reason: 'chat-server rc.4 sent it to group co-members only');
       });
 
       // ---- 8e -----------------------------------------------------------
