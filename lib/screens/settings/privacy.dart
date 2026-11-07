@@ -208,6 +208,18 @@ class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
             onChanged: chat.setTypingIndicator,
           ),
         ),
+        ValueListenableBuilder<bool>(
+          valueListenable: chat.linkPreviews,
+          builder: (context, on, _) => SwitchListTile(
+            title: const Text('Link previews'),
+            subtitle: const Text(
+              "Your phone fetches the preview; people you send it to don't "
+              'contact the website.',
+            ),
+            value: on,
+            onChanged: chat.setLinkPreviews,
+          ),
+        ),
       ],
     );
   }

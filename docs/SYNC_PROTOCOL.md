@@ -2466,3 +2466,33 @@ whose `body` is `{"albumId", "channelId", "title"}` as JSON. Phones show
 it as a card that opens the album, and previews it as "🖼️ Album: <title>".
 
 The note is not forwarded (§25.1): only its own chat can open the album.
+
+## 27. Link previews
+
+The sender's phone fetches the preview; nobody else does. When the text
+being composed has an http(s) URL (the first one only), the composer
+fetches that page a moment after it is typed and shows a card; sending
+attaches the preview if it is ready, and never waits for it. It rides in
+ChatPayload field 75 `link_preview`, a `ChatLinkPreview` (`url`, `title`,
+`description`, `site_name`, `image_jpeg`), inside the end-to-end
+encrypted payload of a TYPE_MESSAGE_CREATE, so the receivers never
+contact the website and the server never sees it. A forward
+(TYPE_MESSAGE_FORWARD) carries the stored preview unchanged. Older
+builds ignore the field and show the text.
+
+- **Fetch (sender):** a plain GET with the app's User-Agent, https first
+  for a link typed as http, at most 3 redirects, 5 s per fetch; only
+  hosts that resolve to public addresses, checked at every hop (no
+  loopback, private, link-local or carrier-NAT); only `text/html`, read
+  up to 512 KB. Open Graph tags, then `twitter:*`, then `<title>` and
+  the meta description. The image (same rules, `image/*`, at most 2 MB)
+  is re-encoded as a JPEG at most 300 px on its long side and about
+  30 KB; without one the preview goes without an image.
+- **None** for secure (§20.4) or timed (§20.3) messages, edits, or when
+  Settings › Privacy › Link previews is off (it is on by default).
+- **Receive:** a preview whose `image_jpeg` is over 64 KB, `url` over
+  2048 characters, `title` over 1024, `description` over 2048 or
+  `site_name` over 256 is dropped whole. It is stored with the message
+  (store v14, `messages.link_preview`) and shown above the text only
+  while `url` is the first URL in the body, so an edit that removes the
+  link removes the card, and a tap opens what the text says.

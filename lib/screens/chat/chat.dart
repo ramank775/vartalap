@@ -27,6 +27,7 @@ import 'package:vartalap/screens/albums/albums.dart';
 import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/forward.dart';
 import 'package:vartalap/screens/chat/message_info.dart';
+import 'package:vartalap/screens/chat/link_preview.dart';
 import 'package:vartalap/screens/chat/live_location.dart';
 import 'package:vartalap/screens/chat/message_options.dart';
 import 'package:vartalap/screens/chat/presence_line.dart';
@@ -156,6 +157,14 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   final GlobalKey<PopupMenuButtonState<VoidCallback>> _menuKey = GlobalKey();
   bool _menuMore = false;
 
+  /// SYNC_PROTOCOL §27: the typed link's preview, none for an edit or a
+  /// secure or timed message.
+  late final ComposerLinkPreview _linkPreview = ComposerLinkPreview(_input,
+      enabled: () =>
+          widget.chatService.linkPreviews.value &&
+          _editingMessageId == null &&
+          _options == kNoComposeOptions);
+
   /// The voice note being recorded; null while the composer is text.
   AudioRecorder? _recorder;
   DateTime _recordingSince = DateTime.now();
@@ -260,6 +269,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   void initState() {
     super.initState();
     _input.addListener(_onInputChanged);
+    _linkPreview; // listens from here on
     _typingSub = widget.chatService.typingEvents.listen(_onPeerTyping);
     _scroll.addListener(_onScroll);
     _loadMemberNames();
@@ -402,6 +412,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       );
     }
     _input.removeListener(_onInputChanged);
+    _linkPreview.dispose();
     _input.dispose();
     _inputFocus.dispose();
     super.dispose();
@@ -1720,6 +1731,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
           authorUserId: userId,
           replyToMessageId: _replyTo?.messageId,
           timerSec: options.timerSec,
+          linkPreview: _linkPreview.previewFor(body),
         );
         _toBottom();
         _options = kNoComposeOptions;
@@ -2120,6 +2132,7 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
             },
             onClearOptions: () =>
                 setState(() => _options = kNoComposeOptions),
+            linkPreview: ComposerLinkPreviewCard(controller: _linkPreview),
             replyPreview: _replyTo == null ? null : _preview(_replyTo!),
             onCancelCompose:
                 (_editingMessageId != null || _replyTo != null)
@@ -2232,6 +2245,9 @@ class _MessageInput extends StatelessWidget {
   final VoidCallback onEmoji;
   final VoidCallback onFieldTap;
 
+  /// The typed link's preview card (SYNC_PROTOCOL §27).
+  final Widget? linkPreview;
+
   const _MessageInput({
     required this.controller,
     required this.focusNode,
@@ -2251,6 +2267,7 @@ class _MessageInput extends StatelessWidget {
     required this.options,
     required this.onOptions,
     required this.onClearOptions,
+    this.linkPreview,
   });
 
   /// Height of the box and of the round button beside it.
@@ -2361,6 +2378,7 @@ class _MessageInput extends StatelessWidget {
                     ],
                   ),
                 ),
+              if (linkPreview != null) linkPreview!,
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -3081,6 +3099,9 @@ class _MessageBubble extends StatelessWidget {
                       footer: meta,
                       onView: onReveal,
                     ),
+                  if (bubbleLinkPreview(message) case final preview?
+                      when !media)
+                    LinkPreviewCard(preview: preview, tint: fg),
                   if (!selfTimed)
                     pad(withMeta(
                       tombstoned

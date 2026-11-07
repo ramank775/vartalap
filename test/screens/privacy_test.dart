@@ -272,15 +272,20 @@ void main() {
 
     await tester.tap(find.text('Read receipts'));
     await tester.tap(find.text('Typing indicator'));
+    await tester.tap(find.text('Link previews'));
     await tester.pumpAndSettle();
     expect(chat.readReceipts.value, isFalse);
     expect(chat.typingIndicator.value, isFalse);
+    expect(chat.linkPreviews.value, isFalse);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getBool(kReadReceiptsPrefKey), isFalse);
     expect(prefs.getBool(kTypingIndicatorPrefKey), isFalse);
+    expect(prefs.getBool(kLinkPreviewsPrefKey), isFalse);
+    expect(find.textContaining("people you send it to don't contact"),
+        findsOneWidget);
     final switches =
         tester.widgetList<SwitchListTile>(find.byType(SwitchListTile));
-    expect(switches.map((s) => s.value), [false, false]);
+    expect(switches.map((s) => s.value), [false, false, false]);
   });
 }
 
