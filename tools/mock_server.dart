@@ -310,6 +310,31 @@ class MockState {
   /// every phone publish again on its next open.
   final KeyDirectory deviceKeys = {};
 
+  /// Decision 219 (SYNC_PROTOCOL §23): connected pairs, as [pairKey]s.
+  /// ponytail: in memory only like [deviceKeys], and no blocks: add
+  /// them when a mock test needs one.
+  final Set<String> connections = {};
+
+  /// Pending invites, keyed `<channel_id>|<to>`. A 1:1 invite's channel
+  /// is the pair's derived DM id, a group invite's the group's.
+  final Map<String, ({String from, int createdAt})> invites = {};
+
+  static String pairKey(String a, String b) =>
+      a.compareTo(b) < 0 ? '$a:$b' : '$b:$a';
+
+  bool connected(String a, String b) => connections.contains(pairKey(a, b));
+
+  /// Both live members of some group: their keys, receipts and resend
+  /// requests pass the gate unconnected (decision 220).
+  bool shareGroup(String a, String b) => channels.values.any((c) =>
+      c.kind == 'group' && c.members.contains(a) && c.members.contains(b));
+
+  /// Who has a pending invite to [channelId].
+  List<String> invitedTo(String channelId) => [
+        for (final key in invites.keys)
+          if (key.startsWith('$channelId|')) key.split('|').last,
+      ];
+
   final Random _rng = Random.secure();
 
   // ---- Persistence -----------------------------------------------------
@@ -1131,7 +1156,7 @@ class MockServer {
   /// waiting out a retry budget. Consumed one op at a time.
   int rejectNextChatOps = 0;
 
-  /// Park the `ChannelCreated` fanout a `POST /v3.0/channels` produces
+  /// Park the `ChannelCreated` and invite fanout a `POST /v3.0/channels` produces
   /// until [releaseChannelCreatedFanout], so a test can land the REST
   /// response on the caller before the other members hear anything.
   /// Default false: announce first, then answer — the order the real
@@ -1331,6 +1356,167 @@ class MockServer {
     }
   }
 
+  /// Stand in for an accepted 1:1 invite between [a] and [b].
+  void connect(String a, String b) =>
+      state.connections.add(MockState.pairKey(a, b));
+
+  /// [fromUserId], a simulated user, invites [toUserId] to a 1:1 chat as
+  /// `POST /v3.0/channels/invites` does; `sent` or `connected`.
+  String sendInvite(String fromUserId, String toUserId) =>
+      _invite(fromUserId, toUserId);
+
+  /// [userId], a simulated user, accepts their invite to [channelId]
+  /// (a pair's DM id, or a group's) as `POST /{id}/invite/accept` does.
+  /// False with no such invite.
+  bool acceptInvite(String channelId, String userId) {
+    final invite = state.invites.remove('$channelId|$userId');
+    if (invite == null) return false;
+    if (isMockDmChannelId(channelId)) {
+      _connected(invite.from, userId);
+    } else if (state.channels.containsKey(channelId)) {
+      addChannelMember(channelId, userId, actorUserId: userId);
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  /// [actorUserId], a simulated owner or admin, invites [users] into
+  /// [channelId] as `POST /{id}/members` does (decision 221).
+  void inviteToGroup(String channelId, String actorUserId, List<String> users) =>
+      _inviteToGroup(state.channels[channelId]!, actorUserId, users);
+
+  /// `POST /v3.0/channels/invites`: inviting someone who invited you
+  /// accepts theirs (§23.2).
+  String _invite(String from, String to) {
+    final channelId = mockDmChannelId(from, to);
+    if (state.connected(from, to)) return 'connected';
+    if (acceptInvite(channelId, from)) return 'connected';
+    if (state.invites.containsKey('$channelId|$to')) return 'sent';
+    final now = DateTime.now().millisecondsSinceEpoch;
+    state.invites['$channelId|$to'] = (from: from, createdAt: now);
+    _serverEvent(
+      to,
+      pb.ServerEventPayload(
+        version: 1,
+        type: pb.ServerEventType.INVITE_SENT,
+        inviteSent: pb.InviteSent(users: [to], atMs: fixnum.Int64(now)),
+      ),
+      actor: from,
+      peer: to,
+      wakes: true,
+    );
+    if (demoMode && to == seedPeerUserId) acceptInvite(channelId, to);
+    return 'sent';
+  }
+
+  /// Connect the pair of an accepted 1:1 invite and tell its sender.
+  void _connected(String inviter, String invitee) {
+    connect(inviter, invitee);
+    _serverEvent(
+      inviter,
+      pb.ServerEventPayload(
+        version: 1,
+        type: pb.ServerEventType.INVITE_ANSWERED,
+        inviteAnswered: pb.InviteAnswered(
+          user: invitee,
+          answer: pb.InviteAnswer.INVITE_ACCEPTED,
+          atMs: fixnum.Int64(DateTime.now().millisecondsSinceEpoch),
+        ),
+      ),
+      actor: invitee,
+      peer: inviter,
+    );
+  }
+
+  /// Decision 221: invite [users] into [channel]. The invitees hear
+  /// INVITE_SENT (it wakes them), the members too, silent, for their
+  /// member list.
+  void _inviteToGroup(ChannelRecord channel, String actor, List<String> users) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final fresh = [
+      for (final to in users.toSet())
+        if (!channel.members.contains(to) &&
+            !state.invites.containsKey('${channel.channelId}|$to'))
+          to,
+    ];
+    if (fresh.isEmpty) return;
+    for (final to in fresh) {
+      state.invites['${channel.channelId}|$to'] = (from: actor, createdAt: now);
+    }
+    final event = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.INVITE_SENT,
+      inviteSent: pb.InviteSent(
+        channelId: channel.channelId,
+        users: fresh,
+        name: channel.name ?? '',
+        atMs: fixnum.Int64(now),
+      ),
+    );
+    for (final to in fresh) {
+      _serverEvent(to, event,
+          actor: actor, channelId: channel.channelId, wakes: true);
+    }
+    for (final member in channel.members) {
+      if (member == actor) continue;
+      _serverEvent(member, event, actor: actor, channelId: channel.channelId);
+    }
+    if (demoMode && fresh.contains(seedPeerUserId)) {
+      acceptInvite(channel.channelId, seedPeerUserId);
+    }
+  }
+
+  /// An invite that ended without a member (declined, canceled): to
+  /// [recipient], and for a group to its members as well.
+  void _inviteEnded(String channelId, String to, String actor,
+      pb.InviteAnswer answer, String recipient) {
+    final dm = isMockDmChannelId(channelId);
+    final event = pb.ServerEventPayload(
+      version: 1,
+      type: pb.ServerEventType.INVITE_ANSWERED,
+      inviteAnswered: pb.InviteAnswered(
+        channelId: dm ? '' : channelId,
+        user: to,
+        answer: answer,
+        atMs: fixnum.Int64(DateTime.now().millisecondsSinceEpoch),
+      ),
+    );
+    final recipients = {
+      recipient,
+      ...?state.channels[channelId]?.members,
+    }..remove(actor);
+    for (final id in recipients) {
+      _serverEvent(id, event,
+          actor: actor, channelId: dm ? null : channelId, peer: dm ? id : null);
+    }
+  }
+
+  /// One server event to [recipient]'s devices: class INVITE (silent
+  /// unless it [wakes]). A 1:1 one names its [peer] (the recipient) and
+  /// the op_id carries the [actor], so the phone derives the pair's
+  /// channel; a group's names its [channelId].
+  void _serverEvent(
+    String recipient,
+    pb.ServerEventPayload event, {
+    required String actor,
+    String? channelId,
+    String? peer,
+    bool wakes = false,
+    FrameClass frameClass = FrameClass.invite,
+  }) {
+    final pushEnv = wireEnvelope(
+      opId: _serverOpId(actor),
+      channelId: channelId ?? '',
+      peer: peer,
+      payload: [0x53, ...event.writeToBuffer()],
+      flags: wakes ? frameClass.index << 1 : frameClass.flags,
+      serverTimestampMs: _stamp(),
+    );
+    _sendToUser(recipient,
+        pb.WsEnvelope(type: pb.WsType.WS_PUSH, push: pushEnv).writeToBuffer());
+  }
+
   // ---------------------------------------------------------------------------
   // Request router
   // ---------------------------------------------------------------------------
@@ -1398,6 +1584,21 @@ class MockServer {
       await _handlePushTopic(req);
     } else if (method == 'POST' && path == '/v3.0/channels') {
       await _handleCreateChannel(req);
+    } else if (method == 'GET' && path == '/v3.0/channels/connections') {
+      await _handleGetConnections(req);
+    } else if (method == 'POST' && path == '/v3.0/channels/invites') {
+      await _handleInvite(req);
+    } else if (method == 'POST' &&
+        path.startsWith('/v3.0/channels/') &&
+        (path.endsWith('/invite/accept') ||
+            path.endsWith('/invite/decline'))) {
+      await _handleAnswerInvite(req, path.split('/')[3],
+          accept: path.endsWith('/accept'));
+    } else if (method == 'DELETE' &&
+        path.startsWith('/v3.0/channels/') &&
+        path.split('/').length == 6 &&
+        path.split('/')[4] == 'invites') {
+      await _handleCancelInvite(req, path.split('/')[3], path.split('/')[5]);
     } else if (method == 'GET' &&
         (path == '/v3.0/channels' ||
             (path.startsWith('/v3.0/channels/') &&
@@ -1540,6 +1741,7 @@ class MockServer {
     // that finds no delivered welcome.
     String? defaultChannelId;
     if (demoMode) {
+      connect(user.userId, seedPeerUserId);
       defaultChannelId = mockDmChannelId(user.userId, seedPeerUserId);
       if (state.welcomedUsers.add(user.userId)) {
         state.markDirty();
@@ -1779,6 +1981,11 @@ class MockServer {
       if (ch.members.contains(user.userId)) {
         recipients.addAll(ch.members);
       }
+    }
+    // and every connection (decision 219)
+    for (final key in state.connections) {
+      final pair = key.split(':');
+      if (pair.contains(user.userId)) recipients.addAll(pair);
     }
     recipients.remove(user.userId); // skip the editor
 
@@ -2150,10 +2357,33 @@ class MockServer {
       return;
     }
 
-    // Members the client explicitly asked for (creator + picked peers).
-    final clientRequested = <String>{session.userId, ...membersList};
-    // Final server-side roster — same as requested, plus the seed peer
-    // in demo mode so groups demo Echo replies.
+    // Decision 221: everyone but the creator is invited, and only people
+    // the creator is connected with may be (§23.2).
+    final invitees = {...membersList}..remove(session.userId);
+    final strangers = [
+      for (final id in invitees)
+        if (!state.connected(session.userId, id)) id,
+    ];
+    if (strict && strangers.isNotEmpty) {
+      final outcome = StoredOutcome(
+        success: false,
+        status: 403,
+        reason: 'not_connected',
+        body: {
+          'error': {
+            'code': 'not_connected',
+            'message': 'not connected: $strangers',
+          }
+        },
+      );
+      state.recordOutcome(session.userId, body['op_id'] as String, outcome);
+      _respondOutcome(req, body, outcome);
+      return;
+    }
+
+    // The creator alone, plus the seed peer in demo mode so groups demo
+    // Echo replies.
+    final clientRequested = <String>{session.userId};
     final members = <String>{...clientRequested};
     if (demoMode) members.add(seedPeerUserId);
 
@@ -2196,10 +2426,17 @@ class MockServer {
       }
     }
 
-    if (holdChannelCreatedFanout) {
-      _heldChannelCreatedFanouts.add(announce);
-    } else {
+    // and invite the rest (decision 221); the knob holds both
+    void fanout() {
       announce();
+      _inviteToGroup(state.channels[channelId]!, session.userId,
+          invitees.difference(members).toList());
+    }
+
+    if (holdChannelCreatedFanout) {
+      _heldChannelCreatedFanouts.add(fanout);
+    } else {
+      fanout();
     }
 
     // If the server added members the client doesn't know about
@@ -2222,6 +2459,7 @@ class MockServer {
       'kind': kind,
       'name': name,
       'members': members.toList(),
+      'invited': state.invitedTo(channelId),
       'created_at': createdAt,
     };
     final opId = body['op_id'];
@@ -2669,6 +2907,19 @@ class MockServer {
     // is ever lifted.
     final Set<String> recipients;
     if (peer.isNotEmpty) {
+      // §23.1 the gate: a 1:1 frame flows between connections; keys,
+      // receipts and resend requests between co-members of a group too.
+      // (No blocks in the mock.)
+      final frameClass = (env.flags >> 1) & 15;
+      final groupPair = [FrameClass.key, FrameClass.receipt, FrameClass.resend]
+              .any((c) => c.index == frameClass) &&
+          state.shareGroup(senderUserId, peer);
+      if (strict &&
+          peer != senderUserId &&
+          !groupPair &&
+          !state.connected(senderUserId, peer)) {
+        return env.ephemeral ? null : reject('not_connected');
+      }
       recipients = {peer, senderUserId};
     } else {
       final channel = state.channels[channelId];
@@ -2955,11 +3206,9 @@ class MockServer {
   // the wire (empty string == "user cleared this"); when false the
   // field is absent and recipients leave their cached value alone.
   //
-  // Channel id on the envelope is intentionally a synthetic per-recipient
-  // "profile" channel — recipients route on `payload[0]==0x53` and the
-  // inner `ServerEventPayload.user_id`, not on Envelope.channel_id.
-  // We use the channel that this fanout would be most relevant to
-  // (any shared channel works); for simplicity we pick the first one.
+  // The envelope rides a group both share (any works: recipients route
+  // on `payload[0]==0x53` and the inner user_id), or, for a connection
+  // in no group with the editor, is addressed 1:1 ([_profileRoute]).
   void _enqueueProfileEdited({
     required String recipientUserId,
     required String editorUserId,
@@ -2985,18 +3234,11 @@ class MockServer {
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
 
-    final channelId = state.channels.values
-        .firstWhere(
-          (ch) =>
-              ch.members.contains(editorUserId) &&
-              ch.members.contains(recipientUserId),
-          orElse: () => state.channels.values.first,
-        )
-        .channelId;
-
+    final route = _profileRoute(editorUserId, recipientUserId);
     final pushEnv = wireEnvelope(
-      opId: _serverOpId(''),
-      channelId: channelId,
+      opId: _serverOpId(route.actor),
+      channelId: route.channelId,
+      peer: route.peer,
       payload: payload,
       flags: FrameClass.event.flags,
       serverTimestampMs: now,
@@ -3007,6 +3249,20 @@ class MockServer {
     );
     _sendToUser(recipientUserId, pushFrame.writeToBuffer());
     _log('Sent ProfileEdited to=$recipientUserId editor=$editorUserId');
+  }
+
+  /// How a profile event reaches [recipient]: on a group both are in,
+  /// else addressed 1:1 with the editor in the op_id, as the real server
+  /// sends it to a connection (decision 219).
+  ({String channelId, String? peer, String actor}) _profileRoute(
+      String editor, String recipient) {
+    final shared = state.channels.values
+        .where((ch) =>
+            ch.members.contains(editor) && ch.members.contains(recipient))
+        .firstOrNull;
+    return shared == null
+        ? (channelId: '', peer: recipient, actor: editor)
+        : (channelId: shared.channelId, peer: null, actor: '');
   }
 
   // SYNC_PROTOCOL §10.2 UsernameChanged fanout. Empty `newUsername`
@@ -3028,18 +3284,11 @@ class MockServer {
     );
     final payload = Uint8List.fromList([0x53, ...sep.writeToBuffer()]);
 
-    final channelId = state.channels.values
-        .firstWhere(
-          (ch) =>
-              ch.members.contains(editorUserId) &&
-              ch.members.contains(recipientUserId),
-          orElse: () => state.channels.values.first,
-        )
-        .channelId;
-
+    final route = _profileRoute(editorUserId, recipientUserId);
     final pushEnv = wireEnvelope(
-      opId: _serverOpId(''),
-      channelId: channelId,
+      opId: _serverOpId(route.actor),
+      channelId: route.channelId,
+      peer: route.peer,
       payload: payload,
       flags: FrameClass.event.flags,
       serverTimestampMs: now,
@@ -4016,8 +4265,118 @@ class MockServer {
         'avatar_url': c.avatarUrl,
         'members': c.members.toList(),
         'roles': {for (final m in c.members) m: c.roleOf(m)},
+        'invited': state.invitedTo(c.channelId),
         'created_at': c.createdAt,
       };
+
+  // ---- connecting (decisions 219-221, SYNC_PROTOCOL §23) ---------------
+
+  /// `GET /v3.0/channels/connections`: who the caller is connected with,
+  /// and every pending invite to them, from them, or in their groups.
+  Future<void> _handleGetConnections(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final me = session.userId;
+    _record(req, const {}, 200);
+    _respondJson(req, 200, {
+      'connections': [
+        for (final key in state.connections)
+          if (key.split(':').contains(me))
+            key.split(':').firstWhere((id) => id != me),
+      ],
+      'blocked': const <String>[],
+      'invites': [
+        for (final MapEntry(:key, :value) in state.invites.entries)
+          if (key.split('|') case [final channelId, final to]
+              when to == me ||
+                  value.from == me ||
+                  (state.channels[channelId]?.members.contains(me) ?? false))
+            {
+              'channel_id': channelId,
+              'from': value.from,
+              'to': to,
+              'name': state.channels[channelId]?.name,
+              'created_at': value.createdAt,
+            },
+      ],
+    });
+  }
+
+  /// `POST /v3.0/channels/invites {user_id}`.
+  Future<void> _handleInvite(HttpRequest req) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final body = await _readJsonBody(req);
+    final to = body['user_id'] as String?;
+    if (to == null || to == session.userId) {
+      _record(req, body, 400);
+      _respondJson(req, 400, {
+        'error': {'code': 'validation_failed', 'message': 'user_id'}
+      });
+      return;
+    }
+    final answer = _invite(session.userId, to);
+    _record(req, body, 200);
+    _respondJson(req, 200, {'state': answer});
+  }
+
+  /// `POST /v3.0/channels/{id}/invite/accept|decline`.
+  Future<void> _handleAnswerInvite(HttpRequest req, String channelId,
+      {required bool accept}) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final body = await _readJsonBody(req);
+    final me = session.userId;
+    final dm = isMockDmChannelId(channelId);
+    if (!accept) {
+      final invite = state.invites.remove('$channelId|$me');
+      if (invite != null) {
+        _inviteEnded(channelId, me, me, pb.InviteAnswer.INVITE_DECLINED,
+            invite.from);
+      }
+      _record(req, body, 200);
+      _respondJson(req, 200, {'state': 'none'});
+      return;
+    }
+    final channel = state.channels[channelId];
+    if (!acceptInvite(channelId, me) &&
+        (dm || !(channel?.members.contains(me) ?? false))) {
+      _record(req, body, 404);
+      _respondJson(req, 404, {
+        'error': {'code': 'not_found', 'message': 'no pending invite'}
+      });
+      return;
+    }
+    _record(req, body, 200);
+    _respondJson(
+        req, 200, dm ? {'state': 'connected'} : _channelView(channel!));
+  }
+
+  /// `DELETE /v3.0/channels/{id}/invites/{user_id}`: its sender takes an
+  /// invite back, and for a group so may its owner and admins.
+  Future<void> _handleCancelInvite(
+      HttpRequest req, String channelId, String to) async {
+    final session = _authenticate(req);
+    if (session == null) return;
+    final me = session.userId;
+    final invite = state.invites['$channelId|$to'];
+    final role = state.channels[channelId]?.members.contains(me) ?? false
+        ? state.channels[channelId]!.roleOf(me)
+        : null;
+    if (invite != null && invite.from != me && role != 'owner' &&
+        role != 'admin') {
+      _record(req, const {}, 403);
+      _respondJson(req, 403, {
+        'error': {'code': 'forbidden', 'message': 'not your invite'}
+      });
+      return;
+    }
+    if (state.invites.remove('$channelId|$to') != null) {
+      _inviteEnded(channelId, to, me, pb.InviteAnswer.INVITE_CANCELED, to);
+    }
+    _record(req, const {}, 200);
+    _respondJson(req, 200, {'state': 'none'});
+  }
 
   /// `GET /v3.0/channels[/{id}]` — the caller's groups, or one of them
   /// (404 when it isn't one of theirs).
@@ -4043,9 +4402,8 @@ class MockServer {
     _respondJson(req, 200, _channelView(channel));
   }
 
-  /// `POST /v3.0/channels/{id}/members` — owner and admins add people;
-  /// everyone in the group afterwards, the actor's device aside, hears
-  /// `ChannelMemberAdded`.
+  /// `POST /v3.0/channels/{id}/members` — owner and admins invite people
+  /// (decision 221); each is a member once they accept.
   Future<void> _handleAddChannelMembers(HttpRequest req, String channelId) async {
     final session = _authenticate(req);
     if (session == null) return;
@@ -4071,13 +4429,29 @@ class MockServer {
       });
       return;
     }
+    // Decision 221: an add is an invite, and only to connections.
     final added = [
       for (final id in (body['members'] as List? ?? const []).cast<String>())
         if (!channel.members.contains(id)) id,
     ];
-    channel.members.addAll(added);
-    state.markDirty();
-    final result = {'member_count': channel.members.length};
+    final strangers = [
+      for (final id in added)
+        if (!state.connected(session.userId, id)) id,
+    ];
+    if (strict && strangers.isNotEmpty) {
+      _record(req, body, 403);
+      _respondJson(req, 403, {
+        'error': {
+          'code': 'not_connected',
+          'message': 'not connected: $strangers',
+        }
+      });
+      return;
+    }
+    final result = {
+      'member_count': channel.members.length,
+      'invited': {...state.invitedTo(channelId), ...added}.toList(),
+    };
     final opId = body['op_id'];
     if (opId is String) {
       state.recordOutcome(session.userId, opId,
@@ -4085,17 +4459,7 @@ class MockServer {
     }
     _record(req, body, 200);
     _respondJson(req, 200, result);
-    if (added.isEmpty) return;
-    for (final memberId in channel.members) {
-      if (memberId == session.userId) continue;
-      _enqueueChannelMemberAdded(
-        recipientUserId: memberId,
-        channelId: channelId,
-        newMemberUserIds: added,
-        role: 'member',
-        actorUserId: session.userId,
-      );
-    }
+    _inviteToGroup(channel, session.userId, added);
   }
 
   /// Same extension → type mapping media-ms does via

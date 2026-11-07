@@ -291,6 +291,27 @@ void main() {
       );
     });
 
+    // ---- 2c -------------------------------------------------------------
+    test('2c. invite the peer → the peer accepts → connected (decision 219)',
+        () async {
+      await h.chat.sendInvite(peerUserId);
+      final posted = h.mock.requests
+          .where((r) => r.path == '/v3.0/channels/invites')
+          .toList();
+      expect(posted.map((r) => r.status), [200],
+          reason: 'SYNC_PROTOCOL §23.2: POST /v3.0/channels/invites');
+      expect(h.mock.state.invitedTo(dmChannel), [peerUserId]);
+      expect((await h.store.fetchInvites()).map((i) => i.toUser),
+          [peerUserId]);
+
+      expect(h.mock.acceptInvite(dmChannel, peerUserId), isTrue);
+      await h.waitForAsync(
+          () async => (await h.chat.connectedUsers()).contains(peerUserId));
+      expect(await h.store.fetchInvites(), isEmpty,
+          reason: 'INVITE_ANSWERED accepted takes the invite away and '
+              'connects the pair on the phone');
+    });
+
     // ---- 3 --------------------------------------------------------------
     test('3. send text → ACK_SUCCESS → message_state=sent, the wire carries '
         'only ciphertext and the peer opens the proto',
@@ -439,10 +460,10 @@ void main() {
             'must be accepted. Got ${post?.status} (${post?.body}).',
       );
       // Decision 221: the peer is invited, and a member once it accepts,
-      // which the server announces as ChannelMemberAdded. (The mock keeps
-      // the old add-is-a-member rule, so only the announcement is played.)
-      h.mock.addChannelMember(groupChannelId, peerUserId,
-          actorUserId: peerUserId);
+      // which the server announces as ChannelMemberAdded.
+      expect(h.mock.state.channels[groupChannelId]!.members, {userIdA});
+      expect(h.mock.state.invitedTo(groupChannelId), [peerUserId]);
+      expect(h.mock.acceptInvite(groupChannelId, peerUserId), isTrue);
       await h.waitForAsync(() async => (await h.store
               .fetchChannelMembers(groupChannelId))
           .any((m) => m.userId == peerUserId));
@@ -570,6 +591,9 @@ void main() {
         // announcement it will never get and materializes the channel
         // from the first frame that lands on the derived id.
         final strangerDmChannel = dmChannelId(userIdA, stranger.userId);
+        // Decision 219: nobody reaches us before an invite is accepted
+        // (stand-in: we would have accepted theirs).
+        h.mock.connect(userIdA, stranger.userId);
         await h.mock.injectPeerMessage(
           channelId: strangerDmChannel,
           body: 'hi, found you via search',
@@ -602,18 +626,26 @@ void main() {
     );
 
     // ---- 7 --------------------------------------------------------------
-    test('7. leave group → local tombstone + DELETE members/{self}',
+    test('7. leave group → the chat stays, read only + DELETE members/{self}',
         () async {
       final leavePath = '/v3.0/channels/$groupChannelId/members/$userIdA';
       await h.chat.leaveGroup(groupChannelId, selfUserId: userIdA);
 
+      expect(await h.channelRow(groupChannelId), isNotNull,
+          reason: 'the leaver keeps the chat (WhatsApp)');
       expect(
-        await h.channelRow(groupChannelId),
-        isNull,
-        reason: 'SYNC_PROTOCOL §11.3 + chat_service.leaveGroup: leaving a '
-            'group drops the local channel row (cascading members/messages) '
-            'before the server confirms.',
-      );
+          (await h.store.fetchChannelMembers(groupChannelId))
+              .map((m) => m.userId),
+          isNot(contains(userIdA)),
+          reason: 'read only: we are no longer a member');
+      expect(
+          (await h.store.fetchChannelMessages(groupChannelId))
+              .any((m) => m.body == 'group hello'),
+          isTrue,
+          reason: 'and its history');
+      expect(await _groupEventKinds(h, groupChannelId),
+          contains(GroupEventKind.left),
+          reason: '"You left"');
 
       await h.waitFor(() => h.mock.requests
           .any((r) => r.method == 'DELETE' && r.path == leavePath));
@@ -628,6 +660,32 @@ void main() {
             'owner-only hard delete. Requests seen: '
             '${h.mock.requests.map((r) => '${r.method} ${r.path}').toList()}.',
       );
+    });
+
+    // ---- 7a -------------------------------------------------------------
+    test('7a. invited back and accepting → a member again, the kept history '
+        'with it (decision 221)', () async {
+      await h.waitFor(() =>
+          !h.mock.state.channels[groupChannelId]!.members.contains(userIdA));
+      h.mock.inviteToGroup(groupChannelId, peerUserId, [userIdA]);
+      await h.waitForAsync(() async => (await h.store.fetchInvites())
+          .any((i) => i.channelId == groupChannelId));
+      final invite = (await h.store.fetchInvites())
+          .singleWhere((i) => i.channelId == groupChannelId);
+
+      expect(await h.chat.acceptInvite(invite), groupChannelId);
+      expect(h.mock.state.channels[groupChannelId]!.members,
+          contains(userIdA));
+      expect(
+          (await h.store.fetchChannelMembers(groupChannelId))
+              .map((m) => m.userId),
+          containsAll([userIdA, peerUserId]),
+          reason: 'our own accept brings no ChannelMemberAdded here: the '
+              "answer's roster puts us back in the chat we kept");
+      expect(
+          (await h.store.fetchChannelMessages(groupChannelId))
+              .any((m) => m.body == 'group hello'),
+          isTrue);
     });
 
     // ---- 7b -------------------------------------------------------------
@@ -1169,6 +1227,9 @@ void main() {
         () async {
       await h.login(phoneB);
       final userIdB = h.authService.currentUserId ?? '';
+      // The steps from here chat with the peer as B (decision 219;
+      // stand-in for the invite step 2c walks through).
+      h.mock.connect(userIdB, peerUserId);
 
       expect(
         userIdB,
@@ -1548,6 +1609,11 @@ void main() {
       );
       await h.waitFor(() => h.channelPosts(rolesChannelId).isNotEmpty);
       expect(h.channelPosts(rolesChannelId).firstOrNull?.status, 201);
+      // decision 221: a member once they accept
+      expect(h.mock.acceptInvite(rolesChannelId, peerUserId), isTrue);
+      await h.waitForAsync(() async => (await h.store
+              .fetchChannelMembers(rolesChannelId))
+          .any((m) => m.userId == peerUserId));
 
       await h.chat.setMemberRole(
         channelId: rolesChannelId,
@@ -2234,6 +2300,8 @@ class _Harness {
     );
     await next.start();
     inbound = next;
+    chat.adoptGroup = (channelId, json) =>
+        next.adoptGroups({channelId: groupRosterFromJson(json)});
     // AppServices._adoptServerGroups, awaited here so a test can look;
     // best-effort there too (no username yet → 403, offline → throws).
     try {

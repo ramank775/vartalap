@@ -76,6 +76,8 @@ void main() {
       normalizedPhones: [a.phone],
       contactBookNamesByPhone: {a.phone: 'Ana'},
     );
+    // decision 219: an accepted invite between them
+    mock.connect(a.userId, b.userId);
     return (a, b);
   }
 
@@ -322,10 +324,11 @@ void main() {
       );
       expect(await a.hasChannel(id), isTrue);
       await b.drain();
+      await b.acceptInvite(id);
       expect(
         await b.hasChannel(id),
         isTrue,
-        reason: 'and each is announced to the other member.',
+        reason: 'and the other member, invited to each, joins each.',
       );
     }
     expect(
@@ -390,9 +393,10 @@ void main() {
       isTrue,
       reason: 'the creator has its optimistic row and its 201.',
     );
+    await b.drain();
     expect(
-      await b.hasChannel(channelId),
-      isFalse,
+      await b.store.fetchInvites(),
+      isEmpty,
       reason: 'with the knob on, the announcement is parked: the REST '
           'response is already out and B still knows nothing. This is the '
           'ordering a test needs to be able to choose.',
@@ -400,10 +404,11 @@ void main() {
 
     mock.releaseChannelCreatedFanout();
     await b.drain();
+    await b.acceptInvite(channelId);
     expect(
       await b.hasChannel(channelId),
       isTrue,
-      reason: 'releasing it delivers the announcement as usual.',
+      reason: 'releasing it delivers the invite as usual (decision 221).',
     );
     expect(
       await b.memberIds(channelId),
@@ -810,6 +815,8 @@ class _Client {
     );
     await next.start();
     inbound = next;
+    chat.adoptGroup = (channelId, json) =>
+        next.adoptGroups({channelId: groupRosterFromJson(json)});
     chat.bindTypingSource(next.typingEvents);
     chat.bindDeliverySource(next.peerMessagesStored);
   }
@@ -881,6 +888,13 @@ class _Client {
       "WHERE status IN ('pending', 'retrying', 'in_flight')",
     );
     return (rows.single['c'] as int?) ?? 0;
+  }
+
+  /// Accept this client's invite to [channelId] (decision 221).
+  Future<void> acceptInvite(String channelId) async {
+    final invite = (await store.fetchInvites())
+        .singleWhere((i) => i.channelId == channelId);
+    await chat.acceptInvite(invite);
   }
 
   Future<bool> hasChannel(String channelId) async => (await store.db.query(
