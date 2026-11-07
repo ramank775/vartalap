@@ -76,6 +76,23 @@
                 <data android:scheme="vartalap" android:host="u" />
             </intent-filter>
         </activity>
+        <!-- Share-to: the share sheet's "Vartalap" (SharedFiles.kt). Any
+             type: a photo or video goes as media, anything else as a
+             document, text as a message; mixed photos and videos come
+             as */*. -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

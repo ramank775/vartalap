@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.location.LocationManager
 import android.net.Uri
+import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.PowerManager
 import android.provider.CalendarContract
@@ -22,9 +23,26 @@ import androidx.core.location.LocationManagerCompat
 import java.io.File
 
 class MainActivity: FlutterActivity() {
+    private var share: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        SharedFiles.start(this, if (savedInstanceState == null) intent else null)
+    }
+
+    // A share while we run (ShareActivity): Dart comes to take it.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (SharedFiles.offer(intent)) share?.invokeMethod("ready", null)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+        // Share-to: what another app shared, copied for Dart (SharedFiles.kt).
+        share = MethodChannel(messenger, "vartalap/share").apply {
+            setMethodCallHandler { call, result -> SharedFiles.take(this@MainActivity, call, result) }
+        }
         // Live location: start the sharing service, hear what it changed.
         LiveLocationService.register(flutterEngine, this)
         // What a crash report says of the phone (lib/services/crash_reports.dart).
