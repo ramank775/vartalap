@@ -170,6 +170,9 @@ class LinkPreviewCard extends StatelessWidget {
   /// About an image bubble's width, so a short link still gets a card.
   static const double width = 240;
 
+  /// About og:image's 1.91:1 at [width].
+  static const double imageHeight = 126;
+
   const LinkPreviewCard({super.key, required this.preview, required this.tint});
 
   Future<void> _open(BuildContext context) async {
@@ -202,11 +205,14 @@ class LinkPreviewCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (preview.imageJpeg.isNotEmpty)
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 160),
+                  // A fixed box, as the composer card: an unbounded width
+                  // here left the whole bubble unpainted on Android.
+                  SizedBox(
+                    height: imageHeight,
                     child: Image.memory(
                       Uint8List.fromList(preview.imageJpeg),
-                      width: double.infinity,
+                      width: width,
+                      height: imageHeight,
                       fit: BoxFit.cover,
                       gaplessPlayback: true,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
