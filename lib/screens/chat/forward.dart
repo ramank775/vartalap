@@ -13,17 +13,20 @@ import 'package:vartalap_transport/vartalap_transport.dart' show dmChannelId;
 typedef ForwardTarget = ({String channelId, String title, bool group});
 
 /// Pops the picked chats, at most [limit], in the order picked; a 1:1
-/// chat not started yet is created on the way. Null on back.
+/// chat not started yet is created on the way. Null on back. Share-to
+/// uses it as "Send to…" ([title]).
 class ForwardScreen extends StatefulWidget {
   final ChatService chatService;
   final String selfUserId;
   final int limit;
+  final String title;
 
   const ForwardScreen({
     super.key,
     required this.chatService,
     required this.selfUserId,
     this.limit = ChatService.maxForwardChats,
+    this.title = 'Forward to…',
   });
 
   @override
@@ -106,7 +109,7 @@ class _ForwardScreenState extends State<ForwardScreen> {
           ..showSnackBar(SnackBar(
             content: Text(widget.limit == 1
                 ? 'This message can be forwarded to one chat at a time'
-                : 'You can forward to up to ${widget.limit} chats'),
+                : 'You can send to up to ${widget.limit} chats'),
           ));
       }
     });
@@ -138,7 +141,7 @@ class _ForwardScreenState extends State<ForwardScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Forward to…'),
+            Text(widget.title),
             if (_picked.isNotEmpty)
               Text(
                 '${_picked.length} selected',
@@ -189,7 +192,7 @@ class _ForwardScreenState extends State<ForwardScreen> {
                           padding: const EdgeInsets.all(kSpaceXl),
                           child: Text(
                             snap.data!.isEmpty
-                                ? 'You can forward to people who accepted '
+                                ? 'You can send to people who accepted '
                                     'your invite to chat, and to your groups.'
                                 : 'No chats found',
                             textAlign: TextAlign.center,

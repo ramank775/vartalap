@@ -28,6 +28,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/battery/background_access.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/chat/share_to.dart';
 import 'package:vartalap/screens/chats/chats.dart';
 import 'package:vartalap/screens/contact_info/contact_info.dart';
 import 'package:vartalap/screens/home/home.dart';
@@ -841,6 +842,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   /// [_pendingLink] for a signed in user with a handle.
   String? _pendingChat;
 
+  /// What another app shared, waiting like [_pendingChat], and for an
+  /// unlocked account (behind the update gate there is no navigator).
+  SharedItems? _pendingShare;
+
   @override
   void initState() {
     super.initState();
@@ -871,6 +876,15 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       }
     }));
     unawaited(notifications.cancelWake());
+    listenForShares((share) {
+      if (!mounted) {
+        unawaited(share.discard());
+        return;
+      }
+      // the newest share wins, as on any phone
+      unawaited(_pendingShare?.discard());
+      setState(() => _pendingShare = share);
+    });
     _isLogin = widget.services.authService.isLoggedIn;
     widget.services.cryptoLocked.addListener(_onCryptoLocked);
     _username = widget.services.authService.username;
@@ -990,6 +1004,26 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         authService: widget.services.authService,
       ),
     )));
+  }
+
+  void _openPendingShare() {
+    final share = _pendingShare;
+    final navigator = _navKey.currentState;
+    if (share == null ||
+        navigator == null ||
+        !_isLogin ||
+        _username == null ||
+        _askDiscoverability ||
+        widget.services.cryptoLocked.value != null) {
+      return;
+    }
+    _pendingShare = null;
+    unawaited(sendShared(
+      navigator,
+      share,
+      chatService: widget.services.chatService,
+      authService: widget.services.authService,
+    ));
   }
 
   /// Back on screen: the generic "New activity" has said its piece.
@@ -1128,6 +1162,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     }
     if (_pendingChat != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingChat());
+    }
+    if (_pendingShare != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingShare());
     }
     return AppServicesProvider(
         services: widget.services,
