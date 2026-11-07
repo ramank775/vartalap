@@ -1,18 +1,22 @@
 /// Live location's bubble and the chat-info switch (SYNC_PROTOCOL §21).
 library;
 
+import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
 import 'package:vartalap/screens/chat_info/live_location_controls.dart';
 import 'package:vartalap/services/live_location.dart';
 import 'package:vartalap/utils/rich_message.dart';
+import 'package:vartalap/widgets/location_map.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
 import 'package:vartalap_sync/vartalap_sync.dart';
 import 'package:vartalap_transport/vartalap_transport.dart'
-    show InboundEnvelope;
+    show InboundEnvelope, uuidBytes;
 
 const _self = 'aaaaaaaaa';
 const _peer = 'bbbbbbbbb';
@@ -100,6 +104,9 @@ void main() {
       expect(find.text('Updated 2 min ago'), findsOneWidget);
       expect(find.text('View'), findsOneWidget);
       expect(find.text('Stop sharing'), findsNothing);
+      final map = tester.widget<MapThumbnail>(find.byType(MapThumbnail));
+      expect((map.point.lat, map.point.lng, map.ended), (12.9, 77.6, false));
+      expect(find.text(kOsmAttribution), findsOneWidget);
     });
 
     testWidgets('ended, waiting and unreadable shares say so', (tester) async {
@@ -110,6 +117,19 @@ void main() {
           messageId: 'm1'));
       expect(find.text('Live location ended'), findsOneWidget);
       expect(find.text('View'), findsNothing, reason: 'nothing to show');
+      expect(find.byType(MapThumbnail), findsNothing);
+
+      await tester.pumpWidget(card(
+          LiveShare(
+                  untilMs: now + 60000,
+                  endedMs: now,
+                  point: const GeoPoint(12.9, 77.6),
+                  atMs: now)
+              .encode(),
+          messageId: 'm4'));
+      expect(tester.widget<MapThumbnail>(find.byType(MapThumbnail)).ended,
+          isTrue,
+          reason: 'the last position, greyed');
 
       await tester.pumpWidget(
           card(LiveShare(untilMs: now + 60000).encode(), messageId: 'm2'));
@@ -173,6 +193,38 @@ void main() {
       expect(find.text('Updated just now'), findsOneWidget);
       expect(find.textContaining('Accurate to 20 m'), findsOneWidget);
       expect(find.text('Stop sharing'), findsNothing);
+
+      // A newer position moves the pin, and the map follows it.
+      LatLng pin() => tester
+          .widget<MarkerLayer>(find.byType(MarkerLayer))
+          .markers
+          .single
+          .point;
+      expect(pin(), const LatLng(12.9, 77.6));
+      await q(
+          tester,
+          () => live.apply(
+                InboundEnvelope(
+                  opId: '0190aaaa-bbbb-7ccc-8ddd-000000000003',
+                  channelId: dm,
+                  senderUserId: _peer,
+                  payload: const [],
+                  serverTimestampMs: now + 60000,
+                ),
+                pb.ChatPayload(
+                  type: pb.ChatPayloadType.TYPE_LIVE_LOCATION_UPDATE,
+                  messageId: uuidBytes(id),
+                  liveLocationPoint: pb.LiveLocationPoint(
+                      lat: 12.95,
+                      lng: 77.65,
+                      atMs: fixnum.Int64(now + 60000)),
+                ),
+              ));
+      await settle(tester);
+      expect(pin(), const LatLng(12.95, 77.65));
+      expect(
+          MapCamera.of(tester.element(find.byType(MarkerLayer))).center,
+          const LatLng(12.95, 77.65));
     });
   });
 

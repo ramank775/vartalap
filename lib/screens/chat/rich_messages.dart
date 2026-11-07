@@ -16,6 +16,7 @@ import 'package:vartalap/services/album_client.dart';
 import 'package:vartalap/services/live_location.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/rich_message.dart';
+import 'package:vartalap/widgets/location_map.dart';
 
 bool isRichType(String? contentType) =>
     contentType == kContactType ||
@@ -129,6 +130,9 @@ class _Card extends StatelessWidget {
   final List<(String, VoidCallback)> topActions;
   final VoidCallback? onTap;
 
+  /// Above everything, edge to edge (a location's map).
+  final Widget? top;
+
   const _Card({
     required this.leading,
     required this.tint,
@@ -137,6 +141,7 @@ class _Card extends StatelessWidget {
     this.actions = const [],
     this.topActions = const [],
     this.onTap,
+    this.top,
   });
 
   @override
@@ -149,6 +154,17 @@ class _Card extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (top != null)
+            GestureDetector(
+              // The map ignores touch: the tap is the card's.
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              child: ClipRRect(
+                // The bubble's 18 px corner less its 4 px frame.
+                borderRadius: BorderRadius.circular(14),
+                child: top,
+              ),
+            ),
           InkWell(
             onTap: onTap,
             borderRadius: BorderRadius.circular(14),
@@ -324,8 +340,6 @@ class _LocationCard extends StatelessWidget {
 
   const _LocationCard({required this.point, required this.tint, this.footer});
 
-  Future<void> _open(BuildContext context) => openInMaps(point!);
-
   @override
   Widget build(BuildContext context) {
     final p = point;
@@ -338,17 +352,70 @@ class _LocationCard extends StatelessWidget {
       );
     }
     return _Card(
+      top: MapThumbnail(point: p),
       leading: _tile(Icons.location_on_outlined, tint),
       tint: tint,
       footer: footer,
-      onTap: () => _open(context),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => LocationMapScreen(point: p))),
       lines: [
         _title('Location', tint),
         if (p.accuracyM != null)
           _line('Accurate to ${p.accuracyM!.round()} m', tint),
         _line('${p.lat.toStringAsFixed(5)}, ${p.lng.toStringAsFixed(5)}', tint),
       ],
-      actions: [('Open in maps', () => _open(context))],
+      actions: [('Open in maps', () => openInMaps(p))],
+    );
+  }
+}
+
+/// A shared location full screen (WhatsApp): the map, where and how
+/// accurate, and the hand-off to the phone's maps app.
+class LocationMapScreen extends StatelessWidget {
+  final GeoPoint point;
+
+  const LocationMapScreen({super.key, required this.point});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = point;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Location')),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: LocationMap(point: p, interactive: true)),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.all(kSpaceMd),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    [
+                      '${p.lat.toStringAsFixed(5)}, '
+                          '${p.lng.toStringAsFixed(5)}',
+                      if (p.accuracyM != null)
+                        'Accurate to ${p.accuracyM!.round()} m',
+                    ].join('\n'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: kSpaceMd),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(56)),
+                    onPressed: () => openInMaps(p),
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Open in Maps'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -456,7 +523,9 @@ class _LiveLocationCardState extends State<LiveLocationCard> {
         builder: (_) => LiveLocationScreen(messageId: id!, live: service!)));
     final canView =
         id != null && service != null && (live || share.point != null);
+    final p = share.point;
     return _Card(
+      top: p == null ? null : MapThumbnail(point: p, ended: !live),
       leading: _tile(
           live ? Icons.share_location : Icons.location_off_outlined, tint),
       tint: tint,
@@ -730,7 +799,9 @@ class _EventComposerScreenState extends State<EventComposerScreen> {
         title: const Text('New event'),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(kSpaceMd),
+        // Clear the Android 15+ gesture/nav bar (edge to edge).
+        padding: const EdgeInsets.all(kSpaceMd) +
+            EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
         children: [
           TextField(
             controller: _title,

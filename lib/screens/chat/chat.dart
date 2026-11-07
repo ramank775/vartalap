@@ -1111,7 +1111,8 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     if (choice == 'contact') return _shareContact();
     if (choice == 'location') {
       return showLocationSheet(context,
-          channelId: widget.channelId, sendCurrent: _shareLocation);
+          channelId: widget.channelId,
+          sendCurrent: (p) => _sendRich(p.toUri(), kLocationType));
     }
     if (choice == 'event') return _shareEvent();
 
@@ -1238,45 +1239,6 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     } on PlatformException catch (e) {
       _toast('Could not open contacts: ${e.code}');
     }
-  }
-
-  /// Current location only, after a confirm that says how precise it is
-  /// (decision 135: no map to pick a place on).
-  Future<void> _shareLocation() async {
-    if (!await Permission.locationWhenInUse.request().isGranted) {
-      _toast('Vartalap needs location access to share where you are');
-      return;
-    }
-    _toast('Finding your location…');
-    final point = await currentLocation();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    if (point == null) {
-      _toast("Couldn't get your location. Is location turned on?");
-      return;
-    }
-    final send = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Send your current location?'),
-        content: Text([
-          if (point.accuracyM != null)
-            'Accurate to ${point.accuracyM!.round()} m',
-          '${point.lat.toStringAsFixed(5)}, ${point.lng.toStringAsFixed(5)}',
-        ].join('\n')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Send'),
-          ),
-        ],
-      ),
-    );
-    if (send == true) await _sendRich(point.toUri(), kLocationType);
   }
 
   Future<void> _shareEvent() async {
