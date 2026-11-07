@@ -486,6 +486,11 @@ void main() {
       (await q(tester, () => store.fetchMessage(mMine)))?.tombstoned,
       isTrue,
     );
+    // The bar leaves with its window: a SnackBar with an action persists by
+    // default since Flutter 3.35, which left it stuck on every screen.
+    await tester.pump(undoWindow);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('UNDO'), findsNothing);
   });
 
   testWidgets('decision 222: an own message sent over 5 minutes ago offers '

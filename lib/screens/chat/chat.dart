@@ -1019,6 +1019,9 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     messenger.clearSnackBars();
     messenger.showSnackBar(SnackBar(
       duration: widget.undoWindow,
+      // A SnackBar with an action persists by default (Flutter 3.35+);
+      // this one must leave when its window does.
+      persist: false,
       content: Row(
         children: [
           _UndoCountdown(window: widget.undoWindow),
