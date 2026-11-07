@@ -1115,35 +1115,18 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     if (choice == 'event') return _shareEvent();
 
     String? sourcePath;
-    var width = 0;
-    var height = 0;
+    // Camera and gallery media: a photo is sized here (HD or not), a video
+    // gets a thumbnail. A file picked as a file goes byte for byte.
+    final media = choice != 'file' && choice != 'audio';
     try {
-      if (choice != 'file' && choice != 'audio') {
-        // ponytail: one fixed "standard quality" (WhatsApp sends ~1600px);
-        // an HD toggle is a preview-screen option when that screen exists.
-        // Videos go as picked.
+      if (media) {
+        // The original: the preview's HD choice sizes it (decision 130).
         final picker = ImagePicker();
         final picked = choice == 'camera'
-            ? await picker.pickImage(
-                source: ImageSource.camera,
-                maxWidth: 2048,
-                maxHeight: 2048,
-                imageQuality: 85,
-              )
-            : await picker.pickMedia(
-                maxWidth: 2048,
-                maxHeight: 2048,
-                imageQuality: 85,
-              );
+            ? await picker.pickImage(source: ImageSource.camera)
+            : await picker.pickMedia();
         if (picked == null) return;
         sourcePath = picked.path;
-        // Sender-declared dimensions let the bubble reserve the right
-        // aspect ratio before the bytes land.
-        if (mimeForPath(picked.path).startsWith('image/')) {
-          final size = await _decodeSize(picked.path);
-          width = size?.$1 ?? 0;
-          height = size?.$2 ?? 0;
-        }
       } else {
         final picked = await FilePicker.pickFile(
           type: choice == 'audio' ? FileType.audio : FileType.any,
@@ -1157,33 +1140,57 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     }
 
     if (!mounted) return;
-    final caption = await Navigator.of(context).push<String>(
+    final mime = mimeForPath(sourcePath);
+    final photo = media && mime.startsWith('image/') && mime != 'image/gif';
+    final sent = await Navigator.of(context).push<AttachmentChoice>(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => AttachmentPreviewScreen(path: sourcePath!),
+        builder: (_) =>
+            AttachmentPreviewScreen(path: sourcePath!, offerHd: photo),
       ),
     );
-    if (caption == null || !mounted) return;
+    if (sent == null || !mounted) return;
 
     final userId = widget.authService.currentUserId;
     if (userId == null) return;
     setState(() => _sending = true);
     try {
+      final assets = widget.chatService.assets;
       // Out of the picker's temp dir before the OS sweeps it — the
       // upload op may not run for hours.
-      final path = await widget.chatService.assets.importPicked(sourcePath);
+      final ready = photo
+          ? await preparePhoto(assets, sourcePath, hd: sent.hd)
+          : null;
+      final path = ready?.path ?? await assets.importPicked(sourcePath);
+      // Sender-declared dimensions let the bubble reserve the right
+      // aspect ratio before the bytes land.
+      var (width, height, durationMs) =
+          (ready?.width ?? 0, ready?.height ?? 0, 0);
+      Uint8List? thumbnail;
+      if (ready == null && mime.startsWith('image/')) {
+        final size = await _decodeSize(path);
+        (width, height) = (size?.$1 ?? 0, size?.$2 ?? 0);
+      } else if (media && mime.startsWith('video/')) {
+        final video = await videoThumbnail(path);
+        if (video != null) {
+          (width, height, durationMs) =
+              (video.width, video.height, video.durationMs);
+          thumbnail = video.jpeg;
+        }
+      } else if (mime.startsWith('audio/')) {
+        // The bubble shows an audio file's length before it is played.
+        durationMs = await audioLengthMs(path);
+      }
       await widget.chatService.sendAttachment(
         channelId: widget.channelId,
         authorUserId: userId,
         path: path,
-        caption: caption.isEmpty ? null : caption,
+        caption: sent.caption.isEmpty ? null : sent.caption,
         replyToMessageId: _replyTo?.messageId,
         width: width,
         height: height,
-        // The bubble shows an audio file's length before it is played.
-        durationMs: mimeForPath(path).startsWith('audio/')
-            ? await audioLengthMs(path)
-            : 0,
+        durationMs: durationMs,
+        thumbnail: thumbnail,
       );
       _toBottom();
       if (mounted) setState(() => _replyTo = null);
@@ -1741,6 +1748,21 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                     onRetry:
                         failedOpId == null ? null : () => _retry(failedOpId),
                     onMessageContact: _messageContact,
+                    // Only where we may still write (a group we left, a
+                    // 1:1 chat not connected: the server would refuse).
+                    onRsvp: !_canSend ||
+                            _link?.connected == false ||
+                            _link?.blocked == true
+                        ? null
+                        : (going) => widget.chatService.rsvp(
+                              channelId: widget.channelId,
+                              messageId: msg.messageId,
+                              userId: currentUserId,
+                              going: going,
+                            ),
+                    nameOf: (id) => id == currentUserId
+                        ? 'You'
+                        : _memberNames[id] ?? widget.channelName,
                   ),
                   ));
                   }
@@ -2504,6 +2526,11 @@ class _MessageBubble extends StatelessWidget {
   /// Tapping "edited" opens the earlier versions (decision 222).
   final VoidCallback? onEditedTap;
 
+  /// An event's Going / Not going (decision 134), and whose names its
+  /// answers carry.
+  final ValueChanged<bool>? onRsvp;
+  final String Function(String userId)? nameOf;
+
   const _MessageBubble({
     super.key,
     required this.message,
@@ -2523,6 +2550,8 @@ class _MessageBubble extends StatelessWidget {
     this.onTap,
     this.onReplyTap,
     this.onEditedTap,
+    this.onRsvp,
+    this.nameOf,
   });
 
   /// `messages.attachments` is a ChatPayload holding only the repeated
@@ -2741,6 +2770,11 @@ class _MessageBubble extends StatelessWidget {
                       attachment: a,
                       tint: fg,
                       voiceNote: message.contentType == kVoiceNoteType,
+                      // Its own, still going up (SYNC_PROTOCOL §25.4).
+                      uploading: isMine &&
+                          !failed &&
+                          message.serverTimestampMs == null &&
+                          a.url.startsWith('/'),
                       footer: selfTimed && i == attachments.length - 1
                           ? (onPhoto) =>
                               metaIn(onPhoto ? Colors.white : timestampColor)
@@ -2755,6 +2789,10 @@ class _MessageBubble extends StatelessWidget {
                       onMessage: onMessageContact,
                       messageId: message.messageId,
                       mine: isMine,
+                      rsvps: message.rsvps,
+                      selfUserId: localUserId,
+                      onRsvp: onRsvp,
+                      nameOf: nameOf,
                     ),
                   if (!selfTimed)
                     pad(withMeta(
@@ -3071,11 +3109,15 @@ class _AttachmentView extends StatelessWidget {
   /// `onPhoto` asks for the white version that sits on an image.
   final Widget Function(bool onPhoto)? footer;
 
+  /// Our own file on its way up: how far, over it.
+  final bool uploading;
+
   const _AttachmentView({
     required this.attachment,
     required this.tint,
     this.voiceNote = false,
     this.footer,
+    this.uploading = false,
   });
 
   /// Media width; the bubble is this plus its 4 px frame.
@@ -3113,28 +3155,43 @@ class _AttachmentView extends StatelessWidget {
         footer: footer?.call(false),
       );
     }
-    if (!_isImage) return _document(context);
+    // A video with its thumbnail (SYNC_PROTOCOL §25.4) looks like a photo
+    // with a play button, and opens in the phone's player.
+    final video = attachment.mimeType.startsWith('video/') &&
+        attachment.thumbnail.isNotEmpty;
+    if (!_isImage && !video) return _document(context);
 
     // Reserve the sender-declared aspect ratio where we have one so the
     // bubble doesn't jump when the bytes land.
     final w = attachment.width;
     final h = attachment.height;
-    final image = AssetImageView(
-      uri: attachment.url,
-      fit: BoxFit.cover,
-      placeholder: AssetImagePlaceholder(tint: tint),
-      fallback: AssetImagePlaceholder(
-        tint: tint,
-        icon: Icons.broken_image_outlined,
-      ),
-    );
+    final image = video
+        ? Image.memory(
+            Uint8List.fromList(attachment.thumbnail),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => AssetImagePlaceholder(tint: tint),
+          )
+        : AssetImageView(
+            uri: attachment.url,
+            fit: BoxFit.cover,
+            placeholder: AssetImagePlaceholder(tint: tint),
+            fallback: AssetImagePlaceholder(
+              tint: tint,
+              icon: Icons.broken_image_outlined,
+            ),
+          );
     final time = footer;
+    final length = Duration(milliseconds: attachment.durationMs);
     return GestureDetector(
-      onTap: () => showAssetViewer(
-        context,
-        uri: attachment.url,
-        title: attachment.filename.isEmpty ? null : attachment.filename,
-      ),
+      onTap: video
+          ? () => _openFile(context)
+          : () => showAssetViewer(
+                context,
+                uri: attachment.url,
+                title:
+                    attachment.filename.isEmpty ? null : attachment.filename,
+              ),
       child: ClipRRect(
         // The bubble's 18 px corner less its 4 px frame.
         borderRadius: BorderRadius.circular(14),
@@ -3148,6 +3205,41 @@ class _AttachmentView extends StatelessWidget {
                 width: double.infinity,
                 child: image,
               ),
+              if (uploading)
+                Positioned.fill(
+                    child: Center(child: _UploadRing(attachment.url)))
+              else if (video)
+                const Positioned.fill(
+                  child: Center(
+                    child: CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.black45,
+                      child: Icon(Icons.play_arrow_rounded,
+                          color: Colors.white, size: 32,
+                          semanticLabel: 'Play video'),
+                    ),
+                  ),
+                ),
+              if (video && length > Duration.zero)
+                Positioned(
+                  left: 6,
+                  bottom: 6,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black38,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      child: Text(mmss(length),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 11)),
+                    ),
+                  ),
+                ),
               if (time != null)
                 Positioned(
                   right: 6,
@@ -3204,12 +3296,14 @@ class _AttachmentView extends StatelessWidget {
                         color: tint.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Icon(
-                        isVideo
-                            ? Icons.play_arrow_rounded
-                            : Icons.description_outlined,
-                        color: tint,
-                      ),
+                      child: uploading
+                          ? _UploadRing(attachment.url, small: true)
+                          : Icon(
+                              isVideo
+                                  ? Icons.play_arrow_rounded
+                                  : Icons.description_outlined,
+                              color: tint,
+                            ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -3253,6 +3347,42 @@ class _AttachmentView extends StatelessWidget {
           ),
       ],
     );
+  }
+}
+
+/// How far our own file has gone up (SYNC_PROTOCOL §25.4): a ring that
+/// fills, spinning while it is queued or being sealed.
+class _UploadRing extends StatelessWidget {
+  /// The local path the bubble shows until the upload lands.
+  final String path;
+  final bool small;
+
+  const _UploadRing(this.path, {this.small = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final uploads = AssetCache.instance?.uploads;
+    Widget ring(double? done) => Container(
+          width: small ? 40 : 48,
+          height: small ? 40 : 48,
+          padding: EdgeInsets.all(small ? 8 : 10),
+          decoration: const BoxDecoration(
+            color: Colors.black45,
+            shape: BoxShape.circle,
+          ),
+          child: CircularProgressIndicator(
+            value: done,
+            strokeWidth: 3,
+            color: Colors.white,
+            semanticsLabel: 'Sending',
+          ),
+        );
+    return uploads == null
+        ? ring(null)
+        : ValueListenableBuilder<Map<String, double>>(
+            valueListenable: uploads,
+            builder: (_, value, __) => ring(value[path]),
+          );
   }
 }
 

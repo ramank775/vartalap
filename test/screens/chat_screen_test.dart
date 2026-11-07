@@ -20,6 +20,7 @@ import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
+import 'package:vartalap/utils/rich_message.dart';
 import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
@@ -37,6 +38,7 @@ const String peerUserId = 'bbbbbbbbb';
 const String mMine = '0190aaaa-0000-7000-8000-00000000a001';
 const String mMine2 = '0190aaaa-0000-7000-8000-00000000a002';
 const String mPeer = '0190aaaa-0000-7000-8000-00000000b001';
+const String mPeer2 = '0190aaaa-0000-7000-8000-00000000b002';
 /// The production value. The commit timer is an ordinary Dart timer, so
 /// a widget test can reach the other side of it by pumping the fake
 /// clock — no reason to shorten the window under test.
@@ -821,6 +823,99 @@ void main() {
     expect(find.text('shot.jpg'), findsNothing);
   });
 
+  testWidgets('a video with a thumbnail shows it with a play button and its '
+      'length (SYNC_PROTOCOL 25.4)', (tester) async {
+    await pumpChat(tester);
+    await tester.runAsync(() => _insertWithAttachment(
+        store, 'm-video', 'video/mp4', 'clip.mp4', 3,
+        durationMs: 75000, contentType: 'video/mp4', thumbnail: onePixelPng));
+    await settle(tester);
+
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+    expect(find.text('01:15'), findsOneWidget);
+    expect(find.text('clip.mp4'), findsNothing,
+        reason: 'not the document box a video without one gets');
+  });
+
+  testWidgets('my own photo going up shows how far it has got', (tester) async {
+    await pumpChat(tester);
+    const local = '/data/user/0/assets/1/shot.jpg';
+    await tester.runAsync(() => store.enqueueLocalMessage(
+          message: MessageRow(
+            messageId: '0190aaaa-0000-7000-8000-00000000a0f0',
+            channelId: channelId,
+            authorUserId: localUserId,
+            body: null,
+            contentType: 'image/jpeg',
+            replyToMessageId: null,
+            clientTimestampMs: DateTime.now().millisecondsSinceEpoch,
+            serverTimestampMs: null,
+            state: MessageState.pending,
+            stateUpdatedAt: 0,
+            isEdited: false,
+            lastEditMs: null,
+            tombstoned: false,
+            tombstonePendingUntil: null,
+            attachments: pb.ChatPayload(attachments: [
+              pb.Attachment(url: local, mimeType: 'image/jpeg'),
+            ]).writeToBuffer(),
+          ),
+          op: OutboundOpRow(
+            opId: 'up-1',
+            transport: OpTransport.asset,
+            kind: OpKind.assetUpload,
+            restMethod: null,
+            restPath: null,
+            resourceId: 'asset:1',
+            payload: const [123, 125],
+            status: OpStatus.pending,
+            attempts: 0,
+            nextRetryAt: DateTime(2100).millisecondsSinceEpoch,
+            dispatchedAt: null,
+            lastError: null,
+            acknowledgedAt: null,
+            createdAt: 0,
+            targetMessageId: '0190aaaa-0000-7000-8000-00000000a0f0',
+            targetChannelId: channelId,
+          ),
+          nowMs: 0,
+        ));
+    await settle(tester);
+    double? ring() => tester
+        .widget<CircularProgressIndicator>(find.byWidgetPredicate((w) =>
+            w is CircularProgressIndicator && w.semanticsLabel == 'Sending'))
+        .value;
+    expect(ring(), isNull, reason: 'queued: it spins');
+
+    chat.assets.reportUpload(local, 0.42);
+    await tester.pump();
+    expect(ring(), 0.42);
+  });
+
+  testWidgets('an event takes Going / Not going and shows the count '
+      '(decision 134)', (tester) async {
+    final ics = EventInfo(
+      title: 'Diwali dinner',
+      start: DateTime.now().add(const Duration(days: 3)),
+      location: '',
+      description: '',
+    ).toIcs(uid: 'e@vartalap', stamp: DateTime(2026));
+    await pumpChat(tester,
+        seed: () => _insert(store, mPeer2, peerUserId, ics, 3,
+            contentType: kEventType));
+    expect(find.text('Diwali dinner'), findsOneWidget);
+    await tester.tap(find.text('Going'));
+    await settle(tester);
+    await until(tester, () async => find.text('✓ Going').evaluate().isNotEmpty);
+
+    expect(find.text('✓ Going'), findsOneWidget);
+    expect(find.text('1 going'), findsOneWidget);
+    final op = (await ops(tester)).last;
+    expect(_payload(op).type, pb.ChatPayloadType.TYPE_EVENT_RSVP);
+    expect(_payload(op).eventRsvp, pb.EventRsvp.EVENT_RSVP_GOING);
+  });
+
   testWidgets('an inbound voice note shows a play button and its length',
       (tester) async {
     await pumpChat(tester);
@@ -1294,6 +1389,7 @@ Future<void> _insertWithAttachment(
   int seq, {
   int durationMs = 0,
   String contentType = 'text/plain',
+  List<int>? thumbnail,
 }) =>
     store.applyInboundMessage(
       localUserId: localUserId,
@@ -1313,6 +1409,7 @@ Future<void> _insertWithAttachment(
             filename: filename,
             sizeBytes: fixnum.Int64(2048),
             durationMs: durationMs,
+            thumbnail: thumbnail,
           ),
         ],
       ).writeToBuffer(),

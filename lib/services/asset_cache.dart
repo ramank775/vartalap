@@ -18,6 +18,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -76,6 +77,22 @@ class AssetCache {
 
   final AssetClient client;
 
+  /// How far each upload under way has got, 0 to 1, by the local path
+  /// its bubble shows until it is up (SYNC_PROTOCOL §25.4).
+  final ValueNotifier<Map<String, double>> uploads = ValueNotifier(const {});
+
+  /// [AssetUploadTransport.onProgress]; null when [path] is done. Whole
+  /// percents only, so a 25 MB file repaints its bubble 100 times, not 400.
+  void reportUpload(String path, double? done) {
+    final was = uploads.value[path];
+    final same = done == null
+        ? was == null
+        : (done * 100).floor() == ((was ?? -1) * 100).floor();
+    if (same) return;
+    final next = {...uploads.value}..remove(path);
+    uploads.value = done == null ? next : {...next, path: done};
+  }
+
   final Map<String, Uint8List> _mem = {};
   final Map<String, Future<Uint8List?>> _inflight = {};
   Future<Directory>? _dir;
@@ -131,15 +148,18 @@ class AssetCache {
   /// free to sweep, into ours — the upload op may not run for hours.
   /// Returns the new absolute path.
   Future<String> importPicked(String sourcePath) async {
-    // A unique folder, not a name prefix: the basename is what the
-    // recipient sees as the file name.
+    final to = await durablePath(sourcePath.split('/').last);
+    return (await File(sourcePath).copy(to)).path;
+  }
+
+  /// Where to keep a file named [name] until it is sent and after. A
+  /// unique folder, not a name prefix: the basename is what the recipient
+  /// sees as the file name.
+  Future<String> durablePath(String name) async {
     final folder = await Directory(
       '${(await dir).path}/${DateTime.now().microsecondsSinceEpoch}',
     ).create();
-    final copied = await File(
-      sourcePath,
-    ).copy('${folder.path}/${sourcePath.split('/').last}');
-    return copied.path;
+    return '${folder.path}/$name';
   }
 
   /// Point [from] (a local path) at [to] (the fileId it uploaded to)
@@ -166,6 +186,59 @@ Future<String?> pickPhoto(AssetCache cache) async {
     return await cache.importPicked(picked.path);
   } catch (_) {
     return null;
+  }
+}
+
+const _media = MethodChannel('vartalap/media');
+
+/// A picked photo made ready to send (decision 130, SYNC_PROTOCOL §25.4):
+/// a JPEG about 2048 px on its long side at quality 85, or with [hd] up to
+/// 4096 at 92; turned upright and with its EXIF (location too) left out.
+/// Kept in [cache]'s durable folder. Null when the phone cannot make one
+/// (it will not decode, no platform side): send the picked file.
+Future<({String path, int width, int height})?> preparePhoto(
+    AssetCache cache, String picked,
+    {bool hd = false}) async {
+  final name = picked.split('/').last;
+  final dot = name.lastIndexOf('.');
+  final base = dot > 0 ? name.substring(0, dot) : name;
+  final out = await cache.durablePath('$base.jpg');
+  try {
+    final size = await _media.invokeListMethod<int>('photo', {
+      'path': picked,
+      'out': out,
+      'maxSide': hd ? 4096 : 2048,
+      'quality': hd ? 92 : 85,
+    });
+    if (size != null && size.length == 2) {
+      return (path: out, width: size[0], height: size[1]);
+    }
+  } on Exception {
+    // Sent as picked.
+  }
+  return null;
+}
+
+/// A sent video's thumbnail (SYNC_PROTOCOL §25.4): its first frame as a
+/// small JPEG, and the video's upright size and length. Null when the
+/// phone cannot read it.
+Future<({Uint8List jpeg, int width, int height, int durationMs})?>
+    videoThumbnail(String video) async {
+  final out = File('$video.thumb.jpg');
+  try {
+    final info = await _media.invokeMapMethod<String, int>(
+        'videoThumbnail', {'path': video, 'out': out.path});
+    if (info == null || !await out.exists()) return null;
+    return (
+      jpeg: await out.readAsBytes(),
+      width: info['width'] ?? 0,
+      height: info['height'] ?? 0,
+      durationMs: info['durationMs'] ?? 0,
+    );
+  } on Exception {
+    return null;
+  } finally {
+    if (await out.exists()) await out.delete();
   }
 }
 

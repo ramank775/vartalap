@@ -265,6 +265,10 @@ class MessageRow {
   /// callers decode; null for one that is not a forward.
   final List<int>? forwardSource;
 
+  /// An event's answers (decision 134): user_id → going. Populated by the
+  /// channel-view query, like [reactions]; empty from every other read.
+  final Map<String, bool> rsvps;
+
   /// When a timed message goes: its timer after its server time. Null
   /// when not timed, or not sent yet (its timer has not started).
   int? get expiresAtMs => timerSec == null || serverTimestampMs == null
@@ -292,6 +296,7 @@ class MessageRow {
     this.timerSec,
     this.secure,
     this.forwardSource,
+    this.rsvps = const {},
   });
 }
 

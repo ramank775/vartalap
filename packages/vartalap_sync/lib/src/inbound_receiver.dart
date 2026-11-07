@@ -560,6 +560,20 @@ class InboundReceiver {
           serverTimestampMs: env.serverTimestampMs,
           nowMs: clock.nowMs(),
         );
+      case pb.ChatPayloadType.TYPE_EVENT_RSVP:
+        if (chat.eventRsvp == pb.EventRsvp.EVENT_RSVP_UNSPECIFIED) {
+          await store.markOpIdSeen(channelId, opId, clock.nowMs());
+        } else {
+          await store.applyInboundRsvp(
+            channelId: channelId,
+            opId: opId,
+            messageId: messageId,
+            senderUserId: env.senderUserId,
+            going: chat.eventRsvp == pb.EventRsvp.EVENT_RSVP_GOING,
+            serverTimestampMs: env.serverTimestampMs,
+            nowMs: clock.nowMs(),
+          );
+        }
       case pb.ChatPayloadType.TYPE_READ_RECEIPT:
         final shown = !dm || (dmReadReceipts?.call() ?? true);
         await _handleReceipt(env, chat,

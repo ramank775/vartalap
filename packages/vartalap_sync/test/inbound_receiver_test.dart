@@ -308,6 +308,43 @@ void main() {
     expect((await store.fetchMessage(_mid('m-plain')))!.forwardSource, isNull);
   });
 
+  test('decision 134: an event reply lands on the event, the newest one '
+      'counting', () async {
+    pushes.add(_makeEnvelope(
+      opId: 'op-event',
+      senderUserId: _peerUserId,
+      payload: pb.ChatPayload(
+        version: 1,
+        type: pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+        messageId: uuidBytes(_mid('m-event')),
+        body: 'BEGIN:VCALENDAR',
+        contentType: 'text/calendar',
+      ).writeToBuffer(),
+      serverTimestampMs: 7000,
+    ));
+    await _settle(store, _mid('m-event'), present: true);
+    for (final (n, answer) in [
+      (1, pb.EventRsvp.EVENT_RSVP_GOING),
+      (2, pb.EventRsvp.EVENT_RSVP_NOT_GOING),
+    ]) {
+      pushes.add(_makeEnvelope(
+        opId: 'op-rsvp-$n',
+        senderUserId: _peerUserId,
+        payload: pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_EVENT_RSVP,
+          messageId: uuidBytes(_mid('m-event')),
+          eventRsvp: answer,
+        ).writeToBuffer(),
+        serverTimestampMs: 7000 + n,
+      ));
+      await _pumpQueue();
+    }
+    final event = (await store.fetchChannelMessages(_channelId))
+        .firstWhere((m) => m.messageId == _mid('m-event'));
+    expect(event.rsvps, {_peerUserId: false});
+  });
+
   test('decision 218: a message id that is not 16 bytes is malformed, '
       'dropped', () async {
     pushes.add(_makeEnvelope(

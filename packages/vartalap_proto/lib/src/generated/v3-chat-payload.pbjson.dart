@@ -29,6 +29,7 @@ const ChatPayloadType$json = {
     {'1': 'TYPE_READ_RECEIPT', '2': 7},
     {'1': 'TYPE_TYPING', '2': 8},
     {'1': 'TYPE_DELIVERY_RECEIPT', '2': 9},
+    {'1': 'TYPE_EVENT_RSVP', '2': 15},
     {'1': 'TYPE_LIVE_LOCATION_UPDATE', '2': 40},
     {'1': 'TYPE_LIVE_LOCATION_STOP', '2': 41},
     {'1': 'TYPE_LIVE_LOCATION_CONTROL', '2': 42},
@@ -42,9 +43,25 @@ final $typed_data.Uint8List chatPayloadTypeDescriptor = $convert.base64Decode(
     '9DUkVBVEUQARIXChNUWVBFX01FU1NBR0VfVVBEQVRFEAISFwoTVFlQRV9NRVNTQUdFX0RFTEVU'
     'RRADEhUKEVRZUEVfUkVBQ1RJT05fQUREEAQSGAoUVFlQRV9SRUFDVElPTl9SRU1PVkUQBRIYCh'
     'RUWVBFX01FU1NBR0VfRk9SV0FSRBAGEhUKEVRZUEVfUkVBRF9SRUNFSVBUEAcSDwoLVFlQRV9U'
-    'WVBJTkcQCBIZChVUWVBFX0RFTElWRVJZX1JFQ0VJUFQQCRIdChlUWVBFX0xJVkVfTE9DQVRJT0'
-    '5fVVBEQVRFECgSGwoXVFlQRV9MSVZFX0xPQ0FUSU9OX1NUT1AQKRIeChpUWVBFX0xJVkVfTE9D'
-    'QVRJT05fQ09OVFJPTBAqEiEKHVRZUEVfTElWRV9MT0NBVElPTl9QRVJNSVNTSU9OECs=');
+    'WVBJTkcQCBIZChVUWVBFX0RFTElWRVJZX1JFQ0VJUFQQCRITCg9UWVBFX0VWRU5UX1JTVlAQDx'
+    'IdChlUWVBFX0xJVkVfTE9DQVRJT05fVVBEQVRFECgSGwoXVFlQRV9MSVZFX0xPQ0FUSU9OX1NU'
+    'T1AQKRIeChpUWVBFX0xJVkVfTE9DQVRJT05fQ09OVFJPTBAqEiEKHVRZUEVfTElWRV9MT0NBVE'
+    'lPTl9QRVJNSVNTSU9OECs=');
+
+@$core.Deprecated('Use eventRsvpDescriptor instead')
+const EventRsvp$json = {
+  '1': 'EventRsvp',
+  '2': [
+    {'1': 'EVENT_RSVP_UNSPECIFIED', '2': 0},
+    {'1': 'EVENT_RSVP_GOING', '2': 1},
+    {'1': 'EVENT_RSVP_NOT_GOING', '2': 2},
+  ],
+};
+
+/// Descriptor for `EventRsvp`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List eventRsvpDescriptor = $convert.base64Decode(
+    'CglFdmVudFJzdnASGgoWRVZFTlRfUlNWUF9VTlNQRUNJRklFRBAAEhQKEEVWRU5UX1JTVlBfR0'
+    '9JTkcQARIYChRFVkVOVF9SU1ZQX05PVF9HT0lORxAC');
 
 @$core.Deprecated('Use chatPayloadDescriptor instead')
 const ChatPayload$json = {
@@ -98,6 +115,14 @@ const ChatPayload$json = {
     {'1': 'timer_sec', '3': 70, '4': 1, '5': 13, '10': 'timerSec'},
     {'1': 'secure_box', '3': 71, '4': 1, '5': 12, '10': 'secureBox'},
     {'1': 'secure_key', '3': 72, '4': 1, '5': 12, '10': 'secureKey'},
+    {
+      '1': 'event_rsvp',
+      '3': 73,
+      '4': 1,
+      '5': 14,
+      '6': '.vartalap.v3.payload.EventRsvp',
+      '10': 'eventRsvp'
+    },
     {
       '1': 'live_location_point',
       '3': 130,
@@ -158,13 +183,15 @@ final $typed_data.Uint8List chatPayloadDescriptor = $convert.base64Decode(
     'xvYWQuRm9yd2FyZFNvdXJjZVINZm9yd2FyZFNvdXJjZRIbCglpc190eXBpbmcYMiABKAhSCGlz'
     'VHlwaW5nEjsKGm1hcmtlcl9zZXJ2ZXJfdGltZXN0YW1wX21zGDwgASgEUhdtYXJrZXJTZXJ2ZX'
     'JUaW1lc3RhbXBNcxIbCgl0aW1lcl9zZWMYRiABKA1SCHRpbWVyU2VjEh0KCnNlY3VyZV9ib3gY'
-    'RyABKAxSCXNlY3VyZUJveBIdCgpzZWN1cmVfa2V5GEggASgMUglzZWN1cmVLZXkSVwoTbGl2ZV'
-    '9sb2NhdGlvbl9wb2ludBiCASABKAsyJi52YXJ0YWxhcC52My5wYXlsb2FkLkxpdmVMb2NhdGlv'
-    'blBvaW50UhFsaXZlTG9jYXRpb25Qb2ludBI8ChpsaXZlX2xvY2F0aW9uX2R1cmF0aW9uX3NlYx'
-    'iDASABKA1SF2xpdmVMb2NhdGlvbkR1cmF0aW9uU2VjEjMKFWxpdmVfbG9jYXRpb25fYWxsb3dl'
-    'ZBiEASABKAhSE2xpdmVMb2NhdGlvbkFsbG93ZWQSPgoEbWV0YRhkIAMoCzIqLnZhcnRhbGFwLn'
-    'YzLnBheWxvYWQuQ2hhdFBheWxvYWQuTWV0YUVudHJ5UgRtZXRhGjcKCU1ldGFFbnRyeRIQCgNr'
-    'ZXkYASABKAlSA2tleRIUCgV2YWx1ZRgCIAEoCVIFdmFsdWU6AjgBSgQIAxAESgQIFBAV');
+    'RyABKAxSCXNlY3VyZUJveBIdCgpzZWN1cmVfa2V5GEggASgMUglzZWN1cmVLZXkSPQoKZXZlbn'
+    'RfcnN2cBhJIAEoDjIeLnZhcnRhbGFwLnYzLnBheWxvYWQuRXZlbnRSc3ZwUglldmVudFJzdnAS'
+    'VwoTbGl2ZV9sb2NhdGlvbl9wb2ludBiCASABKAsyJi52YXJ0YWxhcC52My5wYXlsb2FkLkxpdm'
+    'VMb2NhdGlvblBvaW50UhFsaXZlTG9jYXRpb25Qb2ludBI8ChpsaXZlX2xvY2F0aW9uX2R1cmF0'
+    'aW9uX3NlYxiDASABKA1SF2xpdmVMb2NhdGlvbkR1cmF0aW9uU2VjEjMKFWxpdmVfbG9jYXRpb2'
+    '5fYWxsb3dlZBiEASABKAhSE2xpdmVMb2NhdGlvbkFsbG93ZWQSPgoEbWV0YRhkIAMoCzIqLnZh'
+    'cnRhbGFwLnYzLnBheWxvYWQuQ2hhdFBheWxvYWQuTWV0YUVudHJ5UgRtZXRhGjcKCU1ldGFFbn'
+    'RyeRIQCgNrZXkYASABKAlSA2tleRIUCgV2YWx1ZRgCIAEoCVIFdmFsdWU6AjgBSgQIAxAESgQI'
+    'FBAV');
 
 @$core.Deprecated('Use liveLocationPointDescriptor instead')
 const LiveLocationPoint$json = {
@@ -194,6 +221,7 @@ const Attachment$json = {
     {'1': 'width', '3': 10, '4': 1, '5': 13, '10': 'width'},
     {'1': 'height', '3': 11, '4': 1, '5': 13, '10': 'height'},
     {'1': 'duration_ms', '3': 12, '4': 1, '5': 13, '10': 'durationMs'},
+    {'1': 'thumbnail', '3': 13, '4': 1, '5': 12, '10': 'thumbnail'},
   ],
 };
 
@@ -202,7 +230,8 @@ final $typed_data.Uint8List attachmentDescriptor = $convert.base64Decode(
     'CgpBdHRhY2htZW50EhAKA3VybBgBIAEoCVIDdXJsEhsKCW1pbWVfdHlwZRgCIAEoCVIIbWltZV'
     'R5cGUSHQoKc2l6ZV9ieXRlcxgDIAEoBFIJc2l6ZUJ5dGVzEhYKBnNoYTI1NhgEIAEoCVIGc2hh'
     'MjU2EhoKCGZpbGVuYW1lGAUgASgJUghmaWxlbmFtZRIUCgV3aWR0aBgKIAEoDVIFd2lkdGgSFg'
-    'oGaGVpZ2h0GAsgASgNUgZoZWlnaHQSHwoLZHVyYXRpb25fbXMYDCABKA1SCmR1cmF0aW9uTXM=');
+    'oGaGVpZ2h0GAsgASgNUgZoZWlnaHQSHwoLZHVyYXRpb25fbXMYDCABKA1SCmR1cmF0aW9uTXMS'
+    'HAoJdGh1bWJuYWlsGA0gASgMUgl0aHVtYm5haWw=');
 
 @$core.Deprecated('Use forwardSourceDescriptor instead')
 const ForwardSource$json = {

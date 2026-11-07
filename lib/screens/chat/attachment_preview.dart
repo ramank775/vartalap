@@ -5,16 +5,24 @@ import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/attachment_text.dart';
 
+/// What the preview pops on send: the trimmed caption ('' for none), and
+/// whether a photo goes in HD.
+typedef AttachmentChoice = ({String caption, bool hd});
+
 /// The look before sending (WhatsApp's send preview): the picked photo
-/// full screen, or a card for anything else, and a caption field.
-/// Pops the trimmed caption ('' for none) on send, null on cancel.
+/// full screen, or a card for anything else, and a caption field. A photo
+/// from the camera or gallery ([offerHd]) offers HD (decision 130's
+/// standard size otherwise). Pops an [AttachmentChoice] on send, null on
+/// cancel.
 ///
-/// ponytail: one item, no crop/draw/HD toggle; multi-select and an HD
-/// option (decision 130) slot in here when wanted.
+/// ponytail: one item, no crop/draw; multi-select slots in here when
+/// wanted.
 class AttachmentPreviewScreen extends StatefulWidget {
   final String path;
+  final bool offerHd;
 
-  const AttachmentPreviewScreen({super.key, required this.path});
+  const AttachmentPreviewScreen(
+      {super.key, required this.path, this.offerHd = false});
 
   @override
   State<AttachmentPreviewScreen> createState() =>
@@ -23,6 +31,7 @@ class AttachmentPreviewScreen extends StatefulWidget {
 
 class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
   final _caption = TextEditingController();
+  bool _hd = false;
 
   @override
   void dispose() {
@@ -30,7 +39,8 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
     super.dispose();
   }
 
-  void _send() => Navigator.of(context).pop(_caption.text.trim());
+  void _send() => Navigator.of(context)
+      .pop<AttachmentChoice>((caption: _caption.text.trim(), hd: _hd));
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +57,25 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
           tooltip: 'Cancel',
           onPressed: () => Navigator.of(context).pop(),
         ),
+        actions: [
+          if (widget.offerHd)
+            IconButton(
+              icon: Icon(_hd ? Icons.hd : Icons.hd_outlined),
+              tooltip: _hd ? 'HD quality' : 'Standard quality',
+              isSelected: _hd,
+              onPressed: () {
+                setState(() => _hd = !_hd);
+                ScaffoldMessenger.of(context)
+                  ..clearSnackBars()
+                  ..showSnackBar(SnackBar(
+                    duration: const Duration(seconds: 2),
+                    content: Text(_hd
+                        ? 'HD quality: sharper, a bigger file to send'
+                        : 'Standard quality: smaller, faster to send'),
+                  ));
+              },
+            ),
+        ],
       ),
       body: SafeArea(
         child: Column(

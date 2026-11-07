@@ -710,6 +710,39 @@ void _appBuildTests() {
     });
   });
 
+  test('AssetClient.putBytes streams the body with its length, counting '
+      'what went (SYNC_PROTOCOL 25.4)', () async {
+    final server = _HttpServer();
+    await server.start();
+    addTearDown(server.stop);
+    final got = BytesBuilder();
+    String? length, md5;
+    server.handler = (req) async {
+      length = req.headers.value(HttpHeaders.contentLengthHeader);
+      md5 = req.headers.value('content-md5');
+      await req.forEach(got.add);
+      await req.response.close();
+    };
+    final client = AssetClient(baseUrl: server.uri, auth: _FakeAuth('a'));
+    addTearDown(client.dispose);
+    final body = List<int>.generate(200 * 1024, (i) => i % 251);
+    final seen = <int>[];
+    await client.putBytes(
+      url: server.uri.resolve('/put').toString(),
+      bytes: body,
+      contentType: 'application/octet-stream',
+      contentMd5: 'bWQ1',
+      onProgress: (sent, total) {
+        expect(total, body.length);
+        seen.add(sent);
+      },
+    );
+    expect(got.takeBytes(), body);
+    expect(length, '${body.length}', reason: 'never chunked: S3 refuses it');
+    expect(md5, 'bWQ1');
+    expect(seen, [65536, 131072, 196608, 204800]);
+  });
+
   group('AppBuild (decision 192)', () {
     test('the socket sends the build and stops retrying once refused',
         () async {

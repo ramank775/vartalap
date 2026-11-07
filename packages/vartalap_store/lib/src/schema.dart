@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 12;
+const int schemaVersion = 13;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -364,6 +364,18 @@ const List<String> ddl = [
   '''
   CREATE INDEX IF NOT EXISTS idx_receipt_marks
     ON receipt_marks(channel_id, user_id, up_to)
+  ''',
+
+  // Decision 134 — answers to an event message (SYNC_PROTOCOL §25.3):
+  // each person's newest, by server time. v13 adds it through [ddl].
+  '''
+  CREATE TABLE IF NOT EXISTS event_rsvps (
+    message_id  TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+    user_id     TEXT NOT NULL,
+    going       INTEGER NOT NULL,
+    at_ms       INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id)
+  )
   ''',
 ];
 

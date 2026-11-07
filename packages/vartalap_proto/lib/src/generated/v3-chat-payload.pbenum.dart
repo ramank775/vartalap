@@ -84,6 +84,13 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static const ChatPayloadType TYPE_DELIVERY_RECEIPT =
       ChatPayloadType._(9, _omitEnumNames ? '' : 'TYPE_DELIVERY_RECEIPT');
 
+  /// The sender's answer to an event message (decision 134, SYNC_PROTOCOL.md
+  /// §25.3): `message_id` the event, `event_rsvp` the answer. Anyone in
+  /// the chat may answer; their newest answer (by server time) counts.
+  /// Class MUTATION, SILENT, like a reaction.
+  static const ChatPayloadType TYPE_EVENT_RSVP =
+      ChatPayloadType._(15, _omitEnumNames ? '' : 'TYPE_EVENT_RSVP');
+
   /// Live location (SYNC_PROTOCOL.md §21, decision 223; values 40-49). A
   /// share starts as a TYPE_MESSAGE_CREATE with content_type
   /// "application/x-vartalap-live-location" whose body is the share as
@@ -123,6 +130,7 @@ class ChatPayloadType extends $pb.ProtobufEnum {
     TYPE_READ_RECEIPT,
     TYPE_TYPING,
     TYPE_DELIVERY_RECEIPT,
+    TYPE_EVENT_RSVP,
     TYPE_LIVE_LOCATION_UPDATE,
     TYPE_LIVE_LOCATION_STOP,
     TYPE_LIVE_LOCATION_CONTROL,
@@ -134,6 +142,29 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static ChatPayloadType? valueOf($core.int value) => _byValue[value];
 
   const ChatPayloadType._(super.value, super.name);
+}
+
+/// An answer to an event (TYPE_EVENT_RSVP).
+class EventRsvp extends $pb.ProtobufEnum {
+  static const EventRsvp EVENT_RSVP_UNSPECIFIED =
+      EventRsvp._(0, _omitEnumNames ? '' : 'EVENT_RSVP_UNSPECIFIED');
+  static const EventRsvp EVENT_RSVP_GOING =
+      EventRsvp._(1, _omitEnumNames ? '' : 'EVENT_RSVP_GOING');
+  static const EventRsvp EVENT_RSVP_NOT_GOING =
+      EventRsvp._(2, _omitEnumNames ? '' : 'EVENT_RSVP_NOT_GOING');
+
+  static const $core.List<EventRsvp> values = <EventRsvp>[
+    EVENT_RSVP_UNSPECIFIED,
+    EVENT_RSVP_GOING,
+    EVENT_RSVP_NOT_GOING,
+  ];
+
+  static final $core.List<EventRsvp?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static EventRsvp? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const EventRsvp._(super.value, super.name);
 }
 
 const $core.bool _omitEnumNames =

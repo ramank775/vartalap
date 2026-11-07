@@ -52,6 +52,15 @@ SELECT message_id, body,
   FROM messages WHERE message_id = ?
 ''';
 
+/// Decision 134: someone's answer to an event, unless they gave a newer
+/// one.
+const _rsvpSql = '''
+INSERT INTO event_rsvps (message_id, user_id, going, at_ms) VALUES (?, ?, ?, ?)
+ON CONFLICT (message_id, user_id) DO UPDATE
+   SET going = excluded.going, at_ms = excluded.at_ms
+ WHERE excluded.at_ms >= event_rsvps.at_ms
+''';
+
 /// Growable page window for [ChatStore.watchChannelMessages].
 ///
 /// "Load older" must not open a second live query — the chat screen
@@ -1224,6 +1233,43 @@ class ChatStore {
         'emoji': emoji,
       }, nowMs);
 
+  /// Decision 134 — TYPE_EVENT_RSVP apply (SYNC_PROTOCOL §25.3): the
+  /// sender's answer to an event, kept unless a newer one is. A target we
+  /// don't hold yet parks it (§6b).
+  Future<bool> applyInboundRsvp({
+    required String channelId,
+    required String opId,
+    required String messageId,
+    required String senderUserId,
+    required bool going,
+    required int serverTimestampMs,
+    required int nowMs,
+  }) =>
+      _applyInboundTargeted({
+        'op_id': opId,
+        'channel_id': channelId,
+        'target_message_id': messageId,
+        'kind': 'rsvp',
+        'sender_user_id': senderUserId,
+        'server_timestamp_ms': serverTimestampMs,
+        'emoji': going ? 'going' : 'not_going',
+      }, nowMs);
+
+  /// Our own answer to an event and its outbound op, in one transaction.
+  Future<void> enqueueRsvp({
+    required String messageId,
+    required String userId,
+    required bool going,
+    required OutboundOpRow op,
+    required int nowMs,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.rawInsert(_rsvpSql, [messageId, userId, going ? 1 : 0, nowMs]);
+      await txn.insert('outbound_ops', _outboundOpToRow(op));
+    });
+    _notify(const {'event_rsvps', 'outbound_ops'});
+  }
+
   /// One inbound op that targets a message, as a `pending_ops`-shaped
   /// row: apply it (or park it) and record `op_id_seen`, in one
   /// transaction.
@@ -1265,6 +1311,7 @@ class ChatStore {
         'server_timestamp_ms',
         'last_edit_ms',
         'timer_sec',
+        'content_type',
       ],
       where: 'message_id = ?',
       whereArgs: [messageId],
@@ -1351,6 +1398,17 @@ class ChatStore {
           where: 'message_id = ? AND user_id = ? AND emoji = ?',
           whereArgs: [messageId, sender, op['emoji']],
         );
+      case 'rsvp':
+        // An event's (decision 133's text/calendar), still there.
+        if (!live || rows.single['content_type'] != 'text/calendar') {
+          return false;
+        }
+        await txn.rawInsert(_rsvpSql, [
+          messageId,
+          sender,
+          op['emoji'] == 'going' ? 1 : 0,
+          op['server_timestamp_ms'],
+        ]);
       default:
         return false;
     }
@@ -2016,7 +2074,10 @@ class ChatStore {
       SELECT m.*,
              (SELECT group_concat(r.user_id || char(31) || r.emoji, char(30))
                 FROM reactions r
-               WHERE r.message_id = m.message_id) AS reactions
+               WHERE r.message_id = m.message_id) AS reactions,
+             (SELECT group_concat(e.user_id || char(31) || e.going, char(30))
+                FROM event_rsvps e
+               WHERE e.message_id = m.message_id) AS rsvps
       FROM messages m
       WHERE m.channel_id = ?
       ORDER BY $_newestFirst
@@ -2049,7 +2110,9 @@ class ChatStore {
       onListen: () {
         window?.onGrow = () => emit();
         changeSub = tableChanges.listen((tables) {
-          if (tables.contains('messages') || tables.contains('reactions')) {
+          if (tables.contains('messages') ||
+              tables.contains('reactions') ||
+              tables.contains('event_rsvps')) {
             emit();
           }
         });
@@ -3104,22 +3167,26 @@ class ChatStore {
         timerSec: r['timer_sec'] as int?,
         secure: r['secure'] as List<int>?,
         forwardSource: r['forward_source'] as List<int>?,
+        rsvps: {
+          for (final (user, going) in _parsePairs(r['rsvps'] as String?))
+            user: going == '1',
+        },
       );
 
   /// Inverse of the `group_concat` in [fetchChannelMessages]. Null for
   /// every read that doesn't select the subquery.
-  static List<MessageReaction> _parseReactions(String? packed) {
-    if (packed == null || packed.isEmpty) return const [];
-    final out = <MessageReaction>[];
+  static List<MessageReaction> _parseReactions(String? packed) => [
+        for (final (userId, emoji) in _parsePairs(packed))
+          MessageReaction(userId: userId, emoji: emoji),
+      ];
+
+  /// `a US b RS c US d` → (a, b), (c, d).
+  static Iterable<(String, String)> _parsePairs(String? packed) sync* {
+    if (packed == null || packed.isEmpty) return;
     for (final pair in packed.split('\u001e')) {
       final sep = pair.indexOf('\u001f');
-      if (sep <= 0) continue;
-      out.add(MessageReaction(
-        userId: pair.substring(0, sep),
-        emoji: pair.substring(sep + 1),
-      ));
+      if (sep > 0) yield (pair.substring(0, sep), pair.substring(sep + 1));
     }
-    return out;
   }
 
   static Map<String, Object?> _outboundOpToRow(OutboundOpRow o) => {

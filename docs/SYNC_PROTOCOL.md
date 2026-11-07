@@ -2381,6 +2381,38 @@ the message was sent); a member past it on a marker from before v12
 shows without a time. A read receipt applied as a delivery (read
 receipts off, §22.1) counts as a delivery here too.
 
+### 25.3 Event replies (decision 134)
+
+`TYPE_EVENT_RSVP` (15) answers an event message (`content_type`
+`text/calendar`, decision 133): `message_id` the event, `event_rsvp`
+(field 73) `EVENT_RSVP_GOING` or `EVENT_RSVP_NOT_GOING`. Anyone in the
+chat may answer, the event's author too; each person's answer with the
+newest `server_timestamp_ms` counts (store table `event_rsvps`, schema
+v13). Class MUTATION, SILENT, like a reaction: nobody is woken for an
+answer. Receivers apply it only to an event that is there and not
+deleted, and park it when the event has not arrived yet (§6b). An
+`EVENT_RSVP_UNSPECIFIED` is dropped.
+
+### 25.4 Photos, uploads and video thumbnails
+
+- **Photos.** A photo from the camera or gallery is sent as a JPEG about
+  2048 px on its long side at quality 85 (decision 130), or with the
+  preview's HD switch up to 4096 px at quality 92. The phone makes it
+  itself (MainActivity `vartalap/media`, framework `BitmapFactory`): it is
+  turned upright and carries no EXIF, so no location. A photo it cannot
+  decode goes as picked. A file sent as a Document goes byte for byte, as
+  before.
+- **Upload progress.** The sender's bubble shows how much of its own file
+  has gone up (the signed PUT is streamed in 64 KiB chunks); a spinner
+  while it waits or is sealed. Nothing on the wire.
+- **Video thumbnails.** A video from the camera or gallery carries its
+  first frame in `Attachment.thumbnail` (field 13): a JPEG about 320 px on
+  its long side at quality 60, a few KB inside the end-to-end encrypted
+  payload, with the video's upright `width`, `height` and `duration_ms`.
+  Its bubble shows the frame with a play button and the length, and opens
+  the file in the phone's player. A video without one keeps the document
+  box.
+
 ## 26. Occasion albums (decision 233)
 
 Albums are not on the sync wire and not end-to-end encrypted, like the

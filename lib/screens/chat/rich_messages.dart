@@ -58,6 +58,13 @@ class RichMessageView extends StatelessWidget {
   final String? messageId;
   final bool mine;
 
+  /// An event's answers (user_id → going), ours among them as
+  /// [selfUserId]; [onRsvp] answers (decision 134), [nameOf] names who.
+  final Map<String, bool> rsvps;
+  final String? selfUserId;
+  final ValueChanged<bool>? onRsvp;
+  final String Function(String userId)? nameOf;
+
   const RichMessageView({
     super.key,
     required this.contentType,
@@ -67,6 +74,10 @@ class RichMessageView extends StatelessWidget {
     this.onMessage,
     this.messageId,
     this.mine = false,
+    this.rsvps = const {},
+    this.selfUserId,
+    this.onRsvp,
+    this.nameOf,
   });
 
   @override
@@ -84,7 +95,13 @@ class RichMessageView extends StatelessWidget {
         kAlbumType => _AlbumCard(
             note: AlbumNote.parse(body), tint: tint, footer: footer),
         _ => _EventCard(
-            event: EventInfo.parse(body), tint: tint, footer: footer),
+            event: EventInfo.parse(body),
+            tint: tint,
+            footer: footer,
+            rsvps: rsvps,
+            mine: rsvps[selfUserId],
+            onRsvp: onRsvp,
+            nameOf: nameOf),
       };
 }
 
@@ -107,6 +124,9 @@ class _Card extends StatelessWidget {
   final List<Widget> lines;
   final Widget? footer;
   final List<(String, VoidCallback)> actions;
+
+  /// A row of its own above [actions] (an event's Going / Not going).
+  final List<(String, VoidCallback)> topActions;
   final VoidCallback? onTap;
 
   const _Card({
@@ -115,6 +135,7 @@ class _Card extends StatelessWidget {
     required this.lines,
     this.footer,
     this.actions = const [],
+    this.topActions = const [],
     this.onTap,
   });
 
@@ -156,42 +177,49 @@ class _Card extends StatelessWidget {
               child: footer ?? const SizedBox.shrink(),
             ),
           ),
-          if (actions.isNotEmpty) ...[
-            Divider(height: 1, thickness: 1, indent: 0, endIndent: 0, color: rule),
-            SizedBox(
-              height: 40,
-              child: Row(
-                children: [
-                  for (final (i, (label, onPressed)) in actions.indexed) ...[
-                    if (i > 0)
-                      VerticalDivider(
-                        width: 1,
-                        thickness: 1,
-                        indent: 8,
-                        endIndent: 8,
-                        color: rule,
-                      ),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: onPressed,
-                        style: TextButton.styleFrom(
-                          foregroundColor: accent,
-                          minimumSize: const Size.fromHeight(40),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: const RoundedRectangleBorder(),
-                          textStyle: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        child: Text(label),
-                      ),
-                    ),
-                  ],
-                ],
+          for (final row in [topActions, actions])
+            if (row.isNotEmpty) ...[
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: 0,
+                endIndent: 0,
+                color: rule,
               ),
-            ),
-          ],
+              SizedBox(
+                height: 40,
+                child: Row(
+                  children: [
+                    for (final (i, (label, onPressed)) in row.indexed) ...[
+                      if (i > 0)
+                        VerticalDivider(
+                          width: 1,
+                          thickness: 1,
+                          indent: 8,
+                          endIndent: 8,
+                          color: rule,
+                        ),
+                      Expanded(
+                        child: TextButton(
+                          onPressed: onPressed,
+                          style: TextButton.styleFrom(
+                            foregroundColor: accent,
+                            minimumSize: const Size.fromHeight(40),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: const RoundedRectangleBorder(),
+                            textStyle: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          child: Text(label),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
         ],
       ),
     );
@@ -458,7 +486,60 @@ class _EventCard extends StatelessWidget {
   final Color tint;
   final Widget? footer;
 
-  const _EventCard({required this.event, required this.tint, this.footer});
+  /// Who answered what (decision 134); [mine] our own answer, if any.
+  final Map<String, bool> rsvps;
+  final bool? mine;
+  final ValueChanged<bool>? onRsvp;
+  final String Function(String userId)? nameOf;
+
+  const _EventCard({
+    required this.event,
+    required this.tint,
+    this.footer,
+    this.rsvps = const {},
+    this.mine,
+    this.onRsvp,
+    this.nameOf,
+  });
+
+  /// Who is going and who is not, by name.
+  void _showAnswers(BuildContext context) {
+    final nameOf = this.nameOf ?? (String id) => id;
+    List<String> who(bool going) => [
+          for (final e in rsvps.entries)
+            if (e.value == going) nameOf(e.key),
+        ]..sort();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(event?.title.isNotEmpty == true ? event!.title : 'Event'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (label, names) in [
+                ('Going', who(true)),
+                ('Not going', who(false)),
+              ])
+                if (names.isNotEmpty) ...[
+                  Text('$label (${names.length})',
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  for (final n in names) Text(n),
+                  const SizedBox(height: 12),
+                ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _addToCalendar(BuildContext context, EventInfo e) async {
     final added = await _intent('addEvent', {
@@ -484,6 +565,13 @@ class _EventCard extends StatelessWidget {
         lines: [_title('Event', tint), _line('Unreadable event', tint)],
       );
     }
+    final going = rsvps.values.where((g) => g).length;
+    final notGoing = rsvps.length - going;
+    final answers = [
+      if (going > 0) '$going going',
+      if (notGoing > 0) '$notGoing not going',
+    ].join(' · ');
+    final rsvp = onRsvp;
     final time = TimeOfDay.fromDateTime(e.start).format(context);
     final end = e.end == null
         ? ''
@@ -529,6 +617,24 @@ class _EventCard extends StatelessWidget {
             maxLines: 2),
         if (e.location.isNotEmpty) _line(e.location, tint),
         if (e.description.isNotEmpty) _line(e.description, tint, maxLines: 3),
+        if (answers.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            answers,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ],
+      onTap: rsvps.isEmpty ? null : () => _showAnswers(context),
+      topActions: [
+        if (rsvp != null) ...[
+          (mine == true ? '✓ Going' : 'Going', () => rsvp(true)),
+          (mine == false ? '✓ Not going' : 'Not going', () => rsvp(false)),
+        ],
       ],
       actions: [('Add to calendar', () => _addToCalendar(context, e))],
     );

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -79,22 +80,34 @@ class AssetClient {
   /// authorization, and an extra bearer token can invalidate it on real
   /// object stores.
   /// [contentMd5] (base64): when the url signs one, the store refuses a
-  /// body with any other MD5 (decision 190).
+  /// body with any other MD5 (decision 190). [onProgress]: bytes handed
+  /// to the socket so far, of all of them (SYNC_PROTOCOL §25.4).
   Future<void> putBytes({
     required String url,
     required List<int> bytes,
     required String contentType,
     String? contentMd5,
+    void Function(int sent, int total)? onProgress,
   }) async {
-    final resp = await _client.put(
-      Uri.parse(url),
-      headers: {
+    final request = http.StreamedRequest('PUT', Uri.parse(url))
+      ..contentLength = bytes.length
+      ..headers.addAll({
         'Content-Type': contentType,
-        'Content-Length': '${bytes.length}',
         if (contentMd5 != null) 'Content-MD5': contentMd5,
-      },
-      body: bytes,
-    );
+      });
+    // Pulled a chunk at a time, so the count follows the socket.
+    Stream<List<int>> chunks() async* {
+      const size = 64 * 1024;
+      for (var at = 0; at < bytes.length; at += size) {
+        final end = at + size < bytes.length ? at + size : bytes.length;
+        yield bytes.sublist(at, end);
+        onProgress?.call(end, bytes.length);
+      }
+    }
+
+    unawaited(
+        request.sink.addStream(chunks()).whenComplete(request.sink.close));
+    final resp = await http.Response.fromStream(await _client.send(request));
     _assertOk(resp, 'putBytes');
   }
 

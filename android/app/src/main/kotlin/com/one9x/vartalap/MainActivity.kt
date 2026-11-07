@@ -103,6 +103,9 @@ class MainActivity: FlutterActivity() {
                     false
                 })
             }
+        // A photo made ready to send, a video's thumbnail (SYNC_PROTOCOL §25.4).
+        MethodChannel(messenger, "vartalap/media")
+            .setMethodCallHandler { call, result -> MediaPrep.handle(call, result) }
         // Where the phone is now, from the platform LocationManager —
         // not Play services' fused provider, so FOSS builds have it too.
         // null = location off, permission missing, or no fix in time.

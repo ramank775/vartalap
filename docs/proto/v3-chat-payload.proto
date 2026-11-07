@@ -131,6 +131,9 @@ message ChatPayload {
   // never sent).
   bytes secure_key = 72;
 
+  // For TYPE_EVENT_RSVP: the answer.
+  EventRsvp event_rsvp = 73;
+
   // Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   // For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   LiveLocationPoint live_location_point = 130;
@@ -208,6 +211,12 @@ enum ChatPayloadType {
   // member is past it (decision 202).
   TYPE_DELIVERY_RECEIPT = 9;
 
+  // The sender's answer to an event message (decision 134, SYNC_PROTOCOL.md
+  // §25.3): `message_id` the event, `event_rsvp` the answer. Anyone in
+  // the chat may answer; their newest answer (by server time) counts.
+  // Class MUTATION, SILENT, like a reaction.
+  TYPE_EVENT_RSVP = 15;
+
   // Live location (SYNC_PROTOCOL.md §21, decision 223; values 40-49). A
   // share starts as a TYPE_MESSAGE_CREATE with content_type
   // "application/x-vartalap-live-location" whose body is the share as
@@ -234,6 +243,13 @@ enum ChatPayloadType {
   // the value means.
 }
 
+// An answer to an event (TYPE_EVENT_RSVP).
+enum EventRsvp {
+  EVENT_RSVP_UNSPECIFIED = 0;
+  EVENT_RSVP_GOING = 1;
+  EVENT_RSVP_NOT_GOING = 2;
+}
+
 // One position of a live location share.
 message LiveLocationPoint {
   double lat = 1;            // WGS 84 degrees
@@ -251,6 +267,10 @@ message Attachment {
   uint32 width = 10;         // images / videos only
   uint32 height = 11;
   uint32 duration_ms = 12;   // audio / video only
+  // A video's first frame as a small JPEG (about 320 px on its long
+  // side), so its bubble shows something before the file is fetched.
+  // SYNC_PROTOCOL.md §25.4.
+  bytes thumbnail = 13;
 }
 
 message ForwardSource {

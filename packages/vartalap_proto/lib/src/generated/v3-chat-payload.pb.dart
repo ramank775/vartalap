@@ -48,6 +48,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     $core.int? timerSec,
     $core.List<$core.int>? secureBox,
     $core.List<$core.int>? secureKey,
+    EventRsvp? eventRsvp,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? meta,
     LiveLocationPoint? liveLocationPoint,
     $core.int? liveLocationDurationSec,
@@ -70,6 +71,7 @@ class ChatPayload extends $pb.GeneratedMessage {
     if (timerSec != null) result.timerSec = timerSec;
     if (secureBox != null) result.secureBox = secureBox;
     if (secureKey != null) result.secureKey = secureKey;
+    if (eventRsvp != null) result.eventRsvp = eventRsvp;
     if (meta != null) result.meta.addEntries(meta);
     if (liveLocationPoint != null) result.liveLocationPoint = liveLocationPoint;
     if (liveLocationDurationSec != null)
@@ -118,6 +120,8 @@ class ChatPayload extends $pb.GeneratedMessage {
         71, _omitFieldNames ? '' : 'secureBox', $pb.PbFieldType.OY)
     ..a<$core.List<$core.int>>(
         72, _omitFieldNames ? '' : 'secureKey', $pb.PbFieldType.OY)
+    ..aE<EventRsvp>(73, _omitFieldNames ? '' : 'eventRsvp',
+        enumValues: EventRsvp.values)
     ..m<$core.String, $core.String>(100, _omitFieldNames ? '' : 'meta',
         entryClassName: 'ChatPayload.MetaEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -327,45 +331,55 @@ class ChatPayload extends $pb.GeneratedMessage {
   @$pb.TagNumber(72)
   void clearSecureKey() => $_clearField(72);
 
+  /// For TYPE_EVENT_RSVP: the answer.
+  @$pb.TagNumber(73)
+  EventRsvp get eventRsvp => $_getN(15);
+  @$pb.TagNumber(73)
+  set eventRsvp(EventRsvp value) => $_setField(73, value);
+  @$pb.TagNumber(73)
+  $core.bool hasEventRsvp() => $_has(15);
+  @$pb.TagNumber(73)
+  void clearEventRsvp() => $_clearField(73);
+
   /// Free-form client metadata. Other clients MAY ignore unknown keys.
   /// Reserved keys:
   ///   "client_version"  — UI hint about sender's client (advisory)
   ///   "edit_reason"     — optional reason for an UPDATE
   @$pb.TagNumber(100)
-  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(15);
+  $pb.PbMap<$core.String, $core.String> get meta => $_getMap(16);
 
   /// Live location (SYNC_PROTOCOL.md §21, decision 223; fields 130-139).
   /// For TYPE_LIVE_LOCATION_UPDATE: the sharer's newest position.
   @$pb.TagNumber(130)
-  LiveLocationPoint get liveLocationPoint => $_getN(16);
+  LiveLocationPoint get liveLocationPoint => $_getN(17);
   @$pb.TagNumber(130)
   set liveLocationPoint(LiveLocationPoint value) => $_setField(130, value);
   @$pb.TagNumber(130)
-  $core.bool hasLiveLocationPoint() => $_has(16);
+  $core.bool hasLiveLocationPoint() => $_has(17);
   @$pb.TagNumber(130)
   void clearLiveLocationPoint() => $_clearField(130);
   @$pb.TagNumber(130)
-  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(16);
+  LiveLocationPoint ensureLiveLocationPoint() => $_ensure(17);
 
   /// For TYPE_LIVE_LOCATION_CONTROL: turn the receiver's live location in
   /// this 1:1 chat on (for `duration_sec`) or off (0).
   @$pb.TagNumber(131)
-  $core.int get liveLocationDurationSec => $_getIZ(17);
+  $core.int get liveLocationDurationSec => $_getIZ(18);
   @$pb.TagNumber(131)
-  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(17, value);
+  set liveLocationDurationSec($core.int value) => $_setUnsignedInt32(18, value);
   @$pb.TagNumber(131)
-  $core.bool hasLiveLocationDurationSec() => $_has(17);
+  $core.bool hasLiveLocationDurationSec() => $_has(18);
   @$pb.TagNumber(131)
   void clearLiveLocationDurationSec() => $_clearField(131);
 
   /// For TYPE_LIVE_LOCATION_PERMISSION: may the receiver turn the
   /// sender's live location on and off from now on.
   @$pb.TagNumber(132)
-  $core.bool get liveLocationAllowed => $_getBF(18);
+  $core.bool get liveLocationAllowed => $_getBF(19);
   @$pb.TagNumber(132)
-  set liveLocationAllowed($core.bool value) => $_setBool(18, value);
+  set liveLocationAllowed($core.bool value) => $_setBool(19, value);
   @$pb.TagNumber(132)
-  $core.bool hasLiveLocationAllowed() => $_has(18);
+  $core.bool hasLiveLocationAllowed() => $_has(19);
   @$pb.TagNumber(132)
   void clearLiveLocationAllowed() => $_clearField(132);
 }
@@ -473,6 +487,7 @@ class Attachment extends $pb.GeneratedMessage {
     $core.int? width,
     $core.int? height,
     $core.int? durationMs,
+    $core.List<$core.int>? thumbnail,
   }) {
     final result = create();
     if (url != null) result.url = url;
@@ -483,6 +498,7 @@ class Attachment extends $pb.GeneratedMessage {
     if (width != null) result.width = width;
     if (height != null) result.height = height;
     if (durationMs != null) result.durationMs = durationMs;
+    if (thumbnail != null) result.thumbnail = thumbnail;
     return result;
   }
 
@@ -511,6 +527,8 @@ class Attachment extends $pb.GeneratedMessage {
     ..aI(11, _omitFieldNames ? '' : 'height', fieldType: $pb.PbFieldType.OU3)
     ..aI(12, _omitFieldNames ? '' : 'durationMs',
         fieldType: $pb.PbFieldType.OU3)
+    ..a<$core.List<$core.int>>(
+        13, _omitFieldNames ? '' : 'thumbnail', $pb.PbFieldType.OY)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -602,6 +620,18 @@ class Attachment extends $pb.GeneratedMessage {
   $core.bool hasDurationMs() => $_has(7);
   @$pb.TagNumber(12)
   void clearDurationMs() => $_clearField(12);
+
+  /// A video's first frame as a small JPEG (about 320 px on its long
+  /// side), so its bubble shows something before the file is fetched.
+  /// SYNC_PROTOCOL.md §25.4.
+  @$pb.TagNumber(13)
+  $core.List<$core.int> get thumbnail => $_getN(8);
+  @$pb.TagNumber(13)
+  set thumbnail($core.List<$core.int> value) => $_setBytes(8, value);
+  @$pb.TagNumber(13)
+  $core.bool hasThumbnail() => $_has(8);
+  @$pb.TagNumber(13)
+  void clearThumbnail() => $_clearField(13);
 }
 
 class ForwardSource extends $pb.GeneratedMessage {

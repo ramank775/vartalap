@@ -54,6 +54,9 @@ void main() {
         FrameClass.mutation);
     expect(of(OpKind.messageReaction, pb.ChatPayloadType.TYPE_REACTION_ADD),
         FrameClass.mutation);
+    // SYNC_PROTOCOL 25.3: an event reply wakes nobody, like a reaction.
+    expect(of(OpKind.messageReaction, pb.ChatPayloadType.TYPE_EVENT_RSVP),
+        FrameClass.mutation);
     // A resend request is queued already sealed, with binary ids that
     // might parse as a ChatPayload: told apart by its first byte.
     expect(frameClassOf(_op(OpKind.chatPayload, [0x45, 2, 5, 0x08, 7])),

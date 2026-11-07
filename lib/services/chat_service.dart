@@ -654,6 +654,39 @@ class ChatService with TimelineService, AlbumService {
     _scheduler.tickSoon();
   }
 
+  /// Answer [messageId], an event, Going or Not going (decision 134,
+  /// SYNC_PROTOCOL §25.3); a later answer replaces it. Rides the
+  /// reaction's op kind: nothing to roll back if it fails.
+  Future<void> rsvp({
+    required String channelId,
+    required String messageId,
+    required String userId,
+    required bool going,
+  }) async {
+    final now = _clock.nowMs();
+    await _store.enqueueRsvp(
+      messageId: messageId,
+      userId: userId,
+      going: going,
+      nowMs: now,
+      op: _chatOp(
+        kind: OpKind.messageReaction,
+        channelId: channelId,
+        messageId: messageId,
+        nowMs: now,
+        payload: pb.ChatPayload(
+          version: 1,
+          type: pb.ChatPayloadType.TYPE_EVENT_RSVP,
+          messageId: uuidBytes(messageId),
+          eventRsvp: going
+              ? pb.EventRsvp.EVENT_RSVP_GOING
+              : pb.EventRsvp.EVENT_RSVP_NOT_GOING,
+        ).writeToBuffer(),
+      ),
+    );
+    _scheduler.tickSoon();
+  }
+
   /// Message info (SYNC_PROTOCOL §25.2) for our own [messageId]: who got
   /// it and read it, and when; again whenever a receipt lands.
   Stream<List<MessageReceipt>> watchMessageReceipts(String messageId) =>
@@ -1988,6 +2021,7 @@ class ChatService with TimelineService, AlbumService {
       client: client,
       network: _wsTransport,
       onUploaded: _onAssetUploaded,
+      onProgress: assets.reportUpload,
       // Off the UI isolate: about 40 ms a MB in pure Dart.
       seal: (plain) => Isolate.run(() {
         final (:key, :sealed) = sealAttachment(plain);
@@ -2013,6 +2047,9 @@ class ChatService with TimelineService, AlbumService {
             width: spec['width'] as int? ?? 0,
             height: spec['height'] as int? ?? 0,
             durationMs: spec['durationMs'] as int? ?? 0,
+            thumbnail: spec['thumb'] == null
+                ? null
+                : base64Decode(spec['thumb'] as String),
           ),
         ],
       ).writeToBuffer();
@@ -2077,6 +2114,7 @@ class ChatService with TimelineService, AlbumService {
   /// returns, because the picker's temp copy can be swept before the
   /// upload runs. [voiceNote] marks a recording made in the app
   /// ([kVoiceNoteType]); any other audio goes as an audio file.
+  /// [thumbnail]: a video's first frame, a small JPEG (SYNC_PROTOCOL §25.4).
   ///
   /// Returns the new message_id.
   Future<String> sendAttachment({
@@ -2089,6 +2127,7 @@ class ChatService with TimelineService, AlbumService {
     int height = 0,
     int durationMs = 0,
     bool voiceNote = false,
+    Uint8List? thumbnail,
   }) async {
     final now = _clock.nowMs();
     final messageId = _uuidGen.next(nowMs: now);
@@ -2112,6 +2151,7 @@ class ChatService with TimelineService, AlbumService {
       'width': width,
       'height': height,
       'durationMs': durationMs,
+      if (thumbnail != null) 'thumb': base64Encode(thumbnail),
       'body': caption ?? '',
       if (replyToMessageId != null) 'replyTo': replyToMessageId,
       // Decisions 188 and 190: sealed with a key derived from the file at
@@ -2226,6 +2266,7 @@ class ChatService with TimelineService, AlbumService {
     // The bytes are already in memory under the local path — keep them
     // so the bubble doesn't re-download what it just uploaded.
     assets.rekey(spec['path'] as String, url);
+    assets.reportUpload(spec['path'] as String, null);
     final now = _clock.nowMs();
 
     switch (spec['then'] as String?) {

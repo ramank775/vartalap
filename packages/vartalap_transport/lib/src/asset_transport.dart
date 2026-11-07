@@ -45,6 +45,10 @@ class AssetUploadTransport implements Transport {
   final Future<({Uint8List key, Uint8List sealed, Uint8List md5})> Function(
       Uint8List plain)? seal;
 
+  /// How far the upload of the spec's `path` has got, 0 to 1, while its
+  /// bytes go up (SYNC_PROTOCOL §25.4).
+  final void Function(String path, double done)? onProgress;
+
   final _ackCtrl = StreamController<AckFrame>.broadcast();
   bool _disposed = false;
 
@@ -53,6 +57,7 @@ class AssetUploadTransport implements Transport {
     required this.network,
     required this.onUploaded,
     this.seal,
+    this.onProgress,
   });
 
   @override
@@ -127,6 +132,10 @@ class AssetUploadTransport implements Transport {
           contentType: presigned.contentType ??
               (sealIt ? 'application/octet-stream' : spec['mime'] as String),
           contentMd5: md5 == null ? null : base64.encode(md5),
+          onProgress: onProgress == null
+              ? null
+              : (sent, total) =>
+                  onProgress!(spec['path'] as String, sent / total),
         );
         await client.markUploaded(presigned.fileId);
       }
