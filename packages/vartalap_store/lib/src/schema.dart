@@ -4,7 +4,7 @@
 /// actions only. `op_id_seen` is recipient-side inbound dedup.
 library vartalap_store.schema;
 
-const int schemaVersion = 11;
+const int schemaVersion = 12;
 
 const List<String> pragmas = [
   // A background engine (push wake, send job) holds its own connection to
@@ -346,6 +346,24 @@ const List<String> ddl = [
     connected  INTEGER NOT NULL DEFAULT 0,
     blocked    INTEGER NOT NULL DEFAULT 0
   )
+  ''',
+
+  // Message info (SYNC_PROTOCOL §25.2): each receipt that moved a member's
+  // marker on, and when the server took it, so own messages can say when
+  // each member got and read them. `read` 0: delivered. v12 adds it
+  // through [ddl]; markers older than it have no time.
+  '''
+  CREATE TABLE IF NOT EXISTS receipt_marks (
+    channel_id  TEXT NOT NULL REFERENCES channels(channel_id) ON DELETE CASCADE,
+    user_id     TEXT NOT NULL,
+    read        INTEGER NOT NULL,
+    up_to       INTEGER NOT NULL,
+    at_ms       INTEGER NOT NULL
+  )
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_receipt_marks
+    ON receipt_marks(channel_id, user_id, up_to)
   ''',
 ];
 

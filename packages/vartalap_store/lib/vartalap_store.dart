@@ -26,6 +26,7 @@ export 'src/types.dart'
         kUndecryptedType,
         kVoiceNoteType,
         MessageReaction,
+        MessageReceipt,
         MessageRow,
         MessageState,
         MessageVersion,

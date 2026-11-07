@@ -220,7 +220,7 @@ void main() {
     expect(find.byTooltip('Reply'), findsOneWidget);
     expect(find.byTooltip('Delete'), findsOneWidget);
     expect(find.byTooltip('Forward'), findsOneWidget);
-    expect(await moreItems(tester), ['Copy', 'Edit']);
+    expect(await moreItems(tester), ['Info', 'Copy', 'Edit']);
 
     await tester.tap(find.byTooltip('Cancel')); // let go of it
     await tester.pump(const Duration(milliseconds: 400));
@@ -1146,6 +1146,23 @@ void main() {
       expect(enabled(tester, up), isFalse);
       expect(enabled(tester, down), isFalse);
     });
+  });
+
+  testWidgets('Info on my own message opens Message info; a peer message '
+      'has none', (tester) async {
+    await pumpChat(tester);
+    await longPress(tester, 'their message');
+    expect(await moreItems(tester), isNot(contains('Info')));
+    await tester.tap(find.byTooltip('Cancel'));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await longPress(tester, 'my own message');
+    await more(tester, 'Info');
+    await tester.pump(const Duration(milliseconds: 400));
+    await settle(tester);
+    expect(find.text('Message info'), findsOneWidget);
+    expect(find.text('Read'), findsOneWidget);
+    expect(find.text('Delivered'), findsOneWidget);
   });
 
   group('forward (SYNC_PROTOCOL §25)', () {

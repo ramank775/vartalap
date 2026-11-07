@@ -2366,3 +2366,17 @@ phone). Up to 5 chats at once, one at a time for a message already
 forwarded many times (WhatsApp's limits), and only to groups the sender
 is in and people they are connected with (§23; the gate refuses the
 rest anyway).
+
+### 25.2 Message info
+
+No wire change. An own message's info (WhatsApp's: Read and Delivered
+with their times; in a group, Read by and Delivered to, per member)
+comes from the receipts the phone already gets (§6b.2; a group's over
+1:1 with `group_id`, decision 218). Each receipt that moves a member's
+marker on is kept with its `server_timestamp_ms` (store table
+`receipt_marks`, schema v12; one that adds nothing is not), so a
+message's times are the first receipt from each member that reached
+it. A group lists decision 202's members (in it now, and since before
+the message was sent); a member past it on a marker from before v12
+shows without a time. A read receipt applied as a delivery (read
+receipts off, §22.1) counts as a delivery here too.

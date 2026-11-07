@@ -750,6 +750,14 @@ class InboundReceiver {
         'WHERE channel_id = ? AND user_id = ?',
         [marker, if (read) marker, channelId, env.senderUserId],
       );
+      // Message info (SYNC_PROTOCOL §25.2): when each member got there.
+      await store.recordReceipt(
+        channelId: channelId,
+        userId: env.senderUserId,
+        read: read,
+        upTo: marker,
+        atMs: env.serverTimestampMs,
+      );
       final upTo = read ? 'read_up_to' : 'delivered_up_to';
       final rows = await store.db.rawQuery(
         '''

@@ -299,6 +299,11 @@ class MessageRow {
 /// written.
 typedef MessageVersion = ({String? body, int atMs});
 
+/// Message info (SYNC_PROTOCOL §25.2): one member an own message went to,
+/// and when their phone got it and when they read it (the receipts'
+/// server times). Null: not yet; 0: yes, at a time this phone never had.
+typedef MessageReceipt = ({String userId, int? deliveredAtMs, int? readAtMs});
+
 /// A starred message and the chat it is in, for the Starred messages
 /// list. [channel] carries only the chat's id, kind and title inputs;
 /// its `lastMessage*` fields are unset.

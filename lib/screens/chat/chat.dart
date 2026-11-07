@@ -18,6 +18,7 @@ import 'package:vartalap_crypto/vartalap_crypto.dart' show SecureUnlock;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
 import 'package:vartalap/screens/chat/forward.dart';
+import 'package:vartalap/screens/chat/message_info.dart';
 import 'package:vartalap/screens/chat/live_location.dart';
 import 'package:vartalap/screens/chat/message_options.dart';
 import 'package:vartalap/screens/chat/presence_line.dart';
@@ -732,6 +733,24 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   bool _isMine(MessageRow msg) =>
       msg.authorUserId == widget.authService.currentUserId;
 
+  /// Message info: our own message, once the server has it.
+  bool _canInfo(MessageRow msg) =>
+      _isMine(msg) &&
+      !msg.tombstoned &&
+      msg.serverTimestampMs != null &&
+      msg.contentType != kGroupEventType;
+
+  void _openInfo(MessageRow msg) => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MessageInfoScreen(
+            chatService: widget.chatService,
+            message: msg,
+            group: widget.channelKind == 'group',
+            nameOf: (id) => _memberNames[id] ?? 'Unknown',
+          ),
+        ),
+      );
+
   /// Text worth copying: a body that is words, not a vCard / geo URI.
   bool _canCopy(MessageRow msg) =>
       !msg.tombstoned &&
@@ -813,6 +832,14 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     // WhatsApp: Unstar only when every selected message is starred.
     final allStarred = sel.every((m) => m.starredAtMs != null);
     final more = <(String, VoidCallback)>[
+      if (one != null && _canInfo(one))
+        (
+          'Info',
+          () {
+            _clearSelection();
+            _openInfo(one);
+          }
+        ),
       if (sel.every(_canCopy)) ('Copy', () => _copy(sel)),
       if (one != null && _canEdit(one))
         (

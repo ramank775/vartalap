@@ -381,6 +381,14 @@ void main() {
             isFalse,
             reason: 'a group receipt rides the 1:1 channel, it is no chat');
       }
+      // Message info (SYNC_PROTOCOL §25.2): each at its receipt's time.
+      expect({
+        for (final r in await store.fetchMessageReceipts('own-100', _selfUserId))
+          r.userId: (r.deliveredAtMs, r.readAtMs),
+      }, {
+        _peerUserId: (401, 401),
+        _thirdUserId: (402, 403),
+      });
     },
   );
 

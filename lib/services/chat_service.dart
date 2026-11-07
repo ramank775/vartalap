@@ -647,6 +647,14 @@ class ChatService with TimelineService {
     _scheduler.tickSoon();
   }
 
+  /// Message info (SYNC_PROTOCOL §25.2) for our own [messageId]: who got
+  /// it and read it, and when; again whenever a receipt lands.
+  Stream<List<MessageReceipt>> watchMessageReceipts(String messageId) =>
+      _store.watchTables(
+          const {'receipt_marks', 'messages'},
+          () => _store.fetchMessageReceipts(
+              messageId, _authClient.currentUserId ?? ''));
+
   /// How [m], a secure message, opens; null when it is none this build
   /// can open.
   static SecureUnlock? secureUnlock(MessageRow m) {

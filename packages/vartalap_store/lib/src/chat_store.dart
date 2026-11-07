@@ -2754,6 +2754,70 @@ class ChatStore {
     _notify(const {'outbound_ops', 'messages'});
   }
 
+  /// Message info (SYNC_PROTOCOL §25.2): [userId]'s receipt for
+  /// [channelId] moved their marker to [upTo], taken by the server at
+  /// [atMs]. Kept unless an earlier one already covered as much (a read
+  /// covers a delivery too).
+  Future<void> recordReceipt({
+    required String channelId,
+    required String userId,
+    required bool read,
+    required int upTo,
+    required int atMs,
+  }) async {
+    final kind = read ? 1 : 0;
+    await db.rawInsert(
+      '''
+      INSERT INTO receipt_marks (channel_id, user_id, read, up_to, at_ms)
+      SELECT ?, ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM channels WHERE channel_id = ?)
+         AND NOT EXISTS (SELECT 1 FROM receipt_marks
+                          WHERE channel_id = ? AND user_id = ? AND read >= ?
+                            AND up_to >= ? AND at_ms <= ?)
+      ''',
+      [channelId, userId, kind, upTo, atMs, channelId, channelId, userId,
+          kind, upTo, atMs],
+    );
+    _notify(const {'receipt_marks'});
+  }
+
+  /// Message info (SYNC_PROTOCOL §25.2) for our own [messageId]: each
+  /// other member it went to, and when they got and read it. In a group,
+  /// decision 202's members: in it now, and since before it was sent.
+  /// Empty until it is sent.
+  Future<List<MessageReceipt>> fetchMessageReceipts(
+      String messageId, String selfUserId) async {
+    String firstMark(String extra, String marker) => '''
+      CASE WHEN COALESCE(cm.$marker, 0) >= m.server_timestamp_ms THEN
+        COALESCE((SELECT MIN(r.at_ms) FROM receipt_marks r
+                   WHERE r.channel_id = m.channel_id AND r.user_id = cm.user_id
+                     AND r.up_to >= m.server_timestamp_ms $extra), 0)
+      END''';
+    final rows = await db.rawQuery(
+      '''
+      SELECT cm.user_id,
+             ${firstMark('', 'delivered_up_to')} AS delivered_at,
+             ${firstMark('AND r.read = 1', 'read_up_to')} AS read_at
+        FROM messages m
+        JOIN channels c ON c.channel_id = m.channel_id
+        JOIN channel_members cm ON cm.channel_id = m.channel_id
+       WHERE m.message_id = ? AND m.server_timestamp_ms IS NOT NULL
+         AND cm.user_id != ? AND cm.removed_at IS NULL
+         AND (c.kind != 'group' OR cm.joined_at <= m.server_timestamp_ms)
+       ORDER BY cm.user_id
+      ''',
+      [messageId, selfUserId],
+    );
+    return [
+      for (final r in rows)
+        (
+          userId: r['user_id'] as String,
+          deliveredAtMs: r['delivered_at'] as int?,
+          readAtMs: r['read_at'] as int?,
+        ),
+    ];
+  }
+
   /// Decision 222: [messageId]'s versions, newest first, the current one
   /// at the top; each with when it was written. Just the current one for
   /// a message never edited, none for one this phone does not hold.
