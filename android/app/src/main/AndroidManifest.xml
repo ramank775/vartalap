@@ -97,6 +97,11 @@
                 <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
             </intent-filter>
         </service>
+        <!-- A chat notification's Mark as read and Reply
+             (flutter_local_notifications runs them in an engine of its own). -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
         <service
             android:name=".LiveLocationService"
             android:exported="false"

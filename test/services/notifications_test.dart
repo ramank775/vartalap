@@ -5,16 +5,20 @@
 /// plugin that records what would have gone up.
 library vartalap.services.notifications_test;
 
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:vartalap/services/chat_service.dart' show kMuteAlways;
+import 'package:vartalap/services/asset_cache.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/notifications.dart';
 import 'package:vartalap/utils/rich_message.dart';
 import 'package:vartalap_store/vartalap_store.dart';
+import 'package:vartalap_sync/vartalap_sync.dart';
+import 'package:vartalap_transport/vartalap_transport.dart';
 
 const _self = 'a00000001';
 const _asha = 'b00000001';
@@ -55,13 +59,16 @@ void main() {
     final shows = plugin.chats.where((s) => s.payload == channelId).toList();
     final style = shows[shows.length - 1 - nth].android!.styleInformation
         as MessagingStyleInformation;
-    return [for (final m in style.messages!) '${m.person!.name}: ${m.text}'];
+    return [
+      for (final m in style.messages!) '${m.person?.name ?? 'You'}: ${m.text}'
+    ];
   }
 
   setUpAll(sqfliteFfiInit);
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    AssetCache.instance = null;
     onScreen = false;
     store = await ChatStore.open(path: inMemoryDatabasePath);
     plugin = _FakePlugin();
@@ -259,11 +266,217 @@ void main() {
     await notifications.cancelChat(_dm);
     expect(plugin.cancelled, [(3, _dm), (3, _dm), (2, null)]);
   });
+
+  group('photos', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('notif-photos');
+      AssetCache.dirProvider = () async => dir;
+      // AssetCache keeps an opened photo under its fileId, key left off
+      File('${dir.path}/asha-photo').writeAsBytesSync([1]);
+      File('${dir.path}/trip-photo').writeAsBytesSync([2]);
+      Future<void> photo(String table, String key, String id, String url) =>
+          store.db.update(table, {'avatar_url': url},
+              where: '$key = ?', whereArgs: [id]);
+      await photo('contacts', 'user_id', _asha, 'asha-photo#AAAA');
+      // ravi's is not on this phone yet
+      await photo('contacts', 'user_id', _ravi, 'ravi');
+      await photo('channels', 'channel_id', _trip, 'trip-photo');
+    });
+
+    tearDown(() => dir.delete(recursive: true));
+
+    String? icon(Message m) => switch (m.person?.icon) {
+          final BitmapFilePathAndroidIcon i => i.data,
+          _ => null,
+        };
+
+    test('a DM carries its person\'s photo, a group its own and each '
+        'sender\'s; one not on the phone is left to Android\'s initials',
+        () async {
+      await message(_dm, _asha, 'one');
+      await message(_dm, _asha, 'two');
+      await message(_trip, _asha, 'a');
+      await message(_trip, _ravi, 'b');
+      await message(_trip, _asha, 'c');
+
+      await notifications.showUnread();
+
+      final dm = plugin.chats.singleWhere((s) => s.payload == _dm).android!;
+      expect((dm.largeIcon! as FilePathAndroidBitmap).data,
+          '${dir.path}/asha-photo');
+      final dmLines =
+          (dm.styleInformation! as MessagingStyleInformation).messages!;
+      expect(dmLines.map(icon), ['${dir.path}/asha-photo', null],
+          reason: 'Android takes a run of lines\' avatar from its first');
+
+      final trip =
+          plugin.chats.singleWhere((s) => s.payload == _trip).android!;
+      expect((trip.largeIcon! as FilePathAndroidBitmap).data,
+          '${dir.path}/trip-photo');
+      final tripLines =
+          (trip.styleInformation! as MessagingStyleInformation).messages!;
+      expect(tripLines.map(icon),
+          ['${dir.path}/asha-photo', null, '${dir.path}/asha-photo']);
+    });
+
+    test('a photo Android refuses still lets the chat go up', () async {
+      plugin.refusePhotos = true;
+      await message(_dm, _asha, 'hi');
+      await notifications.showUnread();
+      final dm = plugin.chats.singleWhere((s) => s.payload == _dm).android!;
+      expect(dm.largeIcon, isNull);
+      expect(lines(_dm), ['Asha: hi']);
+    });
+  });
+
+  group('buttons', () {
+    late SyncScheduler scheduler;
+    late ChatService chats;
+
+    setUp(() async {
+      scheduler = SyncScheduler(
+        store: store,
+        wsTransport: _Offline(),
+        restTransport: _Offline(),
+        backoff: const FixedBackoff(Duration(milliseconds: 10)),
+        clock: Clock.system,
+      );
+      final auth = AuthClient(baseUrl: Uri.parse('http://example.invalid'));
+      chats = ChatService(
+        store: store,
+        scheduler: scheduler,
+        authClient: auth,
+        wsTransport: WsTransport(
+            endpoint: Uri.parse('ws://example.invalid/wss'), auth: auth),
+        uuidGen: Uuid7Gen(userIdBits: Uuid7Gen.parseUserIdHex(_self)),
+        clock: Clock.system,
+      )..onRead = notifications.cancelChat;
+      for (final u in [_self, _asha, _ravi]) {
+        await store.insertChannelMember(
+            channelId: _trip, userId: u, role: 'member', joinedAt: 0);
+      }
+    });
+
+    tearDown(() => scheduler.stop());
+
+    Future<List<MessageRow>> mine(String channelId) async => [
+          for (final m in await store.fetchChannelMessages(channelId))
+            if (m.authorUserId == _self) m,
+        ];
+
+    Future<int> unread(String channelId) async =>
+        (await store.fetchChannel(channelId))!.unreadCount;
+
+    test('every chat notification has Mark as read and Reply', () async {
+      await message(_dm, _asha, 'hi');
+      await notifications.showUnread();
+      final actions =
+          plugin.chats.single.android!.actions!.map((a) => a.id).toList();
+      expect(actions, [kReadAction, kReplyAction]);
+      expect(plugin.chats.single.android!.actions!.last.inputs, hasLength(1));
+    });
+
+    test('Reply queues the message like one typed in the chat, shows it '
+        'a moment, and reads the chat', () async {
+      await message(_dm, _asha, 'lunch?');
+      await notifications.showUnread();
+
+      await notifications.act(chats,
+          action: kReplyAction, channelId: _dm, input: ' yes, at 1 ');
+
+      final sent = (await mine(_dm)).single;
+      expect(sent.body, 'yes, at 1');
+      expect(sent.state, MessageState.pending);
+      expect(await store.hasUnsentOps(), isTrue,
+          reason: 'in the outbound queue the background send drains');
+      expect(await unread(_dm), 0);
+      expect(lines(_dm), ['Asha: lunch?', 'You: yes, at 1']);
+      final shown = plugin.chats.last.android!;
+      expect(shown.silent, isTrue);
+      expect(shown.timeoutAfter, 3000);
+      expect(shown.actions, isNull);
+      expect(plugin.cancelled, isNot(contains((3, _dm))),
+          reason: 'it goes by itself once it has shown the reply');
+    });
+
+    test('Reply in a group goes to the group', () async {
+      await message(_trip, _ravi, 'who is in?');
+      await notifications.act(chats,
+          action: kReplyAction, channelId: _trip, input: 'me');
+      expect((await mine(_trip)).single.body, 'me');
+      expect(lines(_trip), ['@ravi: who is in?', 'You: me']);
+    });
+
+    for (final (what, arrange, says) in [
+      (
+        'someone we blocked',
+        (ChatStore s) => s.setConnection(_asha, blocked: true),
+        'Not sent. You blocked Asha.',
+      ),
+      (
+        'someone not connected',
+        (ChatStore s) =>
+            s.replaceConnections(connected: [], blocked: [], invites: []),
+        'Not sent. Vartalap is invite only: open the chat to send Asha an '
+            'invite.',
+      ),
+    ]) {
+      test('Reply to $what is not queued; the notification says why',
+          () async {
+        await message(_dm, _asha, 'hi');
+        await arrange(store);
+        await notifications.act(chats,
+            action: kReplyAction, channelId: _dm, input: 'hello');
+        expect(await mine(_dm), isEmpty);
+        expect(await store.hasUnsentOps(), isFalse);
+        expect(await unread(_dm), 1);
+        expect(plugin.shown.last.body, says);
+        expect(plugin.shown.last.android!.tag, _dm);
+      });
+    }
+
+    test('Reply to a group we left is not queued', () async {
+      await message(_trip, _asha, 'bye');
+      await store.db.delete('channel_members',
+          where: 'channel_id = ? AND user_id = ?', whereArgs: [_trip, _self]);
+      await notifications.act(chats,
+          action: kReplyAction, channelId: _trip, input: 'wait');
+      expect(await mine(_trip), isEmpty);
+      expect(plugin.shown.last.body,
+          "Not sent. You're no longer a member of this group.");
+    });
+
+    test('Mark as read reads the chat and clears it', () async {
+      await message(_dm, _asha, 'hi');
+      await notifications.showUnread();
+      await notifications.act(chats, action: kReadAction, channelId: _dm);
+      expect(await unread(_dm), 0);
+      expect(plugin.cancelled, contains((3, _dm)));
+      expect(await mine(_dm), isEmpty);
+    });
+  });
+}
+
+class _Offline implements Transport {
+  @override
+  Future<void> send(OutboundFrame frame) async {}
+
+  @override
+  Stream<AckFrame> get acks => const Stream.empty();
+
+  @override
+  Stream<TransportState> get state => const Stream.empty();
+
+  @override
+  TransportState get currentState => TransportState.disconnected;
 }
 
 typedef _Shown = ({
   int id,
   String? title,
+  String? body,
   String? payload,
   AndroidNotificationDetails? android,
 });
@@ -274,6 +487,9 @@ class _FakePlugin implements FlutterLocalNotificationsPlugin {
   final List<(int, String?)> cancelled = [];
   List<ActiveNotification> active = const [];
 
+  /// As Android does with a photo it cannot decode.
+  bool refusePhotos = false;
+
   Iterable<_Shown> get chats => shown.where((s) => s.id == 3);
 
   @override
@@ -283,13 +499,23 @@ class _FakePlugin implements FlutterLocalNotificationsPlugin {
     String? body,
     NotificationDetails? notificationDetails,
     String? payload,
-  }) async =>
-      shown.add((
-        id: id,
-        title: title,
-        payload: payload,
-        android: notificationDetails?.android,
-      ));
+  }) async {
+    final android = notificationDetails?.android;
+    final style = android?.styleInformation;
+    if (refusePhotos &&
+        (android?.largeIcon != null ||
+            style is MessagingStyleInformation &&
+                style.messages!.any((m) => m.person?.icon != null))) {
+      throw Exception('Bitmap decode failed');
+    }
+    shown.add((
+      id: id,
+      title: title,
+      body: body,
+      payload: payload,
+      android: android,
+    ));
+  }
 
   @override
   Future<void> cancel({required int id, String? tag}) async =>

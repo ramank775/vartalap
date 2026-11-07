@@ -1496,6 +1496,11 @@ back.
   wake whose pull failed or brought nothing the client can show; a
   wake that brought only receipts, the user's own echoes or muted
   chats shows nothing. Nothing is shown while the app is on screen.
+  A chat's notification shows the sender's (or group's) photo when the
+  phone already has it, never waiting on a download, and offers Mark
+  as read and Reply. A Reply is an ordinary message in the outbound
+  queue; with the app closed it goes over `POST /wss/ops` (§5.11), as
+  every background send does.
 
 Rationale: the push service (ntfy, FCM, …) only relays; even
 encrypted, a wake-only payload means a compromised or curious push

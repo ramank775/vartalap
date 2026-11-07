@@ -92,7 +92,7 @@ void main() {
         _entry(lastMessagePreview: '', lastMessageContentType: 'text/plain',
             lastMessageHasAttachment: true),
       );
-      expect(find.textContaining('📄 File', findRichText: true), findsOneWidget);
+      expect(find.textContaining('📄 Document', findRichText: true), findsOneWidget);
 
       await _pumpTile(
         tester,
@@ -831,7 +831,8 @@ class _FakeChatService implements ChatService {
   Future<List<MessageRow>> searchMessages(String query) async => hits;
 
   @override
-  Future<void> markRead(String channelId) async {
+  Future<void> markRead(String channelId,
+      {bool clearNotification = true}) async {
     calls.add('markRead($channelId)');
   }
 

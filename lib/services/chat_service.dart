@@ -834,9 +834,12 @@ class ChatService with TimelineService, AlbumService {
   /// message) enqueues an outbound `ChatPayload{TYPE_READ_RECEIPT}` so
   /// the author's tick flips to read on their device. Best-effort: if
   /// the op enqueue fails the local read marker still moves.
-  Future<void> markRead(String channelId) async {
+  /// [clearNotification] false: a reply from the notification leaves it
+  /// up a moment, showing what was sent.
+  Future<void> markRead(String channelId,
+      {bool clearNotification = true}) async {
     await _store.markChannelRead(channelId, _clock.nowMs());
-    onRead?.call(channelId);
+    if (clearNotification) onRead?.call(channelId);
     await _enqueueReceipt(channelId, pb.ChatPayloadType.TYPE_READ_RECEIPT);
   }
 

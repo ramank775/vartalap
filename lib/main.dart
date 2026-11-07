@@ -19,6 +19,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show NotificationResponse;
 import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:path_provider/path_provider.dart';
@@ -116,6 +118,51 @@ void backgroundJob() {
 /// Registered while the app is on screen, so a job in a second engine of
 /// the same process leaves the work to it.
 const _onScreenPort = 'vartalap.on_screen';
+
+/// The app's own engine, while it runs: it takes a notification's
+/// buttons, so its screens and socket see what they did.
+const _actionPort = 'vartalap.notification_action';
+
+/// A chat notification's Mark as read or Reply
+/// ([MessageNotifications.act]). The plugin runs this in an engine of its
+/// own, app running or not. A running app takes it over; otherwise this
+/// engine opens the account and sends like a WorkManager job (decision
+/// 200), with the send job queued first in case Android freezes it.
+@pragma('vm:entry-point')
+Future<void> notificationAction(NotificationResponse r) =>
+    // One at a time: this engine stays for the process, and two taps in
+    // a row would share, and close, one database.
+    _lastAction = _lastAction
+        .then((_) => _notificationAction(r))
+        .catchError((Object e) => debugPrint('Notification action: $e'));
+
+Future<void> _lastAction = Future.value();
+
+Future<void> _notificationAction(NotificationResponse r) async {
+  DartPluginRegistrant.ensureInitialized();
+  final app = IsolateNameServer.lookupPortByName(_actionPort);
+  if (app != null) {
+    final taken = ReceivePort();
+    app.send([r.actionId, r.payload, r.input, taken.sendPort]);
+    // a dead engine's name can outlive it: no answer, do it here
+    final ok = await taken.first
+        .timeout(const Duration(seconds: 2), onTimeout: () => false);
+    taken.close();
+    if (ok == true) return;
+  }
+  // ponytail: a fresh service graph per tap, as a WorkManager job has;
+  // its engine stays for the process, so a few objects stay with it.
+  final services = await initializeApp(background: true, pushEvents: false);
+  if (services.store == null) return;
+  try {
+    await services.notifications.act(services.chatService,
+        action: r.actionId, channelId: r.payload, input: r.input);
+    await services.scheduleSend(delay: const Duration(seconds: 15));
+    await services.sendQueued(within: const Duration(seconds: 8));
+  } finally {
+    await services.closeAccount();
+  }
+}
 
 /// Bundle of long-lived services wired up at app boot. Passed to the
 /// root widget through an InheritedWidget ([AppServicesProvider]) so
@@ -598,6 +645,7 @@ Future<AppServices> initializeApp({
   final notifications = MessageNotifications(
     store: () => services.store,
     selfUserId: () => authClient.currentUserId,
+    onAction: notificationAction,
   );
   await notifications.init();
 
@@ -798,6 +846,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _markOnScreen(true);
+    IsolateNameServer.removePortNameMapping(_actionPort);
+    IsolateNameServer.registerPortWithName(_actions.sendPort, _actionPort);
+    _actions.listen(_onNotificationAction);
     // Cold start: Flutter hands the link over as the initial route.
     final initial = WidgetsBinding.instance.platformDispatcher.defaultRouteName;
     if (parseUsernameLink(initial) != null) _pendingLink = initial;
@@ -943,6 +994,25 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 
   /// Back on screen: the generic "New activity" has said its piece.
   final _onScreen = ReceivePort();
+
+  /// [notificationAction] hands a notification's button over here.
+  final _actions = ReceivePort();
+
+  Future<void> _onNotificationAction(dynamic message) async {
+    final [action, channelId, input, SendPort taken] = message as List;
+    taken.send(true);
+    final services = widget.services;
+    if (services.store == null) return;
+    await services.notifications.act(services.chatService,
+        action: action as String?,
+        channelId: channelId as String?,
+        input: input as String?);
+    // Off screen the socket may be down or Android may freeze us: what
+    // is left goes as when the app is left with something unsent.
+    if (await services.store?.hasUnsentOps() ?? false) {
+      await services.scheduleSend(delay: const Duration(seconds: 15));
+    }
+  }
 
   void _markOnScreen(bool onScreen) {
     IsolateNameServer.removePortNameMapping(_onScreenPort);
@@ -1127,6 +1197,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _markOnScreen(false);
     _onScreen.close();
+    IsolateNameServer.removePortNameMapping(_actionPort);
+    _actions.close();
     widget.services.cryptoLocked.removeListener(_onCryptoLocked);
     _authSub.cancel();
     _usernameSub.cancel();
