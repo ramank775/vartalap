@@ -333,10 +333,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  /// A 20dp label in a 32dp chip (M3's own padding makes it 36).
-  static const _chipPadding =
-      EdgeInsets.symmetric(horizontal: kSpaceSm, vertical: 6);
-
   /// WhatsApp's search bar, then the filter chips.
   Widget _header() {
     final scheme = Theme.of(context).colorScheme;
@@ -348,7 +344,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
             showCheckmark: false,
             // 32dp like WhatsApp's, not padded out to 48
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            padding: _chipPadding,
             shape: const StadiumBorder(),
             side: BorderSide.none,
             backgroundColor: scheme.surfaceContainerHighest,
@@ -412,7 +407,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   }),
                 ActionChip(
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding: _chipPadding,
                   avatar: Icon(Icons.add, color: scheme.onSurfaceVariant),
                   label: const Text('Labels'),
                   tooltip: 'Labels',
@@ -980,9 +974,6 @@ class ChannelTile extends StatelessWidget {
     ];
 
     return ListTile(
-      // WhatsApp's row: 72dp, no padding on top of it
-      contentPadding: const EdgeInsets.symmetric(horizontal: kSpaceMd),
-      minTileHeight: 72,
       // The same tint as a selected message in the chat screen.
       tileColor: selected ? scheme.primary.withValues(alpha: 0.12) : null,
       leading: !selected

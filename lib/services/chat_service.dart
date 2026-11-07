@@ -365,12 +365,17 @@ class ChatService with TimelineService, AlbumService {
   Future<void> setPresence(String mode, [Set<int>? labelIds]) async {
     final users = labelIds == null ? null : await _labelMembers(labelIds);
     await _authClient.patchOwnProfile(presence: mode, presenceUsers: users);
-    final prefs = await SharedPreferences.getInstance();
-    if (labelIds == null) {
-      await prefs.remove(_presenceLabelsKey);
-    } else {
-      await prefs.setString(_presenceLabelsKey,
-          jsonEncode({'mode': mode, 'labels': [...labelIds], 'users': users}));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (labelIds == null) {
+        await prefs.remove(_presenceLabelsKey);
+      } else {
+        await prefs.setString(_presenceLabelsKey,
+            jsonEncode({'mode': mode, 'labels': [...labelIds], 'users': users}));
+      }
+    } catch (_) {
+      // No platform channel (a plain test): the server has it; labels
+      // changing later are not followed.
     }
   }
 

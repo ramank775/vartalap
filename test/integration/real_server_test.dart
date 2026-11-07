@@ -29,6 +29,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vartalap/main.dart' show pullPendingPages;
 import 'package:vartalap/services/album_client.dart';
 import 'package:vartalap/services/auth_service.dart';
@@ -89,6 +90,8 @@ void main() {
       final sent = <String>[];
 
       setUpAll(() async {
+        // last seen by labels keeps its labels in the preferences
+        SharedPreferences.setMockInitialValues({});
         a = await _Client.boot(baseUrl, label: 'A');
         c = await _Client.boot(baseUrl, label: 'C');
         b = await _Client.boot(baseUrl, label: 'B');
@@ -475,7 +478,7 @@ void main() {
         await a.waitFor(() => a.chat.presence.value?.online == true);
 
         // B hides it: A is told at once, and hears nothing after.
-        await b.authService.setPresenceSetting('nobody');
+        await b.chat.setPresence('nobody');
         await a.waitFor(() => a.chat.presence.value == null);
         expect(a.chat.presence.value, isNull);
         b.chat.setOnScreen(false);
@@ -484,9 +487,9 @@ void main() {
         expect(a.chat.presence.value, isNull, reason: 'not even the change');
 
         // Reciprocity: A hides hers, so cannot see B's.
-        await b.authService.setPresenceSetting('everyone');
+        await b.chat.setPresence('everyone');
         b.chat.setOnScreen(true);
-        await a.authService.setPresenceSetting('nobody');
+        await a.chat.setPresence('nobody');
         await a.chat.watchPresence(dmChannel);
         await a.pump();
         await a.pump();
@@ -495,8 +498,8 @@ void main() {
 
         // My contacts: people connected by an accepted invite (2d), as A
         // and B are (decision 219).
-        await a.authService.setPresenceSetting('everyone');
-        await b.authService.setPresenceSetting('contacts');
+        await a.chat.setPresence('everyone');
+        await b.chat.setPresence('contacts');
         await a.waitForAsync(() async {
           await a.chat.watchPresence(dmChannel);
           await a.pump();
@@ -505,8 +508,36 @@ void main() {
         expect(a.chat.presence.value?.online, isTrue,
             reason: 'A and B are connected');
 
+        // By label (decision 226): B's Family holds A. The server gets
+        // A's user id, never the label.
+        final family = (await b.chat.fetchLabels())
+            .firstWhere((l) => l.name == 'Family');
+        await b.chat.setLabelMembers(family.labelId, {a.userId});
+        await b.chat.setPresence('except', {family.labelId});
+        await a.waitForAsync(() async {
+          await a.chat.watchPresence(dmChannel);
+          await a.pump();
+          return a.chat.presence.value == null;
+        });
+        expect(a.chat.presence.value, isNull, reason: 'B: all but Family');
+        await b.chat.setPresence('only', {family.labelId});
+        await a.waitForAsync(() async {
+          await a.chat.watchPresence(dmChannel);
+          await a.pump();
+          return a.chat.presence.value?.online == true;
+        });
+        expect(a.chat.presence.value?.online, isTrue, reason: 'B: Family only');
+        // A leaves Family: B's phone sends the new, empty list itself.
+        await b.chat.setLabelMembers(family.labelId, {});
+        await a.waitForAsync(() async {
+          await a.chat.watchPresence(dmChannel);
+          await a.pump();
+          return a.chat.presence.value == null;
+        });
+        expect(a.chat.presence.value, isNull, reason: 'A left Family');
+
         // A block hides it both ways, whatever the setting.
-        await b.authService.setPresenceSetting('everyone');
+        await b.chat.setPresence('everyone');
         await b.chat.setBlocked(a.userId, true);
         await a.waitForAsync(() async {
           await a.chat.watchPresence(dmChannel);
