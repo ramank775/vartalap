@@ -172,9 +172,14 @@ enum ChatPayloadType {
   // no-ops on recipients.
   TYPE_REACTION_REMOVE = 5;
 
-  // Forward an existing message into this channel as a new message.
-  // Identical to TYPE_MESSAGE_CREATE plus `forward_source` metadata
-  // for recipient UI ("Forwarded from …").
+  // Forward an existing message into this channel as a new message
+  // (SYNC_PROTOCOL.md §25). Identical to TYPE_MESSAGE_CREATE plus
+  // `forward_source`, which recipients show as "Forwarded" (from 5
+  // forwards "Forwarded many times"); never who wrote it first. The
+  // content travels unchanged: attachments keep their url (the fileId
+  // is the capability, nothing is uploaded again), a secure message its
+  // `secure_box` and `secure_key` byte for byte (decision 222). No
+  // `reply_to_message_id`, no `timer_sec`.
   TYPE_MESSAGE_FORWARD = 6;
 
   // Sender has read this channel up to and including the message
@@ -249,6 +254,15 @@ message Attachment {
 }
 
 message ForwardSource {
-  string source_channel_id = 1;
-  string source_message_id = 2;
+  // Decision 218: ids as bytes. 1 and 2 held them as text.
+  reserved 1, 2;
+  // The chat and the message forwarded from, 16 bytes each. The app
+  // leaves both empty: a message id carries its author's user bits
+  // (decision 218) and a 1:1 chat id derives from the pair, so either
+  // would tell the receiver who wrote it first.
+  bytes source_channel_id = 3;
+  bytes source_message_id = 4;
+  // How many forwards the content has been through, this one included:
+  // 1 when what was forwarded was not itself a forward.
+  uint32 forward_count = 5;
 }

@@ -17,6 +17,7 @@ import 'package:record/record.dart';
 import 'package:vartalap_crypto/vartalap_crypto.dart' show SecureUnlock;
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap/screens/chat/attachment_preview.dart';
+import 'package:vartalap/screens/chat/forward.dart';
 import 'package:vartalap/screens/chat/live_location.dart';
 import 'package:vartalap/screens/chat/message_options.dart';
 import 'package:vartalap/screens/chat/presence_line.dart';
@@ -804,12 +805,24 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
   }
 
   /// The selection app bar: the count, and what can be done to every
-  /// selected message (WhatsApp's contextual bar). Reply and Edit need
-  /// exactly one.
+  /// selected message (WhatsApp's contextual bar): Reply, Star, Delete
+  /// and Forward as icons, Copy and Edit under the menu. Reply and Edit
+  /// need exactly one.
   AppBar _selectionBar(List<MessageRow> sel) {
     final one = sel.length == 1 ? sel.single : null;
     // WhatsApp: Unstar only when every selected message is starred.
     final allStarred = sel.every((m) => m.starredAtMs != null);
+    final more = <(String, VoidCallback)>[
+      if (sel.every(_canCopy)) ('Copy', () => _copy(sel)),
+      if (one != null && _canEdit(one))
+        (
+          'Edit',
+          () {
+            _clearSelection();
+            _startEdit(one);
+          }
+        ),
+    ];
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.close),
@@ -834,28 +847,68 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
                   [for (final m in sel) m.messageId], !allStarred);
             },
           ),
-        if (sel.every(_canCopy))
-          IconButton(
-            icon: const Icon(Icons.copy_outlined),
-            tooltip: 'Copy',
-            onPressed: () => _copy(sel),
-          ),
-        if (one != null && _canEdit(one))
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit',
-            onPressed: () {
-              _clearSelection();
-              _startEdit(one);
-            },
-          ),
         IconButton(
           icon: const Icon(Icons.delete_outline),
           tooltip: 'Delete',
           onPressed: () => _confirmDelete(sel),
         ),
+        if (sel.every(ChatService.canForward))
+          IconButton(
+            icon: const Icon(Icons.shortcut),
+            tooltip: 'Forward',
+            onPressed: () => _forward(sel),
+          ),
+        if (more.isNotEmpty)
+          PopupMenuButton<VoidCallback>(
+            tooltip: 'More options',
+            onSelected: (action) => action(),
+            itemBuilder: (_) => [
+              for (final (label, action) in more)
+                PopupMenuItem(value: action, child: Text(label)),
+            ],
+          ),
       ],
     );
+  }
+
+  /// WhatsApp's forward: pick chats, send, and open the chat when there
+  /// was just one (SYNC_PROTOCOL §25).
+  Future<void> _forward(List<MessageRow> sel) async {
+    final self = widget.authService.currentUserId;
+    if (self == null) return;
+    final many =
+        sel.any((m) => ChatService.forwardCount(m) >= kForwardedManyTimes);
+    final targets = await Navigator.of(context).push<List<ForwardTarget>>(
+      MaterialPageRoute(
+        builder: (_) => ForwardScreen(
+          chatService: widget.chatService,
+          selfUserId: self,
+          limit: many ? 1 : ChatService.maxForwardChats,
+        ),
+      ),
+    );
+    if (targets == null || targets.isEmpty || !mounted) return;
+    _clearSelection();
+    await widget.chatService.forwardMessages(
+      messages: sel,
+      channelIds: [for (final t in targets) t.channelId],
+      authorUserId: self,
+    );
+    if (!mounted) return;
+    final only = targets.length == 1 ? targets.single : null;
+    if (only == null || only.channelId == widget.channelId) {
+      _toast('Forwarded');
+      return;
+    }
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => ChatScreen(
+        channelId: only.channelId,
+        channelName: only.title,
+        channelKind: only.group ? 'group' : 'dm',
+        chatService: widget.chatService,
+        authService: widget.authService,
+      ),
+    ));
   }
 
   /// Decision 222: "Delete for me" for anything, "Delete for everyone"
@@ -2491,6 +2544,7 @@ class _MessageBubble extends StatelessWidget {
 
     final starred = message.starredAtMs != null && !tombstoned;
     final timed = message.timerSec != null && !tombstoned;
+    final forwards = ChatService.forwardCount(message);
 
     // Time + tick (+ "edited", + star); white when it sits on a photo.
     Widget metaIn(Color color) => Row(
@@ -2638,6 +2692,11 @@ class _MessageBubble extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
+                    )),
+                  if (forwards > 0 && !tombstoned)
+                    pad(_ForwardedLabel(
+                      many: forwards >= kForwardedManyTimes,
+                      tint: fg,
                     )),
                   if (replyPreview != null && !tombstoned) ...[
                     _ReplyQuote(
@@ -2810,6 +2869,36 @@ class _MessageBubble extends StatelessWidget {
       case MessageState.rejected:
         return Icon(Icons.error_outline, size: 15, color: Colors.red[300]);
     }
+  }
+}
+
+/// "Forwarded" at the top of a forwarded bubble, "Forwarded many times"
+/// from [kForwardedManyTimes] forwards (SYNC_PROTOCOL §25).
+class _ForwardedLabel extends StatelessWidget {
+  final bool many;
+  final Color tint;
+
+  const _ForwardedLabel({required this.many, required this.tint});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = tint.withValues(alpha: 0.6);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(many ? Icons.fast_forward : Icons.shortcut,
+              size: 14, color: color),
+          const SizedBox(width: 3),
+          Text(
+            many ? 'Forwarded many times' : 'Forwarded',
+            style: TextStyle(
+                fontSize: 12.5, fontStyle: FontStyle.italic, color: color),
+          ),
+        ],
+      ),
+    );
   }
 }
 

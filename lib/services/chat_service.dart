@@ -27,6 +27,7 @@ import 'package:vartalap/services/timeline_client.dart';
 import 'dart:isolate';
 
 import 'package:vartalap/services/message_crypto.dart';
+import 'package:vartalap/utils/rich_message.dart' show kLiveLocationType;
 import 'package:vartalap_crypto/vartalap_crypto.dart';
 import 'package:vartalap_proto/vartalap_proto.dart' as pb;
 import 'package:vartalap_store/vartalap_store.dart';
@@ -74,6 +75,10 @@ Future<SealedSecret> _sealWithPassword(String secret, String password) =>
 
 Future<String> _openWithPassword(Uint8List box, String password) =>
     Isolate.run(() => openSecret(box, password: password));
+
+/// SYNC_PROTOCOL §25: from this many forwards a message reads "Forwarded
+/// many times" (WhatsApp's), and goes on to one chat at a time.
+const int kForwardedManyTimes = 5;
 
 /// Decision 222: the timers a message can be sent with, in seconds (0 is
 /// Off), and how the composer names them.
@@ -543,6 +548,104 @@ class ChatService with TimelineService {
             ? sealSecret(secret)
             : await _sealWithPassword(secret, password),
       );
+
+  /// The most chats one forward goes to (WhatsApp's); one at a time for a
+  /// message already [kForwardedManyTimes] forwards along.
+  static const int maxForwardChats = 5;
+
+  /// SYNC_PROTOCOL §25: what may be forwarded. Not a deleted message or
+  /// one still waiting to decrypt; not a live location (the sharer's, and
+  /// live) or a timed message (its sender meant it to go); not an
+  /// attachment still on its way up (its url is a file on this phone).
+  static bool canForward(MessageRow m) {
+    if (m.tombstoned ||
+        m.timerSec != null ||
+        const {kUndecryptedType, kGroupEventType, kLiveLocationType}
+            .contains(m.contentType)) {
+      return false;
+    }
+    final files = m.attachments == null
+        ? const <pb.Attachment>[]
+        : pb.ChatPayload.fromBuffer(m.attachments!).attachments;
+    if (files.any((a) => a.url.startsWith('/'))) return false;
+    return files.isNotEmpty || m.secure != null || (m.body ?? '').isNotEmpty;
+  }
+
+  /// How many forwards [m]'s content has been through; 0 for an original.
+  static int forwardCount(MessageRow m) => m.forwardSource == null
+      ? 0
+      : max(1, pb.ForwardSource.fromBuffer(m.forwardSource!).forwardCount);
+
+  /// Forward [messages] to each of [channelIds], oldest first: new
+  /// messages with the same content, marked as forwards (SYNC_PROTOCOL
+  /// §25). Attachments keep their url, so nothing is uploaded again; a
+  /// secure message keeps its sealed box and key byte for byte, never
+  /// re-sealed (decision 222). Throws [ArgumentError] for a message
+  /// [canForward] refuses.
+  Future<void> forwardMessages({
+    required List<MessageRow> messages,
+    required List<String> channelIds,
+    required String authorUserId,
+  }) async {
+    if (!messages.every(canForward)) {
+      throw ArgumentError('This message cannot be forwarded.');
+    }
+    final sorted = [...messages]
+      ..sort((a, b) => a.displayTimestampMs.compareTo(b.displayTimestampMs));
+    for (final channelId in channelIds) {
+      for (final m in sorted) {
+        final now = _clock.nowMs();
+        final messageId = _uuidGen.next(nowMs: now);
+        final source = pb.ForwardSource(forwardCount: forwardCount(m) + 1);
+        final secure =
+            m.secure == null ? null : pb.ChatPayload.fromBuffer(m.secure!);
+        await _store.enqueueLocalMessage(
+          message: MessageRow(
+            messageId: messageId,
+            channelId: channelId,
+            authorUserId: authorUserId,
+            body: m.body,
+            contentType: m.contentType,
+            replyToMessageId: null,
+            clientTimestampMs: now,
+            serverTimestampMs: null,
+            state: MessageState.pending,
+            stateUpdatedAt: now,
+            isEdited: false,
+            lastEditMs: null,
+            tombstoned: false,
+            tombstonePendingUntil: null,
+            attachments: m.attachments,
+            secure: m.secure,
+            forwardSource: source.writeToBuffer(),
+          ),
+          op: _chatOp(
+            kind: OpKind.chatPayload,
+            channelId: channelId,
+            messageId: messageId,
+            nowMs: now,
+            payload: pb.ChatPayload(
+              version: 1,
+              type: pb.ChatPayloadType.TYPE_MESSAGE_FORWARD,
+              messageId: uuidBytes(messageId),
+              body: (m.body ?? '').isEmpty ? null : m.body,
+              contentType: m.contentType == 'text/plain' ? null : m.contentType,
+              attachments: m.attachments == null
+                  ? null
+                  : pb.ChatPayload.fromBuffer(m.attachments!).attachments,
+              forwardSource: source,
+              secureBox: secure?.secureBox,
+              secureKey: secure != null && secure.hasSecureKey()
+                  ? secure.secureKey
+                  : null,
+            ).writeToBuffer(),
+          ),
+          nowMs: now,
+        );
+      }
+    }
+    _scheduler.tickSoon();
+  }
 
   /// How [m], a secure message, opens; null when it is none this build
   /// can open.

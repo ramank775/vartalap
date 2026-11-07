@@ -261,6 +261,10 @@ class MessageRow {
   /// [attachments]. Null for any other message.
   final List<int>? secure;
 
+  /// A forwarded message's `ForwardSource` protobuf (SYNC_PROTOCOL §25),
+  /// callers decode; null for one that is not a forward.
+  final List<int>? forwardSource;
+
   /// When a timed message goes: its timer after its server time. Null
   /// when not timed, or not sent yet (its timer has not started).
   int? get expiresAtMs => timerSec == null || serverTimestampMs == null
@@ -287,6 +291,7 @@ class MessageRow {
     this.reactions = const [],
     this.timerSec,
     this.secure,
+    this.forwardSource,
   });
 }
 

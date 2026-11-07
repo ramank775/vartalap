@@ -2323,3 +2323,46 @@ profile-ms asks channel-ms `POST /_internal/connections/pairs {user_id}`
 reporter, counted from their first; past it, 429 `rate_limited`. The
 app still applies the block of "Report and block" when the report is
 refused, and says to try again tomorrow.
+
+---
+
+## 25. Forward, message info and the chat screen's small features (decision 223, wave 2)
+
+Client to client: the server relays these like any other op and needs
+no change.
+
+### 25.1 Forward
+
+A forward is a `TYPE_MESSAGE_FORWARD`: a new message (its own
+`message_id`, class MESSAGE, so it wakes and notifies like a create) in
+the chat it goes to, carrying the forwarded message's content unchanged
+and a `ForwardSource`:
+
+- `body`, `content_type` and `attachments` as the forwarded message has
+  them. An attachment keeps its `url` (fileId and key): the fileId is the
+  capability to download it (decision 36), so nothing is uploaded again.
+  Media-ms deletes a file 30 days after it was last *uploaded*, and a
+  forward does not count as one, so a forward of an older file can
+  arrive with nothing left to download.
+- A secure message keeps `secure_box` (and `secure_key`, for the
+  screen-lock method) byte for byte, never sealed again: a traceability
+  hash over the box is then the same for every copy (decision 222). A
+  password-locked one still needs the original sender's password.
+- Never `reply_to_message_id` or `timer_sec`.
+- `ForwardSource.forward_count`: the forwarded message's count plus one
+  (an original counts 0, so a first forward carries 1). Receivers show
+  "Forwarded", and from 5 "Forwarded many times". `source_channel_id`
+  and `source_message_id` stay empty: a message id carries its author's
+  user bits (decision 218) and a 1:1 chat id derives from the pair, so
+  either would tell the receiver who first wrote it. A forward without a
+  `ForwardSource` is shown as "Forwarded".
+
+The sender forwards only what is still the forwarded message's own
+content: not a deleted message or a "Waiting for this message"
+placeholder; not a live location (§21, it is the sharer's and live);
+not a timed message (§20.3: its sender meant it to go); not an
+attachment still on its way up (its url is a file on the sender's
+phone). Up to 5 chats at once, one at a time for a message already
+forwarded many times (WhatsApp's limits), and only to groups the sender
+is in and people they are connected with (§23; the gate refuses the
+rest anyway).

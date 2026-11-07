@@ -490,9 +490,12 @@ class InboundReceiver {
                   pb.ChatPayload(attachments: chat.attachments)
                       .writeToBuffer(),
                 ),
-          forwardSource: chat.hasForwardSource()
-              ? Uint8List.fromList(chat.forwardSource.writeToBuffer())
-              : null,
+          // A forward is shown as one even without its source
+          // (SYNC_PROTOCOL §25); a create never is.
+          forwardSource:
+              chat.type == pb.ChatPayloadType.TYPE_MESSAGE_FORWARD
+                  ? Uint8List.fromList(chat.forwardSource.writeToBuffer())
+                  : null,
           replyToMessageId: replyTo,
           clientTimestampMs: env.clientTimestampMs,
           serverTimestampMs: env.serverTimestampMs,

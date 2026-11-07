@@ -208,12 +208,30 @@ final $typed_data.Uint8List attachmentDescriptor = $convert.base64Decode(
 const ForwardSource$json = {
   '1': 'ForwardSource',
   '2': [
-    {'1': 'source_channel_id', '3': 1, '4': 1, '5': 9, '10': 'sourceChannelId'},
-    {'1': 'source_message_id', '3': 2, '4': 1, '5': 9, '10': 'sourceMessageId'},
+    {
+      '1': 'source_channel_id',
+      '3': 3,
+      '4': 1,
+      '5': 12,
+      '10': 'sourceChannelId'
+    },
+    {
+      '1': 'source_message_id',
+      '3': 4,
+      '4': 1,
+      '5': 12,
+      '10': 'sourceMessageId'
+    },
+    {'1': 'forward_count', '3': 5, '4': 1, '5': 13, '10': 'forwardCount'},
+  ],
+  '9': [
+    {'1': 1, '2': 2},
+    {'1': 2, '2': 3},
   ],
 };
 
 /// Descriptor for `ForwardSource`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List forwardSourceDescriptor = $convert.base64Decode(
-    'Cg1Gb3J3YXJkU291cmNlEioKEXNvdXJjZV9jaGFubmVsX2lkGAEgASgJUg9zb3VyY2VDaGFubm'
-    'VsSWQSKgoRc291cmNlX21lc3NhZ2VfaWQYAiABKAlSD3NvdXJjZU1lc3NhZ2VJZA==');
+    'Cg1Gb3J3YXJkU291cmNlEioKEXNvdXJjZV9jaGFubmVsX2lkGAMgASgMUg9zb3VyY2VDaGFubm'
+    'VsSWQSKgoRc291cmNlX21lc3NhZ2VfaWQYBCABKAxSD3NvdXJjZU1lc3NhZ2VJZBIjCg1mb3J3'
+    'YXJkX2NvdW50GAUgASgNUgxmb3J3YXJkQ291bnRKBAgBEAJKBAgCEAM=');

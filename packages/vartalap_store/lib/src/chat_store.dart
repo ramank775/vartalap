@@ -3004,7 +3004,9 @@ class ChatStore {
         'reply_to_message_id': m.replyToMessageId,
         'attachments':
             m.attachments == null ? null : Uint8List.fromList(m.attachments!),
-        'forward_source': null,
+        'forward_source': m.forwardSource == null
+            ? null
+            : Uint8List.fromList(m.forwardSource!),
         'client_timestamp_ms': m.clientTimestampMs,
         'server_timestamp_ms': m.serverTimestampMs,
         'message_state': m.state.wire,
@@ -3037,6 +3039,7 @@ class ChatStore {
         reactions: _parseReactions(r['reactions'] as String?),
         timerSec: r['timer_sec'] as int?,
         secure: r['secure'] as List<int>?,
+        forwardSource: r['forward_source'] as List<int>?,
       );
 
   /// Inverse of the `group_concat` in [fetchChannelMessages]. Null for

@@ -606,12 +606,14 @@ class Attachment extends $pb.GeneratedMessage {
 
 class ForwardSource extends $pb.GeneratedMessage {
   factory ForwardSource({
-    $core.String? sourceChannelId,
-    $core.String? sourceMessageId,
+    $core.List<$core.int>? sourceChannelId,
+    $core.List<$core.int>? sourceMessageId,
+    $core.int? forwardCount,
   }) {
     final result = create();
     if (sourceChannelId != null) result.sourceChannelId = sourceChannelId;
     if (sourceMessageId != null) result.sourceMessageId = sourceMessageId;
+    if (forwardCount != null) result.forwardCount = forwardCount;
     return result;
   }
 
@@ -629,8 +631,12 @@ class ForwardSource extends $pb.GeneratedMessage {
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'vartalap.v3.payload'),
       createEmptyInstance: create)
-    ..aOS(1, _omitFieldNames ? '' : 'sourceChannelId')
-    ..aOS(2, _omitFieldNames ? '' : 'sourceMessageId')
+    ..a<$core.List<$core.int>>(
+        3, _omitFieldNames ? '' : 'sourceChannelId', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        4, _omitFieldNames ? '' : 'sourceMessageId', $pb.PbFieldType.OY)
+    ..aI(5, _omitFieldNames ? '' : 'forwardCount',
+        fieldType: $pb.PbFieldType.OU3)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -652,23 +658,38 @@ class ForwardSource extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<ForwardSource>(create);
   static ForwardSource? _defaultInstance;
 
-  @$pb.TagNumber(1)
-  $core.String get sourceChannelId => $_getSZ(0);
-  @$pb.TagNumber(1)
-  set sourceChannelId($core.String value) => $_setString(0, value);
-  @$pb.TagNumber(1)
+  /// The chat and the message forwarded from, 16 bytes each. The app
+  /// leaves both empty: a message id carries its author's user bits
+  /// (decision 218) and a 1:1 chat id derives from the pair, so either
+  /// would tell the receiver who wrote it first.
+  @$pb.TagNumber(3)
+  $core.List<$core.int> get sourceChannelId => $_getN(0);
+  @$pb.TagNumber(3)
+  set sourceChannelId($core.List<$core.int> value) => $_setBytes(0, value);
+  @$pb.TagNumber(3)
   $core.bool hasSourceChannelId() => $_has(0);
-  @$pb.TagNumber(1)
-  void clearSourceChannelId() => $_clearField(1);
+  @$pb.TagNumber(3)
+  void clearSourceChannelId() => $_clearField(3);
 
-  @$pb.TagNumber(2)
-  $core.String get sourceMessageId => $_getSZ(1);
-  @$pb.TagNumber(2)
-  set sourceMessageId($core.String value) => $_setString(1, value);
-  @$pb.TagNumber(2)
+  @$pb.TagNumber(4)
+  $core.List<$core.int> get sourceMessageId => $_getN(1);
+  @$pb.TagNumber(4)
+  set sourceMessageId($core.List<$core.int> value) => $_setBytes(1, value);
+  @$pb.TagNumber(4)
   $core.bool hasSourceMessageId() => $_has(1);
-  @$pb.TagNumber(2)
-  void clearSourceMessageId() => $_clearField(2);
+  @$pb.TagNumber(4)
+  void clearSourceMessageId() => $_clearField(4);
+
+  /// How many forwards the content has been through, this one included:
+  /// 1 when what was forwarded was not itself a forward.
+  @$pb.TagNumber(5)
+  $core.int get forwardCount => $_getIZ(2);
+  @$pb.TagNumber(5)
+  set forwardCount($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(5)
+  $core.bool hasForwardCount() => $_has(2);
+  @$pb.TagNumber(5)
+  void clearForwardCount() => $_clearField(5);
 }
 
 const $core.bool _omitFieldNames =

@@ -278,6 +278,36 @@ void main() {
     expect(secure.secureKey, List.filled(32, 7));
   });
 
+  test('SYNC_PROTOCOL 25.1: a forward is stored as one, with or without '
+      'its source; a create never is', () async {
+    for (final (id, type, source) in [
+      ('m-fwd', pb.ChatPayloadType.TYPE_MESSAGE_FORWARD,
+          pb.ForwardSource(forwardCount: 3)),
+      ('m-fwd-bare', pb.ChatPayloadType.TYPE_MESSAGE_FORWARD, null),
+      ('m-plain', pb.ChatPayloadType.TYPE_MESSAGE_CREATE,
+          pb.ForwardSource(forwardCount: 2)),
+    ]) {
+      pushes.add(_makeEnvelope(
+        opId: 'op-$id',
+        senderUserId: _peerUserId,
+        payload: pb.ChatPayload(
+          version: 1,
+          type: type,
+          messageId: uuidBytes(_mid(id)),
+          body: id,
+          forwardSource: source,
+        ).writeToBuffer(),
+        serverTimestampMs: 6000,
+      ));
+      await _settle(store, _mid(id), present: true);
+    }
+    final fwd = (await store.fetchMessage(_mid('m-fwd')))!;
+    expect(pb.ForwardSource.fromBuffer(fwd.forwardSource!).forwardCount, 3);
+    expect((await store.fetchMessage(_mid('m-fwd-bare')))!.forwardSource,
+        isNotNull);
+    expect((await store.fetchMessage(_mid('m-plain')))!.forwardSource, isNull);
+  });
+
   test('decision 218: a message id that is not 16 bytes is malformed, '
       'dropped', () async {
     pushes.add(_makeEnvelope(

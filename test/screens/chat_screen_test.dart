@@ -153,6 +153,29 @@ void main() {
   Future<void> untilGone(WidgetTester tester, Finder finder) =>
       until(tester, () async => finder.evaluate().isEmpty);
 
+  /// What the selection's ⋮ menu offers, read by opening and closing it.
+  Future<List<String>> moreItems(WidgetTester tester) async {
+    if (find.byTooltip('More options').evaluate().isEmpty) return const [];
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pump(const Duration(milliseconds: 400));
+    final items = [
+      for (final e in find.byType(PopupMenuItem<VoidCallback>).evaluate())
+        ((e.widget as PopupMenuItem<VoidCallback>).child as Text).data!,
+    ];
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pump(const Duration(milliseconds: 400));
+    return items;
+  }
+
+  /// [label] from the selection's ⋮ menu.
+  Future<void> more(WidgetTester tester, String label) async {
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text(label).last);
+    await settle(tester);
+  }
+
   /// The selection's Delete, then the dialog's "Delete for everyone".
   Future<void> deleteForEveryone(WidgetTester tester) async {
     await tester.tap(find.byTooltip('Delete'));
@@ -195,19 +218,19 @@ void main() {
 
     await longPress(tester, 'my own message');
     expect(find.byTooltip('Reply'), findsOneWidget);
-    expect(find.byTooltip('Copy'), findsOneWidget);
-    expect(find.byTooltip('Edit'), findsOneWidget);
     expect(find.byTooltip('Delete'), findsOneWidget);
+    expect(find.byTooltip('Forward'), findsOneWidget);
+    expect(await moreItems(tester), ['Copy', 'Edit']);
 
     await tester.tap(find.byTooltip('Cancel')); // let go of it
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byTooltip('Edit'), findsNothing);
+    expect(find.byTooltip('Delete'), findsNothing);
 
     await longPress(tester, 'their message');
     expect(find.byTooltip('Reply'), findsOneWidget);
     expect(
-      find.byTooltip('Edit'),
-      findsNothing,
+      await moreItems(tester),
+      isNot(contains('Edit')),
       reason: 'SYNC_PROTOCOL §6a.3: recipients drop an UPDATE that is not '
           "from the author, so editing someone else's message would be a "
           'button that provably does nothing.',
@@ -230,17 +253,16 @@ void main() {
     await tester.tap(find.textContaining('their message'));
     await settle(tester);
     expect(find.text('2'), findsOneWidget);
-    expect(find.byTooltip('Copy'), findsOneWidget);
     expect(find.byTooltip('Reply'), findsNothing,
         reason: 'Reply and Edit need exactly one message.');
-    expect(find.byTooltip('Edit'), findsNothing);
+    expect(await moreItems(tester), ['Copy']);
     expect(find.byTooltip('Delete'), findsOneWidget,
         reason: 'Delete for me fits any message.');
 
     await tester.tap(find.textContaining('their message'));
     await settle(tester);
     expect(find.text('1'), findsOneWidget);
-    expect(find.byTooltip('Edit'), findsOneWidget);
+    expect(await moreItems(tester), contains('Edit'));
 
     await tester.tap(find.textContaining('my own message'));
     await settle(tester);
@@ -268,8 +290,7 @@ void main() {
     await longPress(tester, 'their message');
     await tester.tap(find.textContaining('my own message'));
     await settle(tester);
-    await tester.tap(find.byTooltip('Copy'));
-    await settle(tester);
+    await more(tester, 'Copy');
 
     final lines = copied!.split('\n');
     expect(lines, hasLength(2));
@@ -365,8 +386,7 @@ void main() {
     await pumpChat(tester);
     await longPress(tester, 'my own message');
 
-    await tester.tap(find.byTooltip('Edit'));
-    await settle(tester);
+    await more(tester, 'Edit');
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('Editing message'), findsOneWidget);
@@ -391,8 +411,7 @@ void main() {
     await pumpChat(tester);
     final before = (await ops(tester)).length;
     await longPress(tester, 'my own message');
-    await tester.tap(find.byTooltip('Edit'));
-    await settle(tester);
+    await more(tester, 'Edit');
     await tester.pump(const Duration(milliseconds: 400));
 
     await tester.tap(find.byIcon(Icons.check_rounded));
@@ -1126,6 +1145,121 @@ void main() {
       expect(find.text('No results found'), findsOneWidget);
       expect(enabled(tester, up), isFalse);
       expect(enabled(tester, down), isFalse);
+    });
+  });
+
+  group('forward (SYNC_PROTOCOL §25)', () {
+    const groupId = '0190aaaa-0000-7000-8000-0000000000c1';
+    const stranger = 'ccccccccc';
+
+    /// A group we are in, a connection, and someone not connected.
+    Future<void> seedTargets() async {
+      await store.insertChannel(
+        channelId: groupId,
+        kind: 'group',
+        ownerUserId: localUserId,
+        createdAt: 1000,
+        name: 'Family',
+      );
+      await store.insertChannelMember(
+          channelId: groupId, userId: localUserId, role: 'owner', joinedAt: 1);
+      for (final (id, name) in [(peerUserId, 'peer'), (stranger, 'nobody')]) {
+        await store.upsertContact(userId: id, username: name, nowMs: 1);
+      }
+      await store.setConnection(peerUserId, connected: true);
+    }
+
+    testWidgets(
+        'Forward picks a chat, sends TYPE_MESSAGE_FORWARD there and opens it',
+        (tester) async {
+      await pumpChat(tester, seed: seedTargets);
+      await longPress(tester, 'their message');
+      await tester.tap(find.byTooltip('Forward'));
+      await settle(tester);
+
+      expect(find.text('Forward to…'), findsOneWidget);
+      expect(find.text('Family'), findsOneWidget);
+      expect(find.text('@peer'), findsOneWidget);
+      expect(find.text('@nobody'), findsNothing,
+          reason: 'decision 219: only connections and groups');
+
+      await tester.enterText(find.widgetWithText(TextField, 'Search'), 'fam');
+      await settle(tester);
+      expect(find.text('@peer'), findsNothing);
+      await tester.tap(find.text('Family'));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400)); // the FAB
+      await tester.tap(find.byTooltip('Send'));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      await settle(tester);
+
+      final sent = [
+        for (final op in await ops(tester))
+          if (op['resource_id'] == groupId) _payload(op),
+      ];
+      expect(sent.single.type, pb.ChatPayloadType.TYPE_MESSAGE_FORWARD);
+      expect(sent.single.body, 'their message');
+      expect(sent.single.forwardSource.forwardCount, 1);
+      // The group's chat replaced this one, the forward in it.
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 400));
+        await settle(tester);
+      }
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(find.text('Forwarded'), findsOneWidget);
+      expect(find.textContaining('their message'), findsOneWidget);
+    });
+
+    testWidgets('a timed or deleted message offers no Forward',
+        (tester) async {
+      await pumpChat(tester, seed: () async {
+        await store.applyInboundMessage(
+          localUserId: localUserId,
+          channelId: channelId,
+          opId: 'seed-timed',
+          messageId: 'm-timed',
+          senderUserId: peerUserId,
+          body: 'OTP 4321',
+          contentType: null,
+          attachments: null,
+          forwardSource: null,
+          replyToMessageId: null,
+          clientTimestampMs: _seedBase + 3,
+          serverTimestampMs: _seedBase + 3,
+          nowMs: _seedBase + 3,
+          timerSec: 86400,
+        );
+      });
+      await longPress(tester, 'OTP 4321');
+      expect(find.byTooltip('Delete'), findsOneWidget);
+      expect(find.byTooltip('Forward'), findsNothing);
+    });
+
+    testWidgets('a received forward says so; five forwards along, many times',
+        (tester) async {
+      await pumpChat(tester, seed: () async {
+        for (final (id, count, seq) in [('m-f1', 1, 3), ('m-f5', 5, 4)]) {
+          await store.applyInboundMessage(
+            localUserId: localUserId,
+            channelId: channelId,
+            opId: 'seed-$id',
+            messageId: id,
+            senderUserId: peerUserId,
+            body: 'forwarded $count',
+            contentType: null,
+            attachments: null,
+            forwardSource:
+                pb.ForwardSource(forwardCount: count).writeToBuffer(),
+            replyToMessageId: null,
+            clientTimestampMs: _seedBase + seq,
+            serverTimestampMs: _seedBase + seq,
+            nowMs: _seedBase + seq,
+          );
+        }
+      });
+      expect(find.text('Forwarded'), findsOneWidget);
+      expect(find.text('Forwarded many times'), findsOneWidget);
     });
   });
 }

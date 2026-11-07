@@ -44,9 +44,14 @@ class ChatPayloadType extends $pb.ProtobufEnum {
   static const ChatPayloadType TYPE_REACTION_REMOVE =
       ChatPayloadType._(5, _omitEnumNames ? '' : 'TYPE_REACTION_REMOVE');
 
-  /// Forward an existing message into this channel as a new message.
-  /// Identical to TYPE_MESSAGE_CREATE plus `forward_source` metadata
-  /// for recipient UI ("Forwarded from …").
+  /// Forward an existing message into this channel as a new message
+  /// (SYNC_PROTOCOL.md §25). Identical to TYPE_MESSAGE_CREATE plus
+  /// `forward_source`, which recipients show as "Forwarded" (from 5
+  /// forwards "Forwarded many times"); never who wrote it first. The
+  /// content travels unchanged: attachments keep their url (the fileId
+  /// is the capability, nothing is uploaded again), a secure message its
+  /// `secure_box` and `secure_key` byte for byte (decision 222). No
+  /// `reply_to_message_id`, no `timer_sec`.
   static const ChatPayloadType TYPE_MESSAGE_FORWARD =
       ChatPayloadType._(6, _omitEnumNames ? '' : 'TYPE_MESSAGE_FORWARD');
 
