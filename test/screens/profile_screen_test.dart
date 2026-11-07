@@ -7,9 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap/screens/profile/profile.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_transport/vartalap_transport.dart';
+
+import '../fake_asset_cache.dart';
 
 void main() {
   Future<void> pumpProfile(
@@ -283,6 +288,38 @@ void main() {
     );
   });
 
+
+  testWidgets('own photo: a tap shows it full screen with a pencil; the '
+      'badge goes straight to changing it', (tester) async {
+    AssetCache.instance = FakeAssetCache({'f-me': onePixelPng});
+    addTearDown(() => AssetCache.instance = null);
+    final chat = _FakeChatService('f-me');
+    await tester.pumpWidget(MaterialApp(
+      theme: lightThemeData,
+      home: ProfileScreen(
+        authService: _FakeAuthService(phone: '+919876543210', name: 'Raman'),
+        chatService: chat,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(Avator));
+    await tester.pumpAndSettle();
+    expect(find.text('Profile photo'), findsOneWidget);
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(chat.assetsRead, 0, reason: 'nothing picked yet');
+
+    // The pencil closes the viewer and opens the picker.
+    await tester.tap(find.byTooltip('Change photo'));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsNothing);
+    expect(chat.assetsRead, 1);
+
+    await tester.tap(find.byIcon(Icons.photo_camera));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsNothing);
+    expect(chat.assetsRead, 2);
+  });
 }
 
 /// Real AuthService with a no-op transport + storage, plus injected
@@ -386,4 +423,24 @@ class _FakeAuthService extends AuthService {
 class _NoopStorage implements FlutterSecureStorage {
   @override
   dynamic noSuchMethod(Invocation invocation) async => null;
+}
+
+/// Own photo only: [assetsRead] counts the picker being opened.
+class _FakeChatService implements ChatService {
+  final String? photo;
+  int assetsRead = 0;
+  _FakeChatService(this.photo);
+
+  @override
+  Future<String?> ownAvatarUrl() async => photo;
+
+  @override
+  AssetCache get assets {
+    assetsRead++;
+    return AssetCache.instance!;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
 }

@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:vartalap/services/asset_cache.dart';
+import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/color_helper.dart';
 import 'package:vartalap/widgets/Inherited/app_services.dart';
 import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap_sync/vartalap_sync.dart' show dmChannelId;
+
+/// The big photo at the top of Profile, Contact info and Chat info
+/// (WhatsApp's is about this size).
+const double kAvatarHeader = 120;
 
 /// Colour seed for a person: the id of your DM with them. The chat list
 /// and chat header seed a DM by its channel id, so seeding people the
@@ -147,10 +152,13 @@ class Avator extends StatelessWidget {
 }
 
 /// [Avator] with the camera affordance from mockup frames e (group
-/// photo) and h2 (own photo). Tapping anywhere on it runs [onTap].
+/// photo) and h2 (own photo). The badge runs [onTap]; so does the photo
+/// itself, unless [onView] is set (WhatsApp: a photo opens full screen
+/// first, and the badge goes straight to changing it).
 class EditableAvator extends StatelessWidget {
   final Widget avatar;
   final VoidCallback onTap;
+  final VoidCallback? onView;
 
   /// Shown instead of the badge while an upload is being prepared.
   final bool busy;
@@ -159,23 +167,24 @@ class EditableAvator extends StatelessWidget {
     super.key,
     required this.avatar,
     required this.onTap,
+    this.onView,
     this.busy = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: busy ? null : onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          avatar,
-          Positioned(
-            right: -2,
-            bottom: -2,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        GestureDetector(onTap: busy ? null : onView ?? onTap, child: avatar),
+        Positioned(
+          right: 0,
+          bottom: 0,
+          child: GestureDetector(
+            onTap: busy ? null : onTap,
             child: Container(
-              padding: const EdgeInsets.all(6),
+              padding: const EdgeInsets.all(kSpaceSm),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: scheme.primary,
@@ -183,18 +192,21 @@ class EditableAvator extends StatelessWidget {
               ),
               child: busy
                   ? SizedBox(
-                      width: 16,
-                      height: 16,
+                      width: 20,
+                      height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: scheme.onPrimary,
                       ),
                     )
-                  : Icon(Icons.photo_camera, size: 16, color: scheme.onPrimary),
+                  : Icon(Icons.photo_camera,
+                      size: 20,
+                      color: scheme.onPrimary,
+                      semanticLabel: 'Change photo'),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

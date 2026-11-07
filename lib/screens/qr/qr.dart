@@ -83,7 +83,9 @@ class _MyCodeState extends State<_MyCode> {
     final key = auth.usernameKey;
     final name = auth.displayName ?? '@$username';
     return ListView(
-      padding: const EdgeInsets.all(kSpaceLg),
+      // Clear of the gesture bar on an edge-to-edge screen.
+      padding: const EdgeInsets.all(kSpaceLg) +
+          EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
       children: [
         Container(
           padding: const EdgeInsets.all(kSpaceLg),
@@ -145,27 +147,13 @@ class _ScanCode extends StatefulWidget {
 }
 
 class _ScanCodeState extends State<_ScanCode> {
-  PermissionStatus? _camera;
-
   /// The camera keeps reading the same code; act on it once until
   /// Contact info closes again.
   bool _busy = false;
   String? _lastBad;
 
-  @override
-  void initState() {
-    super.initState();
-    _askCamera();
-  }
-
-  Future<void> _askCamera() async {
-    final status = await Permission.camera.request();
-    if (mounted) setState(() => _camera = status);
-  }
-
-  Future<void> _onScan(Code code) async {
-    final raw = code.text;
-    if (_busy || raw == null) return;
+  Future<void> _onScan(String raw) async {
+    if (_busy) return;
     if (parseUsernameLink(raw) == null) {
       if (raw == _lastBad) return;
       _lastBad = raw;
@@ -182,6 +170,34 @@ class _ScanCodeState extends State<_ScanCode> {
       authService: widget.authService,
     );
     _busy = false;
+  }
+
+  @override
+  Widget build(BuildContext context) => QrScanView(onText: _onScan);
+}
+
+/// The camera reading QR codes, after asking for it. [onText] runs for
+/// every read, the same code again and again while it stays in view.
+class QrScanView extends StatefulWidget {
+  final ValueChanged<String> onText;
+  const QrScanView({super.key, required this.onText});
+
+  @override
+  State<QrScanView> createState() => _QrScanViewState();
+}
+
+class _QrScanViewState extends State<QrScanView> {
+  PermissionStatus? _camera;
+
+  @override
+  void initState() {
+    super.initState();
+    _askCamera();
+  }
+
+  Future<void> _askCamera() async {
+    final status = await Permission.camera.request();
+    if (mounted) setState(() => _camera = status);
   }
 
   @override
@@ -218,7 +234,10 @@ class _ScanCodeState extends State<_ScanCode> {
     }
     return ReaderWidget(
       codeFormat: Format.qrCode,
-      onScan: _onScan,
+      onScan: (code) {
+        final raw = code.text;
+        if (raw != null) widget.onText(raw);
+      },
       showToggleCamera: false,
       // A screenshot of someone's code works too.
       showGallery: true,

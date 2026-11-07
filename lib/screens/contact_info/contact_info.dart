@@ -10,11 +10,13 @@ library vartalap.screens.contact_info;
 
 import 'package:flutter/material.dart';
 import 'package:vartalap/screens/chat/chat.dart';
+import 'package:vartalap/screens/chat_info/chat_info.dart' show InfoActions;
 import 'package:vartalap/screens/labels/labels.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/username_link.dart';
+import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/name_dialog.dart';
 import 'package:vartalap_store/vartalap_store.dart';
@@ -177,23 +179,33 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     final text = Theme.of(context).textTheme;
     final contact = _contact;
     final label = contact.displayLabel;
+    final photo = contact.avatarUrl;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Contact info')),
       body: ListView(
+        // Clear of the gesture bar on an edge-to-edge screen.
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.paddingOf(context).bottom + kSpaceMd),
         children: [
-          const SizedBox(height: kSpaceLg),
+          const SizedBox(height: kSpaceMd),
           Center(
             child: Column(
               children: [
-                Avator(
-                  text: label,
-                  seed: personSeed(context, contact.userId),
-                  avatarUrl: contact.avatarUrl,
-                  width: kAvatarXl,
-                  height: kAvatarXl,
+                // WhatsApp: tap the photo to see it full screen.
+                GestureDetector(
+                  onTap: photo == null || photo.isEmpty
+                      ? null
+                      : () => showAssetViewer(context, uri: photo, title: label),
+                  child: Avator(
+                    text: label,
+                    seed: personSeed(context, contact.userId),
+                    avatarUrl: photo,
+                    width: kAvatarHeader,
+                    height: kAvatarHeader,
+                  ),
                 ),
-                const SizedBox(height: kSpaceMd),
+                const SizedBox(height: kSpaceSm),
                 Text(label, style: text.headlineSmall),
                 // displayLabel falls back to "@username" when there is no
                 // name; don't print the handle twice.
@@ -221,25 +233,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               ],
             ),
           ),
-          const SizedBox(height: kSpaceLg),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              FilledButton.icon(
-                onPressed: _opening ? null : _onMessage,
-                icon: const Icon(Icons.send_rounded, size: 18),
-                label: const Text('Message'),
-              ),
-              if (contact.contactBookName == null) ...[
-                const SizedBox(width: kSpaceSm),
-                OutlinedButton.icon(
-                  onPressed: _saveContact,
-                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
-                  label: const Text('Save contact'),
-                ),
-              ],
-            ],
-          ),
+          const SizedBox(height: kSpaceMd),
+          InfoActions(actions: [
+            (Icons.chat_outlined, 'Message', _opening ? null : _onMessage),
+            if (contact.contactBookName == null)
+              (Icons.person_add_alt_1_outlined, 'Save', _saveContact),
+          ]),
           const SizedBox(height: kSpaceSm),
           Center(
             child: Row(
@@ -256,8 +255,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               ],
             ),
           ),
-          const SizedBox(height: kSpaceMd),
-          const Divider(height: 1, indent: 0),
+          const SizedBox(height: kSpaceSm),
+          const Divider(height: kSpaceSm, indent: 0),
           ContactLabelsTile(
               chatService: widget.chatService, userId: contact.userId),
           FutureBuilder<List<ChannelListEntry>>(
@@ -270,10 +269,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 children: [
                   // Full width: the theme's 72dp indent is for rows with
                   // an avatar, and this separates whole sections.
-                  const Divider(height: 1, indent: 0),
+                  const Divider(height: kSpaceSm, indent: 0),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
-                        kSpaceMd, kSpaceMd, kSpaceMd, kSpaceSm),
+                        kSpaceMd, kSpaceSm, kSpaceMd, kSpaceXs),
                     child: Text(
                       groups.length == 1
                           ? '1 group in common'

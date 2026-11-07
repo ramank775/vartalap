@@ -104,8 +104,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
       body: ListView(
+        // Clear of the gesture bar on an edge-to-edge screen.
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.paddingOf(context).bottom + kSpaceMd),
         children: [
-          const SizedBox(height: kSpaceXl),
+          const SizedBox(height: kSpaceLg),
           Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -115,7 +118,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 busy: _settingPhoto,
                 onPickPhoto: widget.chatService == null ? null : _pickPhoto,
               ),
-              const SizedBox(height: kSpaceMd),
+              const SizedBox(height: kSpaceSm),
             ],
           ),
           _InlineEditableRow(
@@ -209,7 +212,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onSave: (v) => auth.setUsernameKey(v),
             validator: _validateUsernameKey,
           ),
-          const SizedBox(height: kSpaceLg),
         ],
       ),
     );
@@ -630,13 +632,13 @@ class _ProfileAvatar extends StatelessWidget {
         ? Avator(
             text: name!,
             avatarUrl: avatarUrl,
-            width: kAvatarXl,
-            height: kAvatarXl,
+            width: kAvatarHeader,
+            height: kAvatarHeader,
           )
         : ClipOval(
             child: Container(
-              width: kAvatarXl,
-              height: kAvatarXl,
+              width: kAvatarHeader,
+              height: kAvatarHeader,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: scheme.primaryContainer,
@@ -645,16 +647,16 @@ class _ProfileAvatar extends StatelessWidget {
               child: avatarUrl == null || avatarUrl!.isEmpty
                   ? Icon(
                       Icons.person_rounded,
-                      size: kAvatarXl * 0.5,
+                      size: kAvatarHeader * 0.5,
                       color: scheme.onPrimaryContainer,
                     )
                   : AssetImageView(
                       uri: avatarUrl!,
-                      width: kAvatarXl,
-                      height: kAvatarXl,
+                      width: kAvatarHeader,
+                      height: kAvatarHeader,
                       placeholder: Icon(
                         Icons.person_rounded,
-                        size: kAvatarXl * 0.5,
+                        size: kAvatarHeader * 0.5,
                         color: scheme.onPrimaryContainer,
                       ),
                     ),
@@ -662,7 +664,17 @@ class _ProfileAvatar extends StatelessWidget {
           );
     final pick = onPickPhoto;
     if (pick == null) return face;
-    return EditableAvator(avatar: face, busy: busy, onTap: pick);
+    final url = avatarUrl;
+    // WhatsApp: the photo opens full screen, with a pencil to change it.
+    return EditableAvator(
+      avatar: face,
+      busy: busy,
+      onTap: pick,
+      onView: url == null || url.isEmpty
+          ? null
+          : () => showAssetViewer(context,
+              uri: url, title: 'Profile photo', onEdit: pick),
+    );
   }
 }
 

@@ -11,10 +11,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/album_client.dart';
+import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap_store/vartalap_store.dart';
+
+import '../fake_asset_cache.dart';
 
 void main() {
   testWidgets('a group shows both actions, worded and coloured apart',
@@ -427,7 +431,186 @@ void main() {
     expect(_titleColor(tester, 'Block Kothrud Flat 3B'), scheme.error);
     expect(_titleColor(tester, 'Report Kothrud Flat 3B'), scheme.error);
   });
+
+  // ---- decision 245: WhatsApp's action row, photos open full screen ----
+
+  testWidgets("group info's row: Add for an admin, then Search and Mute",
+      (tester) async {
+    await _pumpInfo(tester, _FakeChatService(members: _roster()),
+        kind: 'group');
+    expect(_actions(tester), ['Add', 'Search', 'Mute']);
+  });
+
+  testWidgets("a plain member's row has no Add", (tester) async {
+    await _pumpInfo(
+        tester, _FakeChatService(members: _roster(selfRole: 'member')),
+        kind: 'group');
+    expect(_actions(tester), ['Search', 'Mute']);
+  });
+
+  testWidgets("a DM's row is Search and Mute; a muted chat unmutes at once",
+      (tester) async {
+    final svc = _FakeChatService(mutedUntilMs: kMuteAlways, members: [
+      _member('u-self', 'member', 1),
+      _member('u-peer', 'member', 1, 'Ravi'),
+    ]);
+    await _pumpInfo(tester, svc, kind: 'one_to_one');
+    expect(_actions(tester), ['Search', 'Unmute']);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Unmute'));
+    await tester.pumpAndSettle();
+    expect(svc.calls, ['setMuted(c-1,null)']);
+  });
+
+  testWidgets('Search goes back to the chat with its search open',
+      (tester) async {
+    Object? result;
+    await tester.pumpWidget(MaterialApp(
+      theme: lightThemeData,
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () async => result = await Navigator.of(context).push<Object?>(
+            MaterialPageRoute<Object?>(
+              builder: (_) => ChatInfoScreen(
+                channelId: _channelId,
+                channelName: 'Kothrud Flat 3B',
+                channelKind: 'group',
+                chatService: _FakeChatService(members: _self),
+                authService: _FakeAuthService(),
+              ),
+            ),
+          ),
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Search'));
+    await tester.pumpAndSettle();
+    expect(result, 'search');
+  });
+
+  testWidgets('the group photo opens full screen, with a pencil to change it',
+      (tester) async {
+    AssetCache.instance = FakeAssetCache({'f-photo': onePixelPng});
+    addTearDown(() => AssetCache.instance = null);
+    final svc = _FakeChatService(
+      members: _self,
+      channel: ChannelListEntry(
+        channelId: _channelId,
+        kind: 'group',
+        name: 'Kothrud Flat 3B',
+        avatarUrl: 'f-photo',
+        lastActivityMs: 1000,
+        unreadCount: 0,
+        lastMessagePreview: null,
+        lastMessageAuthor: null,
+        lastMessageTombstoned: false,
+      ),
+    );
+    await _pumpInfo(tester, svc, kind: 'group');
+
+    await tester.tap(find.byType(Avator).first);
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.byTooltip('Change photo'), findsOneWidget);
+  });
+
+  testWidgets('a peer without a photo: the avatar opens nothing',
+      (tester) async {
+    await _pumpInfo(tester, _FakeChatService(), kind: 'one_to_one');
+    await tester.tap(find.byType(Avator).first);
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsNothing);
+  });
+
+  testWidgets('chat list avatar: a photo opens the card, Message and Info',
+      (tester) async {
+    AssetCache.instance = FakeAssetCache({'f-photo': onePixelPng});
+    addTearDown(() => AssetCache.instance = null);
+    final taps = <String>[];
+    Future<void> pump(String? photo) => tester.pumpWidget(MaterialApp(
+          theme: lightThemeData,
+          home: Scaffold(
+            body: ChatAvatarPeek(
+              entry: ChannelListEntry(
+                channelId: _channelId,
+                kind: 'one_to_one',
+                name: 'Ravi',
+                avatarUrl: photo,
+                lastActivityMs: 1000,
+                unreadCount: 0,
+                lastMessagePreview: null,
+                lastMessageAuthor: null,
+                lastMessageTombstoned: false,
+              ),
+              title: 'Ravi',
+              onMessage: () => taps.add('message'),
+              onInfo: () => taps.add('info'),
+              child: const Text('avatar'),
+            ),
+          ),
+        ));
+
+    await pump('f-photo');
+    await tester.tap(find.text('avatar'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(find.text('Ravi'), findsOneWidget, reason: 'the name strip');
+    await tester.tap(find.byTooltip('Message'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+
+    await tester.tap(find.text('avatar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Info'));
+    await tester.pumpAndSettle();
+    expect(taps, ['message', 'info']);
+
+    // The photo itself opens full screen.
+    await tester.tap(find.text('avatar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(AssetImageView));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+  });
+
+  testWidgets('chat list avatar without a photo goes straight to Info',
+      (tester) async {
+    final taps = <String>[];
+    await tester.pumpWidget(MaterialApp(
+      home: ChatAvatarPeek(
+        entry: ChannelListEntry(
+          channelId: _channelId,
+          kind: 'group',
+          name: 'Flat',
+          avatarUrl: null,
+          lastActivityMs: 1000,
+          unreadCount: 0,
+          lastMessagePreview: null,
+          lastMessageAuthor: null,
+          lastMessageTombstoned: false,
+        ),
+        title: 'Flat',
+        onMessage: () => taps.add('message'),
+        onInfo: () => taps.add('info'),
+        child: const Text('avatar'),
+      ),
+    ));
+    await tester.tap(find.text('avatar'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+    expect(taps, ['info']);
+  });
 }
+
+/// The labels of the boxed shortcuts under the name, in order.
+List<String> _actions(WidgetTester tester) => [
+      for (final b in tester.widgetList<OutlinedButton>(find.descendant(
+          of: find.byType(InfoActions), matching: find.byType(OutlinedButton))))
+        ((b.child! as Column).children.last as Text).data!,
+    ];
 
 const String _channelId = 'c-1';
 
@@ -633,6 +816,12 @@ class _FakeChatService implements ChatService {
   @override
   Future<void> clearMessages(String channelId) async {
     calls.add('clearMessages($channelId)');
+  }
+
+  @override
+  Future<void> setMuted(String channelId, int? untilMs) async {
+    calls.add('setMuted($channelId,$untilMs)');
+    mutedUntilMs = untilMs;
   }
 
   @override

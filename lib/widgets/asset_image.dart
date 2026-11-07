@@ -86,17 +86,20 @@ class AssetImagePlaceholder extends StatelessWidget {
 }
 
 /// Full-screen viewer — pinch to zoom, tap or back to dismiss. Share
-/// and Save are out of scope for 3.0.
+/// and Save are out of scope for 3.0. [onEdit] adds WhatsApp's pencil
+/// (a photo of your own): it closes the viewer and runs.
 void showAssetViewer(
   BuildContext context, {
   required String uri,
   String? title,
   AssetCache? cache,
+  VoidCallback? onEdit,
 }) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
       fullscreenDialog: true,
-      builder: (_) => _AssetViewer(uri: uri, title: title, cache: cache),
+      builder: (_) =>
+          _AssetViewer(uri: uri, title: title, cache: cache, onEdit: onEdit),
     ),
   );
 }
@@ -105,8 +108,14 @@ class _AssetViewer extends StatelessWidget {
   final String uri;
   final String? title;
   final AssetCache? cache;
+  final VoidCallback? onEdit;
 
-  const _AssetViewer({required this.uri, this.title, this.cache});
+  const _AssetViewer({
+    required this.uri,
+    this.title,
+    this.cache,
+    this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +125,17 @@ class _AssetViewer extends StatelessWidget {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: title == null ? null : Text(title!),
+        actions: [
+          if (onEdit != null)
+            IconButton(
+              icon: const Icon(Icons.edit),
+              tooltip: 'Change photo',
+              onPressed: () {
+                Navigator.of(context).pop();
+                onEdit!();
+              },
+            ),
+        ],
       ),
       body: GestureDetector(
         onTap: () => Navigator.of(context).pop(),

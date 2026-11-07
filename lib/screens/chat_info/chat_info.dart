@@ -28,6 +28,8 @@ import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
+import 'package:vartalap/widgets/Inherited/app_services.dart';
+import 'package:vartalap/widgets/asset_image.dart';
 import 'package:vartalap/widgets/avator.dart';
 import 'package:vartalap/widgets/chat_action_sheets.dart';
 import 'package:vartalap/widgets/name_dialog.dart';
@@ -225,31 +227,46 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
               snap.hasData &&
               !members.any((m) => m.userId == localUserId);
           return ListView(
+            // Clear of the gesture bar on an edge-to-edge screen.
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.paddingOf(context).bottom + kSpaceMd),
             children: [
-              const SizedBox(height: kSpaceXl),
+              const SizedBox(height: kSpaceMd),
               Center(
                 child: Column(
                   children: [
                     Builder(builder: (_) {
-                      final avatar = Avator(
-                        text: _name,
-                        seed: widget.channelId,
-                        avatarUrl: _channel?.avatarUrl,
-                        isGroup: _isGroup,
-                        width: kAvatarXl,
-                        height: kAvatarXl,
-                      );
+                      final url = _channel?.avatarUrl;
                       // Frame e: only a group photo is ours to change.
                       // A DM's avatar belongs to the peer; a group we
                       // left is not ours to change either.
-                      if (!_isGroup || left) return avatar;
+                      final mine = _isGroup && !left;
+                      // WhatsApp: a photo opens full screen first.
+                      final view = url == null || url.isEmpty
+                          ? null
+                          : () => showAssetViewer(context,
+                              uri: url,
+                              title: _name,
+                              onEdit: mine ? _pickGroupPhoto : null);
+                      final avatar = Avator(
+                        text: _name,
+                        seed: widget.channelId,
+                        avatarUrl: url,
+                        isGroup: _isGroup,
+                        width: kAvatarHeader,
+                        height: kAvatarHeader,
+                      );
+                      if (!mine) {
+                        return GestureDetector(onTap: view, child: avatar);
+                      }
                       return EditableAvator(
                         avatar: avatar,
                         busy: _settingPhoto,
                         onTap: _pickGroupPhoto,
+                        onView: view,
                       );
                     }),
-                    const SizedBox(height: kSpaceMd),
+                    const SizedBox(height: kSpaceSm),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -282,35 +299,40 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                       ),
                     ),
                     const SizedBox(height: kSpaceMd),
-                    // WhatsApp's shortcut under the name: back to the
-                    // chat with its search open ([ChatScreen] reads it).
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(96, 64),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(kRadiusMd),
+                    // WhatsApp's row of shortcuts under the name; only
+                    // what we have (no calls).
+                    InfoActions(actions: [
+                      if (_isGroup && canManage && !left)
+                        (
+                          Icons.person_add_alt_1_outlined,
+                          'Add',
+                          () => _addMembers(members),
                         ),
+                      // Back to the chat with its search open
+                      // ([ChatScreen] reads it).
+                      (
+                        Icons.search,
+                        'Search',
+                        () => Navigator.of(context).pop('search'),
                       ),
-                      onPressed: () => Navigator.of(context).pop('search'),
-                      child: const Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.search),
-                          SizedBox(height: kSpaceXs),
-                          Text('Search'),
-                        ],
-                      ),
-                    ),
+                      if (!left)
+                        muted == null
+                            ? (Icons.volume_off_outlined, 'Mute', _mute)
+                            : (Icons.volume_up_outlined, 'Unmute', _unmute),
+                    ]),
                   ],
                 ),
               ),
-              const SizedBox(height: kSpaceXl),
-              if (muted != null) _MuteBar(label: muted),
+              const SizedBox(height: kSpaceMd),
+              if (muted != null) ...[
+                _MuteBar(label: muted),
+                const SizedBox(height: kSpaceSm),
+              ],
               if (!_isGroup) ...[
-                const Divider(),
+                _sectionGap,
                 _DmIdentityBlock(peer: peer!),
               ],
-              const Divider(),
+              _sectionGap,
               FutureBuilder<int>(
                 future: _mediaCount,
                 builder: (ctx, mediaSnap) {
@@ -347,15 +369,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                     : Icons.notifications_off_outlined,
                 title: 'Notifications',
                 subtitle: muted ?? 'On',
-                onTap: () async {
-                  await showMuteSheet(
-                    context: context,
-                    chatService: widget.chatService,
-                    channelIds: [widget.channelId],
-                    mutedUntilMs: _channel?.mutedUntilMs,
-                  );
-                  await _reloadChannel();
-                },
+                onTap: _mute,
               ),
               if (!_isGroup && peer!.userId.isNotEmpty)
                 ContactLabelsTile(
@@ -379,9 +393,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   peerName: peer.contact?.displayLabel ?? _name,
                 ),
               if (left) ...[
-                const Divider(),
+                _sectionGap,
                 Padding(
-                  padding: const EdgeInsets.all(kSpaceLg),
+                  padding: const EdgeInsets.all(kSpaceMd),
                   child: Text(
                     "You're no longer a member of this group",
                     style: textTheme.bodyMedium
@@ -389,7 +403,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   ),
                 ),
               ] else if (_isGroup) ...[
-                const Divider(),
+                _sectionGap,
                 _MembersSection(
                   members: members,
                   invited: [
@@ -405,7 +419,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   onCancelInvite: canManage ? _cancelInvite : null,
                 ),
               ],
-              const Divider(),
+              _sectionGap,
               _InfoTile(
                 icon: Icons.cleaning_services_outlined,
                 title: 'Clear history',
@@ -435,7 +449,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
               ),
               // WhatsApp's two red rows at the bottom (decision 219)
               if (!_isGroup && peer!.userId.isNotEmpty) ...[
-                const Divider(),
+                _sectionGap,
                 _InfoTile(
                   icon: Icons.block,
                   title: _blocked.contains(peer.userId)
@@ -460,7 +474,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                 ),
               ],
               if (_isGroup && !left) ...[
-                const Divider(),
+                _sectionGap,
                 _InfoTile(
                   icon: Icons.exit_to_app,
                   title: 'Leave group',
@@ -483,12 +497,30 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                     onTap: () => _confirmDelete(context),
                   ),
               ],
-              const SizedBox(height: kSpaceXl),
             ],
           );
         },
       ),
     );
+  }
+
+  /// Between sections: WhatsApp's narrow band, full width.
+  static const Widget _sectionGap = Divider(height: kSpaceSm, indent: 0);
+
+  /// Mute opens the durations; unmute needs none (WhatsApp).
+  Future<void> _mute() async {
+    await showMuteSheet(
+      context: context,
+      chatService: widget.chatService,
+      channelIds: [widget.channelId],
+      mutedUntilMs: _channel?.mutedUntilMs,
+    );
+    await _reloadChannel();
+  }
+
+  Future<void> _unmute() async {
+    await widget.chatService.setMuted(widget.channelId, null);
+    await _reloadChannel();
   }
 
   static String _memberCount(int n) => '$n ${n == 1 ? "member" : "members"}';
@@ -720,7 +752,7 @@ class _MuteBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: kSpaceLg),
+      margin: const EdgeInsets.symmetric(horizontal: kSpaceMd),
       padding: const EdgeInsets.symmetric(
         horizontal: kSpaceMd,
         vertical: kSpaceSm,
@@ -768,8 +800,8 @@ class _DmIdentityBlock extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(
-        horizontal: kSpaceLg,
-        vertical: kSpaceMd,
+        horizontal: kSpaceMd,
+        vertical: kSpaceSm,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -780,7 +812,7 @@ class _DmIdentityBlock extends StatelessWidget {
                     ?.copyWith(color: scheme.onSurfaceVariant)),
             const SizedBox(height: kSpaceXs),
             Text('@$username', style: textTheme.bodyLarge),
-            const SizedBox(height: kSpaceMd),
+            const SizedBox(height: kSpaceSm),
           ],
           if (status != null && status.isNotEmpty) ...[
             Text('About',
@@ -829,8 +861,8 @@ class _MembersSection extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: kSpaceLg,
-            vertical: kSpaceMd,
+            horizontal: kSpaceMd,
+            vertical: kSpaceSm,
           ),
           child: Text(
             '${members.length} ${members.length == 1 ? "member" : "members"}',
@@ -1010,4 +1042,187 @@ class _InfoTile extends StatelessWidget {
       onTap: onTap,
     );
   }
+}
+
+/// WhatsApp's row of shortcuts under the name on Contact info and Chat
+/// info: rounded boxes of equal width, icon over label.
+class InfoActions extends StatelessWidget {
+  final List<(IconData, String, VoidCallback?)> actions;
+
+  const InfoActions({super.key, required this.actions});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: kSpaceMd),
+      // Two or three boxes stay box-sized rather than stretching.
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: actions.length * 120.0),
+        child: Row(
+          children: [
+            for (final (i, (icon, label, onTap)) in actions.indexed) ...[
+              if (i > 0) const SizedBox(width: kSpaceSm),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onTap,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: kSpaceMd),
+                    side: BorderSide(color: scheme.outlineVariant),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(kRadiusMd),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon),
+                      const SizedBox(height: kSpaceXs),
+                      Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A chat-list avatar (WhatsApp): a tap opens the photo card, or Info
+/// straight away when there is no photo to show.
+class ChatAvatarPeek extends StatelessWidget {
+  final ChannelListEntry entry;
+  final String title;
+
+  /// Opens the chat, as tapping the row does.
+  final VoidCallback onMessage;
+
+  /// Null: Chat info, with the app's services.
+  final VoidCallback? onInfo;
+  final Widget child;
+
+  const ChatAvatarPeek({
+    super.key,
+    required this.entry,
+    required this.title,
+    required this.onMessage,
+    this.onInfo,
+    required this.child,
+  });
+
+  void _openInfo(BuildContext context) {
+    final services = AppServicesProvider.maybeOf(context);
+    if (services == null) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute<Object?>(
+          builder: (_) => ChatInfoScreen(
+            channelId: entry.channelId,
+            channelName: title,
+            channelKind: entry.kind,
+            chatService: services.chatService,
+            authService: services.authService,
+          ),
+        ))
+        // Search lives in the chat.
+        .then((result) => result == 'search' ? onMessage() : null);
+  }
+
+  void _peek(BuildContext context) {
+    final info = onInfo ?? () => _openInfo(context);
+    final url = entry.avatarUrl;
+    if (url == null || url.isEmpty) return info();
+    showDialog<void>(
+      context: context,
+      builder: (dialog) {
+        void then(VoidCallback next) {
+          Navigator.of(dialog).pop();
+          next();
+        }
+
+        final scheme = Theme.of(dialog).colorScheme;
+        return Dialog(
+          clipBehavior: Clip.antiAlias,
+          insetPadding: const EdgeInsets.symmetric(horizontal: kSpaceXxl),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(kRadiusSm),
+          ),
+          child: SizedBox(
+            width: 280,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: () => then(
+                      () => showAssetViewer(context, uri: url, title: title)),
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        AssetImageView(
+                          uri: url,
+                          placeholder: AssetImagePlaceholder(
+                            icon: entry.kind == 'group'
+                                ? Icons.groups_rounded
+                                : Icons.person_rounded,
+                          ),
+                        ),
+                        // The name strip over the photo's top edge.
+                        Align(
+                          alignment: Alignment.topCenter,
+                          child: Container(
+                            width: double.infinity,
+                            color: Colors.black38,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: kSpaceMd,
+                              vertical: kSpaceSm,
+                            ),
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chat_outlined),
+                      color: scheme.primary,
+                      tooltip: 'Message',
+                      onPressed: () => then(onMessage),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.info_outline),
+                      color: scheme.primary,
+                      tooltip: 'Info',
+                      onPressed: () => then(info),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => _peek(context),
+        child: child,
+      );
 }

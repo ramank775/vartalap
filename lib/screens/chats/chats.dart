@@ -19,6 +19,7 @@ import 'package:intl/intl.dart';
 import 'package:vartalap/config/config_store.dart';
 import 'package:vartalap/screens/chat/chat.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
+import 'package:vartalap/screens/chat_info/chat_info.dart' show ChatAvatarPeek;
 import 'package:vartalap/screens/new_chat/new_chat.dart';
 import 'package:vartalap/screens/group_create/group_create.dart';
 import 'package:vartalap/screens/labels/labels.dart';
@@ -977,7 +978,7 @@ class ChannelTile extends StatelessWidget {
       // The same tint as a selected message in the chat screen.
       tileColor: selected ? scheme.primary.withValues(alpha: 0.12) : null,
       leading: !selected
-          ? avatar
+          ? ChatAvatarPeek(entry: entry, title: displayName, onMessage: onTap, child: avatar)
           : Stack(
               clipBehavior: Clip.none,
               children: [
