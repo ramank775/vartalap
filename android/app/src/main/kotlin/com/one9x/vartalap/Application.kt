@@ -1,8 +1,6 @@
 package com.one9x.vartalap
 
 import io.flutter.app.FlutterApplication
-import android.app.NotificationManager
-import android.content.Context
 import androidx.core.content.pm.PackageInfoCompat
 import java.io.File
 
@@ -11,12 +9,8 @@ class Application : FlutterApplication() {
     override fun onCreate() {
         super.onCreate()
         recordCrashes()
-        cancelAllNotifications()
-    }
-
-    private fun cancelAllNotifications() {
-        val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.cancelAll()
+        // Notifications are not cleared here: a chat's stays until it is
+        // read, and a push wake or a notification's Reply starts the process.
     }
 
     /**
