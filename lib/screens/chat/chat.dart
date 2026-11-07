@@ -2,9 +2,7 @@
 library vartalap.screens.chat.chat;
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -59,6 +57,9 @@ class ChatScreen extends StatefulWidget {
   /// starred message picked from outside the chat.
   final String? initialMessageId;
 
+  /// Opens with this in the composer: text shared from another app.
+  final String? initialText;
+
   const ChatScreen({
     super.key,
     required this.channelId,
@@ -68,6 +69,7 @@ class ChatScreen extends StatefulWidget {
     required this.authService,
     this.undoWindow = const Duration(seconds: 5),
     this.initialMessageId,
+    this.initialText,
   });
 
   @override
@@ -75,7 +77,8 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> with RouteAware {
-  final TextEditingController _input = TextEditingController();
+  late final TextEditingController _input =
+      TextEditingController(text: widget.initialText);
   final FocusNode _inputFocus = FocusNode();
 
   /// The body as it was when Edit started; confirming it unchanged sends
@@ -1157,42 +1160,19 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
     if (userId == null) return;
     setState(() => _sending = true);
     try {
-      final assets = widget.chatService.assets;
-      // Out of the picker's temp dir before the OS sweeps it — the
-      // upload op may not run for hours.
-      final ready = photo
-          ? await preparePhoto(assets, sourcePath, hd: sent.hd)
-          : null;
-      final path = ready?.path ?? await assets.importPicked(sourcePath);
-      // Sender-declared dimensions let the bubble reserve the right
-      // aspect ratio before the bytes land.
-      var (width, height, durationMs) =
-          (ready?.width ?? 0, ready?.height ?? 0, 0);
-      Uint8List? thumbnail;
-      if (ready == null && mime.startsWith('image/')) {
-        final size = await _decodeSize(path);
-        (width, height) = (size?.$1 ?? 0, size?.$2 ?? 0);
-      } else if (media && mime.startsWith('video/')) {
-        final video = await videoThumbnail(path);
-        if (video != null) {
-          (width, height, durationMs) =
-              (video.width, video.height, video.durationMs);
-          thumbnail = video.jpeg;
-        }
-      } else if (mime.startsWith('audio/')) {
-        // The bubble shows an audio file's length before it is played.
-        durationMs = await audioLengthMs(path);
-      }
+      final file = await prepareAttachment(
+          widget.chatService.assets, sourcePath,
+          media: media, hd: sent.hd);
       await widget.chatService.sendAttachment(
         channelId: widget.channelId,
         authorUserId: userId,
-        path: path,
+        path: file.path,
         caption: sent.caption.isEmpty ? null : sent.caption,
         replyToMessageId: _replyTo?.messageId,
-        width: width,
-        height: height,
-        durationMs: durationMs,
-        thumbnail: thumbnail,
+        width: file.width,
+        height: file.height,
+        durationMs: file.durationMs,
+        thumbnail: file.thumbnail,
       );
       _toBottom();
       if (mounted) setState(() => _replyTo = null);
@@ -1304,23 +1284,6 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
         m.contentType,
         attachment: m.attachments != null,
       );
-
-  /// Intrinsic pixel size of a picked image, or null if it will not
-  /// decode (the bubble then falls back to a fixed height).
-  Future<(int, int)?> _decodeSize(String path) async {
-    try {
-      final codec = await ui.instantiateImageCodec(
-        await File(path).readAsBytes(),
-      );
-      final frame = await codec.getNextFrame();
-      final size = (frame.image.width, frame.image.height);
-      frame.image.dispose();
-      codec.dispose();
-      return size;
-    } catch (_) {
-      return null;
-    }
-  }
 
   /// The mic (the send button while there is nothing to send).
   /// ponytail: tap to start, then send or discard; hold-to-record with
