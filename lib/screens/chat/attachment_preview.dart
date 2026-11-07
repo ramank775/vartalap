@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/chat/video_view.dart';
 import 'package:vartalap/services/asset_cache.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/attachment_text.dart';
@@ -10,7 +12,8 @@ import 'package:vartalap/utils/attachment_text.dart';
 typedef AttachmentChoice = ({String caption, bool hd});
 
 /// The look before sending (WhatsApp's send preview): the picked photo
-/// full screen, or a card for anything else, and a caption field. A photo
+/// full screen, a video on its first frame that plays in place, or a card
+/// for anything else, and a caption field. A photo
 /// from the camera or gallery ([offerHd]) offers HD (decision 130's
 /// standard size otherwise). Pops an [AttachmentChoice] on send, null on
 /// cancel.
@@ -32,6 +35,13 @@ class AttachmentPreviewScreen extends StatefulWidget {
 class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
   final _caption = TextEditingController();
   bool _hd = false;
+
+  /// A video's first frame, as its bubble will show it (decision 240).
+  /// ponytail: made again on send; pass it along if that ever shows.
+  late final Future<Uint8List?> _frame =
+      mimeForPath(widget.path).startsWith('video/')
+          ? videoThumbnail(widget.path).then((t) => t?.jpeg)
+          : Future.value(null);
 
   @override
   void dispose() {
@@ -81,18 +91,28 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
         child: Column(
           children: [
             Expanded(
-              child: Center(
-                child: mime.startsWith('image/')
-                    ? InteractiveViewer(
-                        child: Image.file(
-                          File(widget.path),
-                          // Never decode a 12 MP original just to look.
-                          cacheWidth: 1440,
-                          errorBuilder: (_, __, ___) => card,
-                        ),
-                      )
-                    : card,
-              ),
+              child: mime.startsWith('video/')
+                  ? FutureBuilder<Uint8List?>(
+                      future: _frame,
+                      builder: (context, snap) => VideoView(
+                        path: widget.path,
+                        poster: snap.data == null
+                            ? const SizedBox.expand()
+                            : Image.memory(snap.data!, fit: BoxFit.contain),
+                      ),
+                    )
+                  : Center(
+                    child: mime.startsWith('image/')
+                        ? InteractiveViewer(
+                            child: Image.file(
+                              File(widget.path),
+                              // Never decode a 12 MP original just to look.
+                              cacheWidth: 1440,
+                              errorBuilder: (_, __, ___) => card,
+                            ),
+                          )
+                        : card,
+                  ),
             ),
             Padding(
               padding: const EdgeInsets.all(kSpaceSm),
@@ -151,7 +171,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
   }
 }
 
-/// What a document, video or audio file looks like before sending:
+/// What a document or audio file looks like before sending:
 /// its glyph, name and size.
 class _FileCard extends StatelessWidget {
   final String path;
@@ -169,7 +189,6 @@ class _FileCard extends StatelessWidget {
         children: [
           Icon(
             switch (mime.split('/').first) {
-              'video' => Icons.play_circle_outline,
               'audio' => Icons.headphones,
               _ => Icons.insert_drive_file_outlined,
             },

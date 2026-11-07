@@ -23,6 +23,7 @@ import 'package:vartalap/screens/chat/live_location.dart';
 import 'package:vartalap/screens/chat/message_options.dart';
 import 'package:vartalap/screens/chat/presence_line.dart';
 import 'package:vartalap/screens/chat/rich_messages.dart';
+import 'package:vartalap/screens/chat/video_view.dart';
 import 'package:vartalap/screens/chat/voice_note.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/screens/invites/invites.dart';
@@ -3129,6 +3130,9 @@ class _AttachmentView extends StatelessWidget {
       attachment.filename.isEmpty ? 'Attachment' : attachment.filename;
 
   Future<void> _openFile(BuildContext context) async {
+    if (attachment.mimeType.startsWith('video/')) {
+      return showVideoPlayer(context, attachment);
+    }
     final messenger = ScaffoldMessenger.of(context);
     final cache = AssetCache.instance;
     if (cache == null) return;
@@ -3156,7 +3160,7 @@ class _AttachmentView extends StatelessWidget {
       );
     }
     // A video with its thumbnail (SYNC_PROTOCOL §25.4) looks like a photo
-    // with a play button, and opens in the phone's player.
+    // with a play button, and opens in the app's player.
     final video = attachment.mimeType.startsWith('video/') &&
         attachment.thumbnail.isNotEmpty;
     if (!_isImage && !video) return _document(context);

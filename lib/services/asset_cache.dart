@@ -144,6 +144,23 @@ class AssetCache {
     }
   }
 
+  /// A file holding [uri]'s bytes, opened, for a player that reads from
+  /// disk (a video): our own local file, or the disk cache's copy, which
+  /// this downloads first. Null when there are none to be had. Not kept in
+  /// memory: a video is too big for that.
+  ///
+  /// ponytail: a peer's http url has no disk copy, so null; "Open with…"
+  /// still opens it. Give it one when such videos turn up.
+  Future<String?> file(String uri) async {
+    if (uri.startsWith('/')) return await File(uri).exists() ? uri : null;
+    if (uri.isEmpty || uri.startsWith('http')) return null;
+    final f = File('${(await dir).path}/${parseAttachmentUrl(uri).object}');
+    if (await f.exists()) return f.path;
+    if (await bytes(uri) == null) return null;
+    _mem.remove(uri);
+    return f.path;
+  }
+
   /// Copy a picked file out of the picker's temp dir, which the OS is
   /// free to sweep, into ours — the upload op may not run for hours.
   /// Returns the new absolute path.
