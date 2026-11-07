@@ -178,6 +178,8 @@ class _PresencePrivacyRowsState extends State<PresencePrivacyRows> {
       mainAxisSize: MainAxisSize.min,
       children: [
         ListTile(
+          // lines up with "Find me by my number" above it
+          leading: const Icon(Icons.visibility_outlined),
           title: const Text('Last seen and online'),
           subtitle: Text(_subtitle()),
           onTap: _pickPresence,
