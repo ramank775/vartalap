@@ -87,6 +87,38 @@ TextTheme _buildTextTheme(TextTheme base) {
 // ThemeData builders
 // ---------------------------------------------------------------------------
 
+// Density (WhatsApp-like): the components' defaults are roomier than the
+// chat apps people know. Only sizes and paddings; font sizes stay as they
+// are (elderly users).
+
+/// Two-line rows 72dp, one-line 56 (the vertical 4 on top made them 80
+/// and 64). No VisualDensity: it would also cap a leading avatar at 52
+/// and squash the 56dp ones (Settings' profile row, album covers).
+const ListTileThemeData _listTileTheme = ListTileThemeData(
+  contentPadding: EdgeInsets.symmetric(horizontal: kSpaceMd),
+  minVerticalPadding: kSpaceXs,
+);
+
+/// 34dp chips with their border (38 by default; 32 + border is the
+/// floor without changing the whole app's VisualDensity).
+const ChipThemeData _chipTheme = ChipThemeData(
+  padding: EdgeInsets.symmetric(horizontal: kSpaceSm, vertical: 6),
+);
+
+/// 68dp bottom bar (80 by default).
+const NavigationBarThemeData _navigationBarTheme =
+    NavigationBarThemeData(height: 68);
+
+/// Dialogs a little wider (fewer lines) with their buttons closer in.
+const DialogThemeData _dialogTheme = DialogThemeData(
+  insetPadding: EdgeInsets.symmetric(horizontal: kSpaceLg, vertical: kSpaceLg),
+  actionsPadding: EdgeInsets.fromLTRB(kSpaceLg, 0, kSpaceMd, kSpaceMd),
+);
+
+/// A one-line text field 44dp (56 before); with an icon, the icon's 48.
+const EdgeInsets _inputPadding =
+    EdgeInsets.symmetric(horizontal: kSpaceMd, vertical: 10);
+
 final ThemeData lightThemeData = ThemeData(
   useMaterial3: true,
   colorScheme: _lightScheme,
@@ -138,10 +170,8 @@ final ThemeData lightThemeData = ThemeData(
       borderRadius: BorderRadius.circular(kRadiusMd),
       borderSide: BorderSide.none,
     ),
-    contentPadding: const EdgeInsets.symmetric(
-      horizontal: kSpaceMd,
-      vertical: kSpaceMd,
-    ),
+    isDense: true,
+    contentPadding: _inputPadding,
   ),
   cardTheme: CardThemeData(
     elevation: 0,
@@ -155,12 +185,10 @@ final ThemeData lightThemeData = ThemeData(
     thickness: 0.5,
     indent: 72, // aligned past avatar
   ),
-  listTileTheme: const ListTileThemeData(
-    contentPadding: EdgeInsets.symmetric(
-      horizontal: kSpaceMd,
-      vertical: kSpaceXs,
-    ),
-  ),
+  listTileTheme: _listTileTheme,
+  chipTheme: _chipTheme,
+  navigationBarTheme: _navigationBarTheme,
+  dialogTheme: _dialogTheme,
   popupMenuTheme: PopupMenuThemeData(
     color: _lightScheme.surfaceContainer,
     surfaceTintColor: _lightScheme.surfaceTint,
@@ -245,10 +273,8 @@ final ThemeData darkThemeData = ThemeData(
       borderRadius: BorderRadius.circular(kRadiusMd),
       borderSide: BorderSide.none,
     ),
-    contentPadding: const EdgeInsets.symmetric(
-      horizontal: kSpaceMd,
-      vertical: kSpaceMd,
-    ),
+    isDense: true,
+    contentPadding: _inputPadding,
   ),
   cardTheme: CardThemeData(
     elevation: 0,
@@ -262,12 +288,10 @@ final ThemeData darkThemeData = ThemeData(
     thickness: 0.5,
     indent: 72,
   ),
-  listTileTheme: const ListTileThemeData(
-    contentPadding: EdgeInsets.symmetric(
-      horizontal: kSpaceMd,
-      vertical: kSpaceXs,
-    ),
-  ),
+  listTileTheme: _listTileTheme,
+  chipTheme: _chipTheme,
+  navigationBarTheme: _navigationBarTheme,
+  dialogTheme: _dialogTheme,
   popupMenuTheme: PopupMenuThemeData(
     color: _darkScheme.surfaceContainer,
     surfaceTintColor: _darkScheme.surfaceTint,
