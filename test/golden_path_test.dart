@@ -306,7 +306,7 @@ void main() {
 
       expect(h.mock.acceptInvite(dmChannel, peerUserId), isTrue);
       await h.waitForAsync(
-          () async => (await h.chat.connectedUsers()).contains(peerUserId));
+          () async => (await h.chat.connectedUsers())?.contains(peerUserId) ?? false);
       expect(await h.store.fetchInvites(), isEmpty,
           reason: 'INVITE_ANSWERED accepted takes the invite away and '
               'connects the pair on the phone');

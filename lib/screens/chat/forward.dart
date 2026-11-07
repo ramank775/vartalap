@@ -61,7 +61,7 @@ class _ForwardScreenState extends State<ForwardScreen> {
             lastActivityMs: c.lastActivityMs,
           ),
       for (final p in await widget.chatService.discoverContacts())
-        if (connected.contains(p.userId) &&
+        if ((connected?.contains(p.userId) ?? true) &&
             !blocked.contains(p.userId) &&
             p.userId != self)
           (

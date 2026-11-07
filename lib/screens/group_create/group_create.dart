@@ -81,7 +81,7 @@ class _MemberPickerScreenState extends State<MemberPickerScreen> {
     final connected = await widget.chatService.connectedUsers();
     return [
       for (final c in contacts)
-        if (connected.contains(c.userId)) c,
+        if (connected?.contains(c.userId) ?? true) c,
     ];
   }();
   final List<ContactRow> _picked = [];

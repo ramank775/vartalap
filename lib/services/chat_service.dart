@@ -1502,7 +1502,7 @@ class ChatService with TimelineService, AlbumService {
       _store.watchTables(const {'connections'}, _store.blockedUsers);
 
   /// Who we may invite to a group: our connections (decision 221).
-  Future<Set<String>> connectedUsers() => _store.connectedUsers();
+  Future<Set<String>?> connectedUsers() => _store.connectedUsers();
 
   /// Invite [peerUserId] to chat (decision 219). Their chat with us shows
   /// "You invited …" and, until they answer, "Invite sent". Throws

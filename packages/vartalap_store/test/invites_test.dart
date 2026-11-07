@@ -18,7 +18,9 @@ void main() {
 
   test('until the server is heard every pair counts as connected', () async {
     expect((await store.peerLink(_me, _ravi)).connected, isTrue);
+    expect(await store.connectedUsers(), isNull, reason: 'pickers list everyone');
     await store.replaceConnections(connected: [_li], blocked: [], invites: []);
+    expect(await store.connectedUsers(), {_li});
     expect((await store.peerLink(_me, _ravi)).connected, isFalse);
     expect((await store.peerLink(_me, _li)).connected, isTrue);
   });

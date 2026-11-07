@@ -3056,11 +3056,14 @@ class ChatStore {
       ];
 
   /// Who we are connected with.
-  Future<Set<String>> connectedUsers() async => {
-        for (final r in await db.query('connections',
-            columns: const ['user_id'], where: 'connected = 1'))
-          r['user_id'] as String,
-      };
+  /// Null until the server's snapshot first lands: then everyone counts
+  /// as connected, as in [peerLink].
+  Future<Set<String>?> connectedUsers() async {
+    final rows = await db.query('connections',
+        columns: const ['user_id'], where: "connected = 1 OR user_id = ''");
+    final ids = {for (final r in rows) r['user_id'] as String};
+    return ids.remove('') ? ids : null;
+  }
 
   /// Who we blocked.
   Future<Set<String>> blockedUsers() async => {

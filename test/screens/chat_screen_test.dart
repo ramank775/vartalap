@@ -1283,7 +1283,9 @@ void main() {
       for (final (id, name) in [(peerUserId, 'peer'), (stranger, 'nobody')]) {
         await store.upsertContact(userId: id, username: name, nowMs: 1);
       }
-      await store.setConnection(peerUserId, connected: true);
+      // the server's snapshot has landed: before it, everyone counts
+      await store.replaceConnections(
+          connected: [peerUserId], blocked: [], invites: []);
     }
 
     testWidgets(
