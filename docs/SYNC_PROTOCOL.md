@@ -1051,7 +1051,7 @@ it is a UUIDv7 minted with them, and otherwise has no sender for it.
    - REST `edit_channel`: all channel members.
    - REST `PATCH /v3.0/users/me` with `displayName` / `avatarUrl` /
      `statusText`: all users sharing at least one channel with the
-     editor. Scope: v3.0 only.
+     editor, and their connections with no block either way (§24.2).
    - REST `PATCH /v3.0/users/me` with `username`: same scope as
      above. The new username may be null.
 2. Store the push frame on the timeline (§10.6) **once**, with the
@@ -2275,3 +2275,44 @@ go with it. Reports about or by it stay until their 90 days are up.
 A timeline post (decision 223) reaches only the poster's connections,
 less anyone blocked either way: profile-ms asks channel-ms which of the
 audience qualify.
+
+## 24. Groups: leaving keeps the chat; profile edits reach connections; report limit (decision 219)
+
+### 24.1 Leaving keeps the chat
+
+A member who leaves, or is removed, keeps the group's chat and its
+history on the phone, read only (WhatsApp): the composer is replaced by
+"You can't send messages to this group because you're no longer a
+member", the chat says "You left" or "Asha removed you", and deleting it
+stays the user's choice (Delete chat, local only). Nothing changes on
+the wire: the leaver's `DELETE …/members/{self}` is applied locally as a
+removal of oneself with its own "You left" line (the fanout skips the
+device that acted), and a terminal reject puts the member back. The
+group falls out of the Groups list (it lists only groups one is in).
+
+Invited back, the accept's answer (`POST /{channel_id}/invite/accept`,
+the group as `GET` gives it) is the roster: the phone keeps the chat it
+had and takes the server's members, roles, name and photo. The same
+holds for a group `GET /v3.0/channels` lists at login that the phone
+holds as left. An owner's Delete group still ends the chat for everyone
+(decision 9).
+
+### 24.2 Profile edits reach connections
+
+A `ProfileEdited` or `UsernameChanged` goes to every user sharing a group
+with the editor, once, on one of those groups (§10.2), and also to every
+connection with no block either way who shares no group with them. Such
+a connection's copy is addressed like a 1:1 frame: `peer` is the
+recipient and the `op_id` carries the editor's user bits, so the phone
+derives the pair's DM id as it does for an invite (§23.3); one envelope
+per connection. Class EVENT, SILENT, as before. A block does not keep
+the edit from group co-members (a group is not affected by a block).
+profile-ms asks channel-ms `POST /_internal/connections/pairs {user_id}`
+(no `users`: all of their connections).
+
+### 24.3 Reports are rate limited
+
+`POST /v3.0/channels/reports` takes at most 10 reports a day per
+reporter, counted from their first; past it, 429 `rate_limited`. The
+app still applies the block of "Report and block" when the report is
+refused, and says to try again tomorrow.
