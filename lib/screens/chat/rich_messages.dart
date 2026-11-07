@@ -10,7 +10,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vartalap/screens/albums/albums.dart';
 import 'package:vartalap/screens/chat/live_location.dart';
+import 'package:vartalap/services/album_client.dart';
 import 'package:vartalap/services/live_location.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/utils/rich_message.dart';
@@ -19,6 +21,7 @@ bool isRichType(String? contentType) =>
     contentType == kContactType ||
     contentType == kLocationType ||
     contentType == kLiveLocationType ||
+    contentType == kAlbumType ||
     contentType == kEventType;
 
 /// Current position, or null when location is off, denied or unfixed
@@ -78,6 +81,8 @@ class RichMessageView extends StatelessWidget {
             footer: footer,
             messageId: messageId,
             mine: mine),
+        kAlbumType => _AlbumCard(
+            note: AlbumNote.parse(body), tint: tint, footer: footer),
         _ => _EventCard(
             event: EventInfo.parse(body), tint: tint, footer: footer),
       };
@@ -316,6 +321,32 @@ class _LocationCard extends StatelessWidget {
         _line('${p.lat.toStringAsFixed(5)}, ${p.lng.toStringAsFixed(5)}', tint),
       ],
       actions: [('Open in maps', () => _open(context))],
+    );
+  }
+}
+
+/// "Asha created the album Diwali 2026" (decision 233): opens it.
+class _AlbumCard extends StatelessWidget {
+  final AlbumNote? note;
+  final Color tint;
+  final Widget? footer;
+
+  const _AlbumCard({required this.note, required this.tint, this.footer});
+
+  @override
+  Widget build(BuildContext context) {
+    final n = note;
+    void open() => openAlbumNote(context, n!);
+    return _Card(
+      leading: _tile(Icons.photo_library_outlined, tint),
+      tint: tint,
+      footer: footer,
+      onTap: n == null ? null : open,
+      lines: [
+        _title(n?.title ?? 'Album', tint),
+        _line('Created a new album', tint),
+      ],
+      actions: n == null ? const [] : [('Open album', open)],
     );
   }
 }

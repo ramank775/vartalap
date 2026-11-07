@@ -127,12 +127,14 @@ mixin TimelineService {
     return post;
   }
 
-  /// media-ms, category `timeline`: the server deletes it with the post.
-  Future<String> _uploadPhoto(String path) async {
+  /// media-ms, category `timeline` (or an album's `album`), not
+  /// encrypted: the server deletes it with the post (or the album).
+  Future<String> _uploadPhoto(String path,
+      [String category = 'timeline']) async {
     final bytes = await File(path).readAsBytes();
     final client = assets.client;
     final upload = await client.presignUpload(
-        ext: extForPath(path), category: 'timeline', size: bytes.length);
+        ext: extForPath(path), category: category, size: bytes.length);
     if (!upload.existing) {
       await client.putBytes(
         url: upload.url,

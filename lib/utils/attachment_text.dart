@@ -1,3 +1,4 @@
+import 'package:vartalap/services/album_client.dart';
 import 'package:vartalap/utils/rich_message.dart';
 import 'package:vartalap_store/vartalap_store.dart';
 
@@ -26,6 +27,7 @@ String messagePreview(
     kContactType => '👤 ${contactName(body)}',
     kLocationType => '📍 Location',
     kLiveLocationType => '📍 Live location',
+    kAlbumType => '🖼️ Album: ${AlbumNote.parse(body)?.title ?? ''}',
     kEventType => '📅 ${EventInfo.parse(body)?.title ?? 'Event'}',
     kUndecryptedType => 'Waiting for this message',
     kSecureType => '🔒 Secure message',

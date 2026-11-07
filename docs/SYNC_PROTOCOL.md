@@ -2380,3 +2380,24 @@ it. A group lists decision 202's members (in it now, and since before
 the message was sent); a member past it on a marker from before v12
 shows without a time. A read receipt applied as a delivery (read
 receipts off, §22.1) counts as a delivery here too.
+
+## 26. Occasion albums (decision 233)
+
+Albums are not on the sync wire and not end-to-end encrypted, like the
+timeline: channel-ms serves them over REST under
+`/v3.0/channels/{channelId}/albums` (chat-server docs/openapi.yaml
+"v3.0 > Albums"), and photos are media-ms uploads of category `album`,
+stored as picked. No frame class, payload type or field was added
+(class 10 ALBUM stays free) and nothing wakes a phone: the app reads a
+chat's albums when chat info or an album opens.
+
+Only the chat sees its albums: a group's current members, or the two
+people of a 1:1 while they are connected with no block either way
+(§23). A 1:1's list and create name the other person as `peer`, since
+its channel id is derived from the pair and the server cannot reverse
+it.
+
+The one thing that travels in the chat is the creator's announcement:
+an ordinary message, `content_type = "application/x-vartalap-album"`,
+whose `body` is `{"albumId", "channelId", "title"}` as JSON. Phones show
+it as a card that opens the album, and previews it as "🖼️ Album: <title>".

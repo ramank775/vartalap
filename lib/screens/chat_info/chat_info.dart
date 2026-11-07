@@ -17,6 +17,7 @@ library vartalap.screens.chat_info;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:vartalap/screens/albums/albums.dart';
 import 'package:vartalap/screens/chat_info/live_location_controls.dart';
 import 'package:vartalap/screens/chat_info/security_code.dart';
 import 'package:vartalap/screens/chat_info/media.dart';
@@ -333,6 +334,13 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   );
                 },
               ),
+              // decision 233; a 1:1's waits for its peer
+              if (_isGroup || peer!.userId.isNotEmpty)
+                AlbumsTile(
+                  chatService: widget.chatService,
+                  channelId: widget.channelId,
+                  peer: _isGroup ? null : peer!.userId,
+                ),
               _InfoTile(
                 icon: muted == null
                     ? Icons.notifications_outlined

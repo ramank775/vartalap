@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:http/http.dart' as http;
 import 'package:vartalap/main.dart' show pullPendingPages;
+import 'package:vartalap/services/album_client.dart';
 import 'package:vartalap/services/auth_service.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/services/live_location.dart';
@@ -891,6 +892,66 @@ void main() {
         await a.waitForAsync(() async => (await a.live.shares()).isEmpty);
         expect(await a.live.shares(), isEmpty);
         await a.waitForAsync(() async => await a.opCount() == 0);
+      });
+
+      // ---- 8h -----------------------------------------------------------
+      test('8h. albums: A makes one in the 1:1 with B, both add and see '
+          'photos, C is refused (decision 233)', () async {
+        Matcher refused(int status) => throwsA(isA<AuthClientException>()
+            .having((e) => e.statusCode, 'status', status));
+        final album = await a.chat.createAlbum(
+            channelId: dmChannel,
+            peer: b.userId,
+            title: 'Diwali 2026',
+            date: '2026-11-01');
+        expect(album.keptUntil! - album.createdAt, 90 * 24 * 3600 * 1000,
+            reason: 'the free tier keeps an album 90 days');
+        // the chat message that opens it, end-to-end encrypted like any other
+        await b.waitForAsync(() async =>
+            (await b.store.fetchChannelMessages(dmChannel)).any((m) =>
+                m.contentType == kAlbumType &&
+                AlbumNote.parse(m.body ?? '')?.albumId == album.albumId));
+
+        final dir = await Directory.systemTemp.createTemp('vartalap_album');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        File photo(String name, int seed) => File('${dir.path}/$name')
+          ..writeAsBytesSync([for (var i = 0; i < 64; i++) (i * seed) % 256]);
+        final fromA = photo('a.jpg', 3);
+        await a.chat.addAlbumPhotos(album, [fromA.path]);
+        final [listed] = await b.chat.albumsOf(dmChannel, peer: a.userId);
+        expect((listed.title, listed.photoCount), ('Diwali 2026', 1));
+        await b.chat.addAlbumPhotos(listed, [photo('b.jpg', 5).path]);
+
+        final page = await a.chat.albumPage(dmChannel, album.albumId);
+        expect([for (final p in page.photos) p.uploader], [b.userId, a.userId],
+            reason: 'newest first');
+        final media = b.chat.assets.client;
+        expect(
+            await media
+                .download(await media.downloadUrl(page.photos.last.fileId)),
+            fromA.readAsBytesSync(),
+            reason: 'not end-to-end encrypted: B gets the bytes A picked');
+
+        // a photo goes by its uploader or the album's creator
+        await expectLater(
+            b.chat.removeAlbumPhoto(album, page.photos.last), refused(403));
+        await a.chat.removeAlbumPhoto(album, page.photos.first);
+        expect((await b.chat.albumPage(dmChannel, album.albumId)).photos,
+            hasLength(1));
+
+        // C is connected to A but not in their 1:1
+        await expectLater(
+            c.chat.albumsOf(dmChannel, peer: a.userId), refused(403));
+        await expectLater(
+            c.chat.albumPage(dmChannel, album.albumId), refused(403));
+        await expectLater(
+            c.chat.addAlbumPhotos(album, [photo('c.jpg', 7).path]),
+            refused(403));
+
+        await expectLater(b.chat.deleteAlbum(album), refused(403),
+            reason: 'only its creator deletes a 1:1 album');
+        await a.chat.deleteAlbum(album);
+        expect(await b.chat.albumsOf(dmChannel, peer: a.userId), isEmpty);
       });
 
       // ---- 9 ------------------------------------------------------------

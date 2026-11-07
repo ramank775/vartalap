@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vartalap/screens/chat_info/chat_info.dart';
 import 'package:vartalap/services/auth_service.dart';
+import 'package:vartalap/services/album_client.dart';
 import 'package:vartalap/services/chat_service.dart';
 import 'package:vartalap/theme/theme.dart';
 import 'package:vartalap/widgets/avator.dart';
@@ -202,6 +203,7 @@ void main() {
       _FakeChatService(members: _roster()),
       kind: 'group',
     );
+    await _scrollTo(tester, 'Admin');
 
     expect(find.text('Owner'), findsOneWidget);
     expect(find.text('Admin'), findsOneWidget);
@@ -283,6 +285,7 @@ void main() {
 
     // Ravi and Meena are both actionable (the owner is never a target
     // and you are not your own).
+    await tester.scrollUntilVisible(_rowMenu('Meena'), 200);
     await tester.ensureVisible(_rowMenu('Meena'));
     await tester.pumpAndSettle();
     await tester.tap(_rowMenu('Meena'));
@@ -302,6 +305,7 @@ void main() {
     await _pumpInfo(tester, svc, kind: 'group');
 
     // Long-press is the other way in, and lands on the same sheet.
+    await tester.scrollUntilVisible(find.widgetWithText(ListTile, 'Ravi'), 200);
     await tester.ensureVisible(find.widgetWithText(ListTile, 'Ravi'));
     await tester.pumpAndSettle();
     await tester.longPress(find.widgetWithText(ListTile, 'Ravi'));
@@ -350,6 +354,22 @@ void main() {
       find.textContaining('The contact stays in Contacts'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a group and a 1:1 each have Albums (decision 233)',
+      (tester) async {
+    await _pumpInfo(tester, _FakeChatService(members: _roster()),
+        kind: 'group');
+    expect(find.text('Albums'), findsOneWidget);
+
+    await _pumpInfo(
+        tester,
+        _FakeChatService(members: [
+          _member('u-self', 'member', 1),
+          _member('u-peer', 'member', 1, 'Ravi'),
+        ]),
+        kind: 'one_to_one');
+    expect(find.text('Albums'), findsOneWidget);
   });
 
   testWidgets('a DM is titled by the resolved name, not the stored one',
@@ -558,6 +578,10 @@ class _FakeChatService implements ChatService {
   }) async {
     calls.add('setMemberRole($channelId,$userId,$role)');
   }
+
+  @override
+  Future<List<Album>> albumsOf(String channelId, {String? peer}) async =>
+      const [];
 
   @override
   Future<List<MessageRow>> fetchMedia(String channelId) async => media;
