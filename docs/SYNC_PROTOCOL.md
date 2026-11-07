@@ -2401,3 +2401,5 @@ The one thing that travels in the chat is the creator's announcement:
 an ordinary message, `content_type = "application/x-vartalap-album"`,
 whose `body` is `{"albumId", "channelId", "title"}` as JSON. Phones show
 it as a card that opens the album, and previews it as "🖼️ Album: <title>".
+
+The note is not forwarded (§25.1): only its own chat can open the album.

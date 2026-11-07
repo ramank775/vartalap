@@ -151,6 +151,8 @@ void main() {
         [_albumId, dm, 'Diwali']);
     expect(messagePreview(note.body!, note.contentType, attachment: false),
         '🖼️ Album: Diwali');
+    expect(ChatService.canForward(note), isFalse,
+        reason: 'only its own chat can open the album');
   });
 
   test('photos go up unencrypted as the album category, added one by one',

@@ -558,12 +558,17 @@ class ChatService with TimelineService, AlbumService {
   /// SYNC_PROTOCOL §25: what may be forwarded. Not a deleted message or
   /// one still waiting to decrypt; not a live location (the sharer's, and
   /// live) or a timed message (its sender meant it to go); not an
-  /// attachment still on its way up (its url is a file on this phone).
+  /// attachment still on its way up (its url is a file on this phone);
+  /// not an album's note (only its own chat can open the album).
   static bool canForward(MessageRow m) {
     if (m.tombstoned ||
         m.timerSec != null ||
-        const {kUndecryptedType, kGroupEventType, kLiveLocationType}
-            .contains(m.contentType)) {
+        const {
+          kUndecryptedType,
+          kGroupEventType,
+          kLiveLocationType,
+          kAlbumType,
+        }.contains(m.contentType)) {
       return false;
     }
     final files = m.attachments == null
