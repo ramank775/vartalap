@@ -1,6 +1,10 @@
 name: libsignal_protocol_dart
 description: Signal Protocol libray for Dart native and Flutter, pure Dart implementation of the the Signal Protocol
-version: 0.8.2
+version: 0.8.2+vartalap.1
+# Vartalap's copy of libsignal_protocol_dart 0.8.2 (GPL-3.0, as Vartalap),
+# patched (decision 261): SessionState.fromSessionState deep-copies, and a
+# state promoted on decrypt leaves the archive, as libsignal (Java) does.
+publish_to: none
 repository: https://github.com/MixinNetwork/libsignal_protocol_dart
 topics:
  - crypto
@@ -21,8 +25,3 @@ dependencies:
   pointycastle: ^4.0.0
   protobuf: ^6.0.0
   x25519: ^0.1.1
-
-
-dev_dependencies:
-  test: ^1.25.8
-  very_good_analysis: ^10.2.0

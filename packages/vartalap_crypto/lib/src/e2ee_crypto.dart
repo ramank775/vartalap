@@ -139,7 +139,7 @@ class E2eeCrypto {
     PreKeyBundle? bundle;
     if (device == null ||
         !await SignalStores(_records)
-            .containsSession(signalAddress(peer, device))) {
+            .canSendOn(signalAddress(peer, device))) {
       if (onlyIfSession) return null;
       // ponytail: one phone per account (183), so its first device is
       // the one; linked devices mean a ciphertext per device here.
@@ -361,8 +361,7 @@ class E2eeCrypto {
       final stores = SignalStores(records);
       final cipher = SessionCipher(stores, stores, stores, stores, sender);
       final plain = switch (kind) {
-        _kindPreKey => await _decryptPreKey(
-            cipher, stores, sender, PreKeySignalMessage(body)),
+        _kindPreKey => await cipher.decrypt(PreKeySignalMessage(body)),
         _kindSignal =>
           await cipher.decryptFromSignal(SignalMessage.fromSerialized(body)),
         _kindGroup =>
@@ -392,31 +391,6 @@ class E2eeCrypto {
       }
       return (opened, stores.changedIdentities);
     });
-  }
-
-  /// [cipher]'s decrypt of a first message, with its keys checked first.
-  /// libsignal 0.8.2's `SessionBuilder.process` does not await `processV3`,
-  /// so a key that is gone fails it twice: through decrypt (a re-send then
-  /// delivers it) and as an uncaught error, which put the crash dialog up
-  /// on emulator A (decision 260). Refused here first, as processV3 would.
-  /// ponytail: processV3's other failures (a malformed key from a hostile
-  /// sender) can still escape that way; a patched libsignal closes it.
-  static Future<Uint8List> _decryptPreKey(
-      SessionCipher cipher,
-      SignalStores stores,
-      SignalProtocolAddress sender,
-      PreKeySignalMessage m) async {
-    final record = await stores.loadSession(sender);
-    if (!record.hasSessionState(
-        m.getMessageVersion(), m.getBaseKey().serialize())) {
-      final preKeyId = m.getPreKeyId();
-      if (!await stores.containsSignedPreKey(m.getSignedPreKeyId()) ||
-          (preKeyId.isPresent &&
-              !await stores.containsPreKey(preKeyId.value))) {
-        throw InvalidKeyIdException('No prekey for a new session');
-      }
-    }
-    return cipher.decrypt(m);
   }
 
   /// Logged with each sealed op, inside its transaction ([txn]), so a
@@ -489,12 +463,14 @@ class E2eeCrypto {
   }
 
   /// [userId]'s phone could not open what this one sent: start a fresh
-  /// session with [deviceId] (its current phone) on the next send.
+  /// session with [deviceId] (its current phone) on the next send. The
+  /// old one is archived, not deleted (decision 261), so what that phone
+  /// already sent on it still opens here.
   Future<void> resetSession(String userId, String deviceId) =>
       _serial(() => _db.transaction((txn) async {
             final records = _records.forTransaction(txn);
             await SignalStores(records)
-                .deleteSession(signalAddress(userId, deviceId));
+                .archiveSession(signalAddress(userId, deviceId));
             await records.write('peer_device', userId, utf8.encode(deviceId));
           }));
 

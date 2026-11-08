@@ -1,4 +1,3 @@
-import 'dart:collection';
 import 'dart:core';
 import 'dart:math';
 import 'dart:typed_data';
@@ -167,14 +166,14 @@ class SessionCipher {
     } on InvalidMessageException catch (e) {
       exceptions.add(e);
     }
-    // ignore: deprecated_member_use
-    final pStates = HasNextIterator(previousStates.iterator);
-    while (pStates.hasNext) {
+    // Vartalap patch (decision 261): the archived state itself leaves the
+    // archive when its copy is promoted; removing the copy removed nothing.
+    for (final archived in previousStates) {
       try {
-        final promotedState = SessionState.fromSessionState(pStates.next());
+        final promotedState = SessionState.fromSessionState(archived);
         final plaintext = _decryptFromState(promotedState, cipherText);
 
-        previousStates.remove(promotedState);
+        previousStates.remove(archived);
         sessionRecord.promoteState(promotedState);
 
         return plaintext;

@@ -242,6 +242,25 @@ class SignalStores
   Future<bool> containsSession(SignalProtocolAddress address) async =>
       await _records.read('session', '$address') != null;
 
+  /// A session this phone can send on: its current state has a sending
+  /// chain. A reset one ([archiveSession]) has a record but none, and the
+  /// next message starts a new session.
+  Future<bool> canSendOn(SignalProtocolAddress address) async {
+    final bytes = await _records.read('session', '$address');
+    return bytes != null &&
+        SessionRecord.fromSerialized(bytes).sessionState.hasSenderChain();
+  }
+
+  /// Retires [address]'s current session (decision 261): the next message
+  /// starts a new one, and what the peer already sent on the old one still
+  /// opens, as libsignal tries archived states when the current one fails.
+  Future<void> archiveSession(SignalProtocolAddress address) async {
+    final bytes = await _records.read('session', '$address');
+    if (bytes == null) return;
+    final record = SessionRecord.fromSerialized(bytes)..archiveCurrentState();
+    await storeSession(address, record);
+  }
+
   @override
   Future<void> deleteSession(SignalProtocolAddress address) =>
       _records.remove('session', '$address');

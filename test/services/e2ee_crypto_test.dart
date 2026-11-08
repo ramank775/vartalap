@@ -61,9 +61,10 @@ class _Phone {
   final String userId;
   final String deviceId;
   final Database db;
+  final E2eeRecordStore records;
   final E2eeCrypto crypto;
 
-  _Phone._(this.userId, this.deviceId, this.db, this.crypto);
+  _Phone._(this.userId, this.deviceId, this.db, this.records, this.crypto);
 
   static Future<_Phone> enrolled(
       String userId, String deviceId, _Directory directory) async {
@@ -82,6 +83,7 @@ class _Phone {
         userId,
         deviceId,
         db,
+        records,
         E2eeCrypto(
           db: db,
           records: records,
@@ -128,21 +130,42 @@ void main() {
     bob = await _Phone.enrolled('b0b000002', 'phone-b', directory);
   });
 
-  // Decision 260: libsignal 0.8.2 does not await processV3, so a used
+  // Decision 260: libsignal 0.8.2 did not await processV3, so a used
   // prekey failed it as an uncaught error too (the crash dialog on
-  // emulator A), besides the undecryptable that asks for a re-send. The
-  // test zone fails on any uncaught error.
+  // emulator A), besides the undecryptable that asks for a re-send; our
+  // copy awaits it. The test zone fails on any uncaught error.
   test('a first message naming a used prekey is undecryptable, and nothing '
       'goes uncaught', () async {
     final first = await alice.send(bob, 'hi bob');
     expect(await bob.open(first), 'hi bob');
-    // As a re-send request does; alice has not heard back, so her next
-    // message still names the prekey bob used.
-    await bob.crypto.resetSession(alice.userId, alice.deviceId);
+    // Bob's session is gone (as a reset did before decision 261); alice
+    // has not heard back, so her next message still names the prekey bob
+    // used.
+    await bob.db.transaction((t) => SignalStores(bob.records.forTransaction(t))
+        .deleteSession(signalAddress(alice.userId, alice.deviceId)));
     final second = await alice.send(bob, 'again', opId: 'op-2');
     expect(second.payload[2], 1, reason: 'still a prekey message');
     await expectLater(bob.open(second), throwsA(isA<E2eeUndecryptable>()));
     await pumpEventQueue();
+  });
+
+  // Decision 261: answering a re-send request re-establishes the session
+  // but keeps the old one, so what the peer sent on it meanwhile opens.
+  test('a reset starts a new session; the old one still opens what was '
+      'already sent on it', () async {
+    expect(await bob.open(await alice.send(bob, 'hi bob')), 'hi bob');
+    final inFlight = await alice.send(bob, 'sent before the reset',
+        opId: 'op-2');
+
+    await bob.crypto.resetSession(alice.userId, alice.deviceId);
+    final resent = await bob.send(alice, 'the re-send', opId: 'op-3');
+    expect(resent.payload[2], 1, reason: 'a new session, from a new prekey');
+
+    expect(await bob.open(inFlight), 'sent before the reset');
+    expect(await alice.open(resent), 'the re-send');
+    final reply = await alice.send(bob, 'on the new session', opId: 'op-4');
+    expect(reply.payload[2], 2, reason: 'alice took up the new session');
+    expect(await bob.open(reply), 'on the new session');
   });
 
   test('first message claims a prekey; replies ride the session', () async {

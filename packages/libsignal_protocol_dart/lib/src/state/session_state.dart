@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:optional/optional.dart';
+import 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
 import '../ecc/curve.dart';
 import '../ecc/ec_key_pair.dart';
@@ -27,8 +28,11 @@ base class SessionState extends LinkedListEntry<SessionState> {
     _sessionStructure = sessionStructure;
   }
 
+  // Vartalap patch (decision 261): a deep copy, as libsignal (Java). A
+  // decrypt tries a copy of each state; sharing the structure let a failed
+  // try change the state itself, and a later success saved it damaged.
   SessionState.fromSessionState(SessionState copy) {
-    _sessionStructure = copy.structure;
+    _sessionStructure = copy.structure.deepCopy();
   }
 
   static const int maxMessageKeys = 2000;

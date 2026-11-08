@@ -690,11 +690,10 @@ packages:
   libsignal_protocol_dart:
     dependency: "direct main"
     description:
-      name: libsignal_protocol_dart
-      sha256: "3ed4455f09c7299934a6b9ca0028daff87940d446142056e1ec25997de0e41bf"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.8.2"
+      path: "packages/libsignal_protocol_dart"
+      relative: true
+    source: path
+    version: "0.8.2+vartalap.1"
   logging:
     dependency: transitive
     description:

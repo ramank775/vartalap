@@ -44,7 +44,9 @@ class SessionBuilder {
           _remoteAddress.getName(), theirIdentityKey);
     }
 
-    final unsignedPreKeyId = processV3(sessionRecord, message);
+    // Vartalap patch (decision 260): awaited, or a failure while
+    // saveIdentity ran was also an uncaught error.
+    final unsignedPreKeyId = await processV3(sessionRecord, message);
 
     await _identityKeyStore.saveIdentity(_remoteAddress, theirIdentityKey);
 
@@ -60,9 +62,11 @@ class SessionBuilder {
       return const Optional.empty();
     }
 
-    final ourSignedPreKey = _signedPreKeyStore
-        .loadSignedPreKey(message.getSignedPreKeyId())
-        .then((value) => value.getKeyPair());
+    // Vartalap patch (decision 260): awaited here, so it cannot fail
+    // unobserved while the one-time prekey is loaded.
+    final ourSignedPreKey = (await _signedPreKeyStore
+            .loadSignedPreKey(message.getSignedPreKeyId()))
+        .getKeyPair();
 
     late final Optional<ECKeyPair> ourOneTimePreKey;
     if (message.getPreKeyId().isPresent) {
@@ -79,8 +83,8 @@ class SessionBuilder {
       theirBaseKey: message.getBaseKey(),
       theirIdentityKey: message.getIdentityKey(),
       ourIdentityKey: await _identityKeyStore.getIdentityKeyPair(),
-      ourSignedPreKey: await ourSignedPreKey,
-      ourRatchetKey: await ourSignedPreKey,
+      ourSignedPreKey: ourSignedPreKey,
+      ourRatchetKey: ourSignedPreKey,
       ourOneTimePreKey: ourOneTimePreKey,
     );
 

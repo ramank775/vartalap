@@ -64,7 +64,9 @@ dependencies:
   record: ^7.1.2
   just_audio: ^0.10.6
   flutter_zxing: ^3.1.0
-  libsignal_protocol_dart: 0.8.2
+  # our patched copy (decisions 260, 261)
+  libsignal_protocol_dart:
+    path: packages/libsignal_protocol_dart
   # Sends what was left unsent once there is network, app closed or not.
   workmanager: ^0.10.10
   # The in-app video player: ExoPlayer on Android, no Play services.

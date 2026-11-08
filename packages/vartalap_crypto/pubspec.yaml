@@ -7,7 +7,9 @@ environment:
   sdk: ">=3.4.0 <4.0.0"
 
 dependencies:
-  libsignal_protocol_dart: 0.8.2
+  # our patched copy (decisions 260, 261)
+  libsignal_protocol_dart:
+    path: ../libsignal_protocol_dart
   pointycastle: ^4.0.0
   sqflite_common_ffi: ^2.3.0
   vartalap_proto:
