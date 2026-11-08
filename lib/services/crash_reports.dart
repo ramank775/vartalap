@@ -59,6 +59,10 @@ class CrashReports {
 
   final _seen = <String>{};
 
+  /// There once "Don't show this again" was ticked: nothing is kept or
+  /// asked about after. Not a `.txt`, so never a report.
+  File get _off => File('${dir.path}/off');
+
   /// Hooks this engine's Dart error handlers (each engine runs its own:
   /// the app, a push wake, a background job, live location). Errors in
   /// other isolates reach these through whoever awaits them.
@@ -94,6 +98,7 @@ class CrashReports {
     final trace = '${error.runtimeType}\n${stack ?? ''}'.trimRight();
     if (!_seen.add(trace)) return;
     try {
+      if (_off.existsSync()) return;
       dir.createSync(recursive: true);
       if (waiting().length >= maxWaiting) return;
       var ms = DateTime.now().millisecondsSinceEpoch;
@@ -122,29 +127,66 @@ class CrashReports {
   Future<void> offer(BuildContext context) async {
     final reports = waiting();
     if (reports.isEmpty || !context.mounted) return;
+    // Android's own crashes are still written (Application.kt): dropped.
+    if (_off.existsSync()) return _delete(reports);
     final crashed = reports.any((f) => f.path.endsWith('.android.txt'));
+    var dontShow = false;
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        content: Text(
-          '${crashed ? 'Vartalap closed unexpectedly.' : 'Vartalap ran into a problem.'}'
-          ' Send a report to help fix it? It opens your email app, where '
-          'you can read the report before you send it.\n\n'
-          'It has no messages, phone numbers or contacts.',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${crashed ? 'Vartalap closed unexpectedly.' : 'Vartalap ran into a problem.'}'
+                ' Send a report to help fix it? It opens your email app, '
+                'where you can read the report before you send it.\n\n'
+                'It has no messages, phone numbers or contacts.',
+              ),
+              const SizedBox(height: 12),
+              // A compact row, its box in line with the text above.
+              InkWell(
+                onTap: () => setState(() => dontShow = !dontShow),
+                child: Row(
+                  children: [
+                    SizedBox.square(
+                      dimension: 18,
+                      child: Checkbox(
+                        value: dontShow,
+                        onChanged: (on) =>
+                            setState(() => dontShow = on ?? false),
+                        materialTapTargetSize:
+                            MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text("Don't show this again"),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text("Don't send"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Send'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text("Don't send"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Send'),
-          ),
-        ],
       ),
     );
+    if (dontShow) {
+      try {
+        _off.createSync(recursive: true);
+      } catch (_) {}
+    }
     if (ok == true) {
       final device = await this.device().catchError((_) => <String, String>{});
       final mail = this.mail(reports, device);
@@ -154,6 +196,10 @@ class CrashReports {
       } catch (_) {}
       if (!taken) return;
     }
+    _delete(reports);
+  }
+
+  void _delete(List<File> reports) {
     for (final f in reports) {
       f.deleteSync();
     }

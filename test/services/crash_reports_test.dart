@@ -141,4 +141,25 @@ void main() {
     expect(reports.mail(reports.waiting(), const {})['body'],
         hasLength(CrashReports.maxBody));
   });
+
+  testWidgets("Don't show this again: nothing is kept or asked about after",
+      (tester) async {
+    reports.record(StateError('x'), StackTrace.current);
+    final done = reports.offer(await home(tester));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text("Don't show this again"));
+    await tester.pump();
+    await tester.tap(find.text("Don't send"));
+    await tester.pumpAndSettle();
+    await done;
+    expect(reports.waiting(), isEmpty);
+
+    reports.record(ArgumentError('y'), StackTrace.current);
+    expect(reports.waiting(), isEmpty, reason: 'nothing kept');
+    android(1700000000000); // Android's own still lands
+    await reports.offer(await home(tester));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(reports.waiting(), isEmpty, reason: 'dropped unasked');
+  });
 }
