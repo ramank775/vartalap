@@ -434,61 +434,13 @@ void main() {
 
   // ---- decision 245: WhatsApp's action row, photos open full screen ----
 
-  testWidgets("group info's row: Add for an admin, then Search and Mute",
-      (tester) async {
+  testWidgets('chat info has no row of shortcut buttons under the name '
+      '(owner: Search and Mute looked out of place)', (tester) async {
     await _pumpInfo(tester, _FakeChatService(members: _roster()),
         kind: 'group');
-    expect(_actions(tester), ['Add', 'Search', 'Mute']);
-  });
-
-  testWidgets("a plain member's row has no Add", (tester) async {
-    await _pumpInfo(
-        tester, _FakeChatService(members: _roster(selfRole: 'member')),
-        kind: 'group');
-    expect(_actions(tester), ['Search', 'Mute']);
-  });
-
-  testWidgets("a DM's row is Search and Mute; a muted chat unmutes at once",
-      (tester) async {
-    final svc = _FakeChatService(mutedUntilMs: kMuteAlways, members: [
-      _member('u-self', 'member', 1),
-      _member('u-peer', 'member', 1, 'Ravi'),
-    ]);
-    await _pumpInfo(tester, svc, kind: 'one_to_one');
-    expect(_actions(tester), ['Search', 'Unmute']);
-
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Unmute'));
-    await tester.pumpAndSettle();
-    expect(svc.calls, ['setMuted(c-1,null)']);
-  });
-
-  testWidgets('Search goes back to the chat with its search open',
-      (tester) async {
-    Object? result;
-    await tester.pumpWidget(MaterialApp(
-      theme: lightThemeData,
-      home: Builder(
-        builder: (context) => TextButton(
-          onPressed: () async => result = await Navigator.of(context).push<Object?>(
-            MaterialPageRoute<Object?>(
-              builder: (_) => ChatInfoScreen(
-                channelId: _channelId,
-                channelName: 'Kothrud Flat 3B',
-                channelKind: 'group',
-                chatService: _FakeChatService(members: _self),
-                authService: _FakeAuthService(),
-              ),
-            ),
-          ),
-          child: const Text('open'),
-        ),
-      ),
-    ));
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Search'));
-    await tester.pumpAndSettle();
-    expect(result, 'search');
+    expect(find.byType(InfoActions), findsNothing);
+    expect(find.text('Notifications'), findsOneWidget,
+        reason: 'mute and unmute stay under Notifications');
   });
 
   testWidgets('the group photo opens full screen, with a pencil to change it',
@@ -604,13 +556,6 @@ void main() {
     expect(taps, ['info']);
   });
 }
-
-/// The labels of the boxed shortcuts under the name, in order.
-List<String> _actions(WidgetTester tester) => [
-      for (final b in tester.widgetList<OutlinedButton>(find.descendant(
-          of: find.byType(InfoActions), matching: find.byType(OutlinedButton))))
-        ((b.child! as Column).children.last as Text).data!,
-    ];
 
 const String _channelId = 'c-1';
 

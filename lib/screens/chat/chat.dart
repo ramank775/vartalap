@@ -531,8 +531,8 @@ class _ChatScreenState extends State<ChatScreen> with RouteAware {
       // A rename, member change or mute made in there.
       _loadMemberNames();
       if (result == null || !mounted) return;
-      // Search, or a message picked under Media (a secure one).
-      result == 'search' ? _openSearch() : _jumpToMessage(result);
+      // A message picked under Media (a secure one).
+      _jumpToMessage(result);
     });
   }
 
@@ -2776,7 +2776,9 @@ String _readMoreCut(String body) {
   final start = body.characters.take(_readMoreShown).toString();
   final space = start.lastIndexOf(RegExp(r'\s'));
   return (space > _readMoreShown * 0.8 ? start.substring(0, space) : start)
-      .trimRight();
+      .trimRight()
+      // "the end…", not "the end.…"
+      .replaceFirst(RegExp(r'[.,;:!?…]+$'), '');
 }
 
 class _MessageBubble extends StatelessWidget {

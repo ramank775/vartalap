@@ -298,28 +298,6 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(height: kSpaceMd),
-                    // WhatsApp's row of shortcuts under the name; only
-                    // what we have (no calls).
-                    InfoActions(actions: [
-                      if (_isGroup && canManage && !left)
-                        (
-                          Icons.person_add_alt_1_outlined,
-                          'Add',
-                          () => _addMembers(members),
-                        ),
-                      // Back to the chat with its search open
-                      // ([ChatScreen] reads it).
-                      (
-                        Icons.search,
-                        'Search',
-                        () => Navigator.of(context).pop('search'),
-                      ),
-                      if (!left)
-                        muted == null
-                            ? (Icons.volume_off_outlined, 'Mute', _mute)
-                            : (Icons.volume_up_outlined, 'Unmute', _unmute),
-                    ]),
                   ],
                 ),
               ),
@@ -526,11 +504,6 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       channelIds: [widget.channelId],
       mutedUntilMs: _channel?.mutedUntilMs,
     );
-    await _reloadChannel();
-  }
-
-  Future<void> _unmute() async {
-    await widget.chatService.setMuted(widget.channelId, null);
     await _reloadChannel();
   }
 
@@ -1136,9 +1109,7 @@ class ChatAvatarPeek extends StatelessWidget {
             chatService: services.chatService,
             authService: services.authService,
           ),
-        ))
-        // Search lives in the chat.
-        .then((result) => result == 'search' ? onMessage() : null);
+        ));
   }
 
   void _peek(BuildContext context) {
