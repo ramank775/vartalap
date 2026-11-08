@@ -361,7 +361,8 @@ class E2eeCrypto {
       final stores = SignalStores(records);
       final cipher = SessionCipher(stores, stores, stores, stores, sender);
       final plain = switch (kind) {
-        _kindPreKey => await cipher.decrypt(PreKeySignalMessage(body)),
+        _kindPreKey => await _decryptPreKey(
+            cipher, stores, sender, PreKeySignalMessage(body)),
         _kindSignal =>
           await cipher.decryptFromSignal(SignalMessage.fromSerialized(body)),
         _kindGroup =>
@@ -391,6 +392,31 @@ class E2eeCrypto {
       }
       return (opened, stores.changedIdentities);
     });
+  }
+
+  /// [cipher]'s decrypt of a first message, with its keys checked first.
+  /// libsignal 0.8.2's `SessionBuilder.process` does not await `processV3`,
+  /// so a key that is gone fails it twice: through decrypt (a re-send then
+  /// delivers it) and as an uncaught error, which put the crash dialog up
+  /// on emulator A (decision 260). Refused here first, as processV3 would.
+  /// ponytail: processV3's other failures (a malformed key from a hostile
+  /// sender) can still escape that way; a patched libsignal closes it.
+  static Future<Uint8List> _decryptPreKey(
+      SessionCipher cipher,
+      SignalStores stores,
+      SignalProtocolAddress sender,
+      PreKeySignalMessage m) async {
+    final record = await stores.loadSession(sender);
+    if (!record.hasSessionState(
+        m.getMessageVersion(), m.getBaseKey().serialize())) {
+      final preKeyId = m.getPreKeyId();
+      if (!await stores.containsSignedPreKey(m.getSignedPreKeyId()) ||
+          (preKeyId.isPresent &&
+              !await stores.containsPreKey(preKeyId.value))) {
+        throw InvalidKeyIdException('No prekey for a new session');
+      }
+    }
+    return cipher.decrypt(m);
   }
 
   /// Logged with each sealed op, inside its transaction ([txn]), so a

@@ -128,6 +128,23 @@ void main() {
     bob = await _Phone.enrolled('b0b000002', 'phone-b', directory);
   });
 
+  // Decision 260: libsignal 0.8.2 does not await processV3, so a used
+  // prekey failed it as an uncaught error too (the crash dialog on
+  // emulator A), besides the undecryptable that asks for a re-send. The
+  // test zone fails on any uncaught error.
+  test('a first message naming a used prekey is undecryptable, and nothing '
+      'goes uncaught', () async {
+    final first = await alice.send(bob, 'hi bob');
+    expect(await bob.open(first), 'hi bob');
+    // As a re-send request does; alice has not heard back, so her next
+    // message still names the prekey bob used.
+    await bob.crypto.resetSession(alice.userId, alice.deviceId);
+    final second = await alice.send(bob, 'again', opId: 'op-2');
+    expect(second.payload[2], 1, reason: 'still a prekey message');
+    await expectLater(bob.open(second), throwsA(isA<E2eeUndecryptable>()));
+    await pumpEventQueue();
+  });
+
   test('first message claims a prekey; replies ride the session', () async {
     final first = await alice.send(bob, 'hi bob');
     expect(first.payload.sublist(0, 3), [kSealedMarker, kSealedVersion, 1]);
