@@ -71,9 +71,9 @@ Future<pb.ChatLinkPreview?> fetchLinkPreview(
     }
     return pb.ChatLinkPreview(
       url: url,
-      title: _cap(meta.title, 200),
-      description: _cap(meta.description, 300),
-      siteName: _cap(meta.siteName, 100),
+      title: capPreviewText(meta.title, 200),
+      description: capPreviewText(meta.description, 300),
+      siteName: capPreviewText(meta.siteName, 100),
       imageJpeg: jpeg,
     );
   } catch (_) {
@@ -261,8 +261,15 @@ String _text(String s) => s
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
-String _cap(String s, int max) =>
-    s.length <= max ? s : '${s.substring(0, max - 1).trimRight()}…';
+/// [s] in at most [max] UTF-16 units (the receiver's limit), never ending
+/// on half an emoji: malformed text throws when laid out.
+String capPreviewText(String s, int max) {
+  if (s.length <= max) return s;
+  var end = max - 1;
+  final last = s.codeUnitAt(end - 1);
+  if (last >= 0xD800 && last <= 0xDBFF) end--; // a pair's first half
+  return '${s.substring(0, end).trimRight()}…';
+}
 
 const _media = MethodChannel('vartalap/media');
 

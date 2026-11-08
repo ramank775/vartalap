@@ -77,6 +77,12 @@ void main() {
     });
   });
 
+  test('a long title is cut short, never through an emoji', () {
+    final title = '${'a' * 198}😀tail';
+    expect(capPreviewText(title, 200), '${'a' * 198}…');
+    expect(capPreviewText('short', 200), 'short');
+  });
+
   group('fetchLinkPreview', () {
     test('fetches the page and its image, resolved against the page', () async {
       final asked = <String>[];

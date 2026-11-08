@@ -117,22 +117,27 @@ class Avator extends StatelessWidget {
     );
   }
 
+  /// Whole characters (grapheme clusters), never a lone UTF-16 unit: half
+  /// an emoji is malformed text, and laying it out throws, which took down
+  /// whole lists on a phone (a contact named "Ravi 🙏 Kumar").
   String _initials(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return '?';
-    final parts = trimmed.split(RegExp(r'[\s_]+'));
-    if (parts.length >= 2 &&
-        _isLetterOrDigit(parts[0][0]) &&
-        _isLetterOrDigit(parts[1][0])) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    final firsts = [
+      for (final part in trimmed.split(RegExp(r'[\s_]+')))
+        if (part.isNotEmpty) part.characters.first,
+    ];
+    if (firsts.length >= 2 &&
+        _isLetterOrDigit(firsts[0]) &&
+        _isLetterOrDigit(firsts[1])) {
+      return '${firsts[0]}${firsts[1]}'.toUpperCase();
     }
     // Find the first letter or digit; skips leading symbols like
     // "+" on phone numbers so "+919876543210" becomes "9", not "+".
-    for (final rune in trimmed.runes) {
-      final ch = String.fromCharCode(rune);
+    for (final ch in trimmed.characters) {
       if (_isLetterOrDigit(ch)) return ch.toUpperCase();
     }
-    return trimmed[0].toUpperCase();
+    return trimmed.characters.first;
   }
 
   static bool _isLetterOrDigit(String ch) {
@@ -146,8 +151,9 @@ class Avator extends StatelessWidget {
     if (code >= 0x61 && code <= 0x7A) return true;
     // Letters outside ASCII (broad approximation): anything above 0x7F
     // that isn't a common ASCII symbol is probably a letter (e.g. á, ñ,
-    // 你). Good enough for an avatar initial.
-    return code > 0x7F;
+    // 你). Good enough for an avatar initial. Not a surrogate pair: those
+    // are mostly emoji, which make a poor initial.
+    return code > 0x7F && (code < 0xD800 || code > 0xDFFF);
   }
 }
 
