@@ -50,6 +50,7 @@ class LiveLocationService : Service(), LocationListenerCompat {
         private const val NOTIFICATION_ID = 7001
         private const val REFUSED_ID = 7002
         private const val ACTION_STOP = "com.one9x.vartalap.LIVE_LOCATION_STOP"
+        private const val ACTION_SHOW = "com.one9x.vartalap.LIVE_LOCATION_SHOW"
         private const val INTERVAL_MS = 60_000L
         private const val MIN_DISTANCE_M = 50f
         private const val STILL_MS = 10 * 60_000L
@@ -207,6 +208,16 @@ class LiveLocationService : Service(), LocationListenerCompat {
             stopAll()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_SHOW) {
+            // Android 14+ lets a foreground service's notification be
+            // swiped away; while sharing, it comes straight back.
+            if (engine == null || stopping) {
+                if (engine == null) stopSelf()
+                return START_NOT_STICKY
+            }
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification())
+            return START_STICKY
+        }
         if (engine != null) {
             sync()
             return START_STICKY
@@ -315,6 +326,13 @@ class LiveLocationService : Service(), LocationListenerCompat {
         .setSilent(!remote)
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .setContentIntent(openApp(this))
+        .setDeleteIntent(
+            PendingIntent.getService(
+                this, 1,
+                Intent(this, LiveLocationService::class.java).setAction(ACTION_SHOW),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+        )
         .addAction(
             0, "Stop",
             PendingIntent.getService(
