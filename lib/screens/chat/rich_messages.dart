@@ -446,12 +446,12 @@ class _AlbumCard extends StatelessWidget {
   }
 }
 
-/// Whatever maps app is installed; the OSM website when there is none.
+/// Android's chooser of every app that opens a location (Google Maps,
+/// OsmAnd, a cab app…), picked each time; the OSM website when the phone
+/// has none.
 Future<void> openInMaps(GeoPoint p) async {
   final at = '${p.lat},${p.lng}';
-  final opened =
-      await launchUrl(Uri.parse('geo:$at?q=$at')).catchError((_) => false);
-  if (opened) return;
+  if (await _intent('openMap', {'uri': 'geo:$at?q=$at'})) return;
   await launchUrl(
     Uri.parse('https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}'
         '#map=17/${p.lat}/${p.lng}'),

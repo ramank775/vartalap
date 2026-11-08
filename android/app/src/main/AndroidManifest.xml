@@ -29,6 +29,11 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <!-- Open in Maps: the apps that open a location -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
         <!-- If your app makes calls -->
         <intent>
             <action android:name="android.intent.action.DIAL" />

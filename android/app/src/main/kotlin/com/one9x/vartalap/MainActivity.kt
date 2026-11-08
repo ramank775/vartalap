@@ -212,6 +212,18 @@ class MainActivity: FlutterActivity() {
                             .putExtra(Intent.EXTRA_TEXT, call.argument<String>("body")),
                         null
                     )
+                    // Open in Maps: every app that opens a geo: link, picked
+                    // each time (a chooser has no "Always"); false when none
+                    // does, and the app falls back to a web map.
+                    "openMap" -> {
+                        val view = Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("uri")))
+                        @Suppress("DEPRECATION")
+                        if (packageManager.queryIntentActivities(view, 0).isEmpty()) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        Intent.createChooser(view, "Open with")
+                    }
                     else -> null
                 }
                 if (intent == null) {

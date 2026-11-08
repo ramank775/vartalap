@@ -4,6 +4,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
@@ -126,5 +127,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(FlutterMap), findsOneWidget);
     });
+  });
+
+  testWidgets("Open in Maps hands a geo: link to Android's chooser",
+      (tester) async {
+    const channel = MethodChannel('vartalap/intents');
+    final calls = <MethodCall>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await openInMaps(const GeoPoint(12.9716, 77.5946));
+    expect(calls.single.method, 'openMap');
+    expect(calls.single.arguments,
+        {'uri': 'geo:12.9716,77.5946?q=12.9716,77.5946'});
   });
 }

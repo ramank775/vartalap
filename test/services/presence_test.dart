@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart' as fixnum;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -155,6 +156,38 @@ void main() {
     expect(chat.presence.value, isNull);
   });
 
+  // The two crash reports from the emulator (build 86): the header
+  // watches from initState and unwatches from dispose while something
+  // else listens to [ChatService.presence].
+  testWidgets('a screen may watch from initState and unwatch from dispose',
+      (tester) async {
+    const group = '0190aaaa-bbbb-7ccc-8ddd-eeeeffff0009';
+    final show = ValueNotifier(false);
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: Column(children: [
+        ValueListenableBuilder(
+            valueListenable: chat.presence,
+            builder: (_, p, __) => Text('$p')),
+        ValueListenableBuilder(
+            valueListenable: show,
+            builder: (_, on, __) =>
+                on ? _Watcher(chat, group) : const SizedBox()),
+      ]),
+    ));
+    chat.presence.value = (online: true, lastSeenMs: 0);
+    show.value = true;
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(chat.presence.value, isNull);
+
+    chat.presence.value = (online: true, lastSeenMs: 0);
+    show.value = false;
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(chat.presence.value, isNull);
+  });
+
   test('typing off: nobody\'s typing shows', () async {
     final source = StreamController<TypingEvent>();
     addTearDown(source.close);
@@ -229,4 +262,31 @@ class _UpAlready extends WsTransport {
     sent.add(payload);
     return true;
   }
+}
+
+/// The chat header's PresenceLine, as far as watching goes.
+class _Watcher extends StatefulWidget {
+  final ChatService chat;
+  final String channelId;
+  const _Watcher(this.chat, this.channelId);
+
+  @override
+  State<_Watcher> createState() => _WatcherState();
+}
+
+class _WatcherState extends State<_Watcher> {
+  @override
+  void initState() {
+    super.initState();
+    widget.chat.watchPresence(widget.channelId);
+  }
+
+  @override
+  void dispose() {
+    widget.chat.unwatchPresence(widget.channelId);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox();
 }

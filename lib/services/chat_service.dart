@@ -429,6 +429,10 @@ class ChatService with TimelineService, AlbumService {
   Future<void> watchPresence(String? channelId) async {
     final me = _authClient.currentUserId;
     _watchedChannel = channelId;
+    // A microtask on: the chat header calls this from initState and
+    // dispose, where telling [presence]'s listeners throws.
+    await Future<void>.value();
+    if (_watchedChannel != channelId) return;
     presence.value = null;
     final peer = channelId == null || me == null || !isDmChannelId(channelId)
         ? null

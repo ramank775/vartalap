@@ -2,8 +2,8 @@
 /// Location screen, how long to share, and the view a bubble opens. The
 /// bubble is [LiveLocationCard], with the other cards in rich_messages.dart.
 ///
-/// Maps are OpenStreetMap's (location_map.dart); "Open in Maps" still
-/// hands the position to whatever maps app the phone has (a `geo:` link).
+/// Maps are OpenStreetMap's (location_map.dart); "Open in Maps" offers
+/// every maps app the phone has, in Android's chooser (a `geo:` link).
 library;
 
 import 'dart:async';
