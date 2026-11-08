@@ -133,22 +133,33 @@ void main() {
 
     Color background() =>
         tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor!;
-    expect(background(), kPostColors.first);
+    expect(background(), kPostColors.first.$2);
+    expect(find.byTooltip('Purple'), findsNothing);
     await tester.tap(find.byTooltip('Background colour'));
     await tester.pump();
-    expect(background(), kPostColors[1]);
-    for (var i = 1; i < kPostColors.length; i++) {
-      await tester.tap(find.byTooltip('Background colour'));
-    }
+    expect(background(), kPostColors.first.$2,
+        reason: 'the palette opens its colours, it does not change one');
+    await tester.tap(find.byTooltip('Purple'));
     await tester.pump();
-    expect(background(), kPostColors.first, reason: 'the palette wraps around');
+    expect(background(), kPostColors[1].$2);
+    await tester.tap(find.byTooltip('Slate'));
+    await tester.pump();
+    expect(background(), kPostColors.last.$2);
 
     TextStyle style() =>
         tester.widget<EditableText>(find.byType(EditableText)).style;
     final font = style().fontFamily;
     await tester.tap(find.byTooltip('Font'));
     await tester.pump();
-    expect(style().fontFamily, isNot(font));
+    expect(find.byTooltip('Purple'), findsNothing,
+        reason: 'one row of choices at a time');
+    expect(style().fontFamily, font);
+    await tester.tap(find.text('Mono'));
+    await tester.pump();
+    expect(style().fontFamily, 'monospace');
+    await tester.tap(find.byTooltip('Font'));
+    await tester.pump();
+    expect(find.text('Mono'), findsNothing, reason: 'T again closes the row');
 
     await tester.enterText(find.byType(TextField), 'Reached Pune');
     await tester.pump();

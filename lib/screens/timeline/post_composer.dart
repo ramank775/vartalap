@@ -20,27 +20,32 @@ import 'package:vartalap_transport/vartalap_transport.dart'
 /// How many photos one post holds.
 const int kMaxPostPhotos = 10;
 
-/// The backgrounds the palette button cycles through, all dark enough for
-/// white text.
+/// The backgrounds the palette button offers, all dark enough for white
+/// text.
 /// ponytail: the colour (and the font) stay on this screen. The timeline
 /// API takes a post's text, photos and audience and refuses any other
 /// field, so the feed shows a text post as it always has. Carry them with
 /// an optional style field on the post once the server takes one.
-const List<Color> kPostColors = [
-  Color(0xFF00796B), // teal
-  Color(0xFF5E35B1), // purple
-  Color(0xFFC62828), // red
-  Color(0xFF1565C0), // blue
-  Color(0xFFE65100), // orange
-  Color(0xFF2E7D32), // green
-  Color(0xFFAD1457), // pink
-  Color(0xFF4E342E), // brown
-  Color(0xFF37474F), // slate
+const List<(String, Color)> kPostColors = [
+  ('Teal', Color(0xFF00796B)),
+  ('Purple', Color(0xFF5E35B1)),
+  ('Red', Color(0xFFC62828)),
+  ('Blue', Color(0xFF1565C0)),
+  ('Orange', Color(0xFFE65100)),
+  ('Green', Color(0xFF2E7D32)),
+  ('Pink', Color(0xFFAD1457)),
+  ('Brown', Color(0xFF4E342E)),
+  ('Slate', Color(0xFF37474F)),
 ];
 
-/// The fonts the T button cycles through: the app's, then Android's own
-/// serif, monospace and handwriting families.
-const List<String?> _fonts = [null, 'serif', 'monospace', 'cursive'];
+/// The fonts the T button offers: the app's, then Android's own serif,
+/// monospace and handwriting families.
+const List<(String, String?)> _fonts = [
+  ('Default', null),
+  ('Serif', 'serif'),
+  ('Mono', 'monospace'),
+  ('Cursive', 'cursive'),
+];
 
 /// The emoji button's choice (the app has no emoji keyboard of its own).
 const List<String> _emoji = [
@@ -81,6 +86,9 @@ class _PostComposerScreenState extends State<PostComposerScreen> {
   bool _posting = false;
   int _color = 0;
   int _font = 0;
+
+  /// The row of choices under the top bar: the palette's or the T's.
+  IconData? _picker;
   int _page = 0;
 
   @override
@@ -240,11 +248,12 @@ class _PostComposerScreenState extends State<PostComposerScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: photo ? Colors.black : kPostColors[_color],
+        backgroundColor: photo ? Colors.black : kPostColors[_color].$2,
         body: SafeArea(
           child: Column(
             children: [
               _topBar(photo),
+              if (!photo && _picker != null) _pickerRow(),
               Expanded(child: photo ? _photoBody() : _textBody()),
               if (photo && _photos.length > 1) _strip(),
               if (photo && _photos.isNotEmpty) _caption(),
@@ -270,13 +279,8 @@ class _PostComposerScreenState extends State<PostComposerScreen> {
           const Spacer(),
           if (!photo) ...[
             _button(Icons.emoji_emotions_outlined, 'Emoji', _addEmoji),
-            _button(Icons.text_fields, 'Font',
-                () => setState(() => _font = (_font + 1) % _fonts.length)),
-            _button(
-                Icons.palette_outlined,
-                'Background colour',
-                () =>
-                    setState(() => _color = (_color + 1) % kPostColors.length)),
+            _pickerButton(Icons.text_fields, 'Font'),
+            _pickerButton(Icons.palette_outlined, 'Background colour'),
           ] else if (_photos.isNotEmpty) ...[
             _button(Icons.delete_outline, 'Remove photo', _removePhoto),
             if (_photos.length < kMaxPostPhotos) ...[
@@ -288,6 +292,78 @@ class _PostComposerScreenState extends State<PostComposerScreen> {
           ],
         ],
       );
+
+  /// Opens its row of choices; again, or the other one, closes it.
+  Widget _pickerButton(IconData icon, String tooltip) => _button(
+      icon,
+      tooltip,
+      () => setState(() => _picker = _picker == icon ? null : icon));
+
+  Widget _pickerRow() {
+    final colours = _picker == Icons.palette_outlined;
+    Widget choice(bool selected, VoidCallback onTap, Widget child) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: kSpaceXs),
+          child: Semantics(
+            selected: selected,
+            button: true,
+            child: InkWell(
+              onTap: onTap,
+              customBorder: const StadiumBorder(),
+              child: child,
+            ),
+          ),
+        );
+    BoxBorder ring(bool selected) =>
+        Border.all(color: Colors.white, width: selected ? 3 : 1);
+    return SizedBox(
+      height: 48,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: kSpaceSm),
+        children: [
+          if (colours)
+            for (final (i, (name, colour)) in kPostColors.indexed)
+              choice(
+                i == _color,
+                () => setState(() => _color = i),
+                Tooltip(
+                  message: name,
+                  child: Container(
+                    width: 36,
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    decoration: BoxDecoration(
+                        color: colour,
+                        shape: BoxShape.circle,
+                        border: ring(i == _color)),
+                  ),
+                ),
+              )
+          else
+            for (final (i, (name, family)) in _fonts.indexed)
+              choice(
+                i == _font,
+                () => setState(() => _font = i),
+                Container(
+                  alignment: Alignment.center,
+                  margin: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: kSpaceMd),
+                  decoration: ShapeDecoration(
+                    color: i == _font ? Colors.white24 : null,
+                    shape: StadiumBorder(
+                        side: BorderSide(
+                            color: Colors.white, width: i == _font ? 2 : 1)),
+                  ),
+                  child: Text(name,
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontFamily: family)),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
 
   Widget _textBody() => Center(
         child: SingleChildScrollView(
@@ -303,7 +379,7 @@ class _PostComposerScreenState extends State<PostComposerScreen> {
             style: TextStyle(
               color: Colors.white,
               fontSize: _textSize(_text.text.length),
-              fontFamily: _fonts[_font],
+              fontFamily: _fonts[_font].$2,
               height: 1.25,
             ),
             decoration: const InputDecoration(
