@@ -43,6 +43,60 @@ void main() {
     expect(await store.hasUnsentOps(), isFalse);
   });
 
+  test('a DM wears its member other than us, even when we are a contact; '
+      'our own notes chat wears us', () async {
+    final store = await ChatStore.open(
+        path: inMemoryDatabasePath, selfUserId: 'u-self');
+    addTearDown(store.close);
+    Future<void> dm(String id, List<String> members) async {
+      await store.insertChannel(
+          channelId: id, kind: 'one_to_one', ownerUserId: 'u-self',
+          createdAt: 1000);
+      for (final u in members) {
+        await store.insertChannelMember(
+            channelId: id, userId: u, role: 'member', joinedAt: 1000);
+      }
+      await _insertSentMessage(
+          store: store, channelId: id, messageId: 'm-$id', body: 'hi',
+          authorUserId: 'u-self', clientTimestampMs: 1100,
+          serverTimestampMs: 1);
+      await store.db.update(
+          'channels', {'last_activity_ms': 1100, 'last_message_id': 'm-$id'},
+          where: 'channel_id = ?', whereArgs: [id]);
+      await store.setStarred(['m-$id'], true, 1200);
+    }
+
+    // Both orders: SQLite's pick among equals must not decide it.
+    await dm('c-a', ['u-self', 'u-asha']);
+    await dm('c-b', ['u-asha', 'u-self']);
+    await dm('c-notes', ['u-self']);
+    await store.upsertContact(
+        userId: 'u-self', username: 'kiran', avatarUrl: 'me.jpg', nowMs: 1);
+    await store.upsertContact(
+        userId: 'u-asha', contactBookName: 'Asha', avatarUrl: 'asha.jpg',
+        nowMs: 1);
+
+    final byId = {for (final e in await store.fetchChannelList()) e.channelId: e};
+    for (final id in ['c-a', 'c-b']) {
+      expect(byId[id]!.title, 'Asha', reason: id);
+      expect(byId[id]!.avatarUrl, 'asha.jpg', reason: id);
+      expect((await store.fetchChannel(id))!.title, 'Asha');
+    }
+    expect(byId['c-notes']!.title, '@kiran');
+    expect(
+        {
+          for (final e in await store.fetchMemberChannels(userId: 'u-self'))
+            e.channelId: e.title
+        },
+        {'c-a': 'Asha', 'c-b': 'Asha', 'c-notes': '@kiran'});
+    expect(
+        {
+          for (final s in await store.fetchStarredMessages())
+            s.channel.channelId: s.channel.title
+        },
+        {'c-a': 'Asha', 'c-b': 'Asha', 'c-notes': '@kiran'});
+  });
+
   group('ChannelListEntry.title (AUTH_CONTRACT §2.4)', () {
     Future<ChatStore> dmWith({
       String? contactBookName,

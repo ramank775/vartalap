@@ -109,7 +109,19 @@ class ChatStore {
   /// watchers handle that by applying `.distinct()` where it matters.
   final _changes = StreamController<Set<String>>.broadcast();
 
-  ChatStore._(this.db);
+  ChatStore._(this.db, this.selfUserId);
+
+  /// The account this file belongs to. A DM's peer is its member other
+  /// than this one (decision 263).
+  final String? selfUserId;
+
+  /// A DM's peer: its member other than us, or us in our own notes chat.
+  /// NULL for a group. Binds [selfUserId]. A contact row of our own is
+  /// fine: people save themselves.
+  static const _dmPeer = '''(SELECT pm.user_id FROM channel_members pm
+         WHERE c.kind = 'one_to_one' AND pm.channel_id = c.channel_id
+           AND pm.removed_at IS NULL
+         ORDER BY pm.user_id = ? LIMIT 1)''';
 
   /// Emits the set of table names touched by the most recent write.
   /// Callers typically `stream.where((tables) => tables.contains('x'))`.
@@ -135,7 +147,10 @@ class ChatStore {
   /// is what a test asking for an in-memory store means. File paths keep
   /// the caching: the app opens each account's database once and re-opening
   /// it should return the same handle.
-  static Future<ChatStore> open({required String path}) async {
+  static Future<ChatStore> open({
+    required String path,
+    String? selfUserId,
+  }) async {
     sqfliteFfiInit();
     final factory = databaseFactoryFfi;
     final db = await factory.openDatabase(
@@ -218,7 +233,7 @@ class ChatStore {
       'channels',
       where: "kind = 'one_to_one' AND channel_id NOT LIKE 'd%'",
     );
-    return ChatStore._(db);
+    return ChatStore._(db, selfUserId);
   }
 
   Future<void> close() async {
@@ -1958,29 +1973,13 @@ class ChatStore {
       '''
       SELECT c.channel_id, c.kind, c.name,
              -- a DM has no photo of its own: it wears the peer's
-             CASE WHEN c.kind = 'one_to_one' THEN
-               (SELECT ct.avatar_url FROM channel_members pm
-                  JOIN contacts ct ON ct.user_id = pm.user_id
-                 WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 LIMIT 1)
+             CASE WHEN c.kind = 'one_to_one' THEN ct.avatar_url
              ELSE c.avatar_url END AS avatar_url,
              c.last_activity_ms, c.unread_count,
-             (SELECT ct.username FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_username,
-             (SELECT ct.display_name FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_display_name,
-             (SELECT ct.contact_book_name FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_contact_book_name,
-             (SELECT ct.user_id FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
+             ct.username AS peer_username,
+             ct.display_name AS peer_display_name,
+             ct.contact_book_name AS peer_contact_book_name,
+             ct.user_id AS peer_user_id,
              c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
              m.content_type AS last_message_content_type,
@@ -1991,13 +1990,14 @@ class ChatStore {
                      WHERE o.target_channel_id = c.channel_id
                        AND o.status = 'dead_letter') AS has_failed_op
       FROM channels c
+      LEFT JOIN contacts ct ON ct.user_id = $_dmPeer
       LEFT JOIN messages m ON m.message_id = c.last_message_id
       WHERE c.last_message_id IS NOT NULL
         AND c.tombstoned = 0 AND c.deleted_locally = 0
       ORDER BY c.pinned DESC, c.last_activity_ms DESC
       LIMIT ?
       ''',
-      [limit],
+      [selfUserId ?? '', limit],
     );
     return rows.map(_rowToChannelListEntry).toList();
   }
@@ -2412,29 +2412,13 @@ class ChatStore {
       '''
       SELECT c.channel_id, c.kind, c.name,
              -- a DM has no photo of its own: it wears the peer's
-             CASE WHEN c.kind = 'one_to_one' THEN
-               (SELECT ct.avatar_url FROM channel_members pm
-                  JOIN contacts ct ON ct.user_id = pm.user_id
-                 WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 LIMIT 1)
+             CASE WHEN c.kind = 'one_to_one' THEN ct.avatar_url
              ELSE c.avatar_url END AS avatar_url,
              c.last_activity_ms, c.unread_count,
-             (SELECT ct.username FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_username,
-             (SELECT ct.display_name FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_display_name,
-             (SELECT ct.contact_book_name FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_contact_book_name,
-             (SELECT ct.user_id FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
+             ct.username AS peer_username,
+             ct.display_name AS peer_display_name,
+             ct.contact_book_name AS peer_contact_book_name,
+             ct.user_id AS peer_user_id,
              c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
              m.content_type AS last_message_content_type,
@@ -2442,10 +2426,11 @@ class ChatStore {
              m.author_user_id AS last_message_author,
              m.tombstoned AS last_message_tombstoned
       FROM channels c
+      LEFT JOIN contacts ct ON ct.user_id = $_dmPeer
       LEFT JOIN messages m ON m.message_id = c.last_message_id
       WHERE c.channel_id = ?
       ''',
-      [channelId],
+      [selfUserId ?? '', channelId],
     );
     if (rows.isEmpty) return null;
     return _rowToChannelListEntry(rows.single);
@@ -2462,29 +2447,13 @@ class ChatStore {
       '''
       SELECT c.channel_id, c.kind, c.name,
              -- a DM has no photo of its own: it wears the peer's
-             CASE WHEN c.kind = 'one_to_one' THEN
-               (SELECT ct.avatar_url FROM channel_members pm
-                  JOIN contacts ct ON ct.user_id = pm.user_id
-                 WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 LIMIT 1)
+             CASE WHEN c.kind = 'one_to_one' THEN ct.avatar_url
              ELSE c.avatar_url END AS avatar_url,
              c.last_activity_ms, c.unread_count,
-             (SELECT ct.username FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_username,
-             (SELECT ct.display_name FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_display_name,
-             (SELECT ct.contact_book_name FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_contact_book_name,
-             (SELECT ct.user_id FROM channel_members pm
-                JOIN contacts ct ON ct.user_id = pm.user_id
-               WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-                 AND c.kind = 'one_to_one' LIMIT 1) AS peer_user_id,
+             ct.username AS peer_username,
+             ct.display_name AS peer_display_name,
+             ct.contact_book_name AS peer_contact_book_name,
+             ct.user_id AS peer_user_id,
              c.pinned, c.muted_until_ms,
              m.body AS last_message_preview,
              m.content_type AS last_message_content_type,
@@ -2494,11 +2463,12 @@ class ChatStore {
       FROM channels c
       JOIN channel_members cm ON cm.channel_id = c.channel_id
         AND cm.user_id = ? AND cm.removed_at IS NULL
+      LEFT JOIN contacts ct ON ct.user_id = $_dmPeer
       LEFT JOIN messages m ON m.message_id = c.last_message_id
       WHERE c.tombstoned = 0 ${kind != null ? "AND c.kind = ?" : ""}
       ORDER BY COALESCE(c.name, c.channel_id) COLLATE NOCASE
       ''',
-      kind != null ? [userId, kind] : [userId],
+      [userId, selfUserId ?? '', if (kind != null) kind],
     );
     return rows.map(_rowToChannelListEntry).toList();
   }
@@ -2964,14 +2934,10 @@ class ChatStore {
              ct.contact_book_name AS peer_contact_book_name
       FROM messages m
       JOIN channels c ON c.channel_id = m.channel_id
-      LEFT JOIN contacts ct ON c.kind = 'one_to_one' AND ct.user_id =
-        (SELECT pm.user_id FROM channel_members pm
-           JOIN contacts pc ON pc.user_id = pm.user_id
-          WHERE pm.channel_id = c.channel_id AND pm.removed_at IS NULL
-          LIMIT 1)
+      LEFT JOIN contacts ct ON ct.user_id = $_dmPeer
       WHERE m.starred_at IS NOT NULL AND m.tombstoned = 0
       ORDER BY m.starred_at DESC, $_newestFirst
-      ''');
+      ''', [selfUserId ?? '']);
     return [
       for (final r in rows)
         (message: _rowToMessage(r), channel: _rowToChannelListEntry(r)),

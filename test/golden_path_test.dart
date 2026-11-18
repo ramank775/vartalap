@@ -2189,7 +2189,7 @@ class _Harness {
     final uri = 'file:$path?vfs=memdb';
     _keepers[uri] ??= await databaseFactoryFfi.openDatabase(uri,
         options: OpenDatabaseOptions(singleInstance: false));
-    store = await ChatStore.open(path: uri);
+    store = await ChatStore.open(path: uri, selfUserId: userId);
     final records = this.records =
         await authService.openCryptoRecords(store.db, userId);
     await store.initSyncPointer(freshSyncPointer(authClient.signedInAt));

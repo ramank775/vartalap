@@ -189,7 +189,7 @@ class AppServices {
   final String dbDir;
 
   /// [ChatStore.open]; tests hand back in-memory stores.
-  final Future<ChatStore> Function(String path) openDb;
+  final Future<ChatStore> Function(String path, String userId) openDb;
 
   // The signed-in account's half of the graph: its own database
   // (AUTH_CONTRACT §8.4), the scheduler draining its outbound queue, the
@@ -239,14 +239,15 @@ class AppServices {
     this.openDb = _openDb,
   }) : opTransport = opTransport ?? wsTransport;
 
-  static Future<ChatStore> _openDb(String path) => ChatStore.open(path: path);
+  static Future<ChatStore> _openDb(String path, String userId) =>
+      ChatStore.open(path: path, selfUserId: userId);
 
   /// Open [userId]'s own database and start what reads and writes it.
   /// [AuthService.onLogin] at login, `initializeApp` for a restored session.
   Future<void> openAccount(String userId, {bool adoptGroups = true}) async {
     await closeAccount();
     cryptoLocked.value = null;
-    final store = await openDb(accountDbPath(dbDir, userId));
+    final store = await openDb(accountDbPath(dbDir, userId), userId);
     try {
       cryptoRecords = await authService.openCryptoRecords(store.db, userId);
     } catch (e) {
@@ -371,7 +372,7 @@ class AppServices {
   Future<void> resetCrypto() async {
     final userId = cryptoLocked.value;
     if (userId == null) return;
-    final store = await openDb(accountDbPath(dbDir, userId));
+    final store = await openDb(accountDbPath(dbDir, userId), userId);
     try {
       await authService.resetCryptoRecords(store.db, userId);
     } finally {

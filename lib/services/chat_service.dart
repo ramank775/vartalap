@@ -1576,8 +1576,13 @@ class ChatService with TimelineService, AlbumService {
       blocked: (json['blocked'] as List).cast<String>(),
       invites: invites,
     );
-    // An invite from someone this phone has never seen needs a name.
-    final known = {for (final c in await _store.fetchContacts()) c.userId};
+    // An invite from someone this phone has never seen needs a name. Our
+    // own sent invites are listed too: fetching ours added us as a
+    // contact nobody saved.
+    final known = {
+      _authClient.currentUserId,
+      for (final c in await _store.fetchContacts()) c.userId,
+    };
     for (final from in {for (final i in invites) i.fromUser}) {
       if (!known.contains(from)) await _fetchContact(from);
     }

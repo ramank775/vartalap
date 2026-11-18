@@ -94,13 +94,13 @@ void main() {
         consentAccepted: true,
         pushPromptSeen: true,
         dbDir: dir.path,
-        openDb: (path) async {
+        openDb: (path, userId) async {
           opened.add(path);
           File(path).createSync();
           final uri = 'file:$path?vfs=memdb';
           keepers[path] ??= await databaseFactoryFfi.openDatabase(uri,
               options: OpenDatabaseOptions(singleInstance: false));
-          return ChatStore.open(path: uri);
+          return ChatStore.open(path: uri, selfUserId: userId);
         },
       );
     });
