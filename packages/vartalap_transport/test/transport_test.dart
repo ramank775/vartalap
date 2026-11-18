@@ -743,6 +743,26 @@ void _appBuildTests() {
     expect(seen, [65536, 131072, 196608, 204800]);
   });
 
+  test('an expired key refused at the upgrade asks for a refresh, and the '
+      'reconnect uses the new key', () async {
+    final server = _WsEchoServer()..refuseWith = 401;
+    await server.start();
+    addTearDown(server.stop);
+    final auth = _FakeAuth('expired');
+    final transport = WsTransport(endpoint: server.uri, auth: auth);
+    addTearDown(transport.dispose);
+
+    final reauth = transport.reauthRequired.first;
+    await transport.start();
+    await reauth.timeout(const Duration(seconds: 3));
+    auth.currentAccesskey = 'fresh';
+    server.refuseWith = null;
+    await transport.state
+        .firstWhere((s) => s == TransportState.connected)
+        .timeout(const Duration(seconds: 5));
+    expect(server.attempts, 2);
+  });
+
   group('AppBuild (decision 192)', () {
     test('the socket sends the build and stops retrying once refused',
         () async {

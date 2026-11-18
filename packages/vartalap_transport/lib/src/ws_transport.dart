@@ -205,17 +205,25 @@ class WsTransport implements Transport {
       print('WsTransport: connect failed: $e');
       _setState(TransportState.disconnected);
       // Decision 192: this build is refused; retrying cannot change that.
-      if (_buildRefused(e)) {
+      if (_upgradeStatus(e) == 426) {
         appBuild?.observe(426, null);
         return;
+      }
+      // An expired key (30 days) is refused here, not with
+      // WS_REAUTH_REQUIRED: ask for a refresh like that frame does, or
+      // this retries the dead key forever and nothing arrives until a
+      // send fails. The reconnect picks up the new key.
+      if (_upgradeStatus(e) == 401 && !_reauthCtrl.isClosed) {
+        _reauthCtrl.add(null);
       }
       _scheduleReconnect();
     }
   }
 
-  static bool _buildRefused(Object e) {
+  /// The HTTP status a refused upgrade answered with, if any.
+  static int? _upgradeStatus(Object e) {
     final cause = e is WebSocketChannelException ? e.inner : e;
-    return cause is WebSocketException && cause.httpStatusCode == 426;
+    return cause is WebSocketException ? cause.httpStatusCode : null;
   }
 
   Future<void> _closeChannel() async {
