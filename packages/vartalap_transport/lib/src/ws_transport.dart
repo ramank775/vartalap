@@ -79,7 +79,22 @@ class WsTransport implements Transport {
     required this.auth,
     this.appBuild,
     Random? random,
+    this.ackSilence = const Duration(seconds: 10),
   }) : _rng = random ?? Random();
+
+  /// How long a sent op may go unacked before the socket is taken for
+  /// dead. A live server acks in well under a second. A socket the
+  /// network dropped (WiFi to mobile, a handover) can still take our
+  /// writes, and even keep delivering to us, while nothing we send
+  /// arrives; the 30 s ping notices only after 30 to 60 s, and the
+  /// scheduler's ack timeout after 30 to 40. That was the slow ✓✓: the
+  /// peer's delivery receipt sat on such a socket.
+  final Duration ackSilence;
+
+  /// Ops sent on this socket the server has not acked yet, and the
+  /// timer that gives up on it ([ackSilence]).
+  final Set<String> _unacked = {};
+  Timer? _ackWatch;
 
   /// Sent on the upgrade; told when the server refuses this build.
   final AppBuild? appBuild;
@@ -131,6 +146,7 @@ class WsTransport implements Transport {
     _buffering = false;
     _pushBuffer.clear();
     _ackBuffer.clear();
+    _handBackUnacked();
     _setState(TransportState.disconnected);
   }
 
@@ -140,6 +156,7 @@ class WsTransport implements Transport {
     _disposed = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _ackWatch?.cancel();
     await _closeChannel();
     await _ackCtrl.close();
     await _stateCtrl.close();
@@ -256,7 +273,31 @@ class WsTransport implements Transport {
     _buffering = false;
     _pushBuffer.clear();
     _ackBuffer.clear();
+    _handBackUnacked();
     if (!_disposed) _scheduleReconnect();
+  }
+
+  /// The acks for what we sent would have come on the socket that is
+  /// gone: the scheduler sends those ops again as soon as one is up.
+  /// The server drops an op_id it already has and acks it again.
+  void _handBackUnacked() {
+    _ackWatch?.cancel();
+    _ackWatch = null;
+    for (final id in _unacked) {
+      _emitAck(AckFrame(
+          opId: id,
+          outcome: const AckTransientReject(
+              serverRetryAfter: Duration.zero, reason: 'connection_lost')));
+    }
+    _unacked.clear();
+  }
+
+  void _onAckSilence() {
+    _ackWatch = null;
+    // ignore: avoid_print
+    print('WsTransport: no ack in ${ackSilence.inSeconds} s, reconnecting');
+    _closeChannel();
+    _onDisconnected();
   }
 
   void _scheduleReconnect() {
@@ -317,6 +358,8 @@ class WsTransport implements Transport {
       // Transport contract (SPIKE_B §7).
       throw StateError('WsTransport.send: sink rejected frame: $e');
     }
+    _unacked.addAll([for (final op in frame.ops) op.opId]);
+    _ackWatch ??= Timer(ackSilence, _onAckSilence);
   }
 
   /// Fire-and-forget ephemeral envelope (typing, presence). Bypasses the
@@ -412,8 +455,12 @@ class WsTransport implements Transport {
 
   void _handleAckBatch(pb.AckBatch batch) {
     for (final frame in ackFrames(batch)) {
+      _unacked.remove(frame.opId);
       _emitAck(frame);
     }
+    // The server answers: whatever is still out gets a fresh wait.
+    _ackWatch?.cancel();
+    _ackWatch = _unacked.isEmpty ? null : Timer(ackSilence, _onAckSilence);
   }
 
   void _emitPush(InboundEnvelope env) {

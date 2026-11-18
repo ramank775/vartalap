@@ -202,6 +202,62 @@ void main() {
       );
     });
 
+    test('an op the socket swallows (no ack within ackSilence) drops the '
+        'socket: the op comes back connection_lost and a new one opens',
+        () async {
+      // The first socket takes the op and never answers, like one the
+      // network dropped without a close.
+      server.respondWith = (env) => null;
+      final transport = WsTransport(
+        endpoint: server.uri,
+        auth: _FakeAuth('acc-1'),
+        ackSilence: const Duration(milliseconds: 300),
+      );
+      addTearDown(transport.dispose);
+      await transport.start();
+      await _waitForState(transport, TransportState.connected);
+      transport.endSyncBuffer();
+
+      final handedBack = transport.acks.first;
+      final sentAt = DateTime.now();
+      await transport.send(OutboundFrame(
+        kind: 'chat_payload',
+        resourceId: _group,
+        ops: [FramedOp(opId: _opId(1), payload: const [1])],
+      ));
+      final ack = await handedBack.timeout(const Duration(seconds: 3));
+      expect(ack.opId, _opId(1));
+      expect(ack.outcome, isA<AckTransientReject>());
+      final reject = ack.outcome as AckTransientReject;
+      expect(reject.reason, 'connection_lost');
+      expect(reject.serverRetryAfter, Duration.zero);
+      expect(DateTime.now().difference(sentAt),
+          lessThan(const Duration(seconds: 2)));
+
+      // The next socket answers.
+      server.respondWith = (env) => pb.Ack(
+          opId: env.opId,
+          outcome: pb.AckOutcome.ACK_SUCCESS,
+          serverTimestampMs: fixnum.Int64(1));
+      await transport.state
+          .firstWhere((s) => s == TransportState.connected)
+          .timeout(const Duration(seconds: 5));
+      expect(server.upgrades, 2);
+      transport.endSyncBuffer();
+      final acked = transport.acks.first;
+      await transport.send(OutboundFrame(
+        kind: 'chat_payload',
+        resourceId: _group,
+        ops: [FramedOp(opId: _opId(1), payload: const [1])],
+      ));
+      expect((await acked.timeout(const Duration(seconds: 3))).outcome,
+          isA<AckSuccess>());
+      // Acked: the watch is off, the socket stays.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(server.upgrades, 2);
+      expect(transport.currentState, TransportState.connected);
+    });
+
     test('WS_PUSH lands on pushes stream, not acks', () async {
       server.respondWith = (env) => null; // don't ACK this op
       final transport = WsTransport(
